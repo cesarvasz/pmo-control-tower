@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
+import { useGroups } from "@/context/GroupsContext";
 import { authedFetch } from "@/lib/api";
 import type { AppUser, Role } from "@/lib/permissions";
-import { ACTIONS, PAGES } from "@/lib/registry";
+import { ACTIONS, PAGES, resolvePermissions } from "@/lib/registry";
 import { ErrorBox, Loader, SectionHeader } from "@/components/ui";
 
 export default function UsuariosPage() {
   const { me } = useMe();
+  const { groups } = useGroups();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,8 +99,9 @@ export default function UsuariosPage() {
               const isSelf = me?.uid === u.uid;
               const isDirty = dirty.has(u.uid);
               const role = u.roleId ? rolesById.get(u.roleId) : undefined;
-              const grantedPages = role ? PAGES.filter((p) => role.permissions.pages[p.key]).map((p) => p.label) : [];
-              const grantedActions = role ? ACTIONS.filter((a) => role.permissions.actions[a.key]).map((a) => a.label) : [];
+              const eff = role ? resolvePermissions(role.permissions, groups) : null;
+              const grantedPages = eff ? PAGES.filter((p) => eff.pages[p.key]).map((p) => p.label) : [];
+              const grantedActions = eff ? ACTIONS.filter((a) => eff.actions[a.key]).map((a) => a.label) : [];
               return (
                 <tr key={u.uid}>
                   <td>

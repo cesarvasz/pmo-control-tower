@@ -3,9 +3,10 @@
 // referencia un roleId; los permisos efectivos se resuelven desde el rol.
 
 import { getAdminDb, verifyRequest, type VerifiedUser } from "@/lib/firebase-admin";
-import { emptyPermissions, type AppUser } from "@/lib/permissions";
-import { BOOTSTRAP_ADMIN_ROLE_ID, DEFAULT_NEW_USER_ROLE_ID } from "@/lib/registry";
+import { emptyPermissions, type AppUser, type Group } from "@/lib/permissions";
+import { BOOTSTRAP_ADMIN_ROLE_ID, DEFAULT_NEW_USER_ROLE_ID, resolvePermissions } from "@/lib/registry";
 import { ensureDefaultRoles, getRole, listRoles } from "@/lib/roles";
+import { ensureDefaultGroups, listGroups } from "@/lib/groups";
 
 const COLL = "users";
 
@@ -34,7 +35,7 @@ function dataToRecord(uid: string, d: FirebaseFirestore.DocumentData): UserRecor
  * base (bootstrap); el resto entra con el rol "viewer".
  */
 export async function ensureUser(v: VerifiedUser): Promise<UserRecord> {
-  await ensureDefaultRoles();
+  await Promise.all([ensureDefaultRoles(), ensureDefaultGroups()]);
   const db = getAdminDb();
   const ref = db.collection(COLL).doc(v.uid);
   const snap = await ref.get();
@@ -60,43 +61,46 @@ export async function ensureUser(v: VerifiedUser): Promise<UserRecord> {
   return dataToRecord(v.uid, newDoc);
 }
 
-async function recordToAppUser(rec: UserRecord, roleName?: string, perms?: AppUser["permissions"]): Promise<AppUser> {
-  let name = roleName;
-  let permissions = perms;
-  if (name === undefined || permissions === undefined) {
-    const role = rec.roleId ? await getRole(rec.roleId) : null;
-    name = role?.name ?? "(sin rol)";
-    permissions = role?.permissions ?? emptyPermissions();
-  }
+function recordToAppUserSync(
+  rec: UserRecord,
+  groups: Group[],
+  roleName: string,
+  permissions: AppUser["permissions"]
+): AppUser {
   return {
     uid: rec.uid,
     email: rec.email,
     displayName: rec.displayName,
     roleId: rec.roleId,
-    roleName: name,
-    permissions,
+    roleName,
+    // Permisos EFECTIVOS: los grupos concedidos se aplanan a sus páginas.
+    permissions: resolvePermissions(permissions, groups),
     createdAt: rec.createdAt,
     updatedAt: rec.updatedAt,
   };
 }
 
+async function recordToAppUser(rec: UserRecord, groups: Group[]): Promise<AppUser> {
+  const role = rec.roleId ? await getRole(rec.roleId) : null;
+  return recordToAppUserSync(rec, groups, role?.name ?? "(sin rol)", role?.permissions ?? emptyPermissions());
+}
+
 /** Perfil del usuario actual con permisos efectivos resueltos desde su rol. */
 export async function getMe(v: VerifiedUser): Promise<AppUser> {
-  return recordToAppUser(await ensureUser(v));
+  const groups = await listGroups();
+  return recordToAppUser(await ensureUser(v), groups);
 }
 
 export async function listUsers(): Promise<AppUser[]> {
   const db = getAdminDb();
-  const roles = await listRoles();
+  const [roles, groups] = await Promise.all([listRoles(), listGroups()]);
   const map = new Map(roles.map((r) => [r.id, r]));
   const snap = await db.collection(COLL).get();
-  const users = await Promise.all(
-    snap.docs.map((d) => {
-      const rec = dataToRecord(d.id, d.data());
-      const role = rec.roleId ? map.get(rec.roleId) : null;
-      return recordToAppUser(rec, role?.name ?? "(sin rol)", role?.permissions ?? emptyPermissions());
-    })
-  );
+  const users = snap.docs.map((d) => {
+    const rec = dataToRecord(d.id, d.data());
+    const role = rec.roleId ? map.get(rec.roleId) : null;
+    return recordToAppUserSync(rec, groups, role?.name ?? "(sin rol)", role?.permissions ?? emptyPermissions());
+  });
   return users.sort((a, b) => a.email.localeCompare(b.email));
 }
 
@@ -108,7 +112,8 @@ export async function assignRole(uid: string, roleId: string): Promise<AppUser> 
   if (!(await ref.get()).exists) throw new Error("user-not-found");
   await ref.set({ roleId, updatedAt: new Date().toISOString() }, { merge: true });
   const rec = dataToRecord(uid, (await ref.get()).data()!);
-  return recordToAppUser(rec, role.name, role.permissions);
+  const groups = await listGroups();
+  return recordToAppUserSync(rec, groups, role.name, role.permissions);
 }
 
 /** Verifica token + exige una acción concreta. Devuelve el solicitante. */

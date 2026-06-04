@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useGroups } from "@/context/GroupsContext";
 import { authedFetch } from "@/lib/api";
 import type { Permissions, Role } from "@/lib/permissions";
-import { ACTIONS, PAGES, withCatalog } from "@/lib/registry";
+import { ACTIONS, PAGES, resolvePermissions, withCatalog } from "@/lib/registry";
 import Modal from "@/components/Modal";
 import { ErrorBox, Loader, SectionHeader } from "@/components/ui";
 
@@ -17,11 +18,12 @@ interface Draft {
 const emptyDraft = (): Draft => ({
   id: null,
   name: "",
-  permissions: withCatalog({ pages: {}, actions: {} }),
+  permissions: withCatalog({ pages: {}, actions: {}, groups: {} }),
   isSystem: false,
 });
 
 export default function RolesPage() {
+  const { groups } = useGroups();
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +59,14 @@ export default function RolesPage() {
     setDraft((d) => (d ? { ...d, permissions: { ...d.permissions, pages: { ...d.permissions.pages, [key]: val } } } : d));
   const toggleAction = (key: string, val: boolean) =>
     setDraft((d) => (d ? { ...d, permissions: { ...d.permissions, actions: { ...d.permissions.actions, [key]: val } } } : d));
+  const toggleGroup = (key: string, val: boolean) =>
+    setDraft((d) => (d ? { ...d, permissions: { ...d.permissions, groups: { ...d.permissions.groups, [key]: val } } } : d));
+
+  // Páginas que NO pertenecen a ningún grupo (se listan sueltas). Las acciones
+  // siempre van en su propia sección (no se agrupan).
+  const groupedKeys = useMemo(() => new Set(groups.flatMap((g) => g.pageKeys)), [groups]);
+  // Solo páginas de contenido (sin requiredAction): las de acción ya están en "Puede hacer".
+  const loosePages = PAGES.filter((p) => !p.requiredAction && !groupedKeys.has(p.key));
 
   const saveDraft = async () => {
     if (!draft) return;
@@ -113,8 +123,10 @@ export default function RolesPage() {
 
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
         {roles.map((r) => {
-          const pages = PAGES.filter((p) => r.permissions.pages[p.key]);
-          const acts = ACTIONS.filter((a) => r.permissions.actions[a.key]);
+          const eff = resolvePermissions(r.permissions, groups);
+          const pages = PAGES.filter((p) => eff.pages[p.key]);
+          const acts = ACTIONS.filter((a) => eff.actions[a.key]);
+          const grantedGroups = groups.filter((g) => r.permissions.groups?.[g.id]);
           return (
             <div key={r.id} className="flex flex-col gap-3 rounded-xl border p-4" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
               <div className="flex items-start justify-between">
@@ -129,6 +141,15 @@ export default function RolesPage() {
                   )}
                 </div>
               </div>
+              {grantedGroups.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {grantedGroups.map((g) => (
+                    <span key={g.id} className="rounded-md border px-2 py-0.5 text-[0.68rem] font-medium" style={{ background: "var(--bg-accent-soft)", borderColor: "var(--accent-dim)", color: "var(--accent-light)" }}>
+                      {g.icon} {g.name}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div>
                 <div className="mb-1 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Puede ver</div>
                 <div className="text-[0.8rem] text-[var(--text-secondary)]">{pages.length ? pages.map((p) => p.label).join(", ") : <span className="text-[var(--text-disabled)]">—</span>}</div>
@@ -162,29 +183,68 @@ export default function RolesPage() {
                 />
               </label>
 
-              <div>
-                <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Puede ver (páginas)</div>
-                <div className="flex flex-col gap-2">
-                  {PAGES.map((p) => (
-                    <label key={p.key} className="flex cursor-pointer items-center gap-2.5 text-sm text-[var(--text-primary)]">
-                      <input type="checkbox" checked={!!draft.permissions.pages[p.key]} onChange={(e) => togglePage(p.key, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
-                      <span>{p.icon} {p.label}</span>
-                    </label>
-                  ))}
+              {/* Grupos dinámicos: la casilla maestra concede el grupo completo (incl. páginas futuras). */}
+              {groups.length > 0 && (
+                <div>
+                  <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Grupos</div>
+                  <div className="flex flex-col gap-3">
+                    {groups.map((g) => {
+                      // Solo páginas de contenido en la lista de checkboxes individuales.
+                      const gPages = PAGES.filter((p) => g.pageKeys.includes(p.key) && !p.requiredAction);
+                      const gOn = !!draft.permissions.groups[g.id];
+                      return (
+                        <div key={g.id} className="rounded-lg border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}>
+                          <label className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-[var(--text-primary)]">
+                            <input type="checkbox" checked={gOn} onChange={(e) => toggleGroup(g.id, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+                            <span>{g.icon} {g.name}</span>
+                            <span className="text-[0.68rem] font-normal text-[var(--text-muted)]">· grupo completo</span>
+                          </label>
+                          {gPages.length > 0 ? (
+                            <div className="mt-2.5 flex flex-col gap-2 pl-7">
+                              {gPages.map((p) => (
+                                <label key={p.key} className={`flex items-center gap-2.5 text-sm ${gOn ? "text-[var(--text-muted)]" : "cursor-pointer text-[var(--text-primary)]"}`}>
+                                  <input type="checkbox" disabled={gOn} checked={gOn || !!draft.permissions.pages[p.key]} onChange={(e) => togglePage(p.key, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+                                  <span>{p.icon} {p.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-1.5 pl-7 text-[0.72rem] text-[var(--text-disabled)]">Sin páginas asignadas</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div>
-                <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Puede hacer (acciones)</div>
-                <div className="flex flex-col gap-2">
-                  {ACTIONS.map((a) => (
-                    <label key={a.key} className="flex cursor-pointer items-start gap-2.5 text-sm text-[var(--text-primary)]">
-                      <input type="checkbox" checked={!!draft.permissions.actions[a.key]} onChange={(e) => toggleAction(a.key, e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--accent)]" />
-                      <span>{a.label}<span className="block text-[0.72rem] text-[var(--text-muted)]">{a.description}</span></span>
-                    </label>
-                  ))}
+              {loosePages.length > 0 && (
+                <div>
+                  <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{groups.length > 0 ? "Otras páginas" : "Puede ver (páginas)"}</div>
+                  <div className="flex flex-col gap-2">
+                    {loosePages.map((p) => (
+                      <label key={p.key} className="flex cursor-pointer items-center gap-2.5 text-sm text-[var(--text-primary)]">
+                        <input type="checkbox" checked={!!draft.permissions.pages[p.key]} onChange={(e) => togglePage(p.key, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+                        <span>{p.icon} {p.label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {ACTIONS.length > 0 && (
+                <div>
+                  <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Puede hacer (acciones)</div>
+                  <div className="flex flex-col gap-2">
+                    {ACTIONS.map((a) => (
+                      <label key={a.key} className="flex cursor-pointer items-start gap-2.5 text-sm text-[var(--text-primary)]">
+                        <input type="checkbox" checked={!!draft.permissions.actions[a.key]} onChange={(e) => toggleAction(a.key, e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--accent)]" />
+                        <span>{a.label}<span className="block text-[0.72rem] text-[var(--text-muted)]">{a.description}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {formError && (
                 <div className="rounded-lg border px-3 py-2 text-xs" style={{ background: "var(--pill-atrasado-bg)", borderColor: "var(--pill-atrasado-br)", color: "var(--pill-atrasado-fg)" }}>{formError}</div>

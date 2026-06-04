@@ -16,6 +16,10 @@ export function apiError(err: unknown): NextResponse {
       return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
     case "role-not-found":
       return NextResponse.json({ error: "Rol no encontrado" }, { status: 404 });
+    case "group-not-found":
+      return NextResponse.json({ error: "Grupo no encontrado" }, { status: 404 });
+    case "group-is-system":
+      return NextResponse.json({ error: "No se puede eliminar un grupo del sistema" }, { status: 400 });
     case "role-is-system":
       return NextResponse.json({ error: "No se puede eliminar un rol del sistema" }, { status: 400 });
     case "role-in-use":

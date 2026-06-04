@@ -4,7 +4,9 @@
 import { NextResponse } from "next/server";
 import { deleteRole, updateRole } from "@/lib/roles";
 import { requireAction } from "@/lib/users";
+import { listGroups } from "@/lib/groups";
 import { normalizePermissions } from "@/lib/permissions";
+import { resolvePermissions } from "@/lib/registry";
 import { apiError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +22,9 @@ export async function PATCH(
     const permissions = body.permissions ? normalizePermissions(body.permissions as never) : undefined;
 
     // Evita que un admin se quite a sí mismo manage_roles editando su propio rol.
-    if (me.roleId === roleId && permissions && !permissions.actions["manage_roles"]) {
+    // Se evalúa sobre permisos EFECTIVOS (un grupo concedido también otorga páginas).
+    const groups = permissions ? await listGroups() : [];
+    if (me.roleId === roleId && permissions && !resolvePermissions(permissions, groups).actions["manage_roles"]) {
       return NextResponse.json(
         { error: "No puedes quitar 'gestionar roles' de tu propio rol (quedarías bloqueado)." },
         { status: 400 }

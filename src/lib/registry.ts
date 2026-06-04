@@ -2,18 +2,25 @@
 // CATÁLOGO CENTRAL de páginas y acciones gobernadas por permisos.
 //
 // ▸ Para AGREGAR UNA PÁGINA nueva: añade una entrada a PAGES (key/label/href/icon).
-//   Aparecerá automáticamente en el editor de roles, el sidebar y el gating.
+//   Si necesita una ACCIÓN en vez de permiso de página, agrega requiredAction.
+//   La página aparecerá en el editor de grupos y en el gating automáticamente.
 // ▸ Para AGREGAR UNA ACCIÓN nueva: añade una entrada a ACTIONS.
 //
-// Módulo PURO (cliente + servidor).
+// Los GRUPOS son DINÁMICOS (Firestore). La resolución/armado del menú recibe la
+// lista de grupos como parámetro (módulo PURO cliente+servidor).
 
-import type { Permissions, Role } from "@/lib/permissions";
+import type { Group, Permissions, Role } from "@/lib/permissions";
 
 export interface PageDef {
   key: string;
   label: string;
   href: string;
   icon: string;
+  /**
+   * Si está presente, el acceso a esta página se verifica con esta ACCIÓN
+   * (en vez del permiso de página). Útil para páginas de administración.
+   */
+  requiredAction?: string;
 }
 
 export interface ActionDef {
@@ -22,56 +29,128 @@ export interface ActionDef {
   description: string;
 }
 
-// ── Páginas (lo que un rol puede VER) ──────────────────────────────────
+// ── Páginas (contenido + administración) ──────────────────────────────
+// Las páginas con requiredAction se muestran en el sidebar cuando el usuario
+// tiene esa acción, y pueden asignarse libremente a cualquier grupo.
 export const PAGES: PageDef[] = [
-  { key: "overview", label: "Control Tower", href: "/", icon: "◎" },
-  { key: "iniciativas", label: "Iniciativas", href: "/iniciativas", icon: "◐" },
-  { key: "req", label: "REQ", href: "/req", icon: "◇" },
-  { key: "proyectos", label: "Proyectos", href: "/proyectos", icon: "▤" },
+  { key: "overview",    label: "Control Tower", href: "/",         icon: "◎" },
+  { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
+  { key: "req",         label: "REQ",           href: "/req",      icon: "◇" },
+  { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
+  { key: "usuarios",    label: "Usuarios",      href: "/usuarios", icon: "⚙", requiredAction: "manage_users" },
+  { key: "roles",       label: "Roles",         href: "/roles",    icon: "🛡", requiredAction: "manage_roles" },
+  { key: "grupos",      label: "Grupos",        href: "/grupos",   icon: "🗂", requiredAction: "manage_roles" },
 ];
 
 // ── Acciones (lo que un rol puede HACER) ───────────────────────────────
 export const ACTIONS: ActionDef[] = [
   { key: "manage_users", label: "Gestionar usuarios", description: "Ver usuarios y asignarles roles." },
-  { key: "manage_roles", label: "Gestionar roles", description: "Crear, editar y eliminar roles y sus permisos." },
+  { key: "manage_roles", label: "Gestionar roles",    description: "Crear, editar y eliminar roles, grupos y sus permisos." },
 ];
 
-/** Mapea una ruta a su clave de página (para el gating). */
-export function pathToPageKey(pathname: string): string | null {
-  return PAGES.find((p) => p.href === pathname)?.key ?? null;
+// Páginas "puras" (sin requiredAction) — las únicas que van en el mapa de
+// permisos de un rol (las de acción se controlan solo via actions).
+const CONTENT_PAGES = PAGES.filter((p) => !p.requiredAction);
+
+/** Mapea una ruta a su PageDef completa (para el gating). */
+export function pageByHref(pathname: string): PageDef | undefined {
+  return PAGES.find((p) => p.href === pathname);
 }
 
-// ── Helpers para construir permisos completos desde el catálogo ────────
-function allPages(value: boolean): Record<string, boolean> {
-  return Object.fromEntries(PAGES.map((p) => [p.key, value]));
+/** Mapea una clave a su PageDef (para buildNav). */
+export function pageByKey(key: string): PageDef | undefined {
+  return PAGES.find((p) => p.key === key);
+}
+
+/** Mapea una ruta a su clave de página de contenido (sin requiredAction). */
+export function pathToPageKey(pathname: string): string | null {
+  return CONTENT_PAGES.find((p) => p.href === pathname)?.key ?? null;
+}
+
+// ── Resolución: aplana los grupos concedidos a sus páginas ─────────────
+export function resolvePermissions(stored: Permissions, groups: Group[]): Permissions {
+  const pages = { ...stored.pages };
+  for (const g of groups) {
+    if (!stored.groups?.[g.id]) continue;
+    for (const k of g.pageKeys) pages[k] = true;
+  }
+  return { pages, actions: { ...stored.actions }, groups: { ...stored.groups } };
+}
+
+// ── Construcción del menú lateral ─────────────────────────────────────
+export interface NavLeaf { href: string; label: string; icon: string; }
+export type NavNode =
+  | { type: "item";  item: NavLeaf }
+  | { type: "group"; key: string; label: string; icon: string; items: NavLeaf[] };
+
+/**
+ * Árbol de navegación filtrado por permisos. Las páginas de contenido se
+ * muestran según perms.pages; las de acción según perms.actions.
+ * Primero van las páginas sueltas, luego los grupos.
+ */
+export function buildNav(perms: Permissions | undefined, groups: Group[]): NavNode[] {
+  const canSee = (p: PageDef) =>
+    p.requiredAction
+      ? !!perms?.actions?.[p.requiredAction]
+      : !!perms?.pages?.[p.key];
+
+  const nodes: NavNode[] = [];
+  const grouped = new Set(groups.flatMap((g) => g.pageKeys));
+
+  // Páginas sueltas primero.
+  for (const p of PAGES) {
+    if (!grouped.has(p.key) && canSee(p)) {
+      nodes.push({ type: "item", item: { href: p.href, label: p.label, icon: p.icon } });
+    }
+  }
+
+  // Grupos después.
+  for (const g of groups) {
+    const items: NavLeaf[] = [];
+    for (const key of g.pageKeys) {
+      const p = pageByKey(key);
+      if (p && canSee(p)) items.push({ href: p.href, label: p.label, icon: p.icon });
+    }
+    if (items.length) nodes.push({ type: "group", key: g.id, label: g.name, icon: g.icon, items });
+  }
+
+  return nodes;
+}
+
+// ── Helpers para construir permisos ───────────────────────────────────
+function allContentPages(value: boolean): Record<string, boolean> {
+  return Object.fromEntries(CONTENT_PAGES.map((p) => [p.key, value]));
 }
 function allActions(value: boolean): Record<string, boolean> {
   return Object.fromEntries(ACTIONS.map((a) => [a.key, value]));
 }
 
-/** Rellena un permiso parcial con TODAS las claves del catálogo (las faltantes en false). */
+/** Rellena un permiso parcial con TODAS las páginas de contenido y acciones
+ *  del catálogo (las faltantes en false). Los grupos se conservan tal cual. */
 export function withCatalog(p: Permissions): Permissions {
   return {
-    pages: { ...allPages(false), ...p.pages },
-    actions: { ...allActions(false), ...p.actions },
+    pages:   { ...allContentPages(false), ...p.pages },
+    actions: { ...allActions(false),      ...p.actions },
+    groups:  { ...p.groups },
   };
 }
 
-// ── Roles base sembrados al inicializar (el primer usuario recibe "admin") ──
+// ── Roles base sembrados al inicializar ──────────────────────────────
 export const DEFAULT_ROLES: Role[] = [
   {
     id: "admin",
     name: "Administrador",
     isSystem: true,
-    permissions: { pages: allPages(true), actions: allActions(true) },
+    permissions: { pages: allContentPages(true), actions: allActions(true), groups: {} },
   },
   {
     id: "viewer",
     name: "Lector",
     isSystem: true,
-    permissions: { pages: { overview: true }, actions: {} },
+    permissions: { pages: { overview: true }, actions: {}, groups: {} },
   },
 ];
 
-export const BOOTSTRAP_ADMIN_ROLE_ID = "admin";
+export const BOOTSTRAP_ADMIN_ROLE_ID  = "admin";
 export const DEFAULT_NEW_USER_ROLE_ID = "viewer";
+export const BOOTSTRAP_ADMIN_GROUP_ID = "administracion";

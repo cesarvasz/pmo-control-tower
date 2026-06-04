@@ -60,6 +60,36 @@
   --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #6b7280; --pill-skip-br:     #d1d5db;
 }
 
+/* ── TEMA C807 (VALOR) — paleta verde institucional ─────────────────── */
+[data-theme="c807"] {
+  --bg-base: #f4f6f9;
+  --bg-surface: #ffffff;
+  --bg-sidebar: #f8fafb;
+  --bg-hover: #eaf3ec;
+  --bg-accent-soft: #eafaf1;
+  --border: #dce1e7;
+  --border-subtle: #cdd6dc;
+  --text-primary: #2c3e50;
+  --text-secondary: #4b5563;
+  --text-muted: #7f8c8d;
+  --text-disabled: #95a5a6;
+  --accent: #1b7a35;
+  --accent-hover: #0d4a1e;
+  --accent-dim: #a9dfbf;
+  --accent-light: #1b7a35;
+  --code-bg: #f1f5f9;
+  --code-border: #dce1e7;
+  --table-head-bg: #f8fafb;
+  --card-value-total: #2c3e50;
+  --shadow: rgba(0, 0, 0, 0.08);
+
+  --pill-atrasado-bg: #fef0ef; --pill-atrasado-fg: #c0392b; --pill-atrasado-br: #f5b7b1;
+  --pill-parahoy-bg:  #fff8f0; --pill-parahoy-fg:  #ca6f1e; --pill-parahoy-br:  #ffe0b2;
+  --pill-entiempo-bg: #eafaf1; --pill-entiempo-fg: #1e8449; --pill-entiempo-br: #a9dfbf;
+  --pill-aprobada-bg: #e8f5ec; --pill-aprobada-fg: #0d4a1e; --pill-aprobada-br: #7cb342;
+  --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #7f8c8d; --pill-skip-br:     #dce1e7;
+}
+
 html,
 body {
   height: 100%;

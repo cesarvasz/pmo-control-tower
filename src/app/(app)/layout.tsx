@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useMe } from "@/context/PermissionsContext";
 import { hasAction, hasPage } from "@/lib/permissions";
-import { pathToPageKey } from "@/lib/registry";
+import { pageByHref } from "@/lib/registry";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 
@@ -22,6 +22,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { me, loading: meLoading, error: meError } = useMe();
   const router = useRouter();
   const pathname = usePathname();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Protege todas las rutas del grupo (app): sin sesión → /login.
   useEffect(() => {
@@ -53,21 +54,24 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  // Gating por permiso de página.
+  // Gating por permiso de página (o acción para páginas de administración).
   const allowed = (() => {
     if (!me) return false;
-    if (pathname === "/usuarios") return hasAction(me.permissions, "manage_users");
-    if (pathname === "/roles") return hasAction(me.permissions, "manage_roles");
-    const key = pathToPageKey(pathname);
-    return key ? hasPage(me.permissions, key) : true; // rutas no gobernadas → permitidas
+    const page = pageByHref(pathname);
+    if (!page) return true; // rutas no registradas → permitidas
+    if (page.requiredAction) return hasAction(me.permissions, page.requiredAction);
+    return hasPage(me.permissions, page.key);
   })();
 
   return (
     <div className="flex">
-      <Sidebar />
-      <div className="flex h-screen flex-1 flex-col overflow-y-auto">
-        <Topbar />
-        <main className="px-8 py-7">
+      <Sidebar
+        mobileOpen={mobileSidebarOpen}
+        onClose={() => setMobileSidebarOpen(false)}
+      />
+      <div className="flex h-screen min-w-0 flex-1 flex-col overflow-y-auto">
+        <Topbar onMenuClick={() => setMobileSidebarOpen(true)} />
+        <main className="px-4 py-4 md:px-8 md:py-7">
           {allowed ? (
             children
           ) : (

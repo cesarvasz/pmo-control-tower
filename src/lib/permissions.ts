@@ -6,6 +6,9 @@
 export interface Permissions {
   pages: Record<string, boolean>;
   actions: Record<string, boolean>;
+  /** Grupos concedidos por completo. Se "aplanan" a sus páginas/acciones
+   *  (incl. las que se agreguen al grupo en el futuro) al resolver permisos. */
+  groups: Record<string, boolean>;
 }
 
 export interface Role {
@@ -13,6 +16,18 @@ export interface Role {
   name: string;
   permissions: Permissions;
   isSystem?: boolean; // roles base sembrados: no se pueden borrar
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Grupo de páginas creado dinámicamente (Firestore). Organiza el sidebar y
+ *  puede concederse completo a un rol (otorga todas sus páginas, incl. futuras). */
+export interface Group {
+  id: string;
+  name: string;
+  icon: string;
+  pageKeys: string[]; // claves de PAGES asignadas al grupo
+  isSystem?: boolean; // grupos sembrados: no se pueden eliminar (sí editar)
   createdAt?: string;
   updatedAt?: string;
 }
@@ -29,7 +44,7 @@ export interface AppUser {
 }
 
 export function emptyPermissions(): Permissions {
-  return { pages: {}, actions: {} };
+  return { pages: {}, actions: {}, groups: {} };
 }
 
 export function hasPage(p: Permissions | undefined, key: string): boolean {
@@ -40,10 +55,11 @@ export function hasAction(p: Permissions | undefined, key: string): boolean {
   return !!p?.actions?.[key];
 }
 
-/** Normaliza un objeto de permisos arbitrario a la forma {pages,actions}. */
+/** Normaliza un objeto de permisos arbitrario a la forma {pages,actions,groups}. */
 export function normalizePermissions(p: Partial<Permissions> | undefined): Permissions {
   return {
     pages: { ...(p?.pages ?? {}) },
     actions: { ...(p?.actions ?? {}) },
+    groups: { ...(p?.groups ?? {}) },
   };
 }
