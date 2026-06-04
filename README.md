@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PMO Dashboard
 
-## Getting Started
+Suite de dashboards PMO construida con **Next.js 16 (App Router)**, **Tailwind CSS** y **Firebase**. Consume datos de **Monday.com** y **Google Calendar** mediante un único fetch seguro del lado del servidor.
 
-First, run the development server:
+## Características
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Control Tower** — índice de salud del portafolio y resumen por PM.
+- **Iniciativas / REQ / Proyectos** — tableros con métricas, filtros, EVM (SPI/CPI) y detalle.
+- **Single Fetch seguro** — un Route Handler (`/api/dashboard`) consulta Monday/Calendar en el servidor; la API key nunca llega al cliente.
+- **Autenticación** con Firebase (Google + email), restringida a un dominio (`@c807.com`).
+- **Roles y permisos dinámicos** — crea roles, define qué ven (páginas) y qué hacen (acciones), y asígnalos a usuarios (Firestore + Admin SDK).
+
+## Stack
+
+| | |
+|---|---|
+| Framework | Next.js 16 (App Router, Turbopack) |
+| Estilos | Tailwind CSS v4 |
+| Auth + datos de usuarios | Firebase Auth + Firestore (Admin SDK) |
+| Fuente de datos | Monday.com GraphQL + Google Apps Script (Calendar) |
+
+## Puesta en marcha
+
+1. **Instalar dependencias**
+   ```bash
+   npm install
+   ```
+
+2. **Configurar variables de entorno** — copia la plantilla y rellena los valores:
+   ```bash
+   cp .env.example .env.local
+   ```
+   Necesitas: API key de Monday, config de Firebase Web, y un Service Account de Firebase Admin (Project Settings → Service accounts → Generate new private key).
+
+3. **Habilitar Firestore** en la consola de Firebase (Native mode) — requerido por el sistema de roles.
+
+4. **Ejecutar en desarrollo**
+   ```bash
+   npm run dev
+   ```
+   Abre <http://localhost:3000>. El primer usuario que inicie sesión se convierte en administrador.
+
+## Estructura
+
+```
+src/
+├─ app/
+│  ├─ (app)/            Páginas protegidas (Control Tower, Iniciativas, REQ, Proyectos, Usuarios, Roles)
+│  ├─ api/              Route Handlers (dashboard, me, users, roles)
+│  └─ login/            Pantalla de login
+├─ components/          UI compartida (Sidebar, Topbar, Modal, MultiSelect…)
+├─ context/             Auth / Permissions / Data (React Context, client-side)
+├─ lib/                 Lógica de negocio, Monday, Firebase Admin, permisos
+└─ types/               Tipos compartidos
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Extender el sistema de permisos
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Para agregar una página nueva al control de acceso, añade una entrada a `PAGES` en `src/lib/registry.ts`:
+aparecerá automáticamente en el editor de roles, el sidebar y el gating.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Seguridad
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `.env.local` está en `.gitignore` — **nunca** se versiona.
+- La API key de Monday y el Service Account viven solo en el servidor.
+- El acceso a Firestore pasa únicamente por endpoints del servidor (Admin SDK).

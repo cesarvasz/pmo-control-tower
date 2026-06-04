@@ -1,0 +1,141 @@
+// src/types/index.ts
+// Tipos compartidos entre la API route (datos crudos) y el cliente (datos procesados).
+
+// ── Datos CRUDOS que devuelve Monday / la API route ────────────────────
+export interface MondayColumnValue {
+  id: string;
+  text: string | null;
+  column?: { title: string } | null;
+}
+
+export interface MondaySubitem {
+  id: string;
+  name: string;
+  column_values: MondayColumnValue[];
+}
+
+export interface MondayItem {
+  id: string;
+  name: string;
+  group: { title: string };
+  column_values: MondayColumnValue[];
+  subitems?: MondaySubitem[];
+}
+
+export interface ProjBoardRaw {
+  id: string;
+  name: string;
+  items_page: { items: MondayItem[] };
+}
+
+export interface CalMeetingRaw {
+  codigo: string;
+  meeting: string; // "M1" | "M2"
+  inicio: string;
+  fin: string;
+}
+
+/** Payload completo que devuelve `GET /api/dashboard`. */
+export interface DashboardRaw {
+  iniItems: MondayItem[];
+  reqItems: MondayItem[];
+  projBoards: { id: string; name: string }[];
+  projRaw: ProjBoardRaw[];
+  calData: CalMeetingRaw[];
+  fetchedAt: string;
+}
+
+// ── Datos PROCESADOS (lado cliente) ────────────────────────────────────
+export interface IniItem {
+  id: string;
+  name: string;
+  grupo: string;
+  pm: string;
+  status: string;
+  benefit: string;
+  estado: string; // ATRASADO | PARA HOY | EN TIEMPO | APROBADA | EN_ESPERA | SKIP | Sin fecha
+  dias: number | null;
+  limite: number | null;
+  deadline: Date | null;
+  creacion: Date | null;
+  meet1?: string;
+  meet2?: string;
+  espera?: string;
+}
+
+export interface ReqItem {
+  id: string;
+  name: string;
+  grupo: string;
+  pm: string;
+  resp: string;
+  status: string;
+  costRH: number;
+  costSft: number;
+  benefit: number;
+  valueNet: number;
+  tld: string;
+  creation: string;
+  estado: string; // ATRASADO | PARA HOY | EN TIEMPO | EN PROCESO | CERRADO | EN_ESPERA
+  deadline: Date | null;
+  inicioReq: Date | null;
+  inicio: Date | null;
+  dias: number | null;
+  limite: number | null;
+  elapsed: number | null;
+  expectedDays: number | null;
+  estDev: Date | null;
+  spi: number | null;
+  cpi: number | null;
+  scope: number | null;
+  hi: number | null;
+}
+
+export interface ProjSubitem {
+  id: string;
+  name: string;
+  status: string;
+  person: string;
+  deadline: Date | null;
+  estado: string;
+}
+
+export interface ProjItem {
+  boardId: string;
+  boardName: string;
+  id: string;
+  name: string;
+  grupo: string;
+  pm: string;
+  resp: string;
+  status: string;
+  deadline: Date | null;
+  cost: number;
+  benefit: number;
+  valueNet: number;
+  estado: string;
+  subitems: ProjSubitem[];
+}
+
+export interface ProjBoard {
+  id: string;
+  name: string;
+  pm: string;
+}
+
+export interface CalMeeting {
+  inicio: Date;
+  fin: Date;
+}
+
+export type CalMap = Map<string, { M1: CalMeeting[]; M2: CalMeeting[] }>;
+
+/** Datos ya procesados que expone el DataContext a las páginas. */
+export interface DashboardData {
+  ini: IniItem[];
+  req: ReqItem[];
+  proj: ProjItem[];
+  projBoards: ProjBoard[];
+  calMap: CalMap;
+  fetchedAt: Date;
+}

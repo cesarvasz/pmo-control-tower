@@ -1,26 +1,131 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ── THEME TOKENS (portados del PMO Dashboard original) ─────────────── */
+:root,
+[data-theme="dark"] {
+  --bg-base: #0f1117;
+  --bg-surface: #1a1d27;
+  --bg-sidebar: #13151f;
+  --bg-hover: #1e2130;
+  --bg-accent-soft: #1e1b4b;
+  --border: #2d3148;
+  --border-subtle: #334155;
+  --text-primary: #e2e8f0;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --text-disabled: #4b5563;
+  --accent: #6c63ff;
+  --accent-hover: #5a52e0;
+  --accent-dim: #3d3d5c;
+  --accent-light: #a5b4fc;
+  --code-bg: #1e293b;
+  --code-border: #334155;
+  --table-head-bg: #1a1d27;
+  --card-value-total: #e2e8f0;
+  --shadow: rgba(0, 0, 0, 0.4);
+
+  --pill-atrasado-bg: #450a0a; --pill-atrasado-fg: #fca5a5; --pill-atrasado-br: #7f1d1d;
+  --pill-parahoy-bg:  #451a03; --pill-parahoy-fg:  #fcd34d; --pill-parahoy-br:  #78350f;
+  --pill-entiempo-bg: #052e16; --pill-entiempo-fg: #6ee7b7; --pill-entiempo-br: #14532d;
+  --pill-aprobada-bg: #1e1b4b; --pill-aprobada-fg: #a5b4fc; --pill-aprobada-br: #3730a3;
+  --pill-skip-bg:     #1f2937; --pill-skip-fg:     #6b7280; --pill-skip-br:     #374151;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+[data-theme="light"] {
+  --bg-base: #f0f2fa;
+  --bg-surface: #ffffff;
+  --bg-sidebar: #f8f9fd;
+  --bg-hover: #eef0f8;
+  --bg-accent-soft: #ede9fe;
+  --border: #dde1ef;
+  --border-subtle: #c7d0e8;
+  --text-primary: #1e2130;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-disabled: #9ca3af;
+  --accent: #6c63ff;
+  --accent-hover: #5a52e0;
+  --accent-dim: #c7c3f8;
+  --accent-light: #6c63ff;
+  --code-bg: #f1f5f9;
+  --code-border: #dde1ef;
+  --table-head-bg: #f8f9fd;
+  --card-value-total: #1e2130;
+  --shadow: rgba(0, 0, 0, 0.08);
+
+  --pill-atrasado-bg: #fee2e2; --pill-atrasado-fg: #991b1b; --pill-atrasado-br: #fca5a5;
+  --pill-parahoy-bg:  #fef3c7; --pill-parahoy-fg:  #92400e; --pill-parahoy-br:  #fcd34d;
+  --pill-entiempo-bg: #d1fae5; --pill-entiempo-fg: #065f46; --pill-entiempo-br: #6ee7b7;
+  --pill-aprobada-bg: #ede9fe; --pill-aprobada-fg: #4c1d95; --pill-aprobada-br: #a5b4fc;
+  --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #6b7280; --pill-skip-br:     #d1d5db;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  transition: background 0.2s, color 0.2s;
 }
+
+/* Spinner reutilizable */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── PILLS ──────────────────────────────────────────────────────────── */
+.pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.pill-atrasado { background: var(--pill-atrasado-bg); color: var(--pill-atrasado-fg); border: 1px solid var(--pill-atrasado-br); }
+.pill-parahoy  { background: var(--pill-parahoy-bg);  color: var(--pill-parahoy-fg);  border: 1px solid var(--pill-parahoy-br); }
+.pill-entiempo { background: var(--pill-entiempo-bg); color: var(--pill-entiempo-fg); border: 1px solid var(--pill-entiempo-br); }
+.pill-aprobada { background: var(--pill-aprobada-bg); color: var(--pill-aprobada-fg); border: 1px solid var(--pill-aprobada-br); }
+.pill-skip     { background: var(--pill-skip-bg);     color: var(--pill-skip-fg);     border: 1px solid var(--pill-skip-br); }
+
+/* ── TABLE ──────────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
+table.pmo { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+table.pmo thead th {
+  background: var(--table-head-bg);
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.pmo tbody tr { border-bottom: 1px solid var(--bg-hover); }
+table.pmo tbody tr:last-child { border-bottom: none; }
+table.pmo tbody td { padding: 11px 14px; vertical-align: middle; background: var(--bg-surface); }
+table.pmo tbody tr:hover td { background: var(--bg-hover); }
+.ini-id { font-family: monospace; font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
+.ini-name { font-weight: 500; color: var(--text-primary); }
+.pm-name { color: var(--accent-light); white-space: nowrap; }
+
+/* ── PROGRESS BAR ───────────────────────────────────────────────────── */
+.progress-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; min-width: 60px; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
