@@ -53,6 +53,7 @@ const INI_COL = {
   meet1: "date_mm3aas3p",
   meet2: "date_mm3at176",
   espera: "date_mm3gw8yy",
+  planFuturo: "date_mm40dvyn",
 };
 
 export function iniProcess(items: MondayItem[]): IniItem[] {
@@ -87,6 +88,15 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
         return {
           id: id_ini, name: item.name, grupo, pm, status, benefit,
           estado: "SKIP", dias: null, limite: null, deadline: null, creacion: null,
+        };
+      }
+      if (status === "Plan Futuro") {
+        const planFuturo = parseYMD(col(INI_COL.planFuturo));
+        const recordatorio = planFuturo ? addBusinessDays(planFuturo, -5) : null;
+        return {
+          id: id_ini, name: item.name, grupo, pm, status, benefit,
+          estado: "PLAN_FUTURO", dias: null, limite: null, deadline: null,
+          creacion: parseCreation(creRaw), planFuturo, recordatorio, meet1, meet2,
         };
       }
       if (INI_LIMITS[status] !== undefined) {
@@ -125,6 +135,8 @@ export const REQ_COLS = {
   benefit: "numeric_mkvcd6nf",
   creation: "pulse_log_mkvyjb6s",
   tld: "dropdown_mm3gpacy",
+  type: "dropdown_mm3sms28",
+  cpmEndEst: "date_mkwcqzvf",
   vDone: "date_mm3ggd8v",
   aDone: "date_mm3gfn1r",
   lDone: "date_mm3g8mqz",
@@ -172,6 +184,9 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
     const lDone = parseYMD(col(REQ_COLS.lDone));
     const oDone = parseYMD(col(REQ_COLS.oDone));
     const estDev = parseYMD(col(REQ_COLS.estDev));
+    const type = col(REQ_COLS.type);
+    const cpmEndEst = parseYMD(col(REQ_COLS.cpmEndEst));
+    const isSaas = type === "SaaS";
 
     // ── Deadline por grupo ──
     let startDate: Date | null = null;
@@ -193,10 +208,12 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
       }
     } else if (grp === "Operación") {
       startDate = lDone;
-      if (startDate) deadline = addBusinessDays(startDate, 3);
+      if (isSaas && cpmEndEst) deadline = addBusinessDays(cpmEndEst, -20);
+      else if (startDate) deadline = addBusinessDays(startDate, 3);
     } else if (grp === "Cierre ROI") {
       startDate = oDone;
-      if (startDate) deadline = addBusinessDays(startDate, 20);
+      if (isSaas && cpmEndEst) deadline = cpmEndEst;
+      else if (startDate) deadline = addBusinessDays(startDate, 20);
     }
 
     // ── Estado ──
@@ -272,7 +289,7 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
       status,
       costRH, costSft, benefit,
       valueNet: benefit - costRH - costSft,
-      tld,
+      tld, type, cpmEndEst,
       creation: col(REQ_COLS.creation),
       estado, deadline, inicioReq: cpmStart, inicio: startDate, dias, limite,
       elapsed: cpmStart ? businessDays(cpmStart, t) : null,

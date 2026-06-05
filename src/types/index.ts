@@ -53,7 +53,7 @@ export interface IniItem {
   pm: string;
   status: string;
   benefit: string;
-  estado: string; // ATRASADO | PARA HOY | EN TIEMPO | APROBADA | EN_ESPERA | SKIP | Sin fecha
+  estado: string; // ATRASADO | PARA HOY | EN TIEMPO | APROBADA | EN_ESPERA | PLAN_FUTURO | SKIP | Sin fecha
   dias: number | null;
   limite: number | null;
   deadline: Date | null;
@@ -61,6 +61,8 @@ export interface IniItem {
   meet1?: string;
   meet2?: string;
   espera?: string;
+  planFuturo?: Date | null;
+  recordatorio?: Date | null;
 }
 
 export interface ReqItem {
@@ -75,6 +77,8 @@ export interface ReqItem {
   benefit: number;
   valueNet: number;
   tld: string;
+  type: string;
+  cpmEndEst: Date | null;
   creation: string;
   estado: string; // ATRASADO | PARA HOY | EN TIEMPO | EN PROCESO | CERRADO | EN_ESPERA
   deadline: Date | null;

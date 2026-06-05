@@ -17,14 +17,16 @@ export function businessDays(start: Date, end: Date): number {
   return days;
 }
 
-/** Suma n días hábiles a una fecha y devuelve la fecha resultante. */
+/** Suma (o resta si n<0) n días hábiles a una fecha y devuelve la fecha resultante. */
 export function addBusinessDays(date: Date, n: number): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  let added = 0;
-  while (added < n) {
-    d.setDate(d.getDate() + 1);
-    if (d.getDay() !== 0 && d.getDay() !== 6) added++;
+  if (n === 0) return d;
+  const step = n > 0 ? 1 : -1;
+  let remaining = Math.abs(n);
+  while (remaining > 0) {
+    d.setDate(d.getDate() + step);
+    if (d.getDay() !== 0 && d.getDay() !== 6) remaining--;
   }
   return d;
 }

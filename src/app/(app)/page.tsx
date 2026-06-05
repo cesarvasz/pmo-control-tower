@@ -60,10 +60,15 @@ export default function ControlTowerPage() {
   const hLabel = healthPct >= 80 ? "Saludable" : healthPct >= 50 ? "En Riesgo" : "Crítico";
   const hIcon = healthPct >= 80 ? "✓" : healthPct >= 50 ? "⚠" : "✕";
 
+  const PM_ORDER = Object.keys(PM_PORTFOLIO); // α → β → γ
   const allPMs = [...new Set([
     ...ini.filter((r) => r.pm && r.estado !== "SKIP").map((r) => r.pm),
     ...req.filter((r) => r.pm && r.estado !== "CERRADO").map((r) => r.pm),
-  ])].sort();
+  ])].sort((a, b) => {
+    const ia = PM_ORDER.indexOf(a);
+    const ib = PM_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
 
   return (
     <div>
@@ -116,7 +121,7 @@ export default function ControlTowerPage() {
         <h2 className="text-base font-semibold text-[var(--text-primary)]">Portafolios por PM</h2>
         <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{allPMs.length} PM{allPMs.length !== 1 ? "s" : ""}</span>
       </div>
-      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))" }}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {allPMs.map((pm) => {
           const q = encodeURIComponent(pm);
           return (
@@ -168,7 +173,8 @@ function PMPortfolioCard({
 
   const iniParaHoyN = iniItems.filter((r) => iniIsParaHoy(r, calMap)).length;
   const iniEnTiempoN = iniAct.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length;
-  const iniHas = iniAct.length > 0;
+  const iniPlanFuturoN = iniItems.filter((r) => r.estado === "PLAN_FUTURO").length;
+  const iniHas = iniAct.length > 0 || iniPlanFuturoN > 0;
 
   const reqParaHoyN = reqAct.filter((r) => r.estado === "PARA HOY").length;
   const reqEnTiempoN = reqAct.filter((r) => r.estado === "EN TIEMPO").length;
@@ -196,10 +202,11 @@ function PMPortfolioCard({
       </div>
       <div className="flex">
         <Section label="Iniciativas" has={iniHas} onClick={onGoIni}>
-          <Stat n={iniAct.length} color="#6b7280" label="total" />
+          <Stat n={iniAct.length + iniPlanFuturoN} color="#6b7280" label="total" />
           <Stat n={iAtr} color="#ef4444" label={`atrasada${iAtr !== 1 ? "s" : ""}`} />
           <Stat n={iniParaHoyN} color="#f59e0b" label="para hoy" />
           <Stat n={iniEnTiempoN} color="#10b981" label="en tiempo" />
+          <Stat n={iniPlanFuturoN} color="#6c63ff" label="plan futuro" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section label="REQ" has={reqHas} onClick={onGoReq}>
@@ -217,7 +224,7 @@ function PMPortfolioCard({
             const bEt = bItems.filter((r) => r.estado === "EN TIEMPO").length;
             return (
               <div key={b.id} className="flex items-center gap-1.5 border-b py-[3px]" style={{ borderColor: "var(--border)" }}>
-                <span className="flex-1 truncate text-[0.75rem] font-semibold text-[var(--text-primary)]" style={{ maxWidth: 140 }} title={b.name}>{b.name}</span>
+                <span className="font-mono text-[0.75rem] font-bold text-[var(--text-primary)]" title={b.name}>{b.name.slice(0, 6)}</span>
                 <span className="flex items-center gap-1.5">
                   {bAtr > 0 && <span style={{ color: "#ef4444", fontWeight: 700, fontSize: ".72rem" }}>{bAtr}✕</span>}
                   {bPh > 0 && <span style={{ color: "#f59e0b", fontWeight: 700, fontSize: ".72rem" }}>{bPh}⚠</span>}
