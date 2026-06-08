@@ -1126,6 +1126,13 @@ window.doLogin=function(){};window.doLogout=function(){};
   window.addEventListener('message',function(e){
     if(e.data&&e.data.type==='pmo-theme') apply(e.data.value);
   });
+  function reportHeight(){
+    window.parent.postMessage({type:'pmo-height',value:document.body.scrollHeight},'*');
+  }
+  window.addEventListener('load',reportHeight);
+  if(window.ResizeObserver){
+    new ResizeObserver(reportHeight).observe(document.body);
+  }
 })();
 </script>
 </body>
