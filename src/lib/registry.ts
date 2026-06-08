@@ -21,6 +21,12 @@ export interface PageDef {
    * (en vez del permiso de página). Útil para páginas de administración.
    */
   requiredAction?: string;
+  /**
+   * Página pública: siempre visible en el sidebar y accesible, sin gating de
+   * permisos. Para contenido informativo/de referencia (no datos sensibles).
+   * No aparece en el editor de grupos/roles.
+   */
+  public?: boolean;
 }
 
 export interface ActionDef {
@@ -34,10 +40,10 @@ export interface ActionDef {
 // tiene esa acción, y pueden asignarse libremente a cualquier grupo.
 export const PAGES: PageDef[] = [
   { key: "overview",    label: "Control Tower", href: "/",         icon: "◎" },
+  { key: "valor",       label: "VALOR",         href: "/valor",    icon: "🔄", public: true },
   { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
   { key: "req",         label: "REQ",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
-  { key: "valor",       label: "VALOR",         href: "/valor",    icon: "🔄" },
   { key: "usuarios",    label: "Usuarios",      href: "/usuarios", icon: "⚙", requiredAction: "manage_users" },
   { key: "roles",       label: "Roles",         href: "/roles",    icon: "🛡", requiredAction: "manage_roles" },
   { key: "grupos",      label: "Grupos",        href: "/grupos",   icon: "🗂", requiredAction: "manage_roles" },
@@ -51,7 +57,7 @@ export const ACTIONS: ActionDef[] = [
 
 // Páginas "puras" (sin requiredAction) — las únicas que van en el mapa de
 // permisos de un rol (las de acción se controlan solo via actions).
-const CONTENT_PAGES = PAGES.filter((p) => !p.requiredAction);
+const CONTENT_PAGES = PAGES.filter((p) => !p.requiredAction && !p.public);
 
 /** Mapea una ruta a su PageDef completa (para el gating). */
 export function pageByHref(pathname: string): PageDef | undefined {
@@ -91,9 +97,11 @@ export type NavNode =
  */
 export function buildNav(perms: Permissions | undefined, groups: Group[]): NavNode[] {
   const canSee = (p: PageDef) =>
-    p.requiredAction
-      ? !!perms?.actions?.[p.requiredAction]
-      : !!perms?.pages?.[p.key];
+    p.public
+      ? true
+      : p.requiredAction
+        ? !!perms?.actions?.[p.requiredAction]
+        : !!perms?.pages?.[p.key];
 
   const nodes: NavNode[] = [];
   const grouped = new Set(groups.flatMap((g) => g.pageKeys));

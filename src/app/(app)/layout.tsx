@@ -59,6 +59,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     if (!me) return false;
     const page = pageByHref(pathname);
     if (!page) return true; // rutas no registradas → permitidas
+    if (page.public) return true; // páginas públicas (informativas) → siempre permitidas
     if (page.requiredAction) return hasAction(me.permissions, page.requiredAction);
     return hasPage(me.permissions, page.key);
   })();
