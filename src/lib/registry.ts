@@ -40,7 +40,7 @@ export interface ActionDef {
 // tiene esa acción, y pueden asignarse libremente a cualquier grupo.
 export const PAGES: PageDef[] = [
   { key: "overview",    label: "Control Tower", href: "/",         icon: "◎" },
-  { key: "valor",       label: "VALOR",         href: "/valor",    icon: "🔄", public: true },
+  { key: "valor",       label: "VALOR",         href: "/valor",    icon: "💰", public: true },
   { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
   { key: "req",         label: "REQ",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
