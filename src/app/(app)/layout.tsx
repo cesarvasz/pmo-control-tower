@@ -6,8 +6,14 @@ import { useAuth } from "@/context/AuthContext";
 import { useMe } from "@/context/PermissionsContext";
 import { hasAction, hasPage } from "@/lib/permissions";
 import { pageByHref } from "@/lib/registry";
+import { usePageTracking } from "@/hooks/usePageTracking";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
+
+function PageTracker() {
+  usePageTracking();
+  return null;
+}
 
 function FullScreen({ children }: { children: ReactNode }) {
   return (
@@ -66,6 +72,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex">
+      <PageTracker />
       <Sidebar
         mobileOpen={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}

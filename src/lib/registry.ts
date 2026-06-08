@@ -44,9 +44,10 @@ export const PAGES: PageDef[] = [
   { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
   { key: "req",         label: "REQ",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
-  { key: "usuarios",    label: "Usuarios",      href: "/usuarios", icon: "⚙", requiredAction: "manage_users" },
-  { key: "roles",       label: "Roles",         href: "/roles",    icon: "🛡", requiredAction: "manage_roles" },
-  { key: "grupos",      label: "Grupos",        href: "/grupos",   icon: "🗂", requiredAction: "manage_roles" },
+  { key: "usuarios",    label: "Usuarios",      href: "/usuarios",  icon: "⚙", requiredAction: "manage_users" },
+  { key: "roles",       label: "Roles",         href: "/roles",     icon: "🛡", requiredAction: "manage_roles" },
+  { key: "grupos",      label: "Grupos",        href: "/grupos",    icon: "🗂", requiredAction: "manage_roles" },
+  { key: "analytics",   label: "Analíticas",    href: "/analytics", icon: "📊", requiredAction: "manage_users" },
 ];
 
 // ── Acciones (lo que un rol puede HACER) ───────────────────────────────
