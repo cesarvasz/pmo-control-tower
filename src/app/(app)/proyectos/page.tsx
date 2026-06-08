@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { fmtDate, fmtMoney } from "@/lib/business";
+import { PROJ_ACTIVE_STS } from "@/lib/process";
 import type { ProjBoard, ProjItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
 import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/ui";
@@ -46,9 +47,10 @@ function ProyectosInner() {
   const projData = data.proj;
   const projBoards = data.projBoards;
 
-  const atr = projData.filter((r) => r.estado === "ATRASADO").length;
-  const ph = projData.filter((r) => r.estado === "PARA HOY").length;
-  const et = projData.filter((r) => r.estado === "EN TIEMPO").length;
+  const active = projData.filter((r) => PROJ_ACTIVE_STS.has(r.status));
+  const atr = active.filter((r) => r.estado === "ATRASADO").length;
+  const ph = active.filter((r) => r.estado === "PARA HOY").length;
+  const et = active.filter((r) => r.estado === "EN TIEMPO").length;
 
   const toggleAcc = (id: string) =>
     setOpenBoards((s) => {
@@ -62,7 +64,7 @@ function ProyectosInner() {
   const allBoardsSorted = [...projBoards].sort((a, b) => a.name.localeCompare(b.name));
   const boardOpts = allBoardsSorted.map((b) => ({
     value: b.id, label: b.name,
-    count: projData.filter((r) => r.boardId === b.id && r.status !== "Done").length,
+    count: projData.filter((r) => r.boardId === b.id && PROJ_ACTIVE_STS.has(r.status)).length,
   }));
   const pmBoardIds = pms.length ? new Set(projBoards.filter((b) => pms.includes(b.pm)).map((b) => b.id)) : null;
   const byPM = pmBoardIds ? projData.filter((r) => pmBoardIds.has(r.boardId)) : projData;
@@ -72,7 +74,7 @@ function ProyectosInner() {
     <div>
       {/* Cards */}
       <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard value={projData.length} label="Total Items" />
+        <StatCard value={projBoards.length} label="Total Proyectos" />
         <StatCard value={atr} label="Atrasados" color="#ef4444" borderColor="#ef4444" />
         <StatCard value={ph} label="Para Hoy" color="#f59e0b" borderColor="#f59e0b" />
         <StatCard value={et} label="En Tiempo" color="#10b981" borderColor="#10b981" />
@@ -91,7 +93,7 @@ function ProyectosInner() {
       {(() => {
         const accordions = visibleBoards
           .map((b) => {
-            const items = byPM.filter((r) => r.boardId === b.id && r.status !== "Done");
+            const items = byPM.filter((r) => r.boardId === b.id && PROJ_ACTIVE_STS.has(r.status));
             if (!items.length) return null;
             return <BoardAccordion key={b.id} board={b} items={items} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
           })
@@ -110,7 +112,7 @@ function PMHealth({ projBoards, projData, selectedPm, onSelect }: { projBoards: 
       {pms.map((pm) => {
         const pmBoards = projBoards.filter((b) => b.pm === pm);
         const ids = new Set(pmBoards.map((b) => b.id));
-        const items = projData.filter((r) => ids.has(r.boardId) && r.status !== "Done");
+        const items = projData.filter((r) => ids.has(r.boardId) && PROJ_ACTIVE_STS.has(r.status));
         const atr = items.filter((r) => r.estado === "ATRASADO").length;
         const status = atr === 0 ? "on-track" : atr <= 2 ? "at-risk" : "off-track";
         const c = HEALTH_CFG[status];
@@ -196,7 +198,7 @@ function Row({ r, ecls, elbl }: { r: ProjItem; ecls: string; elbl: string }) {
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
       </tr>
-      {r.subitems.map((s) => {
+      {r.subitems.filter((s) => PROJ_ACTIVE_STS.has(s.status)).map((s) => {
         const [secls, selbl] = EPILL[s.estado] ?? ["pill-skip", s.estado];
         return (
           <tr key={s.id} style={{ background: "var(--bg-hover)" }}>

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useData } from "@/context/DataContext";
-import { INI_ACTIVE_STS, iniIsParaHoy, REQ_ACTIVE_GRUPOS } from "@/lib/process";
+import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy, PROJ_ACTIVE_STS, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 
@@ -18,8 +18,13 @@ const pmLabel = (pm: string) => {
 
 const HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
   "on-track": { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
-  "at-risk": { color: "#f59e0b", bg: "#451a0388", label: "At Risk", icon: "⚠" },
-  "off-track": { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
+  "at-risk":  { color: "#f59e0b", bg: "#451a0388", label: "At Risk",  icon: "⚠" },
+  "off-track":{ color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
+};
+const INI_HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
+  "on-track": { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
+  "at-risk":  { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
+  "off-track":{ color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
 };
 
 export default function ControlTowerPage() {
@@ -43,7 +48,7 @@ export default function ControlTowerPage() {
     reqAtrasado: reqProc.filter((r) => r.estado === "ATRASADO").length,
     reqParaHoy: reqProc.filter((r) => r.estado === "PARA HOY").length,
     reqEnTiempo: reqProc.filter((r) => r.estado === "EN TIEMPO").length,
-    projTotal: proj.length,
+    projTotal: projBoards.length,
     projAtrasado: proj.filter((r) => r.estado === "ATRASADO").length,
     projParaHoy: proj.filter((r) => r.estado === "PARA HOY").length,
     projEnTiempo: proj.filter((r) => r.estado === "EN TIEMPO").length,
@@ -148,8 +153,8 @@ function GlobalBlock({ title, stats, onClick }: { title: string; stats: [string,
   );
 }
 
-function Stat({ n, color, label }: { n: number; color: string; label: string }) {
-  if (n <= 0) return null;
+function Stat({ n, color, label, showZero }: { n: number; color: string; label: string; showZero?: boolean }) {
+  if (n <= 0 && !showZero) return null;
   return (
     <div className="flex items-center gap-1.5 text-[0.82rem] text-[var(--text-secondary)]">
       <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: color }} />
@@ -164,17 +169,16 @@ function PMPortfolioCard({
   pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; calMap: import("@/types").CalMap;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
-  const iniItems = ini.filter((r) => r.pm === pm && r.estado !== "SKIP");
-  const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
-  const iniAct = iniItems.filter((r) => INI_ACTIVE_STS.has(r.status));
-  const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
-  const iAtr = iniAct.filter((r) => r.estado === "ATRASADO").length;
-  const rAtr = reqAct.filter((r) => r.estado === "ATRASADO").length;
+  const iniHealth = calcIniPMHealth(pm, ini, calMap);
+  const iniHas = true;
 
-  const iniParaHoyN = iniItems.filter((r) => iniIsParaHoy(r, calMap)).length;
-  const iniEnTiempoN = iniAct.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length;
-  const iniPlanFuturoN = iniItems.filter((r) => r.estado === "PLAN_FUTURO").length;
-  const iniHas = iniAct.length > 0 || iniPlanFuturoN > 0;
+  const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
+  const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
+  const rAtr = reqAct.filter((r) => r.estado === "ATRASADO").length;
+  const reqVemItems = reqAct.filter((r) => r.vem != null);
+  const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
+  const reqVemStatus = reqAvgVem !== null ? (reqAvgVem >= 0.95 ? "on-track" : reqAvgVem >= 0.85 ? "at-risk" : "off-track") : null;
+  const rvc = reqVemStatus ? INI_HEALTH_CFG[reqVemStatus] : null;
 
   const reqParaHoyN = reqAct.filter((r) => r.estado === "PARA HOY").length;
   const reqEnTiempoN = reqAct.filter((r) => r.estado === "EN TIEMPO").length;
@@ -183,13 +187,15 @@ function PMPortfolioCard({
 
   const pmProjBoards = projBoards.filter((b) => b.pm === pm);
   const ids = new Set(pmProjBoards.map((b) => b.id));
-  const projAct = proj.filter((r) => ids.has(r.boardId) && r.status !== "Done");
+  const projAct = proj.filter((r) => ids.has(r.boardId) && PROJ_ACTIVE_STS.has(r.status));
   const projAtrN = projAct.filter((r) => r.estado === "ATRASADO").length;
   const projHas = pmProjBoards.length > 0;
 
-  const totalAtr = iAtr + rAtr + projAtrN;
+  const totalAtr = iniHealth.atrasadas + rAtr + projAtrN;
+
   const health = totalAtr === 0 ? "on-track" : totalAtr <= 2 ? "at-risk" : "off-track";
   const hc = HEALTH_CFG[health];
+  const ihc = INI_HEALTH_CFG[iniHealth.status];
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
@@ -201,15 +207,32 @@ function PMPortfolioCard({
         <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}</span>
       </div>
       <div className="flex">
-        <Section label="Iniciativas" has={iniHas} onClick={onGoIni}>
-          <Stat n={iniAct.length + iniPlanFuturoN} color="#6b7280" label="total" />
-          <Stat n={iAtr} color="#ef4444" label={`atrasada${iAtr !== 1 ? "s" : ""}`} />
-          <Stat n={iniParaHoyN} color="#f59e0b" label="para hoy" />
-          <Stat n={iniEnTiempoN} color="#10b981" label="en tiempo" />
-          <Stat n={iniPlanFuturoN} color="#6c63ff" label="plan futuro" />
+        <Section
+          label="Iniciativas"
+          has={iniHas}
+          onClick={onGoIni}
+          badge={iniHas ? (
+            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ihc.color, background: ihc.bg }}>
+              {ihc.icon} {Math.round(iniHealth.index * 100)}%
+            </span>
+          ) : undefined}
+        >
+          <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
+          <Stat n={iniHealth.atrasadas} color="#ef4444" label={`atrasada${iniHealth.atrasadas !== 1 ? "s" : ""}`} />
+          <Stat n={iniHealth.enTiempo} color="#10b981" label="en tiempo" />
+          <Stat n={iniHealth.sinMeeting} color="#f59e0b" label="sin agendar" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-        <Section label="REQ" has={reqHas} onClick={onGoReq}>
+        <Section
+          label="REQ"
+          has={reqHas}
+          onClick={onGoReq}
+          badge={rvc ? (
+            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: rvc.color, background: rvc.bg }}>
+              {rvc.icon} {Math.round((reqAvgVem as number) * 100)}%
+            </span>
+          ) : undefined}
+        >
           <Stat n={reqAct.length} color="#6b7280" label="total" />
           <Stat n={rAtr} color="#ef4444" label={`atrasado${rAtr !== 1 ? "s" : ""}`} />
           <Stat n={reqParaHoyN} color="#f59e0b" label="para hoy" />
@@ -218,7 +241,7 @@ function PMPortfolioCard({
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section label={`Proyectos (${pmProjBoards.length})`} has={projHas} onClick={onGoProj}>
           {pmProjBoards.map((b) => {
-            const bItems = proj.filter((r) => r.boardId === b.id && r.status !== "Done");
+            const bItems = proj.filter((r) => r.boardId === b.id && PROJ_ACTIVE_STS.has(r.status));
             const bAtr = bItems.filter((r) => r.estado === "ATRASADO").length;
             const bPh = bItems.filter((r) => r.estado === "PARA HOY").length;
             const bEt = bItems.filter((r) => r.estado === "EN TIEMPO").length;
@@ -240,10 +263,13 @@ function PMPortfolioCard({
   );
 }
 
-function Section({ label, has, onClick, children }: { label: string; has: boolean; onClick: () => void; children: React.ReactNode }) {
+function Section({ label, has, onClick, children, badge }: { label: string; has: boolean; onClick: () => void; children: React.ReactNode; badge?: React.ReactNode }) {
   return (
     <div onClick={has ? onClick : undefined} className={`min-w-0 flex-1 px-[18px] py-3.5 transition-colors ${has ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""}`}>
-      <div className="mb-2 text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</div>
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className="text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</span>
+        {badge}
+      </div>
       {has ? <div className="flex flex-col gap-1.5">{children}</div> : <div className="pt-1 text-[0.8rem] text-[var(--text-disabled)]">Sin datos</div>}
     </div>
   );

@@ -92,7 +92,7 @@ export interface ReqItem {
   spi: number | null;
   cpi: number | null;
   scope: number | null;
-  hi: number | null;
+  vem: number | null;
 }
 
 export interface ProjSubitem {

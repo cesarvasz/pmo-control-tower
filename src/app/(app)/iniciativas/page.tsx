@@ -9,6 +9,7 @@ import {
   INI_LIMITS,
   INI_SEC_LABEL,
   INI_SEC_ORDER,
+  calcIniPMHealth,
   iniIsParaHoy,
   nextOrLatest,
 } from "@/lib/process";
@@ -116,7 +117,7 @@ function IniciativasInner() {
       </div>
 
       {/* PM Health */}
-      <PMHealth iniData={iniData} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
+      <PMHealth iniData={iniData} calMap={calMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Secciones activas */}
       {sections.length === 0 && planFuturoItems.length === 0 ? (
@@ -134,40 +135,47 @@ function IniciativasInner() {
 }
 
 // ── PM Health ──────────────────────────────────────────────────────────
-function calcPMHealth(pm: string, iniData: IniItem[]) {
-  const items = iniData.filter((r) => r.pm === pm && INI_ACTIVE_STS.has(r.status) && r.dias !== null && r.limite !== null);
-  const total = iniData.filter((r) => r.pm === pm && r.estado !== "SKIP").length;
-  const atrasadoItems = items.filter((r) => r.estado === "ATRASADO");
-  const atrasados = atrasadoItems.length;
-  const avgOverdue = atrasados > 0 ? Math.round(atrasadoItems.reduce((s, r) => s + ((r.dias as number) - (r.limite as number)), 0) / atrasados) : 0;
-  const status = atrasados === 0 ? "on-track" : avgOverdue <= 5 ? "at-risk" : "off-track";
-  return { status, active: items.length, total, atrasados };
-}
 
 const HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
   "on-track": { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
-  "at-risk": { color: "#f59e0b", bg: "#451a0388", label: "At Risk", icon: "⚠" },
-  "off-track": { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
+  "at-risk":  { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
+  "off-track":{ color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
 };
 
-function PMHealth({ iniData, selectedPm, onSelect }: { iniData: IniItem[]; selectedPm: string | null; onSelect: (pm: string) => void }) {
+function PMHealth({ iniData, calMap, selectedPm, onSelect }: {
+  iniData: IniItem[];
+  calMap: CalMap;
+  selectedPm: string | null;
+  onSelect: (pm: string) => void;
+}) {
   const pms = [...new Set(iniData.filter((r) => r.pm && r.estado !== "SKIP").map((r) => r.pm))].sort();
   return (
     <div className="mb-7 flex flex-wrap gap-4">
       {pms.map((pm) => {
-        const h = calcPMHealth(pm, iniData);
+        const h = calcIniPMHealth(pm, iniData, calMap);
         const c = HEALTH_CFG[h.status];
         const active = selectedPm === pm;
         return (
           <div
             key={pm}
             onClick={() => onSelect(pm)}
-            className="flex min-w-[190px] flex-1 cursor-pointer flex-col gap-1.5 rounded-xl border-2 p-[18px] transition-transform hover:-translate-y-0.5"
+            className="flex min-w-[220px] flex-1 cursor-pointer flex-col gap-1.5 rounded-xl border-2 p-[18px] transition-transform hover:-translate-y-0.5"
             style={{ background: "var(--bg-surface)", borderColor: c.color, boxShadow: active ? "0 0 0 3px var(--accent)" : undefined }}
           >
-            <div className="text-[0.9rem] font-semibold text-[var(--text-primary)]">{pm}</div>
-            <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>{c.icon} {c.label}</span>
-            <div className="text-[0.75rem] text-[var(--text-muted)]">{h.active} en proceso · {h.atrasados} atrasada{h.atrasados !== 1 ? "s" : ""} · {h.total} total</div>
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <div className="text-[0.9rem] font-semibold text-[var(--text-primary)]">{pm}</div>
+              <div className="text-right">
+                <div className="text-[1.4rem] font-bold leading-none text-[var(--text-primary)]">{h.total}</div>
+                <div className="text-[0.65rem] text-[var(--text-muted)]">total</div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>{c.icon} {c.label}</span>
+              <div className="text-[0.85rem] font-bold" style={{ color: c.color }}>{Math.round(h.index * 100)}%</div>
+            </div>
+            <div className="text-[0.75rem] text-[var(--text-muted)]">
+              {h.enTiempo} en tiempo · {h.atrasadas} atrasadas · {h.sinMeeting} sin agendar
+            </div>
           </div>
         );
       })}

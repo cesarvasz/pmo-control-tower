@@ -10,11 +10,11 @@ import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
 import { EmptyRow, ErrorBox, FilterReset, Loader, SectionHeader, StatCard } from "@/components/ui";
 
-function hiCfg(v: number) {
+function vemCfg(v: number) {
   return v >= 0.95
     ? { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" }
     : v >= 0.85
-      ? { color: "#f59e0b", bg: "#451a0388", label: "En Riesgo", icon: "⚠" }
+      ? { color: "#f59e0b", bg: "#451a0388", label: "In Risk", icon: "⚠" }
       : { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" };
 }
 
@@ -82,10 +82,10 @@ function ReqInner() {
   const grpOpts = allGrps.map((g) => ({ value: g, label: g, count: getFiltered(pms, statuses, [g], estado).length }));
   const anyFilter = pms.length > 0 || statuses.length > 0 || groups.length > 0 || estado !== "";
 
-  // ── PM Health (HI) ──
+  // ── VEM por PM ──
   const hpPMs = [...new Set(reqData.filter((r) => r.pm && isActive(r)).map((r) => r.pm))].sort();
-  const allHI = reqData.filter((r) => isActive(r) && r.hi !== null);
-  const portHI = allHI.length ? allHI.reduce((s, r) => s + (r.hi as number), 0) / allHI.length : null;
+  const allVEM = reqData.filter((r) => isActive(r) && r.vem != null);
+  const portVEM = allVEM.length ? allVEM.reduce((s, r) => s + (r.vem as number), 0) / allVEM.length : null;
 
   return (
     <div>
@@ -110,44 +110,56 @@ function ReqInner() {
       </div>
 
       {/* PM Health */}
-      {portHI !== null && (
+      {portVEM !== null && (
         <div
           className="mb-3.5 flex flex-wrap items-center gap-5 rounded-xl border px-5 py-3.5"
-          style={{ background: "var(--bg-surface)", borderColor: "var(--border)", borderLeft: `4px solid ${hiCfg(portHI).color}` }}
+          style={{ background: "var(--bg-surface)", borderColor: "var(--border)", borderLeft: `4px solid ${vemCfg(portVEM).color}` }}
         >
           <div>
-            <div className="mb-0.5 text-[0.72rem] text-[var(--text-muted)]">Health Index · Portafolio REQ</div>
-            <div className="text-2xl font-extrabold leading-none" style={{ color: hiCfg(portHI).color }}>{portHI.toFixed(2)}</div>
+            <div className="mb-0.5 text-[0.72rem] text-[var(--text-muted)]">VEM · Portafolio REQ</div>
+            <div className="text-2xl font-extrabold leading-none" style={{ color: vemCfg(portVEM).color }}>{portVEM.toFixed(2)}</div>
           </div>
-          <span className="rounded-full px-3 py-1 text-[0.8rem] font-bold" style={{ color: hiCfg(portHI).color, background: hiCfg(portHI).bg }}>
-            {hiCfg(portHI).icon} {hiCfg(portHI).label}
+          <span className="rounded-full px-3 py-1 text-[0.8rem] font-bold" style={{ color: vemCfg(portVEM).color, background: vemCfg(portVEM).bg }}>
+            {vemCfg(portVEM).icon} {vemCfg(portVEM).label}
           </span>
           <div className="ml-auto flex gap-4 text-[0.78rem]">
-            <span style={{ color: "#10b981" }}>✓ {allHI.filter((r) => (r.hi as number) >= 0.95).length} On Track</span>
-            <span style={{ color: "#f59e0b" }}>⚠ {allHI.filter((r) => (r.hi as number) >= 0.85 && (r.hi as number) < 0.95).length} En Riesgo</span>
-            <span style={{ color: "#ef4444" }}>✕ {allHI.filter((r) => (r.hi as number) < 0.85).length} Off Track</span>
+            <span style={{ color: "#10b981" }}>✓ {allVEM.filter((r) => (r.vem as number) >= 0.95).length} On Track</span>
+            <span style={{ color: "#f59e0b" }}>⚠ {allVEM.filter((r) => (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length} In Risk</span>
+            <span style={{ color: "#ef4444" }}>✕ {allVEM.filter((r) => (r.vem as number) < 0.85).length} Off Track</span>
           </div>
         </div>
       )}
       <div className="mb-7 flex flex-wrap gap-4">
         {hpPMs.map((pm) => {
           const items = reqData.filter((r) => r.pm === pm && isActive(r));
-          const hiItems = items.filter((r) => r.hi !== null);
-          const avg = hiItems.length ? hiItems.reduce((s, r) => s + (r.hi as number), 0) / hiItems.length : null;
+          const vemItems = items.filter((r) => r.vem != null);
+          const avg = vemItems.length ? vemItems.reduce((s, r) => s + (r.vem as number), 0) / vemItems.length : null;
           const atrasados = items.filter((r) => r.estado === "ATRASADO").length;
-          const cfg = avg !== null ? hiCfg(avg) : { color: "#6b7280", bg: "#1f293788", label: "Sin datos", icon: "—" };
-          const selected = pms.length === 1 && pms[0] === pm;
+          const paraHoy = items.filter((r) => r.estado === "PARA HOY").length;
+          const enTiempo = items.filter((r) => r.estado === "EN TIEMPO").length;
+          const cfg = avg !== null ? vemCfg(avg) : { color: "#6b7280", bg: "#1f293788", label: "Sin datos", icon: "—" };
+          const isSel = pms.length === 1 && pms[0] === pm;
           return (
             <div
               key={pm}
-              onClick={() => setPms(selected ? [] : [pm])}
+              onClick={() => setPms(isSel ? [] : [pm])}
               className="flex min-w-[190px] flex-1 cursor-pointer flex-col gap-1.5 rounded-xl border-2 p-[18px] transition-transform hover:-translate-y-0.5"
-              style={{ background: "var(--bg-surface)", borderColor: cfg.color, boxShadow: selected ? "0 0 0 3px var(--accent)" : undefined }}
+              style={{ background: "var(--bg-surface)", borderColor: cfg.color, boxShadow: isSel ? "0 0 0 3px var(--accent)" : undefined }}
             >
-              <div className="text-[0.9rem] font-semibold text-[var(--text-primary)]">{pm}</div>
-              <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: cfg.color, background: cfg.bg }}>{cfg.icon} {cfg.label}</span>
-              {avg !== null && <div className="text-[1.4rem] font-bold leading-none" style={{ color: cfg.color }}>HI: {avg.toFixed(2)}</div>}
-              <div className="text-[0.75rem] text-[var(--text-muted)]">{items.length} en proceso · {atrasados} atrasada{atrasados !== 1 ? "s" : ""}</div>
+              <div className="mb-1 flex items-start justify-between gap-2">
+                <div className="text-[0.9rem] font-semibold text-[var(--text-primary)]">{pm}</div>
+                <div className="text-right">
+                  <div className="text-[1.4rem] font-bold leading-none text-[var(--text-primary)]">{items.length}</div>
+                  <div className="text-[0.65rem] text-[var(--text-muted)]">total</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: cfg.color, background: cfg.bg }}>{cfg.icon} {cfg.label}</span>
+                {avg !== null && <div className="text-[0.85rem] font-bold" style={{ color: cfg.color }}>{Math.round(avg * 100)}%</div>}
+              </div>
+              <div className="text-[0.75rem] text-[var(--text-muted)]">
+                {enTiempo} en tiempo · {paraHoy} para hoy · {atrasados} atrasada{atrasados !== 1 ? "s" : ""}
+              </div>
             </div>
           );
         })}
@@ -181,18 +193,6 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
     if (d > t) { const n = businessDays(t, d); return <span style={{ color: "#10b981", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
     const n = businessDays(d, t); return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
   };
-  const accumCell = (r: ReqItem) => {
-    if (r.elapsed === null || r.expectedDays === null) return <span className="text-[var(--text-disabled)]">—</span>;
-    const diff = r.expectedDays - r.elapsed;
-    if (diff === 0) return <span style={{ color: "#f59e0b", fontWeight: 600 }}>Hoy</span>;
-    if (diff > 0) return <span style={{ color: "#10b981", fontWeight: 600 }}>+{diff} día{diff !== 1 ? "s" : ""}</span>;
-    return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{-diff} día{-diff !== 1 ? "s" : ""}</span>;
-  };
-  const metric = (v: number | null, good: number, mid: number) => {
-    if (v === null) return <span className="text-[var(--text-disabled)]">—</span>;
-    const color = v >= good ? "#10b981" : v >= mid ? "#f59e0b" : "#ef4444";
-    return <span style={{ fontWeight: 700, color }}>{v.toFixed(2)}</span>;
-  };
   const ESTADO_INLINE: Record<string, [string, string]> = {
     ATRASADO: ["pill-atrasado", "✕ Atrasado"],
     "PARA HOY": ["pill-parahoy", "⚠ Para Hoy"],
@@ -207,8 +207,7 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
           <tr>
             <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
-            <th>TLD</th><th>Est DEV</th><th>Inicio REQ</th><th>Inicio Fase</th><th>Deadline</th><th>Diferencia</th>
-            <th style={{ textAlign: "right" }}>Días Acum.</th><th>SPI</th><th>CPI</th><th>Alcance</th>
+            <th>Deadline</th><th>Diferencia</th>
           </tr>
         </thead>
         <tbody>
@@ -224,16 +223,8 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
                 <td><span className={`pill ${cls}`} style={{ fontSize: ".68rem" }}>{lbl}</span></td>
                 <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : "—"}</td>
                 <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
-                <td style={{ color: "var(--text-secondary)", fontSize: ".8rem", whiteSpace: "nowrap" }}>{r.tld || "—"}</td>
-                <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.estDev ? fmtDate(r.estDev) : "—"}</td>
-                <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.inicioReq ? fmtDate(r.inicioReq) : "—"}</td>
-                <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.inicio ? fmtDate(r.inicio) : "—"}</td>
                 <td>{deadlineCell(r)}</td>
                 <td>{diffCell(r)}</td>
-                <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>{accumCell(r)}</td>
-                <td>{metric(r.spi, 1, 0.8)}</td>
-                <td>{metric(r.cpi, 1, 0.8)}</td>
-                <td>{metric(r.scope, 0.8, 0.4)}</td>
               </tr>
             );
           })}

@@ -5,11 +5,11 @@ import { REQ_GROUP_COLOR } from "@/lib/process";
 import type { ReqItem } from "@/types";
 import Modal from "@/components/Modal";
 
-function hiCfg(v: number) {
+function vemCfg(v: number) {
   return v >= 0.95
     ? { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" }
     : v >= 0.85
-      ? { color: "#f59e0b", bg: "#451a0388", label: "En Riesgo", icon: "⚠" }
+      ? { color: "#f59e0b", bg: "#451a0388", label: "In Risk", icon: "⚠" }
       : { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" };
 }
 const evmColor = (v: number) => (v >= 1 ? "#10b981" : v >= 0.8 ? "#f59e0b" : "#ef4444");
@@ -130,9 +130,9 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
                 {r.scope !== null
                   ? <EvmCard label="Alcance" value={r.scope.toFixed(2)} sub={`${(r.scope * 100).toFixed(0)}% completo`} color={evmColor(r.scope >= 0.8 ? 1 : r.scope >= 0.4 ? 0.9 : 0)} bg={evmBg(r.scope >= 0.8 ? 1 : r.scope >= 0.4 ? 0.9 : 0)} />
                   : <EvmCard label="Alcance" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
-                {r.hi !== null
-                  ? (() => { const c = hiCfg(r.hi as number); return <EvmCard label="Health Index" value={(r.hi as number).toFixed(2)} sub={`${c.icon} ${c.label}`} color={c.color} bg={c.bg} />; })()
-                  : <EvmCard label="Health Index" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
+                {r.vem !== null
+                  ? (() => { const c = vemCfg(r.vem as number); return <EvmCard label="VEM" value={(r.vem as number).toFixed(2)} sub={`${c.icon} ${c.label}`} color={c.color} bg={c.bg} />; })()
+                  : <EvmCard label="VEM" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
               </div>
             </div>
           </div>

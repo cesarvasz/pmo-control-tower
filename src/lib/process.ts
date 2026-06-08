@@ -276,7 +276,7 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
         }
       }
     }
-    const hi = spi !== null && cpi !== null && scope !== null
+    const vem = spi !== null && cpi !== null && scope !== null
       ? Math.round(((spi + cpi + scope) / 3) * 100) / 100
       : null;
 
@@ -295,7 +295,7 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
       elapsed: cpmStart ? businessDays(cpmStart, t) : null,
       expectedDays: REQ_ACTIVE_GRUPOS.has(grp) ? expectedDays : null,
       estDev,
-      spi, cpi, scope, hi,
+      spi, cpi, scope, vem,
     };
   });
 }
@@ -303,6 +303,8 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
 // ─────────────────────────────────────────────────────────────────────
 // PROYECTOS (multi-board)
 // ─────────────────────────────────────────────────────────────────────
+export const PROJ_ACTIVE_STS = new Set(["Working on it", "Future Steps"]);
+
 export const PROJ_COL = {
   pm: "PM", resp: "Resp", status: "Status",
   deadline: "Limit Date", cost: "Cost $", benefit: "Benefit $",
@@ -382,6 +384,40 @@ export function nextOrLatest(arr: { inicio: Date; fin: Date }[] | undefined): { 
   const now = new Date();
   const upcoming = arr.filter((m) => m.inicio >= now);
   return upcoming.length > 0 ? upcoming[0] : arr[arr.length - 1];
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SALUD INI POR PM
+// ─────────────────────────────────────────────────────────────────────
+export interface IniPMHealth {
+  status: "on-track" | "at-risk" | "off-track";
+  index: number;
+  agendadas: number;
+  enTiempo: number;
+  atrasadas: number;
+  sinMeeting: number;
+  total: number;
+}
+
+export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap: CalMap): IniPMHealth {
+  const items = iniData.filter((r) => r.pm === pm && INI_ACTIVE_STS.has(r.status));
+  const total = items.length;
+  if (total === 0) return { status: "on-track", index: 1, agendadas: 0, enTiempo: 0, atrasadas: 0, sinMeeting: 0, total: 0 };
+
+  const hasMeeting = (r: IniItem) => {
+    const cal = calMap.get(r.id) || { M1: [], M2: [] };
+    return cal[r.status === "New" ? "M1" : "M2"].length > 0;
+  };
+
+  const agendadas = items.filter(hasMeeting).length;
+  const enTiempo = items.filter((r) => (r.estado === "EN TIEMPO" || r.estado === "PARA HOY") && hasMeeting(r)).length;
+  const atrasadas = items.filter((r) => r.estado === "ATRASADO").length;
+  const sinMeeting = items.filter((r) => !hasMeeting(r)).length;
+
+  const index = ((agendadas / total) + (enTiempo / total)) / 2;
+  const status = index >= 0.95 ? "on-track" : index >= 0.85 ? "at-risk" : "off-track";
+
+  return { status, index, agendadas, enTiempo, atrasadas, sinMeeting, total };
 }
 
 /** "Para Hoy" de iniciativas: deadline calculado hoy O reunión agendada hoy. */
