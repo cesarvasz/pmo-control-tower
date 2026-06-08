@@ -43,7 +43,9 @@ export default function ValorPage() {
 
         scripts.forEach((code) => {
           const s = document.createElement("script");
-          s.textContent = code;
+          // Wrap in IIFE so const/let/var declarations don't leak into the
+          // global scope — prevents "already declared" errors on remount.
+          s.textContent = `(function(){\n${code}\n})();`;
           document.head.appendChild(s);
           scriptEls.push(s);
         });
