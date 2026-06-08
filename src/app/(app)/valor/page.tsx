@@ -1,42 +1,82 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 export default function ValorPage() {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(600);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const sendTheme = () => {
+    let styleEl: HTMLStyleElement | null = null;
+    const scriptEls: HTMLScriptElement[] = [];
+    let mounted = true;
+
+    fetch("/valor/flujo-valor.html")
+      .then((r) => r.text())
+      .then((html) => {
+        if (!mounted || !rootRef.current) return;
+
+        // Scope the two problematic global selectors; all class/id selectors
+        // are VALOR-specific and don't conflict with the app.
+        const cssText = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+          .map((m) => m[1])
+          .join("\n")
+          .replace(/^(\s*)\*(\s*\{)/gm, "$1.valor-root *$2")
+          .replace(/^(\s*)body(\s*\{)/gm, "$1.valor-root$2")
+          .replace(/body\[data-theme/g, ".valor-root[data-theme");
+
+        styleEl = document.createElement("style");
+        styleEl.textContent = cssText;
+        document.head.appendChild(styleEl);
+
+        // Extract body content, pull out <script> tags to run separately
+        // (innerHTML does not execute scripts).
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/);
+        if (!bodyMatch) return;
+
+        const scripts: string[] = [];
+        const bodyHtml = bodyMatch[1].replace(
+          /<script[^>]*>([\s\S]*?)<\/script>/gi,
+          (_, code) => { scripts.push(code); return ""; }
+        );
+
+        rootRef.current.innerHTML = bodyHtml;
+
+        scripts.forEach((code) => {
+          const s = document.createElement("script");
+          s.textContent = code;
+          document.head.appendChild(s);
+          scriptEls.push(s);
+        });
+
+        // Apply current theme immediately after content is in the DOM
+        const t = document.documentElement.getAttribute("data-theme") ?? "dark";
+        rootRef.current.setAttribute("data-theme", t);
+      });
+
+    // Keep theme attribute in sync with the app
+    const themeObs = new MutationObserver(() => {
+      if (!rootRef.current) return;
       const t = document.documentElement.getAttribute("data-theme") ?? "dark";
-      iframeRef.current?.contentWindow?.postMessage({ type: "pmo-theme", value: t }, "*");
-    };
-    const onMsg = (e: MessageEvent) => {
-      if (e.data?.type === "pmo-height") setHeight(e.data.value);
-    };
-    const themeObs = new MutationObserver(sendTheme);
-    themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    window.addEventListener("message", onMsg);
+      rootRef.current.setAttribute("data-theme", t);
+    });
+    themeObs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
     return () => {
+      mounted = false;
       themeObs.disconnect();
-      window.removeEventListener("message", onMsg);
+      styleEl?.remove();
+      scriptEls.forEach((s) => s.remove());
     };
   }, []);
 
   return (
-    <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
-      <iframe
-        ref={iframeRef}
-        src="/valor/flujo-valor.html"
-        title="Ciclo de Vida VALOR"
-        className="block w-full"
-        scrolling="no"
-        style={{ border: 0, background: "var(--bg-base)", height }}
-        onLoad={() => {
-          const t = document.documentElement.getAttribute("data-theme") ?? "dark";
-          iframeRef.current?.contentWindow?.postMessage({ type: "pmo-theme", value: t }, "*");
-        }}
-      />
-    </div>
+    <div
+      ref={rootRef}
+      className="valor-root rounded-xl border"
+      style={{ borderColor: "var(--border)", minHeight: 400 }}
+    />
   );
 }
