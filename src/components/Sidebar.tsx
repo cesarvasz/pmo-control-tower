@@ -1,11 +1,38 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
 import { useGroups } from "@/context/GroupsContext";
 import { buildNav, type NavLeaf } from "@/lib/registry";
+
+const SVG_ICONS: Record<string, React.ReactNode> = {
+  "control-tower": (
+    <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style={{ width: "1em", height: "1em" }}>
+      {/* antennas */}
+      <rect x="8.5"  y="0.5" width="1.5" height="3.5" rx="0.75" />
+      <rect x="14"   y="0.5" width="1.5" height="3.5" rx="0.75" />
+      {/* cab */}
+      <rect x="4.5"  y="4"   width="15"  height="6"   rx="1"    opacity="0.9" />
+      {/* windows */}
+      <rect x="6.5"  y="5.5" width="2.5" height="2.5" rx="0.4"  fill="white" opacity="0.55" />
+      <rect x="10.7" y="5.5" width="2.5" height="2.5" rx="0.4"  fill="white" opacity="0.55" />
+      <rect x="14.9" y="5.5" width="2.5" height="2.5" rx="0.4"  fill="white" opacity="0.55" />
+      {/* platform ring */}
+      <rect x="2.5"  y="10"  width="19"  height="2"   rx="1" />
+      {/* shaft */}
+      <path d="M10 12h4l-.6 7H10.6z" opacity="0.75" />
+      {/* base */}
+      <rect x="7.5"  y="19"  width="9"   height="4.5" rx="1" />
+    </svg>
+  ),
+};
+
+function resolveIcon(icon: string): React.ReactNode {
+  return SVG_ICONS[icon] ?? icon;
+}
 
 interface SidebarProps {
   mobileOpen?: boolean;
@@ -46,7 +73,7 @@ export default function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             className="w-5 flex-shrink-0 text-center text-base"
             style={{ color: active ? "var(--accent)" : undefined }}
           >
-            {item.icon}
+            {resolveIcon(item.icon)}
           </span>
           {!collapsed && <span>{item.label}</span>}
         </Link>
@@ -144,7 +171,7 @@ export default function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                     className="w-5 flex-shrink-0 text-center text-base"
                     style={{ color: childActive ? "var(--accent)" : undefined }}
                   >
-                    {node.icon}
+                    {resolveIcon(node.icon)}
                   </span>
                   {!collapsed && (
                     <>
