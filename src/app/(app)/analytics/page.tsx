@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { authedFetch } from "@/lib/api";
-import type { AnalyticsData } from "@/app/api/analytics/data/route";
+import type { AnalyticsData, PageView } from "@/app/api/analytics/data/route";
 import { Loader, ErrorBox, SectionHeader } from "@/components/ui";
 
 function fmt(iso: string) {
@@ -12,10 +12,15 @@ function fmt(iso: string) {
   });
 }
 
+const selectCls =
+  "rounded-lg border bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-1 focus:ring-[var(--accent)]";
+
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filterUser, setFilterUser] = useState("");
+  const [filterPage, setFilterPage] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -33,149 +38,110 @@ export default function AnalyticsPage() {
     })();
   }, []);
 
+  const users = useMemo(
+    () => [...new Set((data?.views ?? []).map((v) => v.userEmail))].sort(),
+    [data],
+  );
+  const pages = useMemo(
+    () =>
+      [...new Map((data?.views ?? []).map((v) => [v.page, v.pageLabel])).entries()]
+        .sort((a, b) => a[1].localeCompare(b[1])),
+    [data],
+  );
+
+  const rows: PageView[] = useMemo(() => {
+    if (!data) return [];
+    return data.views.filter(
+      (v) =>
+        (!filterUser || v.userEmail === filterUser) &&
+        (!filterPage || v.page === filterPage),
+    );
+  }, [data, filterUser, filterPage]);
+
   if (loading) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 
-  const uniqueUsers = new Set(data.views.map((v) => v.userId)).size;
-
   return (
-    <div className="flex flex-col gap-8">
-      <SectionHeader title="Analíticas">
-        <span className="text-sm text-[var(--text-muted)]">Visitas y navegación de usuarios autenticados</span>
-      </SectionHeader>
+    <div className="flex flex-col gap-6">
+      <SectionHeader title="Analíticas" />
 
-      {/* KPI chips */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {[
-          { label: "Visitas registradas", value: data.total },
-          { label: "Páginas únicas", value: data.byPage.length },
-          { label: "Usuarios únicos", value: uniqueUsers },
-          { label: "Visitas hoy", value: data.views.filter((v) => v.timestamp.startsWith(new Date().toISOString().slice(0, 10))).length },
-        ].map((kpi) => (
-          <div
-            key={kpi.label}
-            className="flex flex-col gap-1 rounded-xl border p-4"
-            style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-3">
+        <select
+          value={filterUser}
+          onChange={(e) => setFilterUser(e.target.value)}
+          className={selectCls}
+          style={{ borderColor: "var(--border)" }}
+        >
+          <option value="">Todos los usuarios</option>
+          {users.map((u) => (
+            <option key={u} value={u}>{u}</option>
+          ))}
+        </select>
+
+        <select
+          value={filterPage}
+          onChange={(e) => setFilterPage(e.target.value)}
+          className={selectCls}
+          style={{ borderColor: "var(--border)" }}
+        >
+          <option value="">Todas las páginas</option>
+          {pages.map(([path, label]) => (
+            <option key={path} value={path}>{label}</option>
+          ))}
+        </select>
+
+        {(filterUser || filterPage) && (
+          <button
+            onClick={() => { setFilterUser(""); setFilterPage(""); }}
+            className="rounded-lg border px-3 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            style={{ borderColor: "var(--border)" }}
           >
-            <span className="text-2xl font-bold text-[var(--accent)]">{kpi.value}</span>
-            <span className="text-xs text-[var(--text-muted)]">{kpi.label}</span>
-          </div>
-        ))}
+            Limpiar filtros
+          </button>
+        )}
+
+        <span className="ml-auto self-center text-sm text-[var(--text-muted)]">
+          {rows.length} registro{rows.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
-      {/* Por página */}
-      <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-          Páginas más visitadas
-        </h2>
-        <div
-          className="overflow-hidden rounded-xl border"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <table className="w-full text-sm">
-            <thead>
-              <tr
-                className="border-b text-left text-xs uppercase tracking-wide text-[var(--text-muted)]"
-                style={{ borderColor: "var(--border)", background: "var(--bg-header)" }}
-              >
-                <th className="px-4 py-3">Página</th>
-                <th className="px-4 py-3 text-right">Visitas</th>
-                <th className="px-4 py-3 text-right">Usuarios únicos</th>
+      {/* Tabla */}
+      <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr
+              className="border-b text-left text-xs uppercase tracking-wide text-[var(--text-muted)]"
+              style={{ borderColor: "var(--border)", background: "var(--bg-header)" }}
+            >
+              <th className="px-4 py-3">Página</th>
+              <th className="px-4 py-3">Usuario</th>
+              <th className="px-4 py-3">Fecha y hora</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                  Sin registros
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {data.byPage.map((row) => (
-                <tr
-                  key={row.page}
-                  className="border-b last:border-0"
-                  style={{ borderColor: "var(--border)" }}
-                >
-                  <td className="px-4 py-3 text-[var(--text-primary)]">
-                    <span className="font-medium">{row.label}</span>
-                    <span className="ml-2 text-xs text-[var(--text-muted)]">{row.page}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-[var(--text-primary)]">{row.count}</td>
-                  <td className="px-4 py-3 text-right font-mono text-[var(--text-muted)]">{row.uniqueUsers}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Por usuario */}
-      <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-          Actividad por usuario
-        </h2>
-        <div
-          className="overflow-hidden rounded-xl border"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <table className="w-full text-sm">
-            <thead>
-              <tr
-                className="border-b text-left text-xs uppercase tracking-wide text-[var(--text-muted)]"
-                style={{ borderColor: "var(--border)", background: "var(--bg-header)" }}
-              >
-                <th className="px-4 py-3">Usuario</th>
-                <th className="px-4 py-3 text-right">Visitas</th>
-                <th className="px-4 py-3">Última actividad</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.byUser.map((row) => (
-                <tr
-                  key={row.email}
-                  className="border-b last:border-0"
-                  style={{ borderColor: "var(--border)" }}
-                >
-                  <td className="px-4 py-3 text-[var(--text-primary)]">{row.email}</td>
-                  <td className="px-4 py-3 text-right font-mono text-[var(--text-primary)]">{row.count}</td>
-                  <td className="px-4 py-3 text-xs text-[var(--text-muted)]">{fmt(row.lastSeen)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Feed reciente */}
-      <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-          Actividad reciente
-        </h2>
-        <div
-          className="overflow-hidden rounded-xl border"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <table className="w-full text-sm">
-            <thead>
-              <tr
-                className="border-b text-left text-xs uppercase tracking-wide text-[var(--text-muted)]"
-                style={{ borderColor: "var(--border)", background: "var(--bg-header)" }}
-              >
-                <th className="px-4 py-3">Usuario</th>
-                <th className="px-4 py-3">Página</th>
-                <th className="px-4 py-3">Fecha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.views.slice(0, 100).map((row) => (
+            ) : (
+              rows.map((row) => (
                 <tr
                   key={row.id}
                   className="border-b last:border-0"
                   style={{ borderColor: "var(--border)" }}
                 >
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{row.userEmail}</td>
                   <td className="px-4 py-3 text-[var(--text-primary)]">{row.pageLabel}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{row.userEmail}</td>
                   <td className="px-4 py-3 text-xs text-[var(--text-muted)]">{fmt(row.timestamp)}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
