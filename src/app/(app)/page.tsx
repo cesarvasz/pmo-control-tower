@@ -18,9 +18,9 @@ const pmLabel = (pm: string) => {
 };
 
 const HEALTH_CFG = {
-  "on-track":  { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
-  "in-risk":   { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
-  "off-track": { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
+  "on-track":  { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track", icon: "✓" },
+  "in-risk":   { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk",  icon: "⚠" },
+  "off-track": { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" },
 } as const;
 const INI_HEALTH_CFG = HEALTH_CFG;
 
@@ -73,7 +73,7 @@ export default function ControlTowerPage() {
   const teamVem = vemParts.length > 0 ? vemParts.reduce((a, b) => a + b, 0) / vemParts.length : null;
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
   const hColor = vemPct === null ? "#6b7280" : vemPct >= 95 ? "#10b981" : vemPct >= 85 ? "#f59e0b" : "#ef4444";
-  const hBg    = vemPct === null ? "#1f293788" : vemPct >= 95 ? "#052e1688" : vemPct >= 85 ? "#451a0388" : "#450a0a88";
+  const hBg    = vemPct === null ? "var(--health-neutral-bg)" : vemPct >= 95 ? "var(--health-on-track-bg)" : vemPct >= 85 ? "var(--health-in-risk-bg)" : "var(--health-off-track-bg)";
   const hLabel = vemPct === null ? "Sin datos" : vemPct >= 95 ? "On Track" : vemPct >= 85 ? "In Risk" : "Off Track";
   const hIcon  = vemPct === null ? "—" : vemPct >= 95 ? "✓" : vemPct >= 85 ? "⚠" : "✕";
 
@@ -115,16 +115,16 @@ export default function ControlTowerPage() {
       <div className="mb-2 flex flex-wrap rounded-xl border p-5" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
         <GlobalBlock title="Iniciativas" onClick={() => router.push("/iniciativas")} stats={[
           [`${G.iniTotal} total`, "var(--text-primary)"],
-          [`${G.iniAtrasado} atrasadas`, "#ef4444"],
-          [`${G.iniParaHoy} para hoy`, "#f59e0b"],
-          [`${G.iniEnTiempo} en tiempo`, "#10b981"],
+          [`✕ ${G.iniAtrasado} Off Track`, "#ef4444"],
+          [`⚠ ${G.iniParaHoy} In Risk`, "#f59e0b"],
+          [`✓ ${G.iniEnTiempo} On Track`, "#10b981"],
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
         <GlobalBlock title="REQ" onClick={() => router.push("/req")} stats={[
           [`${G.reqTotal} total`, "var(--text-primary)"],
-          [`${G.reqAtrasado} atrasados`, "#ef4444"],
-          [`${G.reqParaHoy} para hoy`, "#f59e0b"],
-          [`${G.reqEnTiempo} en tiempo`, "#10b981"],
+          [`✕ ${G.reqAtrasado} Off Track`, "#ef4444"],
+          [`⚠ ${G.reqParaHoy} In Risk`, "#f59e0b"],
+          [`✓ ${G.reqEnTiempo} On Track`, "#10b981"],
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
         <GlobalBlock title="Proyectos" onClick={() => router.push("/proyectos")} stats={[
@@ -243,8 +243,8 @@ function PMPortfolioCard({
           }
         >
           <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
-          <Stat n={iniHealth.atrasadas} color="#ef4444" label={`atrasada${iniHealth.atrasadas !== 1 ? "s" : ""}`} />
-          <Stat n={iniHealth.enTiempo} color="#10b981" label="en tiempo" />
+          <Stat n={iniHealth.atrasadas} color="#ef4444" label="Off Track" />
+          <Stat n={iniHealth.enTiempo} color="#10b981" label="On Track" />
           <Stat n={iniHealth.sinMeeting} color="#f59e0b" label="sin agendar" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
@@ -259,9 +259,9 @@ function PMPortfolioCard({
           ) : undefined}
         >
           <Stat n={reqAct.length} color="#6b7280" label="total" />
-          <Stat n={rAtr} color="#ef4444" label={`atrasado${rAtr !== 1 ? "s" : ""}`} />
-          <Stat n={reqParaHoyN} color="#f59e0b" label="para hoy" />
-          <Stat n={reqEnTiempoN} color="#10b981" label="en tiempo" />
+          <Stat n={rAtr} color="#ef4444" label="Off Track" />
+          <Stat n={reqParaHoyN} color="#f59e0b" label="In Risk" />
+          <Stat n={reqEnTiempoN} color="#10b981" label="On Track" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section label={`Proyectos (${pmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (

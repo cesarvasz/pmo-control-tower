@@ -12,10 +12,10 @@ import { EmptyRow, ErrorBox, FilterReset, Loader, SectionHeader, StatCard } from
 
 function vemCfg(v: number) {
   return v >= 0.95
-    ? { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" }
+    ? { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track", icon: "✓" }
     : v >= 0.85
-      ? { color: "#f59e0b", bg: "#451a0388", label: "In Risk", icon: "⚠" }
-      : { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" };
+      ? { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk", icon: "⚠" }
+      : { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" };
 }
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
@@ -137,7 +137,7 @@ function ReqInner() {
           const atrasados = items.filter((r) => r.estado === "ATRASADO").length;
           const paraHoy = items.filter((r) => r.estado === "PARA HOY").length;
           const enTiempo = items.filter((r) => r.estado === "EN TIEMPO").length;
-          const cfg = avg !== null ? vemCfg(avg) : { color: "#6b7280", bg: "#1f293788", label: "Sin datos", icon: "—" };
+          const cfg = avg !== null ? vemCfg(avg) : { color: "#6b7280", bg: "var(--health-neutral-bg)", label: "Sin datos", icon: "—" };
           const isSel = pms.length === 1 && pms[0] === pm;
           return (
             <div

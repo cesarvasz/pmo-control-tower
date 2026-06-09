@@ -29,9 +29,14 @@
   --pill-entiempo-bg: #052e16; --pill-entiempo-fg: #6ee7b7; --pill-entiempo-br: #14532d;
   --pill-aprobada-bg: #1e1b4b; --pill-aprobada-fg: #a5b4fc; --pill-aprobada-br: #3730a3;
   --pill-skip-bg:     #1f2937; --pill-skip-fg:     #6b7280; --pill-skip-br:     #374151;
+
+  --health-on-track-bg:  #052e1688;
+  --health-in-risk-bg:   #451a0388;
+  --health-off-track-bg: #450a0a88;
+  --health-neutral-bg:   #1f293788;
 }
 
-[data-theme="light"] {
+:root[data-theme="light"] {
   --bg-base: #f0f2fa;
   --bg-surface: #ffffff;
   --bg-sidebar: #f8f9fd;
@@ -58,10 +63,15 @@
   --pill-entiempo-bg: #d1fae5; --pill-entiempo-fg: #065f46; --pill-entiempo-br: #6ee7b7;
   --pill-aprobada-bg: #ede9fe; --pill-aprobada-fg: #4c1d95; --pill-aprobada-br: #a5b4fc;
   --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #6b7280; --pill-skip-br:     #d1d5db;
+
+  --health-on-track-bg:  #bbf7d080;
+  --health-in-risk-bg:   #fef08a80;
+  --health-off-track-bg: #fecaca80;
+  --health-neutral-bg:   #e5e7eb80;
 }
 
 /* ── TEMA C807 (VALOR) — paleta verde institucional ─────────────────── */
-[data-theme="c807"] {
+:root[data-theme="c807"] {
   --bg-base: #f4f6f9;
   --bg-surface: #ffffff;
   --bg-sidebar: #f8fafb;
@@ -88,36 +98,46 @@
   --pill-entiempo-bg: #eafaf1; --pill-entiempo-fg: #1e8449; --pill-entiempo-br: #a9dfbf;
   --pill-aprobada-bg: #e8f5ec; --pill-aprobada-fg: #0d4a1e; --pill-aprobada-br: #7cb342;
   --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #7f8c8d; --pill-skip-br:     #dce1e7;
+
+  --health-on-track-bg:  #a7f3d080;
+  --health-in-risk-bg:   #fde68a80;
+  --health-off-track-bg: #fecaca80;
+  --health-neutral-bg:   #e5e7eb80;
 }
 
-/* ── TEMA ROSE — paleta rosa profesional ────────────────────────────── */
-[data-theme="rose"] {
-  --bg-base: #190e18;
-  --bg-surface: #231528;
-  --bg-sidebar: #1c1020;
-  --bg-hover: #2c1b30;
-  --bg-accent-soft: #4a1040;
-  --border: #3d2248;
-  --border-subtle: #5a3060;
-  --text-primary: #f5e6f8;
-  --text-secondary: #c4a8d4;
-  --text-muted: #8f6ea0;
-  --text-disabled: #5c4070;
-  --accent: #e879b4;
-  --accent-hover: #d060a0;
-  --accent-dim: #6d2060;
-  --accent-light: #f4b0d8;
-  --code-bg: #2a1535;
-  --code-border: #4d2055;
-  --table-head-bg: #231528;
-  --card-value-total: #f5e6f8;
-  --shadow: rgba(0, 0, 0, 0.4);
+/* ── TEMA ROSE — paleta rosa profesional (claro) ────────────────────── */
+:root[data-theme="rose"] {
+  --bg-base: #fdf2f8;
+  --bg-surface: #ffffff;
+  --bg-sidebar: #fdf4f9;
+  --bg-hover: #fce7f3;
+  --bg-accent-soft: #fce7f3;
+  --border: #fbcfe8;
+  --border-subtle: #f9a8d4;
+  --text-primary: #1f2937;
+  --text-secondary: #4b5563;
+  --text-muted: #9d6e8a;
+  --text-disabled: #d1b3c4;
+  --accent: #db2777;
+  --accent-hover: #be185d;
+  --accent-dim: #fce7f3;
+  --accent-light: #db2777;
+  --code-bg: #fdf2f8;
+  --code-border: #fbcfe8;
+  --table-head-bg: #fdf4f9;
+  --card-value-total: #1f2937;
+  --shadow: rgba(219, 39, 119, 0.08);
 
-  --pill-atrasado-bg: #450a0a; --pill-atrasado-fg: #fca5a5; --pill-atrasado-br: #7f1d1d;
-  --pill-parahoy-bg:  #451a03; --pill-parahoy-fg:  #fcd34d; --pill-parahoy-br:  #78350f;
-  --pill-entiempo-bg: #052e16; --pill-entiempo-fg: #6ee7b7; --pill-entiempo-br: #14532d;
-  --pill-aprobada-bg: #4a1040; --pill-aprobada-fg: #f4b0d8; --pill-aprobada-br: #8b2060;
-  --pill-skip-bg:     #2c1b30; --pill-skip-fg:     #8f6ea0; --pill-skip-br:     #4d2055;
+  --health-on-track-bg:  #bbf7d080;
+  --health-in-risk-bg:   #fef08a80;
+  --health-off-track-bg: #fecaca80;
+  --health-neutral-bg:   #fce7f380;
+
+  --pill-atrasado-bg: #fee2e2; --pill-atrasado-fg: #991b1b; --pill-atrasado-br: #fca5a5;
+  --pill-parahoy-bg:  #fef3c7; --pill-parahoy-fg:  #92400e; --pill-parahoy-br:  #fcd34d;
+  --pill-entiempo-bg: #d1fae5; --pill-entiempo-fg: #065f46; --pill-entiempo-br: #6ee7b7;
+  --pill-aprobada-bg: #fce7f3; --pill-aprobada-fg: #9d174d; --pill-aprobada-br: #f9a8d4;
+  --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #6b7280; --pill-skip-br:     #d1d5db;
 }
 
 html,

@@ -123,16 +123,16 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
               <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
                 {r.spi !== null
                   ? <EvmCard label="Cronograma (SPI)" value={r.spi.toFixed(2)} sub={r.spi >= 1 ? "On Track" : "Detrás"} color={evmColor(r.spi)} bg={evmBg(r.spi)} />
-                  : <EvmCard label="Cronograma (SPI)" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
+                  : <EvmCard label="Cronograma (SPI)" value="—" sub="Sin datos" color="#6b7280" bg="var(--health-neutral-bg)" />}
                 {r.cpi !== null
                   ? <EvmCard label="Costo (CPI)" value={r.cpi.toFixed(2)} sub={r.cpi >= 1 ? "On Track" : "Detrás"} color={evmColor(r.cpi)} bg={evmBg(r.cpi)} />
-                  : <EvmCard label="Costo (CPI)" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
+                  : <EvmCard label="Costo (CPI)" value="—" sub="Sin datos" color="#6b7280" bg="var(--health-neutral-bg)" />}
                 {r.scope !== null
                   ? <EvmCard label="Alcance" value={r.scope.toFixed(2)} sub={`${(r.scope * 100).toFixed(0)}% completo`} color={evmColor(r.scope >= 0.8 ? 1 : r.scope >= 0.4 ? 0.9 : 0)} bg={evmBg(r.scope >= 0.8 ? 1 : r.scope >= 0.4 ? 0.9 : 0)} />
-                  : <EvmCard label="Alcance" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
+                  : <EvmCard label="Alcance" value="—" sub="Sin datos" color="#6b7280" bg="var(--health-neutral-bg)" />}
                 {r.vem !== null
                   ? (() => { const c = vemCfg(r.vem as number); return <EvmCard label="EVM" value={(r.vem as number).toFixed(2)} sub={`${c.icon} ${c.label}`} color={c.color} bg={c.bg} />; })()
-                  : <EvmCard label="EVM" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
+                  : <EvmCard label="EVM" value="—" sub="Sin datos" color="#6b7280" bg="var(--health-neutral-bg)" />}
               </div>
             </div>
           </div>
