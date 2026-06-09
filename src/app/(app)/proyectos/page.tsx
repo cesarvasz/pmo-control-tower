@@ -29,22 +29,22 @@ function estadoPill(status: string, estado: string): [string, string] {
 }
 
 function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number } {
-  let evCost = 0, evBenefit = 0, pvCost = 0, pvBenefit = 0, ac = 0;
+  let ev = 0, pv = 0, ac = 0;
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
     const pvWip      = r.status === "Working on it";
-    if (r.status === "Done" || onTrackWip) { evCost += r.cost; evBenefit += r.benefit; }
-    if (r.status === "Done" || pvWip)      { pvCost += r.cost; pvBenefit += r.benefit; }
-    if (r.status === "Done")               { ac += r.cost; }
+    if (r.status === "Done" || onTrackWip) ev++;
+    if (r.status === "Done" || pvWip)      pv++;
+    if (r.status === "Done")               ac += r.cost;
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
-      if (s.status === "Done" || sOnTrackWip) { evCost += s.cost; evBenefit += s.benefit; }
-      if (s.status === "Done" || sPvWip)      { pvCost += s.cost; pvBenefit += s.benefit; }
-      if (s.status === "Done")                { ac += s.cost; }
+      if (s.status === "Done" || sOnTrackWip) ev++;
+      if (s.status === "Done" || sPvWip)      pv++;
+      if (s.status === "Done")                ac += s.cost;
     });
   });
-  return { ev: evBenefit - evCost, pv: pvBenefit - pvCost, ac };
+  return { ev, pv, ac };
 }
 
 export default function ProyectosPage() {
@@ -232,13 +232,13 @@ function BoardAccordion({ board, items, ev, pv, ac, open, onToggle }: { board: P
               <div>
                 <div className="mb-0.5 text-[0.68rem] uppercase tracking-wide text-[var(--text-muted)]">EV</div>
                 <div className="text-[0.95rem] font-bold tabular-nums" style={{ color: "#10b981" }}>
-                  {ev ? fmtMoney(ev) : "$0"}
+                  {ev}
                 </div>
               </div>
               <div>
                 <div className="mb-0.5 text-[0.68rem] uppercase tracking-wide text-[var(--text-muted)]">PV</div>
                 <div className="text-[0.95rem] font-bold tabular-nums" style={{ color: "#f59e0b" }}>
-                  {pv ? fmtMoney(pv) : "$0"}
+                  {pv}
                 </div>
               </div>
               <div>
