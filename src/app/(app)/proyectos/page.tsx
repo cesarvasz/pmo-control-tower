@@ -289,28 +289,35 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
         </div>
       )}
 
-    <div className="mb-2 overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
+    <div className="mb-3 overflow-hidden rounded-xl border-2" style={{ borderColor: badge?.color ?? "var(--border)" }}>
+      {/* ── Board header ── */}
       <div
         onClick={onToggle}
-        className="flex cursor-pointer select-none items-center gap-2.5 px-4 py-3 transition-colors hover:bg-[var(--bg-hover)]"
+        className="flex cursor-pointer select-none items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[var(--bg-hover)]"
         style={{ background: "var(--bg-surface)" }}
       >
-        <span className="text-[0.8rem] text-[var(--text-muted)] transition-transform" style={{ transform: open ? "rotate(90deg)" : undefined }}>▶</span>
-        <h2 className="flex-1 text-[0.98rem] font-bold text-[var(--text-primary)]">{board.name}</h2>
-        {board.pm && <span className="text-[0.78rem] text-[var(--text-secondary)]">PM: <strong>{board.pm}</strong></span>}
-        <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{items.length} items</span>
+        <span
+          className="text-[0.72rem] text-[var(--text-muted)]"
+          style={{ display: "inline-block", transition: "transform 0.15s", transform: open ? "rotate(90deg)" : undefined }}
+        >▶</span>
+        <h2 className="flex-1 text-[0.95rem] font-bold text-[var(--text-primary)]">{board.name}</h2>
+        {board.pm && <span className="text-[0.75rem] text-[var(--text-secondary)]">PM: <strong>{board.pm}</strong></span>}
+        <span className="rounded-full px-2 py-0.5 text-[0.7rem]" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+          {items.length} items
+        </span>
         {badge && (
           <button
             onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
-            className="rounded-full px-3 py-0.5 text-[0.68rem] font-bold"
-            style={{ color: badge.color, background: badge.bg, cursor: "pointer" }}
+            className="rounded-full px-2.5 py-0.5 text-[0.7rem] font-bold"
+            style={{ color: badge.color, background: badge.bg }}
           >
             {badge.label}
           </button>
         )}
       </div>
+
       {open && (
-        <div className="table-wrap" style={{ margin: 0, borderRadius: 0, borderLeft: 0, borderRight: 0, borderBottom: 0 }}>
+        <div className="table-wrap" style={{ margin: 0, borderRadius: 0, border: 0 }}>
           <table className="pmo">
             <thead>
               <tr>
@@ -324,20 +331,27 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
                 const gOpen = openGroups.has(grupo);
                 return (
                   <React.Fragment key={grupo}>
-                    <tr
-                      onClick={() => toggleGroup(grupo)}
-                      className="cursor-pointer select-none"
-                      style={{ background: "var(--bg-header)" }}
-                    >
-                      <td colSpan={6} style={{ padding: "6px 14px" }}>
-                        <span
-                          className="mr-2 inline-block text-[0.65rem] text-[var(--text-muted)] transition-transform"
-                          style={{ transform: gOpen ? "rotate(90deg)" : undefined }}
-                        >▶</span>
-                        <span className="text-[0.8rem] font-semibold tracking-wide" style={{ color: "var(--text-secondary)" }}>
-                          {grupo || "Sin grupo"}
-                        </span>
-                        <span className="ml-2 text-[0.68rem] text-[var(--text-muted)]">({gItems.length})</span>
+                    {/* ── Group header row ── */}
+                    <tr onClick={() => toggleGroup(grupo)} className="cursor-pointer select-none">
+                      <td colSpan={6} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
+                        <div
+                          className="flex items-center gap-2 px-4 py-2"
+                          style={{ background: "var(--bg-hover)", borderLeft: "3px solid var(--accent)" }}
+                        >
+                          <span
+                            className="text-[0.58rem]"
+                            style={{ display: "inline-block", transition: "transform 0.15s", transform: gOpen ? "rotate(90deg)" : undefined, color: "var(--accent)" }}
+                          >▶</span>
+                          <span className="text-[0.72rem] font-bold uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>
+                            {grupo || "Sin grupo"}
+                          </span>
+                          <span
+                            className="ml-auto rounded-full px-2 py-px text-[0.63rem]"
+                            style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                          >
+                            {gItems.length}
+                          </span>
+                        </div>
                       </td>
                     </tr>
                     {gOpen && gItems.map((r) => {
@@ -361,20 +375,30 @@ function Row({ r, ecls, elbl }: { r: ProjItem; ecls: string; elbl: string }) {
   const activeSubitems = r.subitems;
   const hasSubitems = activeSubitems.length > 0;
 
+  const SUB_BG = "var(--bg-hover)";
+
   return (
     <>
+      {/* ── Item row ── */}
       <tr
         onClick={hasSubitems ? () => setOpen((o) => !o) : undefined}
-        style={hasSubitems ? { cursor: "pointer" } : undefined}
+        style={{ cursor: hasSubitems ? "pointer" : undefined }}
       >
-        <td className="ini-name" style={{ paddingLeft: 24 }}>
-          {hasSubitems && (
-            <span
-              className="mr-1.5 inline-block text-[0.65rem] text-[var(--text-muted)] transition-transform"
-              style={{ transform: open ? "rotate(90deg)" : undefined }}
-            >▶</span>
-          )}
+        <td className="ini-name" style={{ paddingLeft: 16 }}>
+          <span
+            className="mr-1.5 inline-block text-[0.6rem] transition-transform"
+            style={{
+              color: hasSubitems ? "var(--text-muted)" : "transparent",
+              transform: open ? "rotate(90deg)" : undefined,
+              userSelect: "none",
+            }}
+          >▶</span>
           {r.name}
+          {hasSubitems && (
+            <span className="ml-2 rounded-full px-1.5 py-px text-[0.6rem]" style={{ background: "var(--bg-hover)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+              {activeSubitems.length}
+            </span>
+          )}
         </td>
         <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.status || "—"}</td>
         <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
@@ -382,15 +406,32 @@ function Row({ r, ecls, elbl }: { r: ProjItem; ecls: string; elbl: string }) {
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
       </tr>
-      {open && activeSubitems.map((s) => {
+      {/* ── Subitem rows ── */}
+      {open && activeSubitems.map((s, i) => {
         const [secls, selbl] = estadoPill(s.status, s.estado);
+        const isLast = i === activeSubitems.length - 1;
         return (
-          <tr key={s.id} style={{ background: "var(--bg-hover)" }}>
-            <td className="ini-name" style={{ paddingLeft: 44, color: "var(--text-muted)", fontSize: ".78rem" }}>↳ {s.name}</td>
-            <td style={{ fontSize: ".72rem", color: "var(--text-muted)" }}>{s.status || "—"}</td>
-            <td><span className={`pill ${secls}`} style={{ fontSize: ".65rem" }}>{selbl}</span></td>
-            <td>{dlCell(s.deadline)}</td>
-            <td>—</td><td>—</td>
+          <tr key={s.id}>
+            <td
+              className="ini-name"
+              style={{
+                paddingLeft: 34,
+                fontSize: ".78rem",
+                color: "var(--text-secondary)",
+                background: SUB_BG,
+                borderLeft: "3px solid var(--border-subtle)",
+              }}
+            >
+              <span style={{ color: "var(--text-disabled)", marginRight: 5, fontFamily: "monospace" }}>
+                {isLast ? "└─" : "├─"}
+              </span>
+              {s.name}
+            </td>
+            <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.status || "—"}</td>
+            <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
+            <td style={{ background: SUB_BG }}>{dlCell(s.deadline)}</td>
+            <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
+            <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
           </tr>
         );
       })}
