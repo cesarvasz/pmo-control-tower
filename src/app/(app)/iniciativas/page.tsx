@@ -138,7 +138,7 @@ function IniciativasInner() {
 
 const HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
   "on-track": { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
-  "at-risk":  { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
+  "in-risk":  { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
   "off-track":{ color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
 };
 
