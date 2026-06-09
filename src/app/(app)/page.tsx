@@ -258,11 +258,16 @@ function PMPortfolioCard({
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section label={`Proyectos (${pmProjBoards.length})`} has={projHas} onClick={onGoProj}>
-          <div className="flex flex-wrap gap-2 pt-0.5">
+          <div className="flex flex-col gap-1.5 pt-0.5">
             {pmProjBoards.map((b) => {
               const hs = boardHealthMap.get(b.id)?.healthStatus;
               const color = hs ? PROJ_HEALTH_COLOR[hs] : "#6b7280";
-              return <span key={b.id} className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: color }} title={b.name} />;
+              return (
+                <div key={b.id} className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+                  <span className="text-[0.75rem] font-mono text-[var(--text-secondary)]" title={b.name}>{b.id}</span>
+                </div>
+              );
             })}
           </div>
         </Section>
