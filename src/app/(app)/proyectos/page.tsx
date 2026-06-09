@@ -175,10 +175,19 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
   const cpiColor   = cpi   === null ? "var(--text-muted)" : cpi   >= 1 ? "#10b981" : cpi   >= 0.85 ? "#f59e0b" : "#ef4444";
   const scopeColor = scope === null ? "var(--text-muted)" : scope >= 100 ? "#10b981" : scope >= 85 ? "#f59e0b" : "#ef4444";
 
-  const isOffTrack = items.some(
-    (r) => (r.status === "Working on it" && r.estado === "ATRASADO") ||
-      r.subitems.some((s) => s.status === "Working on it" && s.estado === "ATRASADO")
-  );
+  const healthIndex = (spi !== null && cpi !== null && scope !== null)
+    ? (spi + cpi + scope / 100) / 3
+    : null;
+  const healthStatus = healthIndex === null ? null
+    : healthIndex >= 0.95 ? "on-track"
+    : healthIndex >= 0.85 ? "in-risk"
+    : "off-track";
+  const HEALTH_BADGE = {
+    "on-track":  { color: "#10b981", bg: "#052e1688", label: "✓ On Track" },
+    "in-risk":   { color: "#f59e0b", bg: "#451a0388", label: "⚠ In Risk" },
+    "off-track": { color: "#ef4444", bg: "#450a0a88", label: "✕ Off Track" },
+  };
+  const badge = healthStatus ? HEALTH_BADGE[healthStatus] : null;
 
   const toggleGroup = (g: string) =>
     setOpenGroups((s) => { const n = new Set(s); n.has(g) ? n.delete(g) : n.add(g); return n; });
@@ -213,6 +222,16 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
                 className="rounded-lg px-2 py-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
               >✕</button>
             </div>
+
+            {healthIndex !== null && badge && (
+              <div className="mb-5 rounded-xl p-4 text-center" style={{ background: "var(--bg-hover)" }}>
+                <div className="mb-1 text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">Health Index</div>
+                <div className="text-[2.8rem] font-bold tabular-nums leading-none" style={{ color: badge.color }}>
+                  {healthIndex.toFixed(2)}
+                </div>
+                <div className="mt-1.5 text-[0.8rem] font-semibold" style={{ color: badge.color }}>{badge.label}</div>
+              </div>
+            )}
 
             <div className="mb-5 grid grid-cols-3 gap-4 text-center">
               <div>
@@ -269,13 +288,15 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
         <h2 className="flex-1 text-[0.98rem] font-bold text-[var(--text-primary)]">{board.name}</h2>
         {board.pm && <span className="text-[0.78rem] text-[var(--text-secondary)]">PM: <strong>{board.pm}</strong></span>}
         <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{items.length} items</span>
-        <button
-          onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
-          className={`pill ${isOffTrack ? "pill-atrasado" : "pill-entiempo"}`}
-          style={{ fontSize: ".68rem", cursor: "pointer" }}
-        >
-          {isOffTrack ? "✕ Off Track" : "✓ On Track"}
-        </button>
+        {badge && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
+            className="rounded-full px-3 py-0.5 text-[0.68rem] font-bold"
+            style={{ color: badge.color, background: badge.bg, cursor: "pointer" }}
+          >
+            {badge.label}
+          </button>
+        )}
       </div>
       {open && (
         <div className="table-wrap" style={{ margin: 0, borderRadius: 0, borderLeft: 0, borderRight: 0, borderBottom: 0 }}>
