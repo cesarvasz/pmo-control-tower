@@ -219,6 +219,9 @@ function PMPortfolioCard({
   const hc = HEALTH_CFG[health];
   const ihc = INI_HEALTH_CFG[iniHealth.status];
 
+  const pmEvmParts = ([iniHealth.index, reqAvgVem, pmProjAvgHI] as (number | null)[]).filter((v): v is number => v != null);
+  const pmEvmPct = pmEvmParts.length > 0 ? Math.round(pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length * 100) : null;
+
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
       <div className="flex items-center justify-between border-b px-[18px] py-3.5" style={{ borderColor: "var(--border)" }}>
@@ -226,7 +229,7 @@ function PMPortfolioCard({
           <span className="text-[0.95rem] font-bold text-[var(--text-primary)]">{pmLabel(pm)}</span>
           <div className="mt-0.5 text-[0.75rem] text-[var(--text-muted)]">PM · {pm}</div>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}</span>
+        <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}{pmEvmPct !== null ? ` · ${pmEvmPct}%` : ""}</span>
       </div>
       <div className="flex">
         <Section
