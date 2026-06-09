@@ -303,7 +303,7 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
 // ─────────────────────────────────────────────────────────────────────
 // PROYECTOS (multi-board)
 // ─────────────────────────────────────────────────────────────────────
-export const PROJ_ACTIVE_STS = new Set(["Working on it", "Future Steps"]);
+export const PROJ_ACTIVE_STS = new Set(["Working on it", "Future Steps", "Done"]);
 
 export const PROJ_COL = {
   pm: "PM", resp: "Resp", status: "Status",
@@ -335,6 +335,8 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
         status: colByTitle(scv, PROJ_COL.status),
         person: "",
         deadline: sdl, estado: calcProjEstado(sdl),
+        cost: parseFloat(colByTitle(scv, PROJ_COL.cost)) || 0,
+        benefit: parseFloat(colByTitle(scv, PROJ_COL.benefit)) || 0,
       };
     });
 

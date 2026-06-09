@@ -115,9 +115,8 @@ export default function ControlTowerPage() {
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
         <GlobalBlock title="Proyectos" onClick={() => router.push("/proyectos")} stats={[
           [`${G.projTotal} total`, "var(--text-primary)"],
-          [`${G.projAtrasado} atrasados`, "#ef4444"],
-          [`${G.projParaHoy} para hoy`, "#f59e0b"],
-          [`${G.projEnTiempo} en tiempo`, "#10b981"],
+          [`${G.projAtrasado} off track`, "#ef4444"],
+          [`${G.projParaHoy + G.projEnTiempo} on track`, "#10b981"],
         ]} />
       </div>
 
@@ -243,16 +242,14 @@ function PMPortfolioCard({
           {pmProjBoards.map((b) => {
             const bItems = proj.filter((r) => r.boardId === b.id && PROJ_ACTIVE_STS.has(r.status));
             const bAtr = bItems.filter((r) => r.estado === "ATRASADO").length;
-            const bPh = bItems.filter((r) => r.estado === "PARA HOY").length;
-            const bEt = bItems.filter((r) => r.estado === "EN TIEMPO").length;
+            const bOn = bItems.filter((r) => r.estado === "EN TIEMPO" || r.estado === "PARA HOY").length;
             return (
               <div key={b.id} className="flex items-center gap-1.5 border-b py-[3px]" style={{ borderColor: "var(--border)" }}>
                 <span className="font-mono text-[0.75rem] font-bold text-[var(--text-primary)]" title={b.name}>{b.name.slice(0, 6)}</span>
                 <span className="flex items-center gap-1.5">
                   {bAtr > 0 && <span style={{ color: "#ef4444", fontWeight: 700, fontSize: ".72rem" }}>{bAtr}✕</span>}
-                  {bPh > 0 && <span style={{ color: "#f59e0b", fontWeight: 700, fontSize: ".72rem" }}>{bPh}⚠</span>}
-                  {bEt > 0 && <span style={{ color: "#10b981", fontWeight: 700, fontSize: ".72rem" }}>{bEt}✓</span>}
-                  {bAtr + bPh + bEt === 0 && <span className="text-[var(--text-disabled)] text-[.72rem]">—</span>}
+                  {bOn > 0 && <span style={{ color: "#10b981", fontWeight: 700, fontSize: ".72rem" }}>{bOn}✓</span>}
+                  {bAtr + bOn === 0 && <span className="text-[var(--text-disabled)] text-[.72rem]">—</span>}
                 </span>
               </div>
             );

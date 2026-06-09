@@ -102,6 +102,8 @@ export interface ProjSubitem {
   person: string;
   deadline: Date | null;
   estado: string;
+  cost: number;
+  benefit: number;
 }
 
 export interface ProjItem {
