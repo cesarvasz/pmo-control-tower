@@ -209,6 +209,10 @@ function PMPortfolioCard({
   const pmProjBoards = projBoards
     .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null);
   const projHas = pmProjBoards.length > 0;
+  const pmProjHIs = pmProjBoards.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
+  const pmProjAvgHI = pmProjHIs.length > 0 ? pmProjHIs.reduce((a, b) => a + b, 0) / pmProjHIs.length : null;
+  const pmProjStatus = pmProjAvgHI === null ? null : pmProjAvgHI >= 0.95 ? "on-track" : pmProjAvgHI >= 0.85 ? "in-risk" : "off-track";
+  const ppc = pmProjStatus ? HEALTH_CFG[pmProjStatus] : null;
 
   const totalAtr = iniHealth.atrasadas + rAtr;
   const health = totalAtr === 0 ? "on-track" : totalAtr <= 2 ? "in-risk" : "off-track";
@@ -231,7 +235,7 @@ function PMPortfolioCard({
           onClick={onGoIni}
           badge={
             <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ihc.color, background: ihc.bg }}>
-              {ihc.icon} {Math.round(iniHealth.index * 100)}%
+              {ihc.icon} {ihc.label} · {Math.round(iniHealth.index * 100)}%
             </span>
           }
         >
@@ -247,7 +251,7 @@ function PMPortfolioCard({
           onClick={onGoReq}
           badge={rvc ? (
             <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: rvc.color, background: rvc.bg }}>
-              {rvc.icon} {Math.round((reqAvgVem as number) * 100)}%
+              {rvc.icon} {rvc.label} · {Math.round((reqAvgVem as number) * 100)}%
             </span>
           ) : undefined}
         >
@@ -257,7 +261,11 @@ function PMPortfolioCard({
           <Stat n={reqEnTiempoN} color="#10b981" label="en tiempo" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-        <Section label={`Proyectos (${pmProjBoards.length})`} has={projHas} onClick={onGoProj}>
+        <Section label={`Proyectos (${pmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (
+            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ppc.color, background: ppc.bg }}>
+              {ppc.icon} {ppc.label} · {Math.round(pmProjAvgHI * 100)}%
+            </span>
+          ) : undefined}>
           <div className="flex flex-col gap-1.5 pt-0.5">
             {pmProjBoards.map((b) => {
               const hs = boardHealthMap.get(b.id)?.healthStatus;
