@@ -152,7 +152,7 @@ function PMHealth({ projBoards, boardHealthMap, selectedPm, onSelect }: {
           >
             <div className="text-[0.9rem] font-semibold text-[var(--text-primary)]">{pm}</div>
             <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>
-              {c.icon} {c.label}
+              {c.icon} {c.label}{pmHI !== null ? ` · ${Math.round(pmHI * 100)}%` : ""}
             </span>
             <div className="text-[0.75rem] font-medium text-[var(--text-primary)]">
               {pmBoards.length} proyecto{pmBoards.length !== 1 ? "s" : ""}

@@ -169,10 +169,7 @@ function PMHealth({ iniData, calMap, selectedPm, onSelect }: {
                 <div className="text-[0.65rem] text-[var(--text-muted)]">total</div>
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>{c.icon} {c.label}</span>
-              <div className="text-[0.85rem] font-bold" style={{ color: c.color }}>{Math.round(h.index * 100)}%</div>
-            </div>
+            <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>{c.icon} {c.label} · {Math.round(h.index * 100)}%</span>
             <div className="text-[0.75rem] text-[var(--text-muted)]">
               {h.enTiempo} en tiempo · {h.atrasadas} atrasadas · {h.sinMeeting} sin agendar
             </div>

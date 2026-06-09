@@ -153,10 +153,7 @@ function ReqInner() {
                   <div className="text-[0.65rem] text-[var(--text-muted)]">total</div>
                 </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: cfg.color, background: cfg.bg }}>{cfg.icon} {cfg.label}</span>
-                {avg !== null && <div className="text-[0.85rem] font-bold" style={{ color: cfg.color }}>{Math.round(avg * 100)}%</div>}
-              </div>
+              <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: cfg.color, background: cfg.bg }}>{cfg.icon} {cfg.label}{avg !== null ? ` · ${Math.round(avg * 100)}%` : ""}</span>
               <div className="text-[0.75rem] text-[var(--text-muted)]">
                 {enTiempo} en tiempo · {paraHoy} para hoy · {atrasados} atrasada{atrasados !== 1 ? "s" : ""}
               </div>
