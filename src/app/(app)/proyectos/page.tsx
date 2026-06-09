@@ -289,7 +289,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
         </div>
       )}
 
-    <div className="mb-3 overflow-hidden rounded-xl border-2" style={{ borderColor: badge?.color ?? "var(--border)" }}>
+    <div className="mb-3 overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
       {/* ── Board header ── */}
       <div
         onClick={onToggle}
