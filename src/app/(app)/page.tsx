@@ -265,7 +265,7 @@ function PMPortfolioCard({
               return (
                 <div key={b.id} className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
-                  <span className="text-[0.75rem] font-mono text-[var(--text-secondary)]" title={b.name}>{b.id}</span>
+                  <span className="text-[0.75rem] font-mono text-[var(--text-secondary)]" title={b.name}>{b.name.slice(0, 6)}</span>
                 </div>
               );
             })}
