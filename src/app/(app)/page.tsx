@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, INI_ACTIVE_STS, iniIsParaHoy, REQ_ACTIVE_GRUPOS } from "@/lib/process";
-import type { BoardHealthData } from "@/lib/process";
+import type { BoardHealthData, HealthStatus } from "@/lib/process";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 
@@ -74,7 +74,7 @@ export default function ControlTowerPage() {
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
   const hColor = vemPct === null ? "#6b7280" : vemPct >= 95 ? "#10b981" : vemPct >= 85 ? "#f59e0b" : "#ef4444";
   const hBg    = vemPct === null ? "#1f293788" : vemPct >= 95 ? "#052e1688" : vemPct >= 85 ? "#451a0388" : "#450a0a88";
-  const hLabel = vemPct === null ? "Sin datos" : vemPct >= 95 ? "Saludable" : vemPct >= 85 ? "En Riesgo" : "Crítico";
+  const hLabel = vemPct === null ? "Sin datos" : vemPct >= 95 ? "On Track" : vemPct >= 85 ? "In Risk" : "Off Track";
   const hIcon  = vemPct === null ? "—" : vemPct >= 95 ? "✓" : vemPct >= 85 ? "⚠" : "✕";
 
   const G = {
@@ -214,13 +214,13 @@ function PMPortfolioCard({
   const pmProjStatus = pmProjAvgHI === null ? null : pmProjAvgHI >= 0.95 ? "on-track" : pmProjAvgHI >= 0.85 ? "in-risk" : "off-track";
   const ppc = pmProjStatus ? HEALTH_CFG[pmProjStatus] : null;
 
-  const totalAtr = iniHealth.atrasadas + rAtr;
-  const health = totalAtr === 0 ? "on-track" : totalAtr <= 2 ? "in-risk" : "off-track";
-  const hc = HEALTH_CFG[health];
   const ihc = INI_HEALTH_CFG[iniHealth.status];
 
   const pmEvmParts = ([iniHealth.index, reqAvgVem, pmProjAvgHI] as (number | null)[]).filter((v): v is number => v != null);
-  const pmEvmPct = pmEvmParts.length > 0 ? Math.round(pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length * 100) : null;
+  const pmEvmRaw = pmEvmParts.length > 0 ? pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length : null;
+  const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
+  const pmHealth: HealthStatus = pmEvmRaw === null ? "on-track" : pmEvmRaw >= 0.95 ? "on-track" : pmEvmRaw >= 0.85 ? "in-risk" : "off-track";
+  const hc = HEALTH_CFG[pmHealth];
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
