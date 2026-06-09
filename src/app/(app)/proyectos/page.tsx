@@ -8,6 +8,7 @@ import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth } from "@/lib/proc
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
 import type { ProjBoard, ProjItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
+import ProjectReportModal from "@/components/ProjectReportModal";
 import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/ui";
 
 const HEALTH_CFG = {
@@ -179,6 +180,7 @@ function dlCell(dl: Date | null) {
 
 function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; open: boolean; onToggle: () => void }) {
   const [showModal, setShowModal] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const spi = pv > 0 ? ev / pv : null;
   const cpi = ac > 0 ? Math.min(1, ev / ac) : null;
@@ -212,6 +214,17 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
 
   return (
     <>
+      {showReport && (
+        <ProjectReportModal
+          board={board}
+          items={items}
+          ev={ev}
+          pv={pv}
+          ac={ac}
+          scope={scope}
+          onClose={() => setShowReport(false)}
+        />
+      )}
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
@@ -314,6 +327,13 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
             {badge.label}
           </button>
         )}
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowReport(true); }}
+          className="rounded-full border px-2.5 py-0.5 text-[0.7rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
+          style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+        >
+          Report
+        </button>
       </div>
 
       {open && (
