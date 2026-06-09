@@ -9,11 +9,33 @@ import type { ProjBoard, ProjItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
 import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/ui";
 
-const HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
-  "on-track": { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
-  "at-risk": { color: "#f59e0b", bg: "#451a0388", label: "At Risk", icon: "⚠" },
+const HEALTH_CFG = {
+  "on-track":  { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
+  "in-risk":   { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
   "off-track": { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
+} as const;
+
+type HealthStatus = keyof typeof HEALTH_CFG;
+
+type BoardHealthData = {
+  ev: number; pv: number; ac: number; scope: number | null;
+  spi: number | null; cpi: number | null;
+  healthIndex: number | null;
+  healthStatus: HealthStatus | null;
 };
+
+function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null }): BoardHealthData {
+  const spi = metrics.pv > 0 ? metrics.ev / metrics.pv : null;
+  const cpi = metrics.ac > 0 ? Math.min(1, metrics.ev / metrics.ac) : null;
+  const healthIndex = spi !== null && cpi !== null && metrics.scope !== null
+    ? (spi + cpi + metrics.scope / 100) / 3
+    : null;
+  const healthStatus: HealthStatus | null = healthIndex === null ? null
+    : healthIndex >= 0.95 ? "on-track"
+    : healthIndex >= 0.85 ? "in-risk"
+    : "off-track";
+  return { ...metrics, spi, cpi, healthIndex, healthStatus };
+}
 
 function estadoPill(status: string, estado: string): [string, string] {
   if (status === "Working on it") {
@@ -72,9 +94,13 @@ function ProyectosInner() {
   const projData = data.proj;
   const projBoards = data.projBoards;
 
-  const active = projData.filter((r) => PROJ_ACTIVE_STS.has(r.status));
-  const atr = active.filter((r) => r.estado === "ATRASADO").length;
-  const onTrack = active.filter((r) => r.estado === "EN TIEMPO" || r.estado === "PARA HOY").length;
+  const boardHealthMap = new Map<string, BoardHealthData>();
+  projBoards.forEach((b) => {
+    boardHealthMap.set(b.id, deriveBoardHealth(calcBoardMetrics(projData.filter((r) => r.boardId === b.id))));
+  });
+  const boardsOffTrack = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
+  const boardsInRisk   = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;
+  const boardsOnTrack  = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "on-track").length;
 
   const toggleAcc = (id: string) =>
     setOpenBoards((s) => {
@@ -97,14 +123,15 @@ function ProyectosInner() {
   return (
     <div>
       {/* Cards */}
-      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard value={projBoards.length} label="Total Proyectos" />
-        <StatCard value={atr} label="Off Track" color="#ef4444" borderColor="#ef4444" />
-        <StatCard value={onTrack} label="On Track" color="#10b981" borderColor="#10b981" />
+        <StatCard value={boardsOffTrack} label="Off Track" color="#ef4444" borderColor="#ef4444" />
+        <StatCard value={boardsInRisk}   label="In Risk"   color="#f59e0b" borderColor="#f59e0b" />
+        <StatCard value={boardsOnTrack}  label="On Track"  color="#10b981" borderColor="#10b981" />
       </div>
 
       {/* PM Health */}
-      <PMHealth projBoards={projBoards} projData={projData} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
+      <PMHealth projBoards={projBoards} boardHealthMap={boardHealthMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Filtro de proyecto */}
       <div className="mb-3.5 flex flex-wrap items-end gap-3.5">
@@ -118,8 +145,8 @@ function ProyectosInner() {
           .map((b) => {
             const items = byPM.filter((r) => r.boardId === b.id);
             if (!items.length) return null;
-            const { ev, pv, ac, scope } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id));
-            return <BoardAccordion key={b.id} board={b} items={items} ev={ev} pv={pv} ac={ac} scope={scope} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
+            const bh = boardHealthMap.get(b.id)!;
+            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -129,28 +156,50 @@ function ProyectosInner() {
 }
 
 // ── PM Health ──────────────────────────────────────────────────────────
-function PMHealth({ projBoards, projData, selectedPm, onSelect }: { projBoards: ProjBoard[]; projData: ProjItem[]; selectedPm: string | null; onSelect: (pm: string) => void }) {
+function PMHealth({ projBoards, boardHealthMap, selectedPm, onSelect }: {
+  projBoards: ProjBoard[];
+  boardHealthMap: Map<string, BoardHealthData>;
+  selectedPm: string | null;
+  onSelect: (pm: string) => void;
+}) {
   const pms = [...new Set(projBoards.filter((b) => b.pm).map((b) => b.pm))].sort();
   return (
     <div className="mb-7 flex flex-wrap gap-4">
       {pms.map((pm) => {
         const pmBoards = projBoards.filter((b) => b.pm === pm);
-        const ids = new Set(pmBoards.map((b) => b.id));
-        const items = projData.filter((r) => ids.has(r.boardId) && PROJ_ACTIVE_STS.has(r.status));
-        const atr = items.filter((r) => r.estado === "ATRASADO").length;
-        const status = atr === 0 ? "on-track" : atr <= 2 ? "at-risk" : "off-track";
-        const c = HEALTH_CFG[status];
-        const active = selectedPm === pm;
+        const boardsData = pmBoards.map((b) => boardHealthMap.get(b.id));
+        const onTrack  = boardsData.filter((h) => h?.healthStatus === "on-track").length;
+        const inRisk   = boardsData.filter((h) => h?.healthStatus === "in-risk").length;
+        const offTrack = boardsData.filter((h) => h?.healthStatus === "off-track").length;
+
+        const hiValues = boardsData.map((h) => h?.healthIndex).filter((v): v is number => v != null);
+        const pmHI = hiValues.length > 0 ? hiValues.reduce((a, b) => a + b, 0) / hiValues.length : null;
+        const pmStatus: HealthStatus = pmHI === null ? "on-track"
+          : pmHI >= 0.95 ? "on-track"
+          : pmHI >= 0.85 ? "in-risk"
+          : "off-track";
+
+        const c = HEALTH_CFG[pmStatus];
+        const isActive = selectedPm === pm;
         return (
           <div
             key={pm}
             onClick={() => onSelect(pm)}
             className="flex min-w-[190px] flex-1 cursor-pointer flex-col gap-1.5 rounded-xl border-2 p-[18px] transition-transform hover:-translate-y-0.5"
-            style={{ background: "var(--bg-surface)", borderColor: c.color, boxShadow: active ? "0 0 0 3px var(--accent)" : undefined }}
+            style={{ background: "var(--bg-surface)", borderColor: c.color, boxShadow: isActive ? "0 0 0 3px var(--accent)" : undefined }}
           >
             <div className="text-[0.9rem] font-semibold text-[var(--text-primary)]">{pm}</div>
-            <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>{c.icon} {c.label}</span>
-            <div className="text-[0.75rem] text-[var(--text-muted)]">{items.length} items · {items.filter((r) => r.estado === "EN TIEMPO" || r.estado === "PARA HOY").length} on track · {pmBoards.length} proyecto{pmBoards.length !== 1 ? "s" : ""}</div>
+            <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>
+              {c.icon} {c.label}
+            </span>
+            <div className="text-[0.75rem] font-medium text-[var(--text-primary)]">
+              {pmBoards.length} proyecto{pmBoards.length !== 1 ? "s" : ""}
+            </div>
+            <div className="flex gap-3 text-[0.72rem] text-[var(--text-muted)]">
+              <span style={{ color: "#10b981" }}>✓ {onTrack} on track</span>
+              {inRisk > 0 && <span style={{ color: "#f59e0b" }}>⚠ {inRisk} in risk</span>}
+              <span style={{ color: "#ef4444" }}>✕ {offTrack} off track</span>
+            </div>
           </div>
         );
       })}
