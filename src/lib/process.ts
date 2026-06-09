@@ -312,7 +312,7 @@ export const PROJ_COL = {
 
 function calcProjEstado(dl: Date | null): string {
   const t = today();
-  if (!dl) return "EN PROCESO";
+  if (!dl) return "ATRASADO";
   return dl < t ? "ATRASADO" : dl.getTime() === t.getTime() ? "PARA HOY" : "EN TIEMPO";
 }
 
@@ -359,31 +359,25 @@ export interface BoardHealthData {
 }
 
 export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null } {
-  let ev = 0, pv = 0, ac = 0, scopeOn = 0, scopeDen = 0;
+  let ev = 0, pv = 0, ac = 0, scopeOn = 0, subTotal = 0;
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
     const pvWip      = r.status === "Working on it";
     if (r.status === "Done" || onTrackWip) ev += r.cost;
     if (r.status === "Done" || pvWip)      pv += r.cost;
     if (r.status === "Done")               ac += r.cost;
-    // Scope: items (On Track + In Risk) / (On Track + In Risk + Off Track)
-    const itemIsOn  = r.status === "Done" || r.estado === "EN TIEMPO" || r.estado === "PARA HOY";
-    const itemIsOff = r.estado === "ATRASADO";
-    if (itemIsOn || itemIsOff) { scopeDen++; if (itemIsOn) scopeOn++; }
-
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
       if (s.status === "Done" || sOnTrackWip) ev += s.cost;
       if (s.status === "Done" || sPvWip)      pv += s.cost;
       if (s.status === "Done")                ac += s.cost;
-      // Scope: subitems misma lógica
-      const isOn  = s.status === "Done" || s.estado === "EN TIEMPO" || s.estado === "PARA HOY";
-      const isOff = s.estado === "ATRASADO";
-      if (isOn || isOff) { scopeDen++; if (isOn) scopeOn++; }
+      // Scope: subitems con deadline en On Track o In Risk / total subitems
+      subTotal++;
+      if (s.deadline !== null && (s.estado === "EN TIEMPO" || s.estado === "PARA HOY")) scopeOn++;
     });
   });
-  return { ev, pv, ac, scope: scopeDen > 0 ? (scopeOn / scopeDen) * 100 : null };
+  return { ev, pv, ac, scope: subTotal > 0 ? (scopeOn / subTotal) * 100 : null };
 }
 
 export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null }): BoardHealthData {
