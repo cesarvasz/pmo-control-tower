@@ -45,6 +45,7 @@ function ProyectosInner() {
   });
   const [boardFilter, setBoardFilter] = useState<string[]>([]);
   const [openBoards, setOpenBoards] = useState<Set<string>>(new Set());
+  const [filterNoDl, setFilterNoDl] = useState(false);
 
   if (loading && !data) return <Loader msg="Cargando portafolios..." />;
   if (error) return <ErrorBox msg={error} />;
@@ -96,10 +97,28 @@ function ProyectosInner() {
       <PMHealth projBoards={projBoards} boardHealthMap={boardHealthMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Filtro de proyecto */}
-      <div className="mb-3.5 flex flex-wrap items-end gap-3.5">
-        <MultiSelect label="Proyecto" options={boardOpts} selected={boardFilter} onToggle={(v, ch) => setBoardFilter((x) => (ch ? [...x, v] : x.filter((y) => y !== v)))} onToggleAll={() => setBoardFilter([])} />
-        {boardFilter.length > 0 && <FilterReset onClick={() => setBoardFilter([])} />}
-      </div>
+      {(() => {
+        const noDlCount = byPM.reduce((acc, r) => acc + r.subitems.filter((s) => s.deadline === null).length, 0);
+        return (
+          <div className="mb-3.5 flex flex-wrap items-end gap-3.5">
+            <MultiSelect label="Proyecto" options={boardOpts} selected={boardFilter} onToggle={(v, ch) => setBoardFilter((x) => (ch ? [...x, v] : x.filter((y) => y !== v)))} onToggleAll={() => setBoardFilter([])} />
+            <button
+              onClick={() => setFilterNoDl((f) => !f)}
+              className="rounded-lg border px-3 py-1.5 text-[0.73rem] font-semibold transition-colors"
+              style={{
+                borderColor: filterNoDl ? "#ef4444" : "var(--border)",
+                color: filterNoDl ? "#ef4444" : "var(--text-secondary)",
+                background: filterNoDl ? "#ef444415" : "transparent",
+              }}
+            >
+              Sin Fecha · {noDlCount}
+            </button>
+            {(boardFilter.length > 0 || filterNoDl) && (
+              <FilterReset onClick={() => { setBoardFilter([]); setFilterNoDl(false); }} />
+            )}
+          </div>
+        );
+      })()}
 
       {/* Acordeones */}
       {(() => {
@@ -108,7 +127,7 @@ function ProyectosInner() {
             const items = byPM.filter((r) => r.boardId === b.id);
             if (!items.length) return null;
             const bh = boardHealthMap.get(b.id)!;
-            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
+            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -171,14 +190,21 @@ function PMHealth({ projBoards, boardHealthMap, selectedPm, onSelect }: {
 }
 
 // ── Acordeón por board ─────────────────────────────────────────────────
-function dlCell(dl: Date | null) {
-  if (!dl) return <span className="text-[var(--text-disabled)]">—</span>;
+function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean }) {
+  if (!dl) {
+    return opts?.redDash
+      ? <span style={{ color: "#ef4444", fontWeight: 600 }}>—</span>
+      : <span className="text-[var(--text-disabled)]">—</span>;
+  }
+  if (opts?.isDone) {
+    return <span style={{ color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
+  }
   const t = new Date(); t.setHours(0, 0, 0, 0);
   const color = dl < t ? "#ef4444" : dl.getTime() === t.getTime() ? "#f59e0b" : "#10b981";
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
 }
 
-function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; open: boolean; onToggle: () => void }) {
+function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle, filterNoDl }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; open: boolean; onToggle: () => void; filterNoDl: boolean }) {
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -347,8 +373,12 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
             </thead>
             <tbody>
               {groupOrder.map((grupo) => {
-                const gItems = groupMap.get(grupo)!;
-                const gOpen = openGroups.has(grupo);
+                const allGItems = groupMap.get(grupo)!;
+                const gItems = filterNoDl
+                  ? allGItems.filter((r) => r.subitems.some((s) => s.deadline === null))
+                  : allGItems;
+                if (filterNoDl && gItems.length === 0) return null;
+                const gOpen = filterNoDl || openGroups.has(grupo);
                 return (
                   <React.Fragment key={grupo}>
                     {/* ── Group header row ── */}
@@ -376,7 +406,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
                     </tr>
                     {gOpen && gItems.map((r) => {
                       const [ecls, elbl] = estadoPill(r.status, r.estado);
-                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} />;
+                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} />;
                     })}
                   </React.Fragment>
                 );
@@ -390,10 +420,12 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
   );
 }
 
-function Row({ r, ecls, elbl }: { r: ProjItem; ecls: string; elbl: string }) {
+function Row({ r, ecls, elbl, filterNoDl }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean }) {
   const [open, setOpen] = useState(false);
-  const activeSubitems = r.subitems;
-  const hasSubitems = activeSubitems.length > 0;
+  const allSubitems = r.subitems;
+  const visibleSubitems = filterNoDl ? allSubitems.filter((s) => s.deadline === null) : allSubitems;
+  const hasSubitems = allSubitems.length > 0;
+  const isOpen = (filterNoDl && visibleSubitems.length > 0) || open;
 
   const SUB_BG = "var(--bg-hover)";
 
@@ -409,27 +441,27 @@ function Row({ r, ecls, elbl }: { r: ProjItem; ecls: string; elbl: string }) {
             className="mr-1.5 inline-block text-[0.6rem] transition-transform"
             style={{
               color: hasSubitems ? "var(--text-muted)" : "transparent",
-              transform: open ? "rotate(90deg)" : undefined,
+              transform: isOpen ? "rotate(90deg)" : undefined,
               userSelect: "none",
             }}
           >▶</span>
           {r.name}
           {hasSubitems && (
             <span className="ml-2 rounded-full px-1.5 py-px text-[0.6rem]" style={{ background: "var(--bg-hover)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
-              {activeSubitems.length}
+              {allSubitems.length}
             </span>
           )}
         </td>
         <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.status || "—"}</td>
         <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
-        <td>{dlCell(r.deadline)}</td>
+        <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
       </tr>
       {/* ── Subitem rows ── */}
-      {open && activeSubitems.map((s, i) => {
+      {isOpen && visibleSubitems.map((s, i) => {
         const [secls, selbl] = estadoPill(s.status, s.estado);
-        const isLast = i === activeSubitems.length - 1;
+        const isLast = i === visibleSubitems.length - 1;
         return (
           <tr key={s.id}>
             <td
@@ -449,7 +481,7 @@ function Row({ r, ecls, elbl }: { r: ProjItem; ecls: string; elbl: string }) {
             </td>
             <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.status || "—"}</td>
             <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
-            <td style={{ background: SUB_BG }}>{dlCell(s.deadline)}</td>
+            <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true })}</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
           </tr>
