@@ -28,21 +28,23 @@ function estadoPill(status: string, estado: string): [string, string] {
   return ["pill-skip", estado || "—"];
 }
 
-function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number } {
-  let evCost = 0, evBenefit = 0, pvCost = 0, pvBenefit = 0;
+function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number } {
+  let evCost = 0, evBenefit = 0, pvCost = 0, pvBenefit = 0, ac = 0;
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
     const pvWip      = r.status === "Working on it";
     if (r.status === "Done" || onTrackWip) { evCost += r.cost; evBenefit += r.benefit; }
     if (r.status === "Done" || pvWip)      { pvCost += r.cost; pvBenefit += r.benefit; }
+    if (r.status === "Done")               { ac += r.cost; }
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
       if (s.status === "Done" || sOnTrackWip) { evCost += s.cost; evBenefit += s.benefit; }
       if (s.status === "Done" || sPvWip)      { pvCost += s.cost; pvBenefit += s.benefit; }
+      if (s.status === "Done")                { ac += s.cost; }
     });
   });
-  return { ev: evBenefit - evCost, pv: pvBenefit - pvCost };
+  return { ev: evBenefit - evCost, pv: pvBenefit - pvCost, ac };
 }
 
 export default function ProyectosPage() {
@@ -116,8 +118,8 @@ function ProyectosInner() {
           .map((b) => {
             const items = byPM.filter((r) => r.boardId === b.id);
             if (!items.length) return null;
-            const { ev, pv } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id));
-            return <BoardAccordion key={b.id} board={b} items={items} ev={ev} pv={pv} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
+            const { ev, pv, ac } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id));
+            return <BoardAccordion key={b.id} board={b} items={items} ev={ev} pv={pv} ac={ac} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -164,11 +166,13 @@ function dlCell(dl: Date | null) {
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
 }
 
-function BoardAccordion({ board, items, ev, pv, open, onToggle }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; open: boolean; onToggle: () => void }) {
+function BoardAccordion({ board, items, ev, pv, ac, open, onToggle }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; open: boolean; onToggle: () => void }) {
   const [showModal, setShowModal] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const spi = pv > 0 ? ev / pv : null;
+  const cpi = ac > 0 ? ev / ac : null;
   const spiColor = spi === null ? "var(--text-muted)" : spi >= 1 ? "#10b981" : spi >= 0.85 ? "#f59e0b" : "#ef4444";
+  const cpiColor = cpi === null ? "var(--text-muted)" : cpi >= 1 ? "#10b981" : cpi >= 0.85 ? "#f59e0b" : "#ef4444";
 
   const isOffTrack = items.some(
     (r) => (r.status === "Working on it" && r.estado === "ATRASADO") ||
@@ -209,14 +213,22 @@ function BoardAccordion({ board, items, ev, pv, open, onToggle }: { board: ProjB
               >✕</button>
             </div>
 
-            <div className="mb-5 text-center">
-              <div className="mb-1 text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)]">SPI</div>
-              <div className="text-[2.4rem] font-bold tabular-nums leading-none" style={{ color: spiColor }}>
-                {spi !== null ? spi.toFixed(2) : "—"}
+            <div className="mb-5 grid grid-cols-2 gap-4 text-center">
+              <div>
+                <div className="mb-1 text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)]">SPI</div>
+                <div className="text-[2.4rem] font-bold tabular-nums leading-none" style={{ color: spiColor }}>
+                  {spi !== null ? spi.toFixed(2) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)]">CPI</div>
+                <div className="text-[2.4rem] font-bold tabular-nums leading-none" style={{ color: cpiColor }}>
+                  {cpi !== null ? cpi.toFixed(2) : "—"}
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 rounded-xl p-3" style={{ background: "var(--bg-hover)" }}>
+            <div className="grid grid-cols-3 gap-4 rounded-xl p-3" style={{ background: "var(--bg-hover)" }}>
               <div>
                 <div className="mb-0.5 text-[0.68rem] uppercase tracking-wide text-[var(--text-muted)]">EV</div>
                 <div className="text-[0.95rem] font-bold tabular-nums" style={{ color: "#10b981" }}>
@@ -227,6 +239,12 @@ function BoardAccordion({ board, items, ev, pv, open, onToggle }: { board: ProjB
                 <div className="mb-0.5 text-[0.68rem] uppercase tracking-wide text-[var(--text-muted)]">PV</div>
                 <div className="text-[0.95rem] font-bold tabular-nums" style={{ color: "#f59e0b" }}>
                   {pv ? fmtMoney(pv) : "$0"}
+                </div>
+              </div>
+              <div>
+                <div className="mb-0.5 text-[0.68rem] uppercase tracking-wide text-[var(--text-muted)]">AC</div>
+                <div className="text-[0.95rem] font-bold tabular-nums" style={{ color: "#94a3b8" }}>
+                  {ac ? fmtMoney(ac) : "$0"}
                 </div>
               </div>
             </div>
