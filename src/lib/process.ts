@@ -359,22 +359,26 @@ export interface BoardHealthData {
 }
 
 export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null } {
-  let ev = 0, pv = 0, ac = 0, scopeNum = 0, scopeDen = 0;
+  let ev = 0, pv = 0, ac = 0, scopeOn = 0, scopeDen = 0;
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
     const pvWip      = r.status === "Working on it";
-    if (r.status === "Done" || onTrackWip) { ev += r.cost; scopeNum++; }
-    if (r.status === "Done" || pvWip)      { pv += r.cost; scopeDen++; }
+    if (r.status === "Done" || onTrackWip) ev += r.cost;
+    if (r.status === "Done" || pvWip)      pv += r.cost;
     if (r.status === "Done")               ac += r.cost;
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
-      if (s.status === "Done" || sOnTrackWip) { ev += s.cost; scopeNum++; }
-      if (s.status === "Done" || sPvWip)      { pv += s.cost; scopeDen++; }
+      if (s.status === "Done" || sOnTrackWip) ev += s.cost;
+      if (s.status === "Done" || sPvWip)      pv += s.cost;
       if (s.status === "Done")                ac += s.cost;
+      // Scope: subitems On Track vs Off Track (excluye Future Steps y sin deadline)
+      const isOn  = s.status === "Done" || s.estado === "EN TIEMPO" || s.estado === "PARA HOY";
+      const isOff = s.estado === "ATRASADO";
+      if (isOn || isOff) { scopeDen++; if (isOn) scopeOn++; }
     });
   });
-  return { ev, pv, ac, scope: scopeDen > 0 ? (scopeNum / scopeDen) * 100 : null };
+  return { ev, pv, ac, scope: scopeDen > 0 ? (scopeOn / scopeDen) * 100 : null };
 }
 
 export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null }): BoardHealthData {
