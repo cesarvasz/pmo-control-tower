@@ -7,13 +7,13 @@ import Modal from "@/components/Modal";
 
 function vemCfg(v: number) {
   return v >= 0.95
-    ? { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" }
+    ? { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track", icon: "✓" }
     : v >= 0.85
-      ? { color: "#f59e0b", bg: "#451a0388", label: "In Risk", icon: "⚠" }
-      : { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" };
+      ? { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk", icon: "⚠" }
+      : { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" };
 }
 const evmColor = (v: number) => (v >= 1 ? "#10b981" : v >= 0.8 ? "#f59e0b" : "#ef4444");
-const evmBg = (v: number) => (v >= 1 ? "#052e1688" : v >= 0.8 ? "#451a0388" : "#450a0a88");
+const evmBg = (v: number) => (v >= 1 ? "var(--health-on-track-bg)" : v >= 0.8 ? "var(--health-in-risk-bg)" : "var(--health-off-track-bg)");
 
 const PILL: Record<string, [string, string, string]> = {
   ATRASADO: ["#ef4444", "#450a0a", "✕ Off Track"],

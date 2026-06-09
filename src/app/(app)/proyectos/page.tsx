@@ -194,9 +194,9 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
     : healthIndex >= 0.85 ? "in-risk"
     : "off-track";
   const HEALTH_BADGE = {
-    "on-track":  { color: "#10b981", bg: "#052e1688", label: "✓ On Track" },
-    "in-risk":   { color: "#f59e0b", bg: "#451a0388", label: "⚠ In Risk" },
-    "off-track": { color: "#ef4444", bg: "#450a0a88", label: "✕ Off Track" },
+    "on-track":  { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "✓ On Track" },
+    "in-risk":   { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "⚠ In Risk" },
+    "off-track": { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "✕ Off Track" },
   };
   const badge = healthStatus ? HEALTH_BADGE[healthStatus] : null;
 
