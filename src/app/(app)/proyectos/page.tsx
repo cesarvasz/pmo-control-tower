@@ -33,14 +33,14 @@ function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; 
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
     const pvWip      = r.status === "Working on it";
-    if (r.status === "Done" || onTrackWip) ev++;
-    if (r.status === "Done" || pvWip)      pv++;
+    if (r.status === "Done" || onTrackWip) ev += r.cost;
+    if (r.status === "Done" || pvWip)      pv += r.cost;
     if (r.status === "Done")               ac += r.cost;
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
-      if (s.status === "Done" || sOnTrackWip) ev++;
-      if (s.status === "Done" || sPvWip)      pv++;
+      if (s.status === "Done" || sOnTrackWip) ev += s.cost;
+      if (s.status === "Done" || sPvWip)      pv += s.cost;
       if (s.status === "Done")                ac += s.cost;
     });
   });
@@ -232,13 +232,13 @@ function BoardAccordion({ board, items, ev, pv, ac, open, onToggle }: { board: P
               <div>
                 <div className="mb-0.5 text-[0.68rem] uppercase tracking-wide text-[var(--text-muted)]">EV</div>
                 <div className="text-[0.95rem] font-bold tabular-nums" style={{ color: "#10b981" }}>
-                  {ev}
+                  {ev ? fmtMoney(ev) : "$0"}
                 </div>
               </div>
               <div>
                 <div className="mb-0.5 text-[0.68rem] uppercase tracking-wide text-[var(--text-muted)]">PV</div>
                 <div className="text-[0.95rem] font-bold tabular-nums" style={{ color: "#f59e0b" }}>
-                  {pv}
+                  {pv ? fmtMoney(pv) : "$0"}
                 </div>
               </div>
               <div>
