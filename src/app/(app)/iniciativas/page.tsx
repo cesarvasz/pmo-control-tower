@@ -112,7 +112,7 @@ function IniciativasInner() {
         <StatCard value={atrasadas} label="Atrasadas" color="#ef4444" borderColor="#ef4444" active={estado === "ATRASADO"} onClick={() => toggleEstado("ATRASADO")} />
         <StatCard value={paraHoy} label="Para Hoy" color="#f59e0b" borderColor="#f59e0b" active={estado === "PARA HOY"} onClick={() => toggleEstado("PARA HOY")} />
         <StatCard value={enTiempo} label="En Tiempo" color="#10b981" borderColor="#10b981" active={estado === "EN TIEMPO"} onClick={() => toggleEstado("EN TIEMPO")} />
-        <StatCard value={aprobadas} label="Aprobadas" color="#6c63ff" borderColor="#6c63ff" active={estado === "APROBADA"} onClick={() => toggleEstado("APROBADA")} />
+        <StatCard value={planFuturoItems.length} label="Plan Futuro" color="#6c63ff" borderColor="#6c63ff" />
         <StatCard value={sinAgendarCount} label="Sin Agendar" color="#f59e0b" borderColor="#f59e0b" active={sinAgendar} onClick={toggleSinAgendar} />
       </div>
 
