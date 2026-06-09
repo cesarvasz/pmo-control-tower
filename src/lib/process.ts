@@ -359,25 +359,28 @@ export interface BoardHealthData {
 }
 
 export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null } {
-  let ev = 0, pv = 0, ac = 0, scopeOn = 0, subTotal = 0;
+  let ev = 0, pv = 0, ac = 0, scopeOn = 0, scopeTotal = 0;
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
     const pvWip      = r.status === "Working on it";
     if (r.status === "Done" || onTrackWip) ev += r.cost;
     if (r.status === "Done" || pvWip)      pv += r.cost;
     if (r.status === "Done")               ac += r.cost;
+    // Scope: items
+    scopeTotal++;
+    if (r.status === "Done" || r.estado === "EN TIEMPO") scopeOn++;
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
       if (s.status === "Done" || sOnTrackWip) ev += s.cost;
       if (s.status === "Done" || sPvWip)      pv += s.cost;
       if (s.status === "Done")                ac += s.cost;
-      // Scope: subitems con deadline en On Track o In Risk / total subitems
-      subTotal++;
-      if (s.deadline !== null && (s.estado === "EN TIEMPO" || s.estado === "PARA HOY")) scopeOn++;
+      // Scope: subitems
+      scopeTotal++;
+      if (s.status === "Done" || s.estado === "EN TIEMPO") scopeOn++;
     });
   });
-  return { ev, pv, ac, scope: subTotal > 0 ? (scopeOn / subTotal) * 100 : null };
+  return { ev, pv, ac, scope: scopeTotal > 0 ? (scopeOn / scopeTotal) * 100 : null };
 }
 
 export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null }): BoardHealthData {
