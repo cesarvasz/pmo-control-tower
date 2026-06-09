@@ -4,7 +4,8 @@ import React, { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { fmtDate, fmtMoney } from "@/lib/business";
-import { PROJ_ACTIVE_STS } from "@/lib/process";
+import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth } from "@/lib/process";
+import type { BoardHealthData, HealthStatus } from "@/lib/process";
 import type { ProjBoard, ProjItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
 import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/ui";
@@ -15,27 +16,6 @@ const HEALTH_CFG = {
   "off-track": { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
 } as const;
 
-type HealthStatus = keyof typeof HEALTH_CFG;
-
-type BoardHealthData = {
-  ev: number; pv: number; ac: number; scope: number | null;
-  spi: number | null; cpi: number | null;
-  healthIndex: number | null;
-  healthStatus: HealthStatus | null;
-};
-
-function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null }): BoardHealthData {
-  const spi = metrics.pv > 0 ? metrics.ev / metrics.pv : null;
-  const cpi = metrics.ac > 0 ? Math.min(1, metrics.ev / metrics.ac) : null;
-  const healthIndex = spi !== null && cpi !== null && metrics.scope !== null
-    ? (spi + cpi + metrics.scope / 100) / 3
-    : null;
-  const healthStatus: HealthStatus | null = healthIndex === null ? null
-    : healthIndex >= 0.95 ? "on-track"
-    : healthIndex >= 0.85 ? "in-risk"
-    : "off-track";
-  return { ...metrics, spi, cpi, healthIndex, healthStatus };
-}
 
 function estadoPill(status: string, estado: string): [string, string] {
   if (status === "Working on it") {
@@ -50,24 +30,6 @@ function estadoPill(status: string, estado: string): [string, string] {
   return ["pill-skip", estado || "—"];
 }
 
-function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null } {
-  let ev = 0, pv = 0, ac = 0, scopeNum = 0, scopeDen = 0;
-  allBoardItems.forEach((r) => {
-    const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
-    const pvWip      = r.status === "Working on it";
-    if (r.status === "Done" || onTrackWip) { ev += r.cost; scopeNum++; }
-    if (r.status === "Done" || pvWip)      { pv += r.cost; scopeDen++; }
-    if (r.status === "Done")               ac += r.cost;
-    r.subitems.forEach((s) => {
-      const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
-      const sPvWip      = s.status === "Working on it";
-      if (s.status === "Done" || sOnTrackWip) { ev += s.cost; scopeNum++; }
-      if (s.status === "Done" || sPvWip)      { pv += s.cost; scopeDen++; }
-      if (s.status === "Done")                ac += s.cost;
-    });
-  });
-  return { ev, pv, ac, scope: scopeDen > 0 ? (scopeNum / scopeDen) * 100 : null };
-}
 
 export default function ProyectosPage() {
   return (
@@ -118,7 +80,10 @@ function ProyectosInner() {
   }));
   const pmBoardIds = pms.length ? new Set(projBoards.filter((b) => pms.includes(b.pm)).map((b) => b.id)) : null;
   const byPM = pmBoardIds ? projData.filter((r) => pmBoardIds.has(r.boardId)) : projData;
-  const visibleBoards = allBoardsSorted.filter((b) => !boardFilter.length || boardFilter.includes(b.id));
+  const visibleBoards = allBoardsSorted.filter((b) =>
+    boardHealthMap.get(b.id)?.healthStatus !== null &&
+    (!boardFilter.length || boardFilter.includes(b.id))
+  );
 
   return (
     <div>
@@ -166,13 +131,14 @@ function PMHealth({ projBoards, boardHealthMap, selectedPm, onSelect }: {
   return (
     <div className="mb-7 flex flex-wrap gap-4">
       {pms.map((pm) => {
-        const pmBoards = projBoards.filter((b) => b.pm === pm);
-        const boardsData = pmBoards.map((b) => boardHealthMap.get(b.id));
-        const onTrack  = boardsData.filter((h) => h?.healthStatus === "on-track").length;
-        const inRisk   = boardsData.filter((h) => h?.healthStatus === "in-risk").length;
-        const offTrack = boardsData.filter((h) => h?.healthStatus === "off-track").length;
+        const pmBoards = projBoards
+          .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null);
+        const boardsData = pmBoards.map((b) => boardHealthMap.get(b.id)!);
+        const onTrack  = boardsData.filter((h) => h.healthStatus === "on-track").length;
+        const inRisk   = boardsData.filter((h) => h.healthStatus === "in-risk").length;
+        const offTrack = boardsData.filter((h) => h.healthStatus === "off-track").length;
 
-        const hiValues = boardsData.map((h) => h?.healthIndex).filter((v): v is number => v != null);
+        const hiValues = boardsData.map((h) => h.healthIndex).filter((v): v is number => v != null);
         const pmHI = hiValues.length > 0 ? hiValues.reduce((a, b) => a + b, 0) / hiValues.length : null;
         const pmStatus: HealthStatus = pmHI === null ? "on-track"
           : pmHI >= 0.95 ? "on-track"

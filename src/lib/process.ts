@@ -349,6 +349,47 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
   });
 }
 
+export type HealthStatus = "on-track" | "in-risk" | "off-track";
+
+export interface BoardHealthData {
+  ev: number; pv: number; ac: number; scope: number | null;
+  spi: number | null; cpi: number | null;
+  healthIndex: number | null;
+  healthStatus: HealthStatus | null;
+}
+
+export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null } {
+  let ev = 0, pv = 0, ac = 0, scopeNum = 0, scopeDen = 0;
+  allBoardItems.forEach((r) => {
+    const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
+    const pvWip      = r.status === "Working on it";
+    if (r.status === "Done" || onTrackWip) { ev += r.cost; scopeNum++; }
+    if (r.status === "Done" || pvWip)      { pv += r.cost; scopeDen++; }
+    if (r.status === "Done")               ac += r.cost;
+    r.subitems.forEach((s) => {
+      const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
+      const sPvWip      = s.status === "Working on it";
+      if (s.status === "Done" || sOnTrackWip) { ev += s.cost; scopeNum++; }
+      if (s.status === "Done" || sPvWip)      { pv += s.cost; scopeDen++; }
+      if (s.status === "Done")                ac += s.cost;
+    });
+  });
+  return { ev, pv, ac, scope: scopeDen > 0 ? (scopeNum / scopeDen) * 100 : null };
+}
+
+export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null }): BoardHealthData {
+  const spi = metrics.pv > 0 ? metrics.ev / metrics.pv : null;
+  const cpi = metrics.ac > 0 ? Math.min(1, metrics.ev / metrics.ac) : null;
+  const healthIndex = spi !== null && cpi !== null && metrics.scope !== null
+    ? (spi + cpi + metrics.scope / 100) / 3
+    : null;
+  const healthStatus: HealthStatus | null = healthIndex === null ? null
+    : healthIndex >= 0.95 ? "on-track"
+    : healthIndex >= 0.85 ? "in-risk"
+    : "off-track";
+  return { ...metrics, spi, cpi, healthIndex, healthStatus };
+}
+
 /** Asigna a cada board su PM = Resp (o PM) del primer item del board. */
 export function projEnrichBoards(
   boards: { id: string; name: string }[],
@@ -392,7 +433,7 @@ export function nextOrLatest(arr: { inicio: Date; fin: Date }[] | undefined): { 
 // SALUD INI POR PM
 // ─────────────────────────────────────────────────────────────────────
 export interface IniPMHealth {
-  status: "on-track" | "at-risk" | "off-track";
+  status: "on-track" | "in-risk" | "off-track";
   index: number;
   agendadas: number;
   enTiempo: number;
@@ -417,7 +458,7 @@ export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap: CalMap):
   const sinMeeting = items.filter((r) => !hasMeeting(r)).length;
 
   const index = ((agendadas / total) + (enTiempo / total)) / 2;
-  const status = index >= 0.95 ? "on-track" : index >= 0.85 ? "at-risk" : "off-track";
+  const status = index >= 0.95 ? "on-track" : index >= 0.85 ? "in-risk" : "off-track";
 
   return { status, index, agendadas, enTiempo, atrasadas, sinMeeting, total };
 }

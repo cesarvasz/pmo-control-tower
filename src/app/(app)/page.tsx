@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useData } from "@/context/DataContext";
-import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy, PROJ_ACTIVE_STS, REQ_ACTIVE_GRUPOS } from "@/lib/process";
+import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, INI_ACTIVE_STS, iniIsParaHoy, REQ_ACTIVE_GRUPOS } from "@/lib/process";
+import type { BoardHealthData } from "@/lib/process";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 
@@ -16,16 +17,12 @@ const pmLabel = (pm: string) => {
   return p ? `${p.prefix} ${p.name}` : pm;
 };
 
-const HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
-  "on-track": { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
-  "at-risk":  { color: "#f59e0b", bg: "#451a0388", label: "At Risk",  icon: "⚠" },
-  "off-track":{ color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
-};
-const INI_HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
-  "on-track": { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
-  "at-risk":  { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
-  "off-track":{ color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
-};
+const HEALTH_CFG = {
+  "on-track":  { color: "#10b981", bg: "#052e1688", label: "On Track", icon: "✓" },
+  "in-risk":   { color: "#f59e0b", bg: "#451a0388", label: "In Risk",  icon: "⚠" },
+  "off-track": { color: "#ef4444", bg: "#450a0a88", label: "Off Track", icon: "✕" },
+} as const;
+const INI_HEALTH_CFG = HEALTH_CFG;
 
 export default function ControlTowerPage() {
   const { data, loading, error } = useData();
@@ -39,33 +36,17 @@ export default function ControlTowerPage() {
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
 
-  const G = {
-    iniTotal: iniProc.length,
-    iniAtrasado: iniProc.filter((r) => r.estado === "ATRASADO").length,
-    iniParaHoy: ini.filter((r) => iniIsParaHoy(r, calMap)).length,
-    iniEnTiempo: iniProc.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length,
-    reqTotal: reqProc.length,
-    reqAtrasado: reqProc.filter((r) => r.estado === "ATRASADO").length,
-    reqParaHoy: reqProc.filter((r) => r.estado === "PARA HOY").length,
-    reqEnTiempo: reqProc.filter((r) => r.estado === "EN TIEMPO").length,
-    projTotal: projBoards.length,
-    projAtrasado: proj.filter((r) => r.estado === "ATRASADO").length,
-    projParaHoy: proj.filter((r) => r.estado === "PARA HOY").length,
-    projEnTiempo: proj.filter((r) => r.estado === "EN TIEMPO").length,
-  };
+  // ── Board health map ──
+  const boardHealthMap = new Map<string, BoardHealthData>();
+  projBoards.forEach((b) => {
+    boardHealthMap.set(b.id, deriveBoardHealth(calcBoardMetrics(proj.filter((r) => r.boardId === b.id))));
+  });
+  const boardsWithHealth = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus !== null);
+  const projBoardsOffTrack = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
+  const projBoardsInRisk   = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;
+  const projBoardsOnTrack  = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "on-track").length;
 
-  // ── Índice de salud ──
-  const enTiempo = iniProc.filter((r) => r.estado === "EN TIEMPO").length + reqProc.filter((r) => r.estado === "EN TIEMPO").length + proj.filter((r) => r.estado === "EN TIEMPO").length;
-  const paraHoy = iniProc.filter((r) => r.estado === "PARA HOY").length + reqProc.filter((r) => r.estado === "PARA HOY").length + proj.filter((r) => r.estado === "PARA HOY").length;
-  const atrasado = iniProc.filter((r) => r.estado === "ATRASADO").length + reqProc.filter((r) => r.estado === "ATRASADO").length + proj.filter((r) => r.estado === "ATRASADO").length;
-  const hTotal = enTiempo + paraHoy + atrasado;
-  const healthPct = hTotal === 0 ? 100 : Math.round(((enTiempo + paraHoy * 0.5) / hTotal) * 100);
-  const hColor = healthPct >= 80 ? "#10b981" : healthPct >= 50 ? "#f59e0b" : "#ef4444";
-  const hBg = healthPct >= 80 ? "#052e1688" : healthPct >= 50 ? "#451a0388" : "#450a0a88";
-  const hLabel = healthPct >= 80 ? "Saludable" : healthPct >= 50 ? "En Riesgo" : "Crítico";
-  const hIcon = healthPct >= 80 ? "✓" : healthPct >= 50 ? "⚠" : "✕";
-
-  const PM_ORDER = Object.keys(PM_PORTFOLIO); // α → β → γ
+  const PM_ORDER = Object.keys(PM_PORTFOLIO);
   const allPMs = [...new Set([
     ...ini.filter((r) => r.pm && r.estado !== "SKIP").map((r) => r.pm),
     ...req.filter((r) => r.pm && r.estado !== "CERRADO").map((r) => r.pm),
@@ -75,25 +56,58 @@ export default function ControlTowerPage() {
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
   });
 
+  // ── VEM del equipo ──
+  const teamIniHIs = allPMs
+    .map((pm) => calcIniPMHealth(pm, ini, calMap))
+    .filter((h) => h.total > 0)
+    .map((h) => h.index);
+  const teamIniHealth = teamIniHIs.length > 0 ? teamIniHIs.reduce((a, b) => a + b, 0) / teamIniHIs.length : null;
+
+  const reqVemAll = reqProc.filter((r) => r.vem != null).map((r) => r.vem as number);
+  const teamReqHealth = reqVemAll.length > 0 ? reqVemAll.reduce((a, b) => a + b, 0) / reqVemAll.length : null;
+
+  const boardHIs = boardsWithHealth.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
+  const teamProjHealth = boardHIs.length > 0 ? boardHIs.reduce((a, b) => a + b, 0) / boardHIs.length : null;
+
+  const vemParts = [teamIniHealth, teamReqHealth, teamProjHealth].filter((v): v is number => v != null);
+  const teamVem = vemParts.length > 0 ? vemParts.reduce((a, b) => a + b, 0) / vemParts.length : null;
+  const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
+  const hColor = vemPct === null ? "#6b7280" : vemPct >= 95 ? "#10b981" : vemPct >= 85 ? "#f59e0b" : "#ef4444";
+  const hBg    = vemPct === null ? "#1f293788" : vemPct >= 95 ? "#052e1688" : vemPct >= 85 ? "#451a0388" : "#450a0a88";
+  const hLabel = vemPct === null ? "Sin datos" : vemPct >= 95 ? "Saludable" : vemPct >= 85 ? "En Riesgo" : "Crítico";
+  const hIcon  = vemPct === null ? "—" : vemPct >= 95 ? "✓" : vemPct >= 85 ? "⚠" : "✕";
+
+  const G = {
+    iniTotal:    iniProc.length,
+    iniAtrasado: iniProc.filter((r) => r.estado === "ATRASADO").length,
+    iniParaHoy:  ini.filter((r) => iniIsParaHoy(r, calMap)).length,
+    iniEnTiempo: iniProc.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length,
+    reqTotal:    reqProc.length,
+    reqAtrasado: reqProc.filter((r) => r.estado === "ATRASADO").length,
+    reqParaHoy:  reqProc.filter((r) => r.estado === "PARA HOY").length,
+    reqEnTiempo: reqProc.filter((r) => r.estado === "EN TIEMPO").length,
+  };
+
   return (
     <div>
-      {/* Health index */}
+      {/* VEM del equipo */}
       <div className="mb-4 rounded-xl border-2 p-6" style={{ background: "var(--bg-surface)", borderColor: hColor }}>
         <div className="mb-4 text-[0.72rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Índice de Salud del Portafolio PMO
+          VEM del Equipo PMO
         </div>
         <div className="mb-3.5 flex flex-wrap items-center gap-5">
-          <div className="text-5xl font-extrabold leading-none" style={{ color: hColor, minWidth: 88 }}>{healthPct}%</div>
+          <div className="text-5xl font-extrabold leading-none" style={{ color: hColor, minWidth: 88 }}>
+            {vemPct !== null ? `${vemPct}%` : "—"}
+          </div>
           <div className="h-2.5 min-w-[120px] flex-1 overflow-hidden rounded-full" style={{ background: "var(--border)" }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${healthPct}%`, background: hColor }} />
+            <div className="h-full rounded-full transition-all" style={{ width: `${vemPct ?? 0}%`, background: hColor }} />
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[0.82rem] font-bold" style={{ color: hColor, background: hBg }}>{hIcon} {hLabel}</span>
         </div>
-        <div className="flex flex-wrap gap-5 text-[0.82rem] font-semibold">
-          <span style={{ color: "#10b981" }}>✓ {enTiempo} en tiempo</span>
-          <span style={{ color: "#f59e0b" }}>⚠ {paraHoy} para hoy</span>
-          <span style={{ color: "#ef4444" }}>✕ {atrasado} atrasados</span>
-          <span className="text-[var(--text-muted)]">{hTotal} activos totales</span>
+        <div className="flex flex-wrap gap-5 text-[0.82rem] font-semibold text-[var(--text-muted)]">
+          {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
+          {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
+          {teamProjHealth !== null && <span>PROJ {Math.round(teamProjHealth * 100)}%</span>}
         </div>
       </div>
 
@@ -114,9 +128,10 @@ export default function ControlTowerPage() {
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
         <GlobalBlock title="Proyectos" onClick={() => router.push("/proyectos")} stats={[
-          [`${G.projTotal} total`, "var(--text-primary)"],
-          [`${G.projAtrasado} off track`, "#ef4444"],
-          [`${G.projParaHoy + G.projEnTiempo} on track`, "#10b981"],
+          [`${boardsWithHealth.length} total`, "var(--text-primary)"],
+          [`${projBoardsOffTrack} off track`, "#ef4444"],
+          [`${projBoardsInRisk} in risk`, "#f59e0b"],
+          [`${projBoardsOnTrack} on track`, "#10b981"],
         ]} />
       </div>
 
@@ -129,7 +144,7 @@ export default function ControlTowerPage() {
         {allPMs.map((pm) => {
           const q = encodeURIComponent(pm);
           return (
-            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} calMap={calMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
           );
         })}
       </div>
@@ -162,21 +177,28 @@ function Stat({ n, color, label, showZero }: { n: number; color: string; label: 
   );
 }
 
+const PROJ_HEALTH_COLOR: Record<string, string> = {
+  "on-track":  "#10b981",
+  "in-risk":   "#f59e0b",
+  "off-track": "#ef4444",
+};
+
 function PMPortfolioCard({
-  pm, ini, req, proj, projBoards, calMap, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, projBoards, boardHealthMap, calMap, onGoIni, onGoReq, onGoProj,
 }: {
-  pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; calMap: import("@/types").CalMap;
+  pm: string; ini: IniItem[]; req: ReqItem[];
+  projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>;
+  calMap: import("@/types").CalMap;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
-  const iniHas = true;
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
   const rAtr = reqAct.filter((r) => r.estado === "ATRASADO").length;
   const reqVemItems = reqAct.filter((r) => r.vem != null);
   const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
-  const reqVemStatus = reqAvgVem !== null ? (reqAvgVem >= 0.95 ? "on-track" : reqAvgVem >= 0.85 ? "at-risk" : "off-track") : null;
+  const reqVemStatus = reqAvgVem !== null ? (reqAvgVem >= 0.95 ? "on-track" : reqAvgVem >= 0.85 ? "in-risk" : "off-track") : null;
   const rvc = reqVemStatus ? INI_HEALTH_CFG[reqVemStatus] : null;
 
   const reqParaHoyN = reqAct.filter((r) => r.estado === "PARA HOY").length;
@@ -184,15 +206,12 @@ function PMPortfolioCard({
   const reqEnEsperaN = reqItems.filter((r) => r.estado === "EN_ESPERA").length;
   const reqHas = reqAct.length > 0 || reqEnEsperaN > 0;
 
-  const pmProjBoards = projBoards.filter((b) => b.pm === pm);
-  const ids = new Set(pmProjBoards.map((b) => b.id));
-  const projAct = proj.filter((r) => ids.has(r.boardId) && PROJ_ACTIVE_STS.has(r.status));
-  const projAtrN = projAct.filter((r) => r.estado === "ATRASADO").length;
+  const pmProjBoards = projBoards
+    .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null);
   const projHas = pmProjBoards.length > 0;
 
-  const totalAtr = iniHealth.atrasadas + rAtr + projAtrN;
-
-  const health = totalAtr === 0 ? "on-track" : totalAtr <= 2 ? "at-risk" : "off-track";
+  const totalAtr = iniHealth.atrasadas + rAtr;
+  const health = totalAtr === 0 ? "on-track" : totalAtr <= 2 ? "in-risk" : "off-track";
   const hc = HEALTH_CFG[health];
   const ihc = INI_HEALTH_CFG[iniHealth.status];
 
@@ -208,13 +227,13 @@ function PMPortfolioCard({
       <div className="flex">
         <Section
           label="Iniciativas"
-          has={iniHas}
+          has={true}
           onClick={onGoIni}
-          badge={iniHas ? (
+          badge={
             <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ihc.color, background: ihc.bg }}>
               {ihc.icon} {Math.round(iniHealth.index * 100)}%
             </span>
-          ) : undefined}
+          }
         >
           <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
           <Stat n={iniHealth.atrasadas} color="#ef4444" label={`atrasada${iniHealth.atrasadas !== 1 ? "s" : ""}`} />
@@ -239,21 +258,13 @@ function PMPortfolioCard({
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section label={`Proyectos (${pmProjBoards.length})`} has={projHas} onClick={onGoProj}>
-          {pmProjBoards.map((b) => {
-            const bItems = proj.filter((r) => r.boardId === b.id && PROJ_ACTIVE_STS.has(r.status));
-            const bAtr = bItems.filter((r) => r.estado === "ATRASADO").length;
-            const bOn = bItems.filter((r) => r.estado === "EN TIEMPO" || r.estado === "PARA HOY").length;
-            return (
-              <div key={b.id} className="flex items-center gap-1.5 border-b py-[3px]" style={{ borderColor: "var(--border)" }}>
-                <span className="font-mono text-[0.75rem] font-bold text-[var(--text-primary)]" title={b.name}>{b.name.slice(0, 6)}</span>
-                <span className="flex items-center gap-1.5">
-                  {bAtr > 0 && <span style={{ color: "#ef4444", fontWeight: 700, fontSize: ".72rem" }}>{bAtr}✕</span>}
-                  {bOn > 0 && <span style={{ color: "#10b981", fontWeight: 700, fontSize: ".72rem" }}>{bOn}✓</span>}
-                  {bAtr + bOn === 0 && <span className="text-[var(--text-disabled)] text-[.72rem]">—</span>}
-                </span>
-              </div>
-            );
-          })}
+          <div className="flex flex-wrap gap-2 pt-0.5">
+            {pmProjBoards.map((b) => {
+              const hs = boardHealthMap.get(b.id)?.healthStatus;
+              const color = hs ? PROJ_HEALTH_COLOR[hs] : "#6b7280";
+              return <span key={b.id} className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: color }} title={b.name} />;
+            })}
+          </div>
         </Section>
       </div>
     </div>
