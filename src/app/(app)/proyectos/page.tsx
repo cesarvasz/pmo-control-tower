@@ -28,23 +28,23 @@ function estadoPill(status: string, estado: string): [string, string] {
   return ["pill-skip", estado || "—"];
 }
 
-function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number } {
-  let ev = 0, pv = 0, ac = 0;
+function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null } {
+  let ev = 0, pv = 0, ac = 0, scopeNum = 0, scopeDen = 0;
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
     const pvWip      = r.status === "Working on it";
-    if (r.status === "Done" || onTrackWip) ev += r.cost;
-    if (r.status === "Done" || pvWip)      pv += r.cost;
+    if (r.status === "Done" || onTrackWip) { ev += r.cost; scopeNum++; }
+    if (r.status === "Done" || pvWip)      { pv += r.cost; scopeDen++; }
     if (r.status === "Done")               ac += r.cost;
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
-      if (s.status === "Done" || sOnTrackWip) ev += s.cost;
-      if (s.status === "Done" || sPvWip)      pv += s.cost;
+      if (s.status === "Done" || sOnTrackWip) { ev += s.cost; scopeNum++; }
+      if (s.status === "Done" || sPvWip)      { pv += s.cost; scopeDen++; }
       if (s.status === "Done")                ac += s.cost;
     });
   });
-  return { ev, pv, ac };
+  return { ev, pv, ac, scope: scopeDen > 0 ? (scopeNum / scopeDen) * 100 : null };
 }
 
 export default function ProyectosPage() {
@@ -118,8 +118,8 @@ function ProyectosInner() {
           .map((b) => {
             const items = byPM.filter((r) => r.boardId === b.id);
             if (!items.length) return null;
-            const { ev, pv, ac } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id));
-            return <BoardAccordion key={b.id} board={b} items={items} ev={ev} pv={pv} ac={ac} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
+            const { ev, pv, ac, scope } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id));
+            return <BoardAccordion key={b.id} board={b} items={items} ev={ev} pv={pv} ac={ac} scope={scope} open={openBoards.has(b.id)} onToggle={() => toggleAcc(b.id)} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -166,13 +166,14 @@ function dlCell(dl: Date | null) {
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
 }
 
-function BoardAccordion({ board, items, ev, pv, ac, open, onToggle }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; open: boolean; onToggle: () => void }) {
+function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; open: boolean; onToggle: () => void }) {
   const [showModal, setShowModal] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const spi = pv > 0 ? ev / pv : null;
   const cpi = ac > 0 ? Math.min(1, ev / ac) : null;
-  const spiColor = spi === null ? "var(--text-muted)" : spi >= 1 ? "#10b981" : spi >= 0.85 ? "#f59e0b" : "#ef4444";
-  const cpiColor = cpi === null ? "var(--text-muted)" : cpi >= 1 ? "#10b981" : cpi >= 0.85 ? "#f59e0b" : "#ef4444";
+  const spiColor   = spi   === null ? "var(--text-muted)" : spi   >= 1 ? "#10b981" : spi   >= 0.85 ? "#f59e0b" : "#ef4444";
+  const cpiColor   = cpi   === null ? "var(--text-muted)" : cpi   >= 1 ? "#10b981" : cpi   >= 0.85 ? "#f59e0b" : "#ef4444";
+  const scopeColor = scope === null ? "var(--text-muted)" : scope >= 100 ? "#10b981" : scope >= 85 ? "#f59e0b" : "#ef4444";
 
   const isOffTrack = items.some(
     (r) => (r.status === "Working on it" && r.estado === "ATRASADO") ||
@@ -213,17 +214,23 @@ function BoardAccordion({ board, items, ev, pv, ac, open, onToggle }: { board: P
               >✕</button>
             </div>
 
-            <div className="mb-5 grid grid-cols-2 gap-4 text-center">
+            <div className="mb-5 grid grid-cols-3 gap-4 text-center">
               <div>
                 <div className="mb-1 text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)]">SPI</div>
-                <div className="text-[2.4rem] font-bold tabular-nums leading-none" style={{ color: spiColor }}>
+                <div className="text-[2rem] font-bold tabular-nums leading-none" style={{ color: spiColor }}>
                   {spi !== null ? spi.toFixed(2) : "—"}
                 </div>
               </div>
               <div>
                 <div className="mb-1 text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)]">CPI</div>
-                <div className="text-[2.4rem] font-bold tabular-nums leading-none" style={{ color: cpiColor }}>
+                <div className="text-[2rem] font-bold tabular-nums leading-none" style={{ color: cpiColor }}>
                   {cpi !== null ? cpi.toFixed(2) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)]">Scope</div>
+                <div className="text-[2rem] font-bold tabular-nums leading-none" style={{ color: scopeColor }}>
+                  {scope !== null ? `${scope.toFixed(0)}%` : "—"}
                 </div>
               </div>
             </div>
