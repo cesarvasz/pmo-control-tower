@@ -131,8 +131,8 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
                   ? <EvmCard label="Alcance" value={r.scope.toFixed(2)} sub={`${(r.scope * 100).toFixed(0)}% completo`} color={evmColor(r.scope >= 0.8 ? 1 : r.scope >= 0.4 ? 0.9 : 0)} bg={evmBg(r.scope >= 0.8 ? 1 : r.scope >= 0.4 ? 0.9 : 0)} />
                   : <EvmCard label="Alcance" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
                 {r.vem !== null
-                  ? (() => { const c = vemCfg(r.vem as number); return <EvmCard label="VEM" value={(r.vem as number).toFixed(2)} sub={`${c.icon} ${c.label}`} color={c.color} bg={c.bg} />; })()
-                  : <EvmCard label="VEM" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
+                  ? (() => { const c = vemCfg(r.vem as number); return <EvmCard label="EVM" value={(r.vem as number).toFixed(2)} sub={`${c.icon} ${c.label}`} color={c.color} bg={c.bg} />; })()
+                  : <EvmCard label="EVM" value="—" sub="Sin datos" color="#6b7280" bg="#1f293788" />}
               </div>
             </div>
           </div>

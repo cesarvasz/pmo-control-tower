@@ -93,7 +93,7 @@ export default function ControlTowerPage() {
       {/* VEM del equipo */}
       <div className="mb-4 rounded-xl border-2 p-6" style={{ background: "var(--bg-surface)", borderColor: hColor }}>
         <div className="mb-4 text-[0.72rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          VEM del Equipo PMO
+          EVM del Equipo PMO
         </div>
         <div className="mb-3.5 flex flex-wrap items-center gap-5">
           <div className="text-5xl font-extrabold leading-none" style={{ color: hColor, minWidth: 88 }}>

@@ -116,7 +116,7 @@ function ReqInner() {
           style={{ background: "var(--bg-surface)", borderColor: "var(--border)", borderLeft: `4px solid ${vemCfg(portVEM).color}` }}
         >
           <div>
-            <div className="mb-0.5 text-[0.72rem] text-[var(--text-muted)]">VEM · Portafolio REQ</div>
+            <div className="mb-0.5 text-[0.72rem] text-[var(--text-muted)]">EVM · Portafolio REQ</div>
             <div className="text-2xl font-extrabold leading-none" style={{ color: vemCfg(portVEM).color }}>{portVEM.toFixed(2)}</div>
           </div>
           <span className="rounded-full px-3 py-1 text-[0.8rem] font-bold" style={{ color: vemCfg(portVEM).color, background: vemCfg(portVEM).bg }}>

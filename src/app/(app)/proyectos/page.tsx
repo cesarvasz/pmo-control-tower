@@ -236,7 +236,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle }: { b
 
             {healthIndex !== null && badge && (
               <div className="mb-5 rounded-xl p-4 text-center" style={{ background: "var(--bg-hover)" }}>
-                <div className="mb-1 text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">Health Index</div>
+                <div className="mb-1 text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">EVM</div>
                 <div className="text-[2.8rem] font-bold tabular-nums leading-none" style={{ color: badge.color }}>
                   {healthIndex.toFixed(2)}
                 </div>
