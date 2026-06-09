@@ -90,6 +90,36 @@
   --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #7f8c8d; --pill-skip-br:     #dce1e7;
 }
 
+/* ── TEMA ROSE — paleta rosa profesional ────────────────────────────── */
+[data-theme="rose"] {
+  --bg-base: #190e18;
+  --bg-surface: #231528;
+  --bg-sidebar: #1c1020;
+  --bg-hover: #2c1b30;
+  --bg-accent-soft: #4a1040;
+  --border: #3d2248;
+  --border-subtle: #5a3060;
+  --text-primary: #f5e6f8;
+  --text-secondary: #c4a8d4;
+  --text-muted: #8f6ea0;
+  --text-disabled: #5c4070;
+  --accent: #e879b4;
+  --accent-hover: #d060a0;
+  --accent-dim: #6d2060;
+  --accent-light: #f4b0d8;
+  --code-bg: #2a1535;
+  --code-border: #4d2055;
+  --table-head-bg: #231528;
+  --card-value-total: #f5e6f8;
+  --shadow: rgba(0, 0, 0, 0.4);
+
+  --pill-atrasado-bg: #450a0a; --pill-atrasado-fg: #fca5a5; --pill-atrasado-br: #7f1d1d;
+  --pill-parahoy-bg:  #451a03; --pill-parahoy-fg:  #fcd34d; --pill-parahoy-br:  #78350f;
+  --pill-entiempo-bg: #052e16; --pill-entiempo-fg: #6ee7b7; --pill-entiempo-br: #14532d;
+  --pill-aprobada-bg: #4a1040; --pill-aprobada-fg: #f4b0d8; --pill-aprobada-br: #8b2060;
+  --pill-skip-bg:     #2c1b30; --pill-skip-fg:     #8f6ea0; --pill-skip-br:     #4d2055;
+}
+
 html,
 body {
   height: 100%;

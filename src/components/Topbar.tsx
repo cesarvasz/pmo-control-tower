@@ -17,12 +17,13 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
 
 const THEME_KEY = "pmo-theme";
 
-type Theme = "dark" | "light" | "c807";
-const THEMES: Theme[] = ["dark", "light", "c807"];
+type Theme = "dark" | "light" | "c807" | "rose";
+const THEMES: Theme[] = ["dark", "light", "c807", "rose"];
 const THEME_META: Record<Theme, { icon: string; label: string }> = {
   dark: { icon: "🌙", label: "Oscuro" },
   light: { icon: "☀️", label: "Claro" },
   c807: { icon: "🌿", label: "C807 (VALOR)" },
+  rose: { icon: "🌸", label: "Rose" },
 };
 
 interface TopbarProps {
