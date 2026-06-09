@@ -16,10 +16,10 @@ const evmColor = (v: number) => (v >= 1 ? "#10b981" : v >= 0.8 ? "#f59e0b" : "#e
 const evmBg = (v: number) => (v >= 1 ? "#052e1688" : v >= 0.8 ? "#451a0388" : "#450a0a88");
 
 const PILL: Record<string, [string, string, string]> = {
-  ATRASADO: ["#ef4444", "#450a0a", "✕ Atrasado"],
-  "PARA HOY": ["#fcd34d", "#451a03", "⚠ Para Hoy"],
-  "EN TIEMPO": ["#6ee7b7", "#052e16", "✓ En Tiempo"],
-  "EN PROCESO": ["#9ca3af", "#1f2937", "En Proceso"],
+  ATRASADO: ["#ef4444", "#450a0a", "✕ Off Track"],
+  "PARA HOY": ["#fcd34d", "#451a03", "⚠ In Risk"],
+  "EN TIEMPO": ["#6ee7b7", "#052e16", "✓ On Track"],
+  "EN PROCESO": ["#9ca3af", "#1f2937", "— Pendiente"],
 };
 
 function Cell({ label, children }: { label: string; children: React.ReactNode }) {

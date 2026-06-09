@@ -194,10 +194,10 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
     const n = businessDays(d, t); return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
   };
   const ESTADO_INLINE: Record<string, [string, string]> = {
-    ATRASADO: ["pill-atrasado", "✕ Atrasado"],
-    "PARA HOY": ["pill-parahoy", "⚠ Para Hoy"],
-    "EN TIEMPO": ["pill-entiempo", "✓ En Tiempo"],
-    "EN PROCESO": ["pill-skip", "En Proceso"],
+    ATRASADO: ["pill-atrasado", "✕ Off Track"],
+    "PARA HOY": ["pill-parahoy", "⚠ In Risk"],
+    "EN TIEMPO": ["pill-entiempo", "✓ On Track"],
+    "EN PROCESO": ["pill-skip", "— Pendiente"],
   };
 
   return (
