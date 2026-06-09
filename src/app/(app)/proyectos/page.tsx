@@ -19,11 +19,10 @@ const HEALTH_CFG = {
 
 
 function estadoPill(status: string, estado: string): [string, string] {
-  if (status === "Done")         return ["pill-entiempo", "✓ On Track"];
-  if (status === "Future Steps") return ["pill-skip",     "— Pending"];
-  if (estado === "ATRASADO")     return ["pill-atrasado", "✕ Off Track"];
-  if (estado === "PARA HOY")     return ["pill-parahoy",  "⚠ In Risk"];
-  if (estado === "EN TIEMPO")    return ["pill-entiempo", "✓ On Track"];
+  if (status === "Done")      return ["pill-entiempo", "✓ On Track"];
+  if (estado === "ATRASADO")  return ["pill-atrasado", "✕ Off Track"];
+  if (estado === "PARA HOY")  return ["pill-parahoy",  "⚠ In Risk"];
+  if (estado === "EN TIEMPO") return ["pill-entiempo", "✓ On Track"];
   return ["pill-skip", "— Pending"];
 }
 
