@@ -170,7 +170,7 @@ function BoardAccordion({ board, items, ev, pv, ac, open, onToggle }: { board: P
   const [showModal, setShowModal] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const spi = pv > 0 ? ev / pv : null;
-  const cpi = ac > 0 ? ev / ac : null;
+  const cpi = ac > 0 ? Math.min(1, ev / ac) : null;
   const spiColor = spi === null ? "var(--text-muted)" : spi >= 1 ? "#10b981" : spi >= 0.85 ? "#f59e0b" : "#ef4444";
   const cpiColor = cpi === null ? "var(--text-muted)" : cpi >= 1 ? "#10b981" : cpi >= 0.85 ? "#f59e0b" : "#ef4444";
 
