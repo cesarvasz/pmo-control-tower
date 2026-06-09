@@ -366,13 +366,18 @@ export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: n
     if (r.status === "Done" || onTrackWip) ev += r.cost;
     if (r.status === "Done" || pvWip)      pv += r.cost;
     if (r.status === "Done")               ac += r.cost;
+    // Scope: items (On Track + In Risk) / (On Track + In Risk + Off Track)
+    const itemIsOn  = r.status === "Done" || r.estado === "EN TIEMPO" || r.estado === "PARA HOY";
+    const itemIsOff = r.estado === "ATRASADO";
+    if (itemIsOn || itemIsOff) { scopeDen++; if (itemIsOn) scopeOn++; }
+
     r.subitems.forEach((s) => {
       const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
       const sPvWip      = s.status === "Working on it";
       if (s.status === "Done" || sOnTrackWip) ev += s.cost;
       if (s.status === "Done" || sPvWip)      pv += s.cost;
       if (s.status === "Done")                ac += s.cost;
-      // Scope: subitems On Track vs Off Track (excluye Future Steps y sin deadline)
+      // Scope: subitems misma lógica
       const isOn  = s.status === "Done" || s.estado === "EN TIEMPO" || s.estado === "PARA HOY";
       const isOff = s.estado === "ATRASADO";
       if (isOn || isOff) { scopeDen++; if (isOn) scopeOn++; }
