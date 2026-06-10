@@ -3,11 +3,18 @@
 import type { ReactNode } from "react";
 
 // ── Loader / Error ─────────────────────────────────────────────────────
-export function Loader({ msg = "Consultando Monday.com..." }: { msg?: string }) {
+export function Loader() {
   return (
-    <div className="flex flex-col items-center gap-4 py-20 text-[var(--text-muted)]">
-      <div className="spinner" />
-      <span>{msg}</span>
+    <div className="flex min-h-[80vh] flex-col items-center justify-center gap-4 text-[var(--text-muted)]">
+      <video
+        className="loader-video"
+        src="/loader.webm"
+        autoPlay
+        loop
+        muted
+        playsInline
+      />
+      <span>Cargando...</span>
     </div>
   );
 }

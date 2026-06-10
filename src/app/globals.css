@@ -167,6 +167,13 @@ body {
   animation: spin 0.8s linear infinite;
 }
 
+/* Video del loader */
+.loader-video {
+  width: 240px;
+  height: auto;
+  object-fit: contain;
+}
+
 /* ── PILLS ──────────────────────────────────────────────────────────── */
 .pill {
   display: inline-block;

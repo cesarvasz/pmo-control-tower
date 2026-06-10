@@ -23,7 +23,7 @@ export default function ControlTowerPage() {
   const { data, loading, error } = useData();
   const router = useRouter();
 
-  if (loading && !data) return <Loader msg="Cargando portafolios..." />;
+  if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 

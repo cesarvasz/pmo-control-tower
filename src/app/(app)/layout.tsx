@@ -4,11 +4,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useMe } from "@/context/PermissionsContext";
+import { useData } from "@/context/DataContext";
 import { hasAction, hasPage } from "@/lib/permissions";
 import { pageByHref } from "@/lib/registry";
 import { usePageTracking } from "@/hooks/usePageTracking";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
+import { Loader } from "@/components/ui";
 
 function PageTracker() {
   usePageTracking();
@@ -19,6 +21,21 @@ function FullScreen({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 text-[var(--text-muted)]">
       {children}
+    </div>
+  );
+}
+
+/** Overlay que cubre la pantalla mientras se actualizan los datos (refetch con data ya cargada). */
+function RefreshOverlay() {
+  const { loading, data } = useData();
+  if (!loading || !data) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 text-[var(--text-muted)]"
+      style={{ background: "var(--bg-base)" }}
+    >
+      <video className="loader-video" src="/loader.webm" autoPlay loop muted playsInline />
+      <span>Cargando...</span>
     </div>
   );
 }
@@ -38,8 +55,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (loading || !user || (meLoading && !me)) {
     return (
       <FullScreen>
-        <div className="spinner" />
-        <span>Cargando...</span>
+        <Loader />
       </FullScreen>
     );
   }
@@ -73,6 +89,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex">
       <PageTracker />
+      <RefreshOverlay />
       <Sidebar
         mobileOpen={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}

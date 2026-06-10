@@ -66,7 +66,7 @@ export default function UsuariosPage() {
     }
   };
 
-  if (loading) return <Loader msg="Cargando usuarios..." />;
+  if (loading) return <Loader />;
   if (error && !users.length) return <ErrorBox msg={error} />;
 
   return (

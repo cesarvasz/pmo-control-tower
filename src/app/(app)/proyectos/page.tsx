@@ -25,7 +25,7 @@ const isOffTrack = (status: string, estado: string) => status !== "Done" && esta
 
 export default function ProyectosPage() {
   return (
-    <Suspense fallback={<Loader msg="Cargando portafolios..." />}>
+    <Suspense fallback={<Loader />}>
       <ProyectosInner />
     </Suspense>
   );
@@ -42,7 +42,7 @@ function ProyectosInner() {
   const [openBoards, setOpenBoards] = useState<Set<string>>(new Set());
   const [filterNoDl, setFilterNoDl] = useState(false);
 
-  if (loading && !data) return <Loader msg="Cargando portafolios..." />;
+  if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 

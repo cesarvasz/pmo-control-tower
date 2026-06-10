@@ -107,7 +107,7 @@ export default function RolesPage() {
     }
   };
 
-  if (loading) return <Loader msg="Cargando roles..." />;
+  if (loading) return <Loader />;
   if (error && !roles.length) return <ErrorBox msg={error} />;
 
   return (

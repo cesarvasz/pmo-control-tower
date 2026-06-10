@@ -88,7 +88,7 @@ export default function GruposPage() {
     }
   };
 
-  if (loading && !groups.length) return <Loader msg="Cargando grupos..." />;
+  if (loading && !groups.length) return <Loader />;
   if (error && !groups.length) return <ErrorBox msg={error} />;
 
   return (
