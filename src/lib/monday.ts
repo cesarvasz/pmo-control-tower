@@ -7,6 +7,7 @@ import type {
   DashboardRaw,
   MondayItem,
   ProjBoardRaw,
+  SheetRow,
 } from "@/types";
 
 const MONDAY_URL = "https://api.monday.com/v2";
@@ -39,16 +40,25 @@ async function mondayFetch<T>(query: string): Promise<T> {
   return json.data;
 }
 
-async function fetchCalendar(): Promise<CalMeetingRaw[]> {
+/** Web App de Google: ahora devuelve calendario + hoja en un solo objeto.
+ *  Retrocompatible: si la respuesta es un array (formato viejo) = solo calendario. */
+async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: SheetRow[] }> {
   try {
     const res = await fetch(env("CALENDAR_WEBAPP_URL"), {
       redirect: "follow",
       cache: "no-store",
     });
-    return (await res.json()) as CalMeetingRaw[];
+    const json = await res.json();
+    if (Array.isArray(json)) {
+      return { calData: json as CalMeetingRaw[], sheetRows: [] };
+    }
+    return {
+      calData: (json.calendar ?? []) as CalMeetingRaw[],
+      sheetRows: (json.sheet ?? []) as SheetRow[],
+    };
   } catch (e) {
-    console.warn("Calendar fetch failed:", e);
-    return [];
+    console.warn("WebApp fetch failed:", e);
+    return { calData: [], sheetRows: [] };
   }
 }
 
@@ -71,11 +81,11 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
   const iniId = env("MONDAY_INI_BOARD_ID");
   const reqId = env("MONDAY_REQ_BOARD_ID");
 
-  // 1ª tanda en paralelo: ini, req, calendario y descubrir boards de proyectos.
-  const [iniData, reqData, calData, projBoards] = await Promise.all([
+  // 1ª tanda en paralelo: ini, req, web app (calendario + hoja) y descubrir boards.
+  const [iniData, reqData, webApp, projBoards] = await Promise.all([
     mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(iniId)),
     mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(reqId)),
-    fetchCalendar(),
+    fetchWebApp(),
     discoverProjBoards(),
   ]);
 
@@ -92,7 +102,8 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
     reqItems: reqData.boards[0]?.items_page.items ?? [],
     projBoards,
     projRaw,
-    calData,
+    calData: webApp.calData,
+    sheetRows: webApp.sheetRows,
     fetchedAt: new Date().toISOString(),
   };
 }

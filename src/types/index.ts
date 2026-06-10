@@ -35,6 +35,9 @@ export interface CalMeetingRaw {
   fin: string;
 }
 
+/** Fila cruda de la hoja de Google (encabezados dinámicos → claves). */
+export type SheetRow = Record<string, string | number>;
+
 /** Payload completo que devuelve `GET /api/dashboard`. */
 export interface DashboardRaw {
   iniItems: MondayItem[];
@@ -42,6 +45,7 @@ export interface DashboardRaw {
   projBoards: { id: string; name: string }[];
   projRaw: ProjBoardRaw[];
   calData: CalMeetingRaw[];
+  sheetRows: SheetRow[];
   fetchedAt: string;
 }
 
@@ -136,6 +140,15 @@ export interface CalMeeting {
 
 export type CalMap = Map<string, { M1: CalMeeting[]; M2: CalMeeting[] }>;
 
+/** Resultado del NPS (encuesta PMO). */
+export interface NpsData {
+  nps: number | null;   // -100 a 100
+  promoters: number;    // respuestas 9-10
+  passives: number;     // respuestas 7-8
+  detractors: number;   // respuestas 0-6
+  total: number;
+}
+
 /** Datos ya procesados que expone el DataContext a las páginas. */
 export interface DashboardData {
   ini: IniItem[];
@@ -143,5 +156,6 @@ export interface DashboardData {
   proj: ProjItem[];
   projBoards: ProjBoard[];
   calMap: CalMap;
+  nps: NpsData;
   fetchedAt: Date;
 }

@@ -17,8 +17,10 @@ import type {
   IniItem,
   MondayColumnValue,
   MondayItem,
+  NpsData,
   ProjItem,
   ReqItem,
+  SheetRow,
 } from "@/types";
 
 // helper: lee el texto de una columna por id
@@ -562,4 +564,41 @@ export function iniIsParaHoy(r: IniItem, calMap: CalMap): boolean {
     if (m && isToday(m.inicio)) return true;
   }
   return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// NPS (encuesta PMO desde Google Forms)
+// ─────────────────────────────────────────────────────────────────────
+
+/** Pista de texto para localizar la columna del puntaje 0–10 en la hoja. */
+const NPS_COL_HINT = "recomiende";
+
+/**
+ * NPS = (#promotores − #detractores) / total × 100.
+ * Promotores = 9-10, Pasivos = 7-8, Detractores = 0-6.
+ */
+export function calcNps(rows: SheetRow[]): NpsData {
+  let promoters = 0, passives = 0, detractors = 0, total = 0;
+  rows.forEach((row) => {
+    const key = Object.keys(row).find((k) => k.toLowerCase().includes(NPS_COL_HINT));
+    if (!key) return;
+    const score = typeof row[key] === "number" ? (row[key] as number) : parseFloat(String(row[key]));
+    if (!Number.isFinite(score)) return;
+    total++;
+    if (score >= 9) promoters++;
+    else if (score >= 7) passives++;
+    else detractors++;
+  });
+  const nps = total > 0 ? Math.round(((promoters - detractors) / total) * 100) : null;
+  return { nps, promoters, passives, detractors, total };
+}
+
+/** Clasificación del NPS (rangos, color y texto) — fuente única. */
+export function npsCfg(nps: number | null): { color: string; label: string } | null {
+  if (nps === null) return null;
+  return nps >= 70 ? { color: "#43a047", label: "PMO EXCELENTE" }   // +70 a +100
+       : nps >= 50 ? { color: "#2e7d32", label: "PMO BUENA" }       // +50 a +69
+       : nps >= 30 ? { color: "#ef6c00", label: "PMO ACEPTABLE" }   // +30 a +49
+       : nps >= 0  ? { color: "#c9a227", label: "PMO BÁSICA" }      //   0 a +29
+       :             { color: "#c0392b", label: "PMO EN RIESGO" };  // -100 a -1
 }

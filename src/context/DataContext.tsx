@@ -13,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import {
   buildCalMap,
+  calcNps,
   iniProcess,
   projEnrichBoards,
   projProcess,
@@ -62,8 +63,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       );
       const projBoards = projEnrichBoards(raw.projBoards, proj);
       const calMap = buildCalMap(raw.calData);
+      const nps = calcNps(raw.sheetRows ?? []);
 
-      setData({ ini, req, proj, projBoards, calMap, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, calMap, nps, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

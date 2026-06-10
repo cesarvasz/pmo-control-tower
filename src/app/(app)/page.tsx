@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useData } from "@/context/DataContext";
-import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, REQ_ACTIVE_GRUPOS } from "@/lib/process";
+import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
@@ -27,7 +27,7 @@ export default function ControlTowerPage() {
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 
-  const { ini, req, proj, projBoards, calMap } = data;
+  const { ini, req, proj, projBoards, calMap, nps } = data;
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
 
@@ -103,6 +103,28 @@ export default function ControlTowerPage() {
             {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
           </div>
         </div>
+
+        {/* NPS — encuesta PMO */}
+        {(() => {
+          const cfg = npsCfg(nps.nps);
+          const npsColor = cfg?.color ?? "#6b7280";
+          return (
+            <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: npsColor, minWidth: 220 }}>
+              <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">NPS</div>
+              <div className="mb-1.5 text-5xl font-extrabold leading-none" style={{ color: npsColor }}>
+                {nps.nps !== null ? nps.nps : "—"}
+              </div>
+              <div className="mb-3 text-[0.85rem] font-bold uppercase tracking-wide" style={{ color: npsColor }}>
+                {cfg?.label ?? "Sin datos"}
+              </div>
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold text-[var(--text-muted)]">
+                <span style={{ color: "#10b981" }}>{nps.promoters} prom.</span>
+                <span style={{ color: "#ef4444" }}>{nps.detractors} detr.</span>
+                <span>{nps.total} resp.</span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Bloques globales */}
