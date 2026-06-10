@@ -4,19 +4,11 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
-import { REQ_ACTIVE_GRUPOS, REQ_GROUP_COLOR, REQ_PIPELINE } from "@/lib/process";
+import { REQ_ACTIVE_GRUPOS, REQ_GROUP_COLOR, REQ_PIPELINE, vemCfg } from "@/lib/process";
 import type { ReqItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
 import { EmptyRow, ErrorBox, FilterReset, Loader, SectionHeader, StatCard } from "@/components/ui";
-
-function vemCfg(v: number) {
-  return v >= 0.95
-    ? { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track", icon: "✓" }
-    : v >= 0.85
-      ? { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk", icon: "⚠" }
-      : { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" };
-}
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
 

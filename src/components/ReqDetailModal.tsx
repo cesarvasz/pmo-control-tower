@@ -1,17 +1,10 @@
 "use client";
 
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
-import { REQ_GROUP_COLOR } from "@/lib/process";
+import { REQ_GROUP_COLOR, vemCfg } from "@/lib/process";
 import type { ReqItem } from "@/types";
 import Modal from "@/components/Modal";
 
-function vemCfg(v: number) {
-  return v >= 0.95
-    ? { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track", icon: "✓" }
-    : v >= 0.85
-      ? { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk", icon: "⚠" }
-      : { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" };
-}
 const evmColor = (v: number) => (v >= 1 ? "#10b981" : v >= 0.8 ? "#f59e0b" : "#ef4444");
 const evmBg = (v: number) => (v >= 1 ? "var(--health-on-track-bg)" : v >= 0.8 ? "var(--health-in-risk-bg)" : "var(--health-off-track-bg)");
 

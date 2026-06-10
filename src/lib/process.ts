@@ -276,9 +276,9 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
         }
       }
     }
-    const vem = spi !== null && cpi !== null && scope !== null
-      ? Math.round(((spi + cpi + scope) / 3) * 100) / 100
-      : null;
+    // scope de REQ ya es fracción 0–1.
+    const vemRaw = calcVem(spi, cpi, scope);
+    const vem = vemRaw !== null ? Math.round(vemRaw * 100) / 100 : null;
 
     return {
       id: col(REQ_COLS.id),
@@ -356,6 +356,41 @@ export interface BoardHealthData {
   spi: number | null; cpi: number | null;
   healthIndex: number | null;
   healthStatus: HealthStatus | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// VEM — FUENTE ÚNICA DE VERDAD (fórmula + umbrales + config visual)
+// Todo cálculo de VEM/salud DEBE pasar por aquí para que los cambios
+// se propaguen en cascada a todas las páginas y tarjetas.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Umbrales de salud sobre el índice VEM (0–1). */
+export const VEM_THRESHOLDS = { onTrack: 0.95, inRisk: 0.85 } as const;
+
+/** VEM = promedio de SPI, CPI y Scope (todos en fracción 0–1). null si falta alguno. */
+export function calcVem(spi: number | null, cpi: number | null, scope01: number | null): number | null {
+  if (spi === null || cpi === null || scope01 === null) return null;
+  return (spi + cpi + scope01) / 3;
+}
+
+/** Deriva el estado de salud a partir de un índice VEM (0–1). */
+export function healthStatusFromIndex(index: number | null): HealthStatus | null {
+  if (index === null) return null;
+  return index >= VEM_THRESHOLDS.onTrack ? "on-track"
+       : index >= VEM_THRESHOLDS.inRisk  ? "in-risk"
+       : "off-track";
+}
+
+/** Config visual por estado de salud (color, fondo, wording, icono). */
+export const HEALTH_CFG: Record<HealthStatus, { color: string; bg: string; label: string; icon: string }> = {
+  "on-track":  { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track",  icon: "✓" },
+  "in-risk":   { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk",   icon: "⚠" },
+  "off-track": { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" },
+};
+
+/** Config visual a partir de un índice VEM numérico (atajo para tarjetas/pills). */
+export function vemCfg(v: number) {
+  return HEALTH_CFG[healthStatusFromIndex(v) ?? "off-track"];
 }
 
 export const PROJ_PHASE_GROUPS = [
@@ -438,16 +473,10 @@ export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: n
 }
 
 export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null }): BoardHealthData {
-  const spi = metrics.spi;
-  const cpi = metrics.cpi;
-  const healthIndex = spi !== null && cpi !== null && metrics.scope !== null
-    ? (spi + cpi + metrics.scope / 100) / 3
-    : null;
-  const healthStatus: HealthStatus | null = healthIndex === null ? null
-    : healthIndex >= 0.95 ? "on-track"
-    : healthIndex >= 0.85 ? "in-risk"
-    : "off-track";
-  return { ...metrics, spi, cpi, healthIndex, healthStatus };
+  // scope viene en 0–100 → se normaliza a fracción 0–1 para el VEM.
+  const healthIndex = calcVem(metrics.spi, metrics.cpi, metrics.scope !== null ? metrics.scope / 100 : null);
+  const healthStatus = healthStatusFromIndex(healthIndex);
+  return { ...metrics, healthIndex, healthStatus };
 }
 
 /** Asigna a cada board su PM = Resp (o PM) del primer item del board. */
@@ -518,7 +547,7 @@ export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap: CalMap):
   const sinMeeting = items.filter((r) => !hasMeeting(r)).length;
 
   const index = ((agendadas / total) + (enTiempo / total)) / 2;
-  const status = index >= 0.95 ? "on-track" : index >= 0.85 ? "in-risk" : "off-track";
+  const status = healthStatusFromIndex(index) ?? "off-track";
 
   return { status, index, agendadas, enTiempo, atrasadas, sinMeeting, total };
 }

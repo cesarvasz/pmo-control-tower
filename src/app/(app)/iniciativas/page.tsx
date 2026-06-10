@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate } from "@/lib/business";
 import {
+  HEALTH_CFG,
   INI_ACTIVE_STS,
   INI_LIMITS,
   INI_SEC_LABEL,
@@ -135,12 +136,6 @@ function IniciativasInner() {
 }
 
 // ── PM Health ──────────────────────────────────────────────────────────
-
-const HEALTH_CFG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
-  "on-track": { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track", icon: "✓" },
-  "in-risk":  { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk",  icon: "⚠" },
-  "off-track":{ color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" },
-};
 
 function PMHealth({ iniData, calMap, selectedPm, onSelect }: {
   iniData: IniItem[];

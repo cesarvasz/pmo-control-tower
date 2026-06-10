@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useData } from "@/context/DataContext";
-import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, INI_ACTIVE_STS, iniIsParaHoy, REQ_ACTIVE_GRUPOS } from "@/lib/process";
+import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
@@ -17,11 +17,6 @@ const pmLabel = (pm: string) => {
   return p ? `${p.prefix} ${p.name}` : pm;
 };
 
-const HEALTH_CFG = {
-  "on-track":  { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track", icon: "✓" },
-  "in-risk":   { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk",  icon: "⚠" },
-  "off-track": { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" },
-} as const;
 const INI_HEALTH_CFG = HEALTH_CFG;
 
 export default function ControlTowerPage() {
@@ -72,10 +67,12 @@ export default function ControlTowerPage() {
   const vemParts = [teamIniHealth, teamReqHealth, teamProjHealth].filter((v): v is number => v != null);
   const teamVem = vemParts.length > 0 ? vemParts.reduce((a, b) => a + b, 0) / vemParts.length : null;
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
-  const hColor = vemPct === null ? "#6b7280" : vemPct >= 95 ? "#10b981" : vemPct >= 85 ? "#f59e0b" : "#ef4444";
-  const hBg    = vemPct === null ? "var(--health-neutral-bg)" : vemPct >= 95 ? "var(--health-on-track-bg)" : vemPct >= 85 ? "var(--health-in-risk-bg)" : "var(--health-off-track-bg)";
-  const hLabel = vemPct === null ? "Sin datos" : vemPct >= 95 ? "On Track" : vemPct >= 85 ? "In Risk" : "Off Track";
-  const hIcon  = vemPct === null ? "—" : vemPct >= 95 ? "✓" : vemPct >= 85 ? "⚠" : "✕";
+  const teamStatus = healthStatusFromIndex(teamVem);
+  const teamCfg = teamStatus ? HEALTH_CFG[teamStatus] : null;
+  const hColor = teamCfg?.color ?? "#6b7280";
+  const hBg    = teamCfg?.bg ?? "var(--health-neutral-bg)";
+  const hLabel = teamCfg?.label ?? "Sin datos";
+  const hIcon  = teamCfg?.icon ?? "—";
 
   const G = {
     iniTotal:    iniProc.length,
@@ -90,24 +87,21 @@ export default function ControlTowerPage() {
 
   return (
     <div>
-      {/* VEM del equipo */}
-      <div className="mb-4 rounded-xl border-2 p-6" style={{ background: "var(--bg-surface)", borderColor: hColor }}>
-        <div className="mb-4 text-[0.72rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          EVM del Equipo PMO
-        </div>
-        <div className="mb-3.5 flex flex-wrap items-center gap-5">
-          <div className="text-5xl font-extrabold leading-none" style={{ color: hColor, minWidth: 88 }}>
+      {/* Tarjetas de resumen (se irán agregando más en horizontal) */}
+      <div className="mb-4 flex flex-wrap gap-4">
+        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: hColor, minWidth: 220 }}>
+          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">EVM - PMO</div>
+          <div className="mb-2 text-5xl font-extrabold leading-none" style={{ color: hColor }}>
             {vemPct !== null ? `${vemPct}%` : "—"}
           </div>
-          <div className="h-2.5 min-w-[120px] flex-1 overflow-hidden rounded-full" style={{ background: "var(--border)" }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${vemPct ?? 0}%`, background: hColor }} />
+          <div className="mb-3 flex justify-center">
+            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.72rem] font-bold" style={{ color: hColor, background: hBg }}>{hIcon} {hLabel}</span>
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[0.82rem] font-bold" style={{ color: hColor, background: hBg }}>{hIcon} {hLabel}</span>
-        </div>
-        <div className="flex flex-wrap gap-5 text-[0.82rem] font-semibold text-[var(--text-muted)]">
-          {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
-          {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
-          {teamProjHealth !== null && <span>PROJ {Math.round(teamProjHealth * 100)}%</span>}
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold text-[var(--text-muted)]">
+            {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
+            {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
+            {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
+          </div>
         </div>
       </div>
 
@@ -127,7 +121,7 @@ export default function ControlTowerPage() {
           [`✓ ${G.reqEnTiempo} On Track`, "#10b981"],
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
-        <GlobalBlock title="Proyectos" onClick={() => router.push("/proyectos")} stats={[
+        <GlobalBlock title="PM" onClick={() => router.push("/proyectos")} stats={[
           [`${boardsWithHealth.length} total`, "var(--text-primary)"],
           [`${projBoardsOffTrack} off track`, "#ef4444"],
           [`${projBoardsInRisk} in risk`, "#f59e0b"],
@@ -198,8 +192,8 @@ function PMPortfolioCard({
   const rAtr = reqAct.filter((r) => r.estado === "ATRASADO").length;
   const reqVemItems = reqAct.filter((r) => r.vem != null);
   const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
-  const reqVemStatus = reqAvgVem !== null ? (reqAvgVem >= 0.95 ? "on-track" : reqAvgVem >= 0.85 ? "in-risk" : "off-track") : null;
-  const rvc = reqVemStatus ? INI_HEALTH_CFG[reqVemStatus] : null;
+  const reqVemStatus = healthStatusFromIndex(reqAvgVem);
+  const rvc = reqVemStatus ? HEALTH_CFG[reqVemStatus] : null;
 
   const reqParaHoyN = reqAct.filter((r) => r.estado === "PARA HOY").length;
   const reqEnTiempoN = reqAct.filter((r) => r.estado === "EN TIEMPO").length;
@@ -211,7 +205,7 @@ function PMPortfolioCard({
   const projHas = pmProjBoards.length > 0;
   const pmProjHIs = pmProjBoards.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
   const pmProjAvgHI = pmProjHIs.length > 0 ? pmProjHIs.reduce((a, b) => a + b, 0) / pmProjHIs.length : null;
-  const pmProjStatus = pmProjAvgHI === null ? null : pmProjAvgHI >= 0.95 ? "on-track" : pmProjAvgHI >= 0.85 ? "in-risk" : "off-track";
+  const pmProjStatus = healthStatusFromIndex(pmProjAvgHI);
   const ppc = pmProjStatus ? HEALTH_CFG[pmProjStatus] : null;
 
   const ihc = INI_HEALTH_CFG[iniHealth.status];
@@ -219,7 +213,7 @@ function PMPortfolioCard({
   const pmEvmParts = ([iniHealth.index, reqAvgVem, pmProjAvgHI] as (number | null)[]).filter((v): v is number => v != null);
   const pmEvmRaw = pmEvmParts.length > 0 ? pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length : null;
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
-  const pmHealth: HealthStatus = pmEvmRaw === null ? "on-track" : pmEvmRaw >= 0.95 ? "on-track" : pmEvmRaw >= 0.85 ? "in-risk" : "off-track";
+  const pmHealth: HealthStatus = healthStatusFromIndex(pmEvmRaw) ?? "on-track";
   const hc = HEALTH_CFG[pmHealth];
 
   return (
@@ -264,7 +258,7 @@ function PMPortfolioCard({
           <Stat n={reqEnTiempoN} color="#10b981" label="On Track" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-        <Section label={`Proyectos (${pmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (
+        <Section label={`PM (${pmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (
             <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ppc.color, background: ppc.bg }}>
               {ppc.icon} {ppc.label} · {Math.round(pmProjAvgHI * 100)}%
             </span>

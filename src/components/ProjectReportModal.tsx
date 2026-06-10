@@ -1,6 +1,7 @@
 "use client";
 
 import { fmtDate, fmtMoney } from "@/lib/business";
+import { calcVem, healthStatusFromIndex } from "@/lib/process";
 import type { ProjBoard, ProjItem } from "@/types";
 
 interface Props {
@@ -34,13 +35,9 @@ interface Metrics {
 }
 
 function computeMetrics(items: ProjItem[], ev: number, pv: number, ac: number, scope: number | null, spi: number | null, cpi: number | null): Metrics {
-  const healthIndex =
-    spi !== null && cpi !== null && scope !== null ? (spi + cpi + scope / 100) / 3 : null;
-  const healthStatus: Metrics["healthStatus"] =
-    healthIndex === null ? null
-    : healthIndex >= 0.95 ? "on-track"
-    : healthIndex >= 0.85 ? "in-risk"
-    : "off-track";
+  // scope viene en 0–100 → fracción 0–1 para el VEM (fuente única).
+  const healthIndex = calcVem(spi, cpi, scope !== null ? scope / 100 : null);
+  const healthStatus: Metrics["healthStatus"] = healthStatusFromIndex(healthIndex);
 
   const done    = items.filter((r) => r.status === "Done").length;
   const working = items.filter((r) => r.status === "Working on it").length;
