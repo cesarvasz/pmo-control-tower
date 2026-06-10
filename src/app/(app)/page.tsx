@@ -271,12 +271,15 @@ function PMPortfolioCard({
           ) : undefined}>
           <div className="flex flex-col gap-1.5 pt-0.5">
             {pmProjBoards.map((b) => {
-              const hs = boardHealthMap.get(b.id)?.healthStatus;
+              const bh = boardHealthMap.get(b.id);
+              const hs = bh?.healthStatus;
               const color = hs ? PROJ_HEALTH_COLOR[hs] : "#6b7280";
+              const hi = bh?.healthIndex;
               return (
                 <div key={b.id} className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
                   <span className="text-[0.75rem] font-mono text-[var(--text-secondary)]" title={b.name}>{b.name.slice(0, 6)}</span>
+                  {hi != null && <span className="ml-auto text-[0.72rem] font-bold tabular-nums" style={{ color }}>{Math.round(hi * 100)}%</span>}
                 </div>
               );
             })}

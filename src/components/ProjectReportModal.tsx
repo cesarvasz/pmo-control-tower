@@ -11,6 +11,7 @@ interface Props {
   ac: number;
   scope: number | null;
   spi: number | null;
+  cpi: number | null;
   onClose: () => void;
 }
 
@@ -32,8 +33,7 @@ interface Metrics {
   criticalItems: ProjItem[];
 }
 
-function computeMetrics(items: ProjItem[], ev: number, pv: number, ac: number, scope: number | null, spi: number | null): Metrics {
-  const cpi = ac > 0 ? Math.min(1, ev / ac) : null;
+function computeMetrics(items: ProjItem[], ev: number, pv: number, ac: number, scope: number | null, spi: number | null, cpi: number | null): Metrics {
   const healthIndex =
     spi !== null && cpi !== null && scope !== null ? (spi + cpi + scope / 100) / 3 : null;
   const healthStatus: Metrics["healthStatus"] =
@@ -75,8 +75,8 @@ const HC = {
   "off-track": { color: "#ef4444", label: "Off Track", icon: "✕", desc: "El proyecto tiene desviaciones significativas. Se requiere acción correctiva inmediata." },
 } as const;
 
-export default function ProjectReportModal({ board, items, ev, pv, ac, scope, spi, onClose }: Props) {
-  const m   = computeMetrics(items, ev, pv, ac, scope, spi);
+export default function ProjectReportModal({ board, items, ev, pv, ac, scope, spi, cpi, onClose }: Props) {
+  const m   = computeMetrics(items, ev, pv, ac, scope, spi, cpi);
   const hc  = m.healthStatus ? HC[m.healthStatus] : null;
   const today = new Date().toLocaleDateString("es-CR", { year: "numeric", month: "long", day: "numeric" });
 
