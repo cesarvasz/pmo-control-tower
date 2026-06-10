@@ -15,13 +15,6 @@ function vemCfg(v: number) {
 const evmColor = (v: number) => (v >= 1 ? "#10b981" : v >= 0.8 ? "#f59e0b" : "#ef4444");
 const evmBg = (v: number) => (v >= 1 ? "var(--health-on-track-bg)" : v >= 0.8 ? "var(--health-in-risk-bg)" : "var(--health-off-track-bg)");
 
-const PILL: Record<string, [string, string, string]> = {
-  ATRASADO: ["#ef4444", "#450a0a", "✕ Off Track"],
-  "PARA HOY": ["#fcd34d", "#451a03", "⚠ In Risk"],
-  "EN TIEMPO": ["#6ee7b7", "#052e16", "✓ On Track"],
-  "EN PROCESO": ["#9ca3af", "#1f2937", "— Pendiente"],
-};
-
 function Cell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border px-3 py-2.5" style={{ background: "var(--bg-hover)", borderColor: "var(--border)" }}>
@@ -67,12 +60,11 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
 
           {/* Body */}
           <div className="flex flex-col gap-5 px-6 pb-6 pt-5">
-            {/* Estado + grupo */}
+            {/* Estado (derivado del VEM) + grupo */}
             <div className="flex flex-wrap items-center gap-2">
-              {(() => {
-                const [fg, bg, lbl] = PILL[r.estado] ?? ["#9ca3af", "#1f2937", r.estado];
-                return <span style={{ background: bg, color: fg, border: `1px solid ${fg}44`, padding: "2px 10px", borderRadius: 20, fontSize: ".72rem", fontWeight: 700 }}>{lbl}</span>;
-              })()}
+              {r.vem !== null
+                ? (() => { const c = vemCfg(r.vem as number); return <span style={{ background: c.bg, color: c.color, border: `1px solid ${c.color}44`, padding: "2px 10px", borderRadius: 20, fontSize: ".72rem", fontWeight: 700 }}>{c.icon} {c.label}</span>; })()
+                : <span style={{ background: "var(--health-neutral-bg)", color: "#6b7280", border: "1px solid #6b728044", padding: "2px 10px", borderRadius: 20, fontSize: ".72rem", fontWeight: 700 }}>— Sin datos</span>}
               <span className="text-[0.75rem] font-bold" style={{ color: REQ_GROUP_COLOR[r.grupo] || "var(--text-muted)" }}>{r.grupo}</span>
               {r.status && <span className="text-[0.72rem] text-[var(--text-secondary)]">{r.status}</span>}
             </div>

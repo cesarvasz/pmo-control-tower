@@ -190,13 +190,6 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
     if (d > t) { const n = businessDays(t, d); return <span style={{ color: "#10b981", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
     const n = businessDays(d, t); return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
   };
-  const ESTADO_INLINE: Record<string, [string, string]> = {
-    ATRASADO: ["pill-atrasado", "✕ Off Track"],
-    "PARA HOY": ["pill-parahoy", "⚠ In Risk"],
-    "EN TIEMPO": ["pill-entiempo", "✓ On Track"],
-    "EN PROCESO": ["pill-skip", "— Pendiente"],
-  };
-
   return (
     <div className="table-wrap">
       <table className="pmo">
@@ -209,7 +202,6 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
         </thead>
         <tbody>
           {sorted.map((r) => {
-            const [cls, lbl] = ESTADO_INLINE[r.estado] ?? ["pill-skip", r.estado];
             return (
               <tr key={r.id || r.name}>
                 <td className="ini-id">{r.id || "—"}</td>
@@ -217,7 +209,11 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
                 <td className="pm-name">{r.pm || "—"}</td>
                 <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.resp || "—"}</td>
                 <td><span style={{ fontSize: ".72rem", fontWeight: 600, color: REQ_GROUP_COLOR[r.grupo] || "var(--text-muted)" }}>{r.grupo}</span></td>
-                <td><span className={`pill ${cls}`} style={{ fontSize: ".68rem" }}>{lbl}</span></td>
+                <td>
+                  {r.vem !== null
+                    ? (() => { const cf = vemCfg(r.vem as number); return <span className="pill" style={{ fontSize: ".68rem", color: cf.color, background: cf.bg, border: `1px solid ${cf.color}44` }}>{cf.icon} {cf.label}</span>; })()
+                    : <span className="pill pill-skip" style={{ fontSize: ".68rem" }}>— Sin datos</span>}
+                </td>
                 <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : "—"}</td>
                 <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
                 <td>{deadlineCell(r)}</td>
