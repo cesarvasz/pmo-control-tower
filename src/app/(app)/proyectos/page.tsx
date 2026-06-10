@@ -126,7 +126,7 @@ function ProyectosInner() {
             const items = byPM.filter((r) => r.boardId === b.id);
             if (!items.length) return null;
             const bh = boardHealthMap.get(b.id)!;
-            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} />;
+            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} spi={bh.spi} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -203,11 +203,10 @@ function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean })
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
 }
 
-function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle, filterNoDl }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; open: boolean; onToggle: () => void; filterNoDl: boolean }) {
+function BoardAccordion({ board, items, ev, pv, ac, scope, spi, open, onToggle, filterNoDl }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; open: boolean; onToggle: () => void; filterNoDl: boolean }) {
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
-  const spi = pv > 0 ? ev / pv : null;
   const cpi = ac > 0 ? Math.min(1, ev / ac) : null;
   const spiColor   = spi   === null ? "var(--text-muted)" : spi   >= 1 ? "#10b981" : spi   >= 0.85 ? "#f59e0b" : "#ef4444";
   const cpiColor   = cpi   === null ? "var(--text-muted)" : cpi   >= 1 ? "#10b981" : cpi   >= 0.85 ? "#f59e0b" : "#ef4444";
@@ -247,6 +246,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, open, onToggle, filte
           pv={pv}
           ac={ac}
           scope={scope}
+          spi={spi}
           onClose={() => setShowReport(false)}
         />
       )}

@@ -358,7 +358,15 @@ export interface BoardHealthData {
   healthStatus: HealthStatus | null;
 }
 
-export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null } {
+export const PROJ_PHASE_GROUPS = [
+  "Valuacion | Formulacion del proyecto",
+  "Aprobacion | Value Gate",
+  "Launch | Desarrollo",
+  "Operacion | Implementacion",
+  "Revision | Cierre ROI",
+];
+
+export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null; spi: number | null } {
   let ev = 0, pv = 0, ac = 0, scopeOn = 0, scopeTotal = 0;
   allBoardItems.forEach((r) => {
     const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
@@ -366,7 +374,6 @@ export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: n
     if (r.status === "Done" || onTrackWip) ev += r.cost;
     if (r.status === "Done" || pvWip)      pv += r.cost;
     if (r.status === "Done")               ac += r.cost;
-    // Scope: items
     scopeTotal++;
     if (r.status === "Done" || r.estado === "EN TIEMPO") scopeOn++;
     r.subitems.forEach((s) => {
@@ -375,16 +382,43 @@ export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: n
       if (s.status === "Done" || sOnTrackWip) ev += s.cost;
       if (s.status === "Done" || sPvWip)      pv += s.cost;
       if (s.status === "Done")                ac += s.cost;
-      // Scope: subitems
       scopeTotal++;
       if (s.status === "Done" || s.estado === "EN TIEMPO") scopeOn++;
     });
   });
-  return { ev, pv, ac, scope: scopeTotal > 0 ? (scopeOn / scopeTotal) * 100 : null };
+
+  // Phase-based SPI
+  const gMap = new Map<string, ProjItem[]>();
+  allBoardItems.forEach((r) => {
+    if (!gMap.has(r.grupo)) gMap.set(r.grupo, []);
+    gMap.get(r.grupo)!.push(r);
+  });
+  let evGroups = 0, pvGroups = 0;
+  PROJ_PHASE_GROUPS.forEach((gName) => {
+    const gItems = gMap.get(gName);
+    if (!gItems || gItems.length === 0) return;
+    const all: { status: string; estado: string }[] = [];
+    gItems.forEach((r) => {
+      all.push({ status: r.status, estado: r.estado });
+      r.subitems.forEach((s) => all.push({ status: s.status, estado: s.estado }));
+    });
+    const allDone        = all.every((x) => x.status === "Done");
+    const hasWip         = all.some((x) => x.status === "Working on it");
+    const hasAtrasadoWip = all.some((x) => x.status === "Working on it" && x.estado === "ATRASADO");
+    if (allDone || (hasWip && !hasAtrasadoWip)) {
+      evGroups++;
+      pvGroups++;
+    } else if (hasWip) {
+      pvGroups++;
+    }
+  });
+  const spi = pvGroups > 0 ? evGroups / pvGroups : null;
+
+  return { ev, pv, ac, scope: scopeTotal > 0 ? (scopeOn / scopeTotal) * 100 : null, spi };
 }
 
-export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null }): BoardHealthData {
-  const spi = metrics.pv > 0 ? metrics.ev / metrics.pv : null;
+export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null; spi: number | null }): BoardHealthData {
+  const spi = metrics.spi;
   const cpi = metrics.ac > 0 ? Math.min(1, metrics.ev / metrics.ac) : null;
   const healthIndex = spi !== null && cpi !== null && metrics.scope !== null
     ? (spi + cpi + metrics.scope / 100) / 3
