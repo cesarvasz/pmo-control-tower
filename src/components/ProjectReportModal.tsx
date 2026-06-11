@@ -92,7 +92,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
       onClick={onClose}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border shadow-2xl"
         style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -237,30 +237,52 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             <div>
               <SectionLabel>Tareas Críticas</SectionLabel>
               <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
-                {m.criticalItems.map((r, i) => (
-                  <div
-                    key={r.id}
-                    className="flex items-center gap-3 px-4 py-2.5 text-[0.78rem]"
-                    style={{
-                      borderTop: i > 0 ? "1px solid var(--border)" : undefined,
-                      borderLeft: `3px solid ${r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b"}`,
-                    }}
-                  >
-                    <span style={{ color: r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b", fontWeight: 700 }}>
-                      {r.estado === "ATRASADO" ? "✕" : "⚠"}
-                    </span>
-                    <span className="flex-1 font-medium text-[var(--text-primary)]">{r.name}</span>
-                    <span className="text-[0.67rem] text-[var(--text-muted)]">{r.grupo}</span>
-                    {r.deadline && (
-                      <span
-                        className="text-[0.67rem] font-semibold"
-                        style={{ color: r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b" }}
-                      >
-                        {fmtDate(r.deadline)}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                {m.criticalItems.map((r, i) => {
+                  const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
+                  const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
+                  return (
+                    <div
+                      key={r.id}
+                      className="px-4 py-2.5"
+                      style={{
+                        borderTop: i > 0 ? "1px solid var(--border)" : undefined,
+                        borderLeft: `3px solid ${color}`,
+                      }}
+                    >
+                      <div className="flex items-center gap-3 text-[0.78rem]">
+                        <span style={{ color, fontWeight: 700 }}>
+                          {r.estado === "ATRASADO" ? "✕" : "⚠"}
+                        </span>
+                        <span className="flex-1 font-medium text-[var(--text-primary)]">{r.name}</span>
+                        <span className="text-[0.67rem] text-[var(--text-muted)]">{r.grupo}</span>
+                        {r.deadline && (
+                          <span className="text-[0.67rem] font-semibold" style={{ color }}>
+                            {fmtDate(r.deadline)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 pl-6 text-[0.8rem] text-[var(--text-muted)]">
+                        Responsable: <span className="font-medium text-[var(--text-secondary)]">{r.resp || "Sin asignar"}</span>
+                      </div>
+                      {offSubs.length > 0 && (
+                        <div className="mt-1.5 space-y-1 pl-6">
+                          {offSubs.map((s) => (
+                            <div key={s.id} className="flex items-center gap-2 text-[0.8rem]">
+                              <span style={{ color: "#ef4444" }}>↳ ✕</span>
+                              <span className="flex-1 text-[var(--text-primary)]">{s.name}</span>
+                              <span className="text-[0.73rem] text-[var(--text-muted)]">{s.person || "Sin asignar"}</span>
+                              {s.deadline && (
+                                <span className="text-[0.73rem] font-semibold" style={{ color: "#ef4444" }}>
+                                  {fmtDate(s.deadline)}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -270,11 +292,9 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             <SectionLabel>Desglose por Grupo</SectionLabel>
             <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
               {m.groupOrder.map((grupo, i) => {
-                const gItems     = m.groupMap.get(grupo)!;
-                const gDone      = gItems.filter((r) => r.status === "Done").length;
-                const gAtrasados = gItems.filter((r) => r.estado === "ATRASADO").length;
-                const gParaHoy   = gItems.filter((r) => r.estado === "PARA HOY").length;
-                const pct        = Math.round((gDone / gItems.length) * 100);
+                const gItems = m.groupMap.get(grupo)!;
+                const gDone  = gItems.filter((r) => r.status === "Done").length;
+                const pct    = Math.round((gDone / gItems.length) * 100);
                 return (
                   <div
                     key={grupo}
@@ -286,12 +306,6 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                     </span>
                     <span className="text-[0.68rem] text-[var(--text-muted)]">{gItems.length} tareas</span>
                     <span className="text-[0.68rem] font-semibold" style={{ color: "#10b981" }}>{pct}% done</span>
-                    {gAtrasados > 0 && (
-                      <span className="text-[0.68rem] font-semibold" style={{ color: "#ef4444" }}>✕ {gAtrasados}</span>
-                    )}
-                    {gParaHoy > 0 && (
-                      <span className="text-[0.68rem] font-semibold" style={{ color: "#f59e0b" }}>⚠ {gParaHoy}</span>
-                    )}
                   </div>
                 );
               })}
@@ -331,35 +345,49 @@ function buildPrintHTML(
     v === null ? "#6b7280" : v >= 1 ? "#10b981" : v >= 0.85 ? "#f59e0b" : "#ef4444";
 
   const criticalRows = m.criticalItems
-    .map(
-      (r) => `
+    .map((r) => {
+      const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
+      const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
+      const mainRow = `
       <tr>
-        <td style="color:${r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b"};font-weight:700;width:20px">
+        <td style="color:${color};font-weight:700;width:20px">
           ${r.estado === "ATRASADO" ? "✕" : "⚠"}
         </td>
         <td style="font-weight:500">${r.name}</td>
+        <td style="color:#6b7280;font-size:11px">${r.resp || "Sin asignar"}</td>
         <td style="color:#6b7280;font-size:11px">${r.grupo}</td>
-        <td style="color:${r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b"};font-size:11px;white-space:nowrap">
+        <td style="color:${color};font-size:11px;white-space:nowrap">
           ${r.deadline ? fmtDate(r.deadline) : "—"}
         </td>
+      </tr>`;
+      const subRows = offSubs
+        .map(
+          (s) => `
+      <tr>
+        <td style="color:#ef4444;font-size:11px;text-align:right">↳</td>
+        <td style="padding-left:18px;color:#374151;font-size:11px">${s.name}</td>
+        <td style="color:#9ca3af;font-size:11px">${s.person || "Sin asignar"}</td>
+        <td style="color:#9ca3af;font-size:11px;font-style:italic">subitem</td>
+        <td style="color:#ef4444;font-size:11px;white-space:nowrap">
+          ${s.deadline ? fmtDate(s.deadline) : "—"}
+        </td>
       </tr>`,
-    )
+        )
+        .join("");
+      return mainRow + subRows;
+    })
     .join("");
 
   const groupRows = m.groupOrder
     .map((grupo) => {
-      const gItems     = m.groupMap.get(grupo)!;
-      const gDone      = gItems.filter((r) => r.status === "Done").length;
-      const gAtrasados = gItems.filter((r) => r.estado === "ATRASADO").length;
-      const gParaHoy   = gItems.filter((r) => r.estado === "PARA HOY").length;
-      const gpct       = Math.round((gDone / gItems.length) * 100);
+      const gItems = m.groupMap.get(grupo)!;
+      const gDone  = gItems.filter((r) => r.status === "Done").length;
+      const gpct   = Math.round((gDone / gItems.length) * 100);
       return `
       <tr>
         <td style="font-weight:500">${grupo || "Sin grupo"}</td>
         <td style="text-align:center;color:#6b7280">${gItems.length}</td>
         <td style="text-align:center;color:#10b981;font-weight:600">${gpct}%</td>
-        <td style="text-align:center;color:#ef4444;font-weight:600">${gAtrasados > 0 ? `✕ ${gAtrasados}` : "—"}</td>
-        <td style="text-align:center;color:#f59e0b;font-weight:600">${gParaHoy > 0 ? `⚠ ${gParaHoy}` : "—"}</td>
       </tr>`;
     })
     .join("");
@@ -476,7 +504,7 @@ ${m.criticalItems.length > 0 ? `
 <!-- Critical Items -->
 <h2>Tareas Críticas</h2>
 <table>
-  <thead><tr><th></th><th>Tarea</th><th>Grupo</th><th>Deadline</th></tr></thead>
+  <thead><tr><th></th><th>Tarea</th><th>Responsable</th><th>Grupo</th><th>Deadline</th></tr></thead>
   <tbody>${criticalRows}</tbody>
 </table>` : ""}
 
@@ -484,7 +512,7 @@ ${m.criticalItems.length > 0 ? `
 <h2>Desglose por Grupo</h2>
 <table>
   <thead>
-    <tr><th>Grupo</th><th style="text-align:center">Tareas</th><th style="text-align:center">Done</th><th style="text-align:center">Off Track</th><th style="text-align:center">In Risk</th></tr>
+    <tr><th>Grupo</th><th style="text-align:center">Tareas</th><th style="text-align:center">Done</th></tr>
   </thead>
   <tbody>${groupRows}</tbody>
 </table>
