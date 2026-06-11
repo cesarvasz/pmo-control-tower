@@ -140,6 +140,23 @@ export interface CalMeeting {
 
 export type CalMap = Map<string, { M1: CalMeeting[]; M2: CalMeeting[] }>;
 
+/** Una respuesta individual de la encuesta PMO. */
+export interface NpsResponse {
+  timestamp: string;
+  email: string;
+  score: number | null;   // puntaje 0-10
+  category: "promoter" | "passive" | "detractor" | null;
+  reason: string;
+  answers: { question: string; value: string }[]; // ítems Likert respondidos
+}
+
+/** Promedio (%) de una pregunta Likert sobre todas las respuestas. */
+export interface NpsQuestionAvg {
+  question: string;
+  avg: number;    // 0-100 (escala 20% por nivel)
+  count: number;  // respuestas dadas a esta pregunta
+}
+
 /** Resultado del NPS (encuesta PMO). */
 export interface NpsData {
   nps: number | null;   // -100 a 100
@@ -147,6 +164,9 @@ export interface NpsData {
   passives: number;     // respuestas 7-8
   detractors: number;   // respuestas 0-6
   total: number;
+  responses: NpsResponse[];
+  questions: NpsQuestionAvg[];  // % promedio por pregunta
+  overallAvg: number | null;    // promedio total de todas las preguntas
 }
 
 /** Datos ya procesados que expone el DataContext a las páginas. */

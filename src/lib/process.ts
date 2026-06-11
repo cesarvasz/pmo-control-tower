@@ -18,6 +18,7 @@ import type {
   MondayColumnValue,
   MondayItem,
   NpsData,
+  NpsResponse,
   ProjItem,
   ReqItem,
   SheetRow,
@@ -570,27 +571,88 @@ export function iniIsParaHoy(r: IniItem, calMap: CalMap): boolean {
 // NPS (encuesta PMO desde Google Forms)
 // ─────────────────────────────────────────────────────────────────────
 
-/** Pista de texto para localizar la columna del puntaje 0–10 en la hoja. */
-const NPS_COL_HINT = "recomiende";
+// Normaliza texto (sin acentos, minúsculas) para localizar columnas por pista.
+const normCol = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+// Extrae el texto entre corchetes del encabezado Likert; si no hay, usa el completo.
+const cleanQuestion = (key: string) => {
+  const m = key.match(/\[(.+)\]/);
+  return (m ? m[1] : key).trim();
+};
+// Escala Likert → porcentaje (20% por nivel). null si no es una respuesta Likert.
+const likertPct = (value: string): number | null => {
+  const v = normCol(value).trim();
+  return v === "totalmente de acuerdo" ? 100
+       : v === "de acuerdo" ? 80
+       : v === "neutral" ? 60
+       : v === "en desacuerdo" ? 40
+       : v === "totalmente en desacuerdo" ? 20
+       : null;
+};
 
 /**
  * NPS = (#promotores − #detractores) / total × 100.
  * Promotores = 9-10, Pasivos = 7-8, Detractores = 0-6.
+ * Devuelve además cada respuesta estructurada (para el detalle).
  */
 export function calcNps(rows: SheetRow[]): NpsData {
   let promoters = 0, passives = 0, detractors = 0, total = 0;
+  const responses: NpsResponse[] = [];
+  const qAgg = new Map<string, { sum: number; count: number }>(); // promedio por pregunta
+
   rows.forEach((row) => {
-    const key = Object.keys(row).find((k) => k.toLowerCase().includes(NPS_COL_HINT));
-    if (!key) return;
-    const score = typeof row[key] === "number" ? (row[key] as number) : parseFloat(String(row[key]));
-    if (!Number.isFinite(score)) return;
-    total++;
-    if (score >= 9) promoters++;
-    else if (score >= 7) passives++;
-    else detractors++;
+    const keys = Object.keys(row);
+    const scoreKey  = keys.find((k) => normCol(k).includes("recomiende"));
+    const tsKey     = keys.find((k) => normCol(k).includes("marca temporal"));
+    const mailKey   = keys.find((k) => normCol(k).includes("correo"));
+    const reasonKey = keys.find((k) => normCol(k).includes("razon"));
+
+    const scoreRaw = scoreKey ? row[scoreKey] : undefined;
+    const score = typeof scoreRaw === "number" ? scoreRaw : parseFloat(String(scoreRaw));
+    const validScore = Number.isFinite(score);
+
+    let category: NpsResponse["category"] = null;
+    if (validScore) {
+      total++;
+      category = score >= 9 ? "promoter" : score >= 7 ? "passive" : "detractor";
+      if (category === "promoter") promoters++;
+      else if (category === "passive") passives++;
+      else detractors++;
+    }
+
+    const metaKeys = new Set([scoreKey, tsKey, mailKey, reasonKey].filter(Boolean) as string[]);
+    const answers = keys
+      .filter((k) => !metaKeys.has(k) && !/^columna\s*\d+$/i.test(k.trim()))
+      .map((k) => ({ question: cleanQuestion(k), value: String(row[k] ?? "").trim() }))
+      .filter((a) => a.value !== "");
+
+    // Acumula el % Likert por pregunta (escala 20% por nivel).
+    answers.forEach((a) => {
+      const pct = likertPct(a.value);
+      if (pct === null) return;
+      const agg = qAgg.get(a.question) ?? { sum: 0, count: 0 };
+      agg.sum += pct; agg.count++;
+      qAgg.set(a.question, agg);
+    });
+
+    responses.push({
+      timestamp: tsKey ? String(row[tsKey] ?? "") : "",
+      email: mailKey ? String(row[mailKey] ?? "") : "",
+      score: validScore ? score : null,
+      category,
+      reason: reasonKey ? String(row[reasonKey] ?? "") : "",
+      answers,
+    });
   });
+
   const nps = total > 0 ? Math.round(((promoters - detractors) / total) * 100) : null;
-  return { nps, promoters, passives, detractors, total };
+  const questions = [...qAgg.entries()].map(([question, { sum, count }]) => ({
+    question, avg: Math.round(sum / count), count,
+  }));
+  const overallAvg = questions.length > 0
+    ? Math.round(questions.reduce((s, q) => s + q.avg, 0) / questions.length)
+    : null;
+
+  return { nps, promoters, passives, detractors, total, responses, questions, overallAvg };
 }
 
 /** Clasificación del NPS (rangos, color y texto) — fuente única. */

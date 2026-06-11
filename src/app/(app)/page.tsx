@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
+import NpsModal from "@/components/NpsModal";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -22,6 +24,7 @@ const INI_HEALTH_CFG = HEALTH_CFG;
 export default function ControlTowerPage() {
   const { data, loading, error } = useData();
   const router = useRouter();
+  const [showNps, setShowNps] = useState(false);
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -109,7 +112,11 @@ export default function ControlTowerPage() {
           const cfg = npsCfg(nps.nps);
           const npsColor = cfg?.color ?? "#6b7280";
           return (
-            <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: npsColor, minWidth: 220 }}>
+            <div
+              onClick={() => setShowNps(true)}
+              className="cursor-pointer rounded-xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5"
+              style={{ background: "var(--bg-surface)", borderColor: npsColor, minWidth: 220 }}
+            >
               <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">NPS</div>
               <div className="mb-1.5 text-5xl font-extrabold leading-none" style={{ color: npsColor }}>
                 {nps.nps !== null ? nps.nps : "—"}
@@ -164,6 +171,8 @@ export default function ControlTowerPage() {
           );
         })}
       </div>
+
+      {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
     </div>
   );
 }
