@@ -55,13 +55,11 @@ function computeMetrics(items: ProjItem[], ev: number, pv: number, ac: number, s
     groupMap.get(r.grupo)!.push(r);
   });
 
-  const criticalItems = items
-    .filter((r) => r.estado === "ATRASADO" || r.estado === "PARA HOY")
-    .sort((a, b) => {
-      if (a.estado === "ATRASADO" && b.estado !== "ATRASADO") return -1;
-      if (b.estado === "ATRASADO" && a.estado !== "ATRASADO") return 1;
-      return 0;
-    });
+  const criticalItems = items.filter(
+    (r) =>
+      (r.status === "Working on it" || r.status === "Future Steps") &&
+      r.estado === "ATRASADO",
+  );
 
   return { spi, cpi, scope, healthIndex, healthStatus, done, working, future, atrasados, paraHoy, totalCost, totalBenefit, groupOrder, groupMap, criticalItems };
 }
