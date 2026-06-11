@@ -209,32 +209,26 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             </div>
           </div>
 
-          {/* Task Summary */}
+          {/* Financial */}
           <div>
-            <SectionLabel>Resumen de Tareas</SectionLabel>
-            <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
-              <div className="grid grid-cols-4 divide-x" style={{ borderColor: "var(--border)" }}>
-                {[
-                  { label: "Total",       value: items.length, color: "var(--text-primary)" },
-                  { label: "Completadas", value: m.done,       color: "#10b981" },
-                  { label: "En Progreso", value: m.working,    color: "#f59e0b" },
-                  { label: "Pendientes",  value: m.future,     color: "var(--text-muted)" },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="p-3 text-center">
-                    <div className="text-[0.6rem] text-[var(--text-muted)]">{label}</div>
-                    <div className="text-[1.4rem] font-bold" style={{ color }}>{value}</div>
+            <SectionLabel>Situación Financiera</SectionLabel>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Costo Total",    value: m.totalCost,    color: "#ef4444" },
+                { label: "Beneficio Total", value: m.totalBenefit, color: "#10b981" },
+                {
+                  label: "Valor Neto",
+                  value: m.totalBenefit - m.totalCost,
+                  color: m.totalBenefit - m.totalCost >= 0 ? "#10b981" : "#ef4444",
+                },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="rounded-lg p-3 text-center" style={{ background: "var(--bg-hover)" }}>
+                  <div className="text-[0.6rem] text-[var(--text-muted)]">{label}</div>
+                  <div className="mt-1 text-[0.95rem] font-bold tabular-nums" style={{ color }}>
+                    {value ? fmtMoney(value) : "—"}
                   </div>
-                ))}
-              </div>
-              {(m.atrasados > 0 || m.paraHoy > 0) && (
-                <div
-                  className="flex gap-4 border-t px-4 py-2 text-[0.73rem]"
-                  style={{ borderColor: "var(--border)" }}
-                >
-                  {m.atrasados > 0 && <span style={{ color: "#ef4444" }}>✕ {m.atrasados} Off Track</span>}
-                  {m.paraHoy   > 0 && <span style={{ color: "#f59e0b" }}>⚠ {m.paraHoy} In Risk</span>}
                 </div>
-              )}
+              ))}
             </div>
           </div>
 
@@ -301,29 +295,6 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                   </div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* Financial */}
-          <div>
-            <SectionLabel>Situación Financiera</SectionLabel>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Costo Total",    value: m.totalCost,    color: "#ef4444" },
-                { label: "Beneficio Total", value: m.totalBenefit, color: "#10b981" },
-                {
-                  label: "Valor Neto",
-                  value: m.totalBenefit - m.totalCost,
-                  color: m.totalBenefit - m.totalCost >= 0 ? "#10b981" : "#ef4444",
-                },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="rounded-lg p-3 text-center" style={{ background: "var(--bg-hover)" }}>
-                  <div className="text-[0.6rem] text-[var(--text-muted)]">{label}</div>
-                  <div className="mt-1 text-[0.95rem] font-bold tabular-nums" style={{ color }}>
-                    {value ? fmtMoney(value) : "—"}
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
 
@@ -487,25 +458,19 @@ function buildPrintHTML(
     </div>`).join("")}
 </div>
 
-<!-- Task Summary -->
-<h2>Resumen de Tareas</h2>
-<div class="grid4">
+<!-- Financial -->
+<h2>Situación Financiera</h2>
+<div class="grid3">
   ${[
-    { label: "Total",       value: items.length, color: "#111827" },
-    { label: "Completadas", value: m.done,       color: "#10b981" },
-    { label: "En Progreso", value: m.working,    color: "#f59e0b" },
-    { label: "Pendientes",  value: m.future,     color: "#6b7280" },
+    { label: "Costo Total",     value: m.totalCost,                      color: "#ef4444" },
+    { label: "Beneficio Total", value: m.totalBenefit,                   color: "#10b981" },
+    { label: "Valor Neto",      value: m.totalBenefit - m.totalCost,     color: netColor },
   ].map(({ label, value, color }) => `
-    <div class="card" style="text-align:center">
+    <div class="card card-sm" style="text-align:center">
       <div class="card-label">${label}</div>
-      <div class="card-val" style="color:${color}">${value}</div>
+      <div class="card-val" style="color:${color}">${value ? fmtMoney(value) : "—"}</div>
     </div>`).join("")}
 </div>
-${(m.atrasados > 0 || m.paraHoy > 0) ? `
-<div style="margin-top:8px;font-size:12px;display:flex;gap:16px">
-  ${m.atrasados > 0 ? `<span style="color:#ef4444;font-weight:600">✕ ${m.atrasados} Off Track</span>` : ""}
-  ${m.paraHoy   > 0 ? `<span style="color:#f59e0b;font-weight:600">⚠ ${m.paraHoy} In Risk</span>`   : ""}
-</div>` : ""}
 
 ${m.criticalItems.length > 0 ? `
 <!-- Critical Items -->
@@ -523,20 +488,6 @@ ${m.criticalItems.length > 0 ? `
   </thead>
   <tbody>${groupRows}</tbody>
 </table>
-
-<!-- Financial -->
-<h2>Situación Financiera</h2>
-<div class="grid3">
-  ${[
-    { label: "Costo Total",     value: m.totalCost,                      color: "#ef4444" },
-    { label: "Beneficio Total", value: m.totalBenefit,                   color: "#10b981" },
-    { label: "Valor Neto",      value: m.totalBenefit - m.totalCost,     color: netColor },
-  ].map(({ label, value, color }) => `
-    <div class="card card-sm" style="text-align:center">
-      <div class="card-label">${label}</div>
-      <div class="card-val" style="color:${color}">${value ? fmtMoney(value) : "—"}</div>
-    </div>`).join("")}
-</div>
 
 <div class="divider"></div>
 <div style="font-size:10px;color:#d1d5db;text-align:center">Generado por PMO Dashboard · ${today}</div>
