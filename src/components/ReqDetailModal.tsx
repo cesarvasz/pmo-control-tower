@@ -102,6 +102,9 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
               </div>
             </div>
 
+            {/* Costo por Fase (base de EV / PV) */}
+            {r.phases.length > 0 && <PhaseCosts r={r} />}
+
             {/* EVM */}
             <div>
               <SectionLabel>EVM</SectionLabel>
@@ -120,10 +123,54 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
                   : <EvmCard label="EVM" value="—" sub="Sin datos" color="#6b7280" bg="var(--health-neutral-bg)" />}
               </div>
             </div>
+
+            {/* Valores EV / PV / AC */}
+            <div>
+              <SectionLabel>Valores</SectionLabel>
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+                <Cell label="Valor Ganado (EV)"><span style={{ color: "#10b981" }}>{fmtMoney(r.ev)}</span></Cell>
+                <Cell label="Valor Planificado (PV)"><span style={{ color: "#6c63ff" }}>{fmtMoney(r.pv)}</span></Cell>
+                <Cell label="Costo Real (AC)">{fmtMoney(r.ac)}</Cell>
+              </div>
+            </div>
           </div>
         </>
       )}
     </Modal>
+  );
+}
+
+// ── Desglose de costo por fase (qué cuenta en EV / PV) ──────────────────
+function PhaseCosts({ r }: { r: ReqItem }) {
+  return (
+    <div>
+      <SectionLabel>Costo por Fase</SectionLabel>
+      <div className="flex flex-col gap-1.5">
+        {r.phases.map((p) => {
+          // done → completada (EV) · vencida sin cerrar (drag SPI) → roja · futura → neutra
+          const st = p.done
+            ? { dot: "#10b981", label: "Completada", color: "#10b981", bg: "var(--health-on-track-bg)" }
+            : p.inPv
+              ? { dot: "#ef4444", label: "Vencida", color: "#ef4444", bg: "var(--health-off-track-bg)" }
+              : { dot: "var(--text-disabled)", label: "Pendiente", color: "var(--text-muted)", bg: "var(--bg-hover)" };
+          return (
+            <div key={p.name} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ background: "var(--bg-hover)", borderColor: "var(--border)" }}>
+              <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: st.dot }} />
+              <span className="flex-1 text-[0.8rem] text-[var(--text-secondary)]">
+                {p.name} <span className="text-[0.68rem] text-[var(--text-muted)]">· {p.durDays}d</span>
+              </span>
+              <span className="text-[0.82rem] font-semibold tabular-nums text-[var(--text-primary)]">{p.cost > 0 ? fmtMoney(p.cost) : dash}</span>
+              <span className="w-[88px] flex-shrink-0 rounded-full px-2 py-0.5 text-center text-[0.66rem] font-bold" style={{ color: st.color, background: st.bg }}>{st.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-3 text-[0.66rem] text-[var(--text-muted)]">
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#10b981" }} /> Completada → EV</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#ef4444" }} /> Vencida sin cerrar → baja el SPI</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "var(--text-disabled)" }} /> Pendiente / futura</span>
+      </div>
+    </div>
   );
 }
 

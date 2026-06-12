@@ -20,7 +20,9 @@ import type {
   NpsData,
   NpsResponse,
   ProjItem,
+  ReqBaseline,
   ReqItem,
+  ReqPhaseInfo,
   SheetRow,
 } from "@/types";
 
@@ -169,7 +171,7 @@ export const REQ_GROUP_COLOR: Record<string, string> = {
 export const REQ_PIPELINE = ["Valuación", "Aprobación", "Desarrollo", "Operación", "Cierre ROI", "Cerrados", "En Espera"];
 export const REQ_ACTIVE_GRUPOS = new Set(["Valuación", "Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
 
-export function reqProcess(items: MondayItem[]): ReqItem[] {
+export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBaseline> = {}): ReqItem[] {
   const t = today();
 
   return items.map((item): ReqItem => {
@@ -232,22 +234,53 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
       }
     }
 
-    // ── Scope ──
     const status = col(REQ_COLS.status);
-    const SCOPE_MAP: Record<string, number> = {
-      "Valuación": 0, "Aprobación": 0.2, "Desarrollo": 0.4, "Operación": 0.6, "Cierre ROI": 0.8,
-    };
-    const scope = REQ_ACTIVE_GRUPOS.has(grp)
-      ? grp === "Cierre ROI" && status === "ROI 30D" ? 1.0 : SCOPE_MAP[grp] ?? null
-      : null;
 
-    // ── SPI / CPI ──
-    const FASE_PCT: Record<string, number> = {
-      "Valuación": 20, "Aprobación": 20, "Desarrollo": 40, "Operación": 60, "Cierre ROI": 80,
+    // ── Costo por fase ──
+    // Costo planificado (baseline) → EV.  Costo actual (Monday) → AC.
+    // Si no hay baseline aún (costSft no resuelto), EV = AC.
+    const REQ_PHASES = ["Valuación", "Aprobación", "Desarrollo", "Operación", "Cierre ROI"];
+    const KNOWN_HOURS = 23;
+    const costTotal = costRH + costSft;
+
+    const baseline = baselines[col(REQ_COLS.id)];
+    const baseCostRH  = baseline?.costRH  ?? costRH;
+    const baseCostSft = baseline?.costSft ?? costSft;
+    const baseCostTotal = baseCostRH + baseCostSft;
+
+    // Costo planificado por fase (para EV)
+    const baseRate = baseCostRH / KNOWN_HOURS;
+    const basePhaseCost: Record<string, number> = {
+      "Valuación":  baseRate * 3,
+      "Aprobación": baseRate * 4,
+      "Desarrollo": baseCostTotal - baseRate * KNOWN_HOURS,
+      "Operación":  baseRate * 4,
+      "Cierre ROI": baseRate * 12,
     };
+
+    // Costo actual por fase (para AC y PV)
+    const rate = costRH / KNOWN_HOURS;
+    const phaseCost: Record<string, number> = {
+      "Valuación":  rate * 3,
+      "Aprobación": rate * 4,
+      "Desarrollo": costTotal - rate * KNOWN_HOURS,
+      "Operación":  rate * 4,
+      "Cierre ROI": rate * 12,
+    };
+
+    // ── Fases completadas (por fechas Done; F5 por status "ROI 30D") ──
+    const phaseDone: Record<string, boolean> = {
+      "Valuación":  !!vDone,
+      "Aprobación": !!aDone,
+      "Desarrollo": !!lDone,
+      "Operación":  !!oDone,
+      "Cierre ROI": status === "ROI 30D",
+    };
+    const doneCount = REQ_PHASES.filter((p) => phaseDone[p]).length;
+
+    // ── Cronograma en días (para PV y timeline) ──
     const devDays0 = tld === "LM" ? 32 : tld === "S/dev" ? 0 : 7;
     const phaseDurs0 = [1, 2, devDays0, 3, 20];
-    const totalDays = phaseDurs0.reduce((a, b) => a + b, 0);
     const PHASE_IDX: Record<string, number> = {
       "Valuación": 0, "Aprobación": 1, "Desarrollo": 2, "Operación": 3, "Cierre ROI": 4,
     };
@@ -255,31 +288,26 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
     const expectedDays = phaseIdx >= 0
       ? phaseDurs0.slice(0, phaseIdx + 1).reduce((a, b) => a + b, 0)
       : null;
+    const elapsed = cpmStart ? businessDays(cpmStart, t) : 0;
 
-    let spi: number | null = null, cpi: number | null = null;
+    // ── EV / PV / AC + desglose por fase ──
+    // EV = Σ basePhaseCost de fases completadas (costo planificado).
+    // PV = EV + phaseCost[fase actual] si está atrasada (costo actual).
+    // AC = Σ phaseCost de fases completadas (costo actual de Monday).
+    const phases: ReqPhaseInfo[] = REQ_PHASES.map((p, i) => ({
+      name: p, cost: phaseCost[p], durDays: phaseDurs0[i], done: phaseDone[p], inPv: false,
+    }));
+    const ev = REQ_PHASES.reduce((s, p) => s + (phaseDone[p] ? basePhaseCost[p] : 0), 0);
+    const ac = REQ_PHASES.reduce((s, p) => s + (phaseDone[p] ? phaseCost[p] : 0), 0);
+    const pv = ev + (estado === "ATRASADO" && !phaseDone[grp] ? phaseCost[grp] ?? 0 : 0);
+
+    // ── SPI / CPI / Scope / VEM ──
+    let spi: number | null = null, cpi: number | null = null, scope: number | null = null;
     if (REQ_ACTIVE_GRUPOS.has(grp)) {
-      const evPct = grp === "Valuación"
-        ? estado !== "ATRASADO" ? 20 : 0
-        : grp === "Cierre ROI"
-          ? status === "ROI 30D" ? 100 : 80
-          : FASE_PCT[grp] ?? null;
-      if (evPct !== null && cpmStart) {
-        const phaseDurs = phaseDurs0;
-        const phasePcts = [20, 20, 40, 60, 80];
-        const elapsed = businessDays(cpmStart, t);
-        let pvPct: number | null = null, cum = 0;
-        for (let i = 0; i < 5; i++) {
-          if (elapsed < cum + phaseDurs[i]) { pvPct = phasePcts[i]; break; }
-          cum += phaseDurs[i];
-        }
-        if (pvPct === null) pvPct = 80;
-        if (pvPct > 0) spi = Math.min(1, Math.round((evPct / pvPct) * 100) / 100);
-        if (elapsed > 0 && totalDays > 0) {
-          cpi = Math.min(1, Math.round((evPct * totalDays / (elapsed * 100)) * 100) / 100);
-        }
-      }
+      spi = pv > 0 ? Math.round((ev / pv) * 100) / 100 : 1;
+      cpi = ac > 0 ? Math.round((ev / ac) * 100) / 100 : 1;
+      scope = doneCount / 5;
     }
-    // scope de REQ ya es fracción 0–1.
     const vemRaw = calcVem(spi, cpi, scope);
     const vem = vemRaw !== null ? Math.round(vemRaw * 100) / 100 : null;
 
@@ -295,9 +323,11 @@ export function reqProcess(items: MondayItem[]): ReqItem[] {
       tld, type, cpmEndEst,
       creation: col(REQ_COLS.creation),
       estado, deadline, inicioReq: cpmStart, inicio: startDate, dias, limite,
-      elapsed: cpmStart ? businessDays(cpmStart, t) : null,
+      elapsed: cpmStart ? elapsed : null,
       expectedDays: REQ_ACTIVE_GRUPOS.has(grp) ? expectedDays : null,
       estDev,
+      phases,
+      ev, pv, ac,
       spi, cpi, scope, vem,
     };
   });

@@ -104,6 +104,7 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
     projRaw,
     calData: webApp.calData,
     sheetRows: webApp.sheetRows,
+    baselines: {}, // el route handler inyecta los baselines de Firestore
     fetchedAt: new Date().toISOString(),
   };
 }

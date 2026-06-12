@@ -5,6 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import type { ReqBaseline } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -49,6 +50,19 @@ export interface VerifiedUser {
  * Verifica el ID token y exige que el correo pertenezca al dominio permitido.
  * Lanza Error con código en el mensaje: no-token | invalid-token | domain-not-allowed.
  */
+export async function getReqBaselines(): Promise<Record<string, ReqBaseline>> {
+  const db = getAdminDb();
+  const snap = await db.collection("req_baselines").get();
+  const result: Record<string, ReqBaseline> = {};
+  snap.forEach((doc) => { result[doc.id] = doc.data() as ReqBaseline; });
+  return result;
+}
+
+export async function saveReqBaseline(reqId: string, data: Omit<ReqBaseline, "savedAt">): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("req_baselines").doc(reqId).set({ ...data, savedAt: new Date().toISOString() });
+}
+
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!token) throw new Error("no-token");

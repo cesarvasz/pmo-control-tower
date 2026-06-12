@@ -38,6 +38,13 @@ export interface CalMeetingRaw {
 /** Fila cruda de la hoja de Google (encabezados dinámicos → claves). */
 export type SheetRow = Record<string, string | number>;
 
+/** Costo planificado de un REQ guardado en Firestore (baseline para EV/CPI). */
+export interface ReqBaseline {
+  costRH: number;
+  costSft: number;
+  savedAt: string;
+}
+
 /** Payload completo que devuelve `GET /api/dashboard`. */
 export interface DashboardRaw {
   iniItems: MondayItem[];
@@ -46,6 +53,7 @@ export interface DashboardRaw {
   projRaw: ProjBoardRaw[];
   calData: CalMeetingRaw[];
   sheetRows: SheetRow[];
+  baselines: Record<string, ReqBaseline>;
   fetchedAt: string;
 }
 
@@ -67,6 +75,15 @@ export interface IniItem {
   espera?: string;
   planFuturo?: Date | null;
   recordatorio?: Date | null;
+}
+
+/** Costo y estado de una fase REQ (base del cálculo EV/PV). */
+export interface ReqPhaseInfo {
+  name: string;
+  cost: number;     // costo asignado a la fase (tarifa × horas, o Costo Soft en Desarrollo)
+  durDays: number;  // duración planificada en días hábiles
+  done: boolean;    // fase completada (cuenta en EV)
+  inPv: boolean;    // según cronograma ya debería estar cerrada (cuenta en PV)
 }
 
 export interface ReqItem {
@@ -93,6 +110,10 @@ export interface ReqItem {
   elapsed: number | null;
   expectedDays: number | null;
   estDev: Date | null;
+  phases: ReqPhaseInfo[];
+  ev: number;
+  pv: number;
+  ac: number;
   spi: number | null;
   cpi: number | null;
   scope: number | null;

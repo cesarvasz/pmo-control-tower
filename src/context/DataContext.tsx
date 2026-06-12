@@ -56,7 +56,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       // Procesamiento en cliente (zona horaria del usuario).
       const ini = iniProcess(raw.iniItems);
-      const req = reqProcess(raw.reqItems);
+      const req = reqProcess(raw.reqItems, raw.baselines ?? {});
       const proj: ProjItem[] = [];
       raw.projRaw.forEach((b) =>
         proj.push(...projProcess(b.name, b.id, b.items_page.items))

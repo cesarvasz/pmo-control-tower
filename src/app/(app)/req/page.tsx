@@ -169,6 +169,16 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
   const t = today();
   const sorted = [...rows].sort((a, b) => REQ_PIPELINE.indexOf(a.grupo) - REQ_PIPELINE.indexOf(b.grupo));
 
+  const estadoCell = (r: ReqItem) => {
+    const cfg: Record<string, { label: string; color: string }> = {
+      ATRASADO: { label: "Atrasado", color: "#ef4444" },
+      "PARA HOY": { label: "Hoy", color: "#f59e0b" },
+      "EN TIEMPO": { label: "En Tiempo", color: "#10b981" },
+    };
+    const c = cfg[r.estado];
+    if (!c) return <span className="text-[var(--text-disabled)]">—</span>;
+    return <span style={{ color: c.color, fontWeight: 600, whiteSpace: "nowrap" }}>{c.label}</span>;
+  };
   const deadlineCell = (r: ReqItem) => {
     if (!r.deadline) return <span className="text-[var(--text-disabled)]">—</span>;
     const d = new Date(r.deadline); d.setHours(0, 0, 0, 0);
@@ -189,7 +199,7 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
           <tr>
             <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
-            <th>Deadline</th><th>Diferencia</th>
+            <th>Deadline</th><th>Diferencia</th><th>EVM</th>
           </tr>
         </thead>
         <tbody>
@@ -201,15 +211,16 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
                 <td className="pm-name">{r.pm || "—"}</td>
                 <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.resp || "—"}</td>
                 <td><span style={{ fontSize: ".72rem", fontWeight: 600, color: REQ_GROUP_COLOR[r.grupo] || "var(--text-muted)" }}>{r.grupo}</span></td>
+                <td>{estadoCell(r)}</td>
+                <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : "—"}</td>
+                <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
+                <td>{deadlineCell(r)}</td>
+                <td>{diffCell(r)}</td>
                 <td>
                   {r.vem !== null
                     ? (() => { const cf = vemCfg(r.vem as number); return <span className="pill" style={{ fontSize: ".68rem", color: cf.color, background: cf.bg, border: `1px solid ${cf.color}44` }}>{cf.icon} {cf.label}</span>; })()
                     : <span className="pill pill-skip" style={{ fontSize: ".68rem" }}>— Sin datos</span>}
                 </td>
-                <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : "—"}</td>
-                <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
-                <td>{deadlineCell(r)}</td>
-                <td>{diffCell(r)}</td>
               </tr>
             );
           })}
