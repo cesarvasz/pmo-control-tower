@@ -45,6 +45,13 @@ export interface ReqBaseline {
   savedAt: string;
 }
 
+/** Costo planificado de un item de Proyecto guardado en Firestore (baseline para EV). */
+export interface ProjItemBaseline {
+  boardId: string;
+  cost: number;
+  savedAt: string;
+}
+
 /** Payload completo que devuelve `GET /api/dashboard`. */
 export interface DashboardRaw {
   iniItems: MondayItem[];
@@ -54,6 +61,7 @@ export interface DashboardRaw {
   calData: CalMeetingRaw[];
   sheetRows: SheetRow[];
   baselines: Record<string, ReqBaseline>;
+  projItemBaselines: Record<string, ProjItemBaseline>;
   fetchedAt: string;
 }
 
@@ -196,6 +204,7 @@ export interface DashboardData {
   req: ReqItem[];
   proj: ProjItem[];
   projBoards: ProjBoard[];
+  projItemBaselines: Record<string, ProjItemBaseline>;
   calMap: CalMap;
   nps: NpsData;
   fetchedAt: Date;

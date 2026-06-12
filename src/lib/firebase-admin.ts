@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { ReqBaseline } from "@/types";
+import type { ProjItemBaseline, ReqBaseline } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -61,6 +61,19 @@ export async function getReqBaselines(): Promise<Record<string, ReqBaseline>> {
 export async function saveReqBaseline(reqId: string, data: Omit<ReqBaseline, "savedAt">): Promise<void> {
   const db = getAdminDb();
   await db.collection("req_baselines").doc(reqId).set({ ...data, savedAt: new Date().toISOString() });
+}
+
+export async function getProjItemBaselines(): Promise<Record<string, ProjItemBaseline>> {
+  const db = getAdminDb();
+  const snap = await db.collection("proj_item_baselines").get();
+  const result: Record<string, ProjItemBaseline> = {};
+  snap.forEach((doc) => { result[doc.id] = doc.data() as ProjItemBaseline; });
+  return result;
+}
+
+export async function saveProjItemBaseline(itemId: string, data: Omit<ProjItemBaseline, "savedAt">): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("proj_item_baselines").doc(itemId).set({ ...data, savedAt: new Date().toISOString() });
 }
 
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {

@@ -3,7 +3,10 @@
 import React, { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
+import { useMe } from "@/context/PermissionsContext";
 import { fmtDate, fmtMoney } from "@/lib/business";
+import { authedFetch } from "@/lib/api";
+import { hasAction } from "@/lib/permissions";
 import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
 import type { ProjBoard, ProjItem } from "@/types";
@@ -33,7 +36,9 @@ export default function ProyectosPage() {
 
 function ProyectosInner() {
   const sp = useSearchParams();
-  const { data, loading, error } = useData();
+  const { data, loading, error, refresh } = useData();
+  const { me } = useMe();
+  const isAdmin = hasAction(me?.permissions, "manage_users");
   const [pms, setPms] = useState<string[]>(() => {
     const pm = sp.get("pm");
     return pm ? [pm] : [];
@@ -49,9 +54,13 @@ function ProyectosInner() {
   const projData = data.proj;
   const projBoards = data.projBoards;
 
+  const projItemBaselines = data.projItemBaselines;
   const boardHealthMap = new Map<string, BoardHealthData>();
   projBoards.forEach((b) => {
-    boardHealthMap.set(b.id, deriveBoardHealth(calcBoardMetrics(projData.filter((r) => r.boardId === b.id))));
+    boardHealthMap.set(
+      b.id,
+      deriveBoardHealth(calcBoardMetrics(projData.filter((r) => r.boardId === b.id), projItemBaselines)),
+    );
   });
   const boardsOffTrack = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
   const boardsInRisk   = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;
@@ -77,6 +86,22 @@ function ProyectosInner() {
     boardHealthMap.get(b.id)?.healthStatus !== null &&
     (!boardFilter.length || boardFilter.includes(b.id))
   );
+
+  const handleResetBaseline = async (boardId: string, boardItems: ProjItem[]) => {
+    const res = await authedFetch("/api/proj-baselines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        boardId,
+        items: boardItems.map(({ id, cost }) => ({ id, cost })),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    await refresh();
+  };
 
   return (
     <div>
@@ -122,7 +147,8 @@ function ProyectosInner() {
             const items = byPM.filter((r) => r.boardId === b.id);
             if (!items.length) return null;
             const bh = boardHealthMap.get(b.id)!;
-            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} spi={bh.spi} cpi={bh.cpi} healthIndex={bh.healthIndex} healthStatus={bh.healthStatus} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} />;
+            const allBoardItems = projData.filter((r) => r.boardId === b.id);
+            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} spi={bh.spi} cpi={bh.cpi} healthIndex={bh.healthIndex} healthStatus={bh.healthStatus} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} isAdmin={isAdmin} onResetBaseline={() => handleResetBaseline(b.id, allBoardItems)} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -196,10 +222,12 @@ function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean })
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
 }
 
-function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean }) {
+function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void> }) {
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const [resetting, setResetting] = useState(false);
+  const [resetState, setResetState] = useState<"idle" | "ok" | "error">("idle");
   const spiColor   = spi   === null ? "var(--text-muted)" : spi   >= 1 ? "#10b981" : spi   >= 0.85 ? "#f59e0b" : "#ef4444";
   const cpiColor   = cpi   === null ? "var(--text-muted)" : cpi   >= 1 ? "#10b981" : cpi   >= 0.85 ? "#f59e0b" : "#ef4444";
   const scopeColor = scope === null ? "var(--text-muted)" : scope >= 100 ? "#10b981" : scope >= 85 ? "#f59e0b" : "#ef4444";
@@ -332,6 +360,34 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
             style={{ color: badge.color, background: badge.bg }}
           >
             {badge.icon} {badge.label}{healthIndex !== null ? ` · ${Math.round(healthIndex * 100)}%` : ""}
+          </button>
+        )}
+        {isAdmin && onResetBaseline && (
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (resetting) return;
+              setResetting(true);
+              setResetState("idle");
+              try {
+                await onResetBaseline();
+                setResetState("ok");
+              } catch {
+                setResetState("error");
+              } finally {
+                setResetting(false);
+                setTimeout(() => setResetState("idle"), 3000);
+              }
+            }}
+            title="Sobreescribir costo planificado con los costos actuales de Monday"
+            className="rounded-full border px-2.5 py-0.5 text-[0.7rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
+            style={{
+              borderColor: resetState === "error" ? "#ef4444" : resetState === "ok" ? "#10b981" : "var(--border)",
+              color: resetState === "ok" ? "#10b981" : resetState === "error" ? "#ef4444" : "var(--text-muted)",
+              opacity: resetting ? 0.6 : 1,
+            }}
+          >
+            {resetting ? "…" : resetState === "ok" ? "✓ Base actualizada" : resetState === "error" ? "✕ Error" : "↺ Costo Inicial"}
           </button>
         )}
         <button

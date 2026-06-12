@@ -19,7 +19,7 @@ import {
   projProcess,
   reqProcess,
 } from "@/lib/process";
-import type { DashboardData, DashboardRaw, ProjItem } from "@/types";
+import type { DashboardData, DashboardRaw, ProjItem, ProjItemBaseline } from "@/types";
 
 interface DataContextValue {
   data: DashboardData | null;
@@ -62,10 +62,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
         proj.push(...projProcess(b.name, b.id, b.items_page.items))
       );
       const projBoards = projEnrichBoards(raw.projBoards, proj);
+      const projItemBaselines: Record<string, ProjItemBaseline> = raw.projItemBaselines ?? {};
       const calMap = buildCalMap(raw.calData);
       const nps = calcNps(raw.sheetRows ?? []);
 
-      setData({ ini, req, proj, projBoards, calMap, nps, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

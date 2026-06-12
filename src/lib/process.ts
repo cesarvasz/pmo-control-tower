@@ -20,6 +20,7 @@ import type {
   NpsData,
   NpsResponse,
   ProjItem,
+  ProjItemBaseline,
   ReqBaseline,
   ReqItem,
   ReqPhaseInfo,
@@ -426,83 +427,46 @@ export function vemCfg(v: number) {
   return HEALTH_CFG[healthStatusFromIndex(v) ?? "off-track"];
 }
 
-export const PROJ_PHASE_GROUPS = [
-  "Valuacion | Formulacion del proyecto",
-  "Aprobacion | Value Gate",
-  "Launch | Desarrollo",
-  "Operacion | Implementacion",
-  "Revision | Cierre ROI",
-];
+const isOnTrack = (status: string, estado: string) =>
+  status === "Done" || estado === "EN TIEMPO";
 
-// Normaliza un nombre de grupo para comparar sin acentos ni mayúsculas.
-const normGroup = (s: string): string =>
-  s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
-const PROJ_PHASE_NORM = PROJ_PHASE_GROUPS.map(normGroup);
+export function calcBoardMetrics(
+  allBoardItems: ProjItem[],
+  projItemBaselines: Record<string, ProjItemBaseline> = {},
+): { ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null } {
+  let ev = 0, pv = 0, ac = 0;
+  let onTrackCount = 0, totalCount = 0;
 
-export function calcBoardMetrics(allBoardItems: ProjItem[]): { ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null } {
-  let ev = 0, pv = 0, ac = 0, scopeOn = 0, scopeTotal = 0, costTotal = 0;
-  allBoardItems.forEach((r) => {
-    const onTrackWip = r.status === "Working on it" && r.estado !== "ATRASADO";
-    const pvWip      = r.status === "Working on it";
-    if (r.status === "Done" || onTrackWip) ev += r.cost;
-    if (r.status === "Done" || pvWip)      pv += r.cost;
-    if (r.status === "Done")               ac += r.cost;
-    costTotal += r.cost;
-    scopeTotal++;
-    if (r.status === "Done" || r.estado === "EN TIEMPO") scopeOn++;
-    r.subitems.forEach((s) => {
-      const sOnTrackWip = s.status === "Working on it" && s.estado !== "ATRASADO";
-      const sPvWip      = s.status === "Working on it";
-      if (s.status === "Done" || sOnTrackWip) ev += s.cost;
-      if (s.status === "Done" || sPvWip)      pv += s.cost;
-      if (s.status === "Done")                ac += s.cost;
-      costTotal += s.cost;
-      scopeTotal++;
-      if (s.status === "Done" || s.estado === "EN TIEMPO") scopeOn++;
-    });
-  });
+  for (const item of allBoardItems) {
+    const isDone    = item.status === "Done";
+    const isWipLate = item.status === "Working on it" && item.estado === "ATRASADO";
+    // EV y PV usan el costo planificado (baseline de Firestore); si aún no hay baseline
+    // se usa el costo actual de Monday como fallback.
+    const baseCost = projItemBaselines[item.id]?.cost ?? item.cost;
 
-  // Phase-based SPI (match de grupo sin acentos ni mayúsculas)
-  const gMap = new Map<string, ProjItem[]>();
-  allBoardItems.forEach((r) => {
-    const key = normGroup(r.grupo);
-    if (!gMap.has(key)) gMap.set(key, []);
-    gMap.get(key)!.push(r);
-  });
-  let evGroups = 0, pvGroups = 0, acCost = 0;
-  PROJ_PHASE_NORM.forEach((gKey) => {
-    const gItems = gMap.get(gKey);
-    if (!gItems || gItems.length === 0) return;
-    const all: { status: string; estado: string }[] = [];
-    let gCost = 0; // costo total del grupo (incluye Future Steps de una fase ya comenzada)
-    gItems.forEach((r) => {
-      if (r.status !== "Future Steps") all.push({ status: r.status, estado: r.estado });
-      gCost += r.cost;
-      r.subitems.forEach((s) => {
-        if (s.status !== "Future Steps") all.push({ status: s.status, estado: s.estado });
-        gCost += s.cost;
-      });
-    });
-    if (all.length === 0) return; // fase 100% Future Steps: no ha comenzado, no cuenta
-    const allDone        = all.every((x) => x.status === "Done");
-    const hasWip         = all.some((x) => x.status === "Working on it");
-    const hasAtrasadoWip = all.some((x) => x.status === "Working on it" && x.estado === "ATRASADO");
-    if (allDone || (hasWip && !hasAtrasadoWip)) {
-      evGroups++;
-      pvGroups++;
-    } else if (hasWip) {
-      pvGroups++;
+    // Scope: items + subitems On Track / total items + subitems
+    totalCount++;
+    if (isOnTrack(item.status, item.estado)) onTrackCount++;
+    for (const sub of item.subitems) {
+      totalCount++;
+      if (isOnTrack(sub.status, sub.estado)) onTrackCount++;
     }
-    // AC: costo de fases completadas o con WIP (las mismas que cuentan para PV)
-    if (allDone || hasWip) acCost += gCost;
-  });
-  const spi = pvGroups > 0 ? evGroups / pvGroups : null;
 
-  // CPI = EV(fases) / AC, donde EV(fases) = (evGroups × 20%) × costoTotal del board
-  const evPhase = (evGroups * 0.2) * costTotal;
-  const cpi = acCost > 0 ? Math.min(1, evPhase / acCost) : null;
+    if (isDone) {
+      ev += baseCost;   // valor planificado del trabajo completado
+      pv += baseCost;   // también cuenta en PV
+      ac += item.cost;  // costo actual de Monday
+    } else if (isWipLate) {
+      pv += baseCost;   // debería estar hecho → cuenta en PV
+      ac += item.cost;  // costo actual de Monday
+    }
+  }
 
-  return { ev, pv, ac, scope: scopeTotal > 0 ? (scopeOn / scopeTotal) * 100 : null, spi, cpi };
+  const spi = pv > 0 ? ev / pv : null;
+  const cpi = ac > 0 ? Math.min(1, ev / ac) : null;
+  const scope = totalCount > 0 ? (onTrackCount / totalCount) * 100 : null;
+
+  return { ev, pv, ac, scope, spi, cpi };
 }
 
 export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null }): BoardHealthData {

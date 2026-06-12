@@ -65,9 +65,9 @@ function computeMetrics(items: ProjItem[], ev: number, pv: number, ac: number, s
 }
 
 const HC = {
-  "on-track":  { color: "#10b981", label: "On Track",  icon: "✓", desc: "El proyecto está dentro de los parámetros esperados de tiempo y costo." },
-  "in-risk":   { color: "#f59e0b", label: "In Risk",   icon: "⚠", desc: "El proyecto presenta desviaciones menores. Se recomienda atención preventiva." },
-  "off-track": { color: "#ef4444", label: "Off Track", icon: "✕", desc: "El proyecto tiene desviaciones significativas. Se requiere acción correctiva inmediata." },
+  "on-track":  { color: "#10b981", label: "On Track",  icon: "✓", desc: "El proyecto avanza según lo planificado. SPI, CPI y el porcentaje de alcance (items + subitems On Track / total) se mantienen en rango óptimo." },
+  "in-risk":   { color: "#f59e0b", label: "In Risk",   icon: "⚠", desc: "El proyecto presenta desviaciones menores en cronograma, costo o porcentaje de alcance. Se recomienda atención preventiva." },
+  "off-track": { color: "#ef4444", label: "Off Track", icon: "✕", desc: "El proyecto tiene desviaciones significativas en SPI, CPI o alcance completado. Se requiere acción correctiva inmediata." },
 } as const;
 
 export default function ProjectReportModal({ board, items, ev, pv, ac, scope, spi, cpi, onClose }: Props) {
@@ -460,7 +460,7 @@ function buildPrintHTML(
   ${[
     { label: "SPI · Índice de Desempeño del Cronograma", value: m.spi,  fmt: metric },
     { label: "CPI · Índice de Desempeño del Costo",      value: m.cpi,  fmt: metric },
-    { label: "Scope · Avance del Alcance",                value: m.scope !== null ? m.scope / 100 : null, fmt: pct },
+    { label: "Scope · On Track / Total (items + subitems)", value: m.scope !== null ? m.scope / 100 : null, fmt: pct },
   ].map(({ label, value, fmt }) => {
     const c = metricColor(value);
     const sub = value === null ? "Sin datos" : value >= 1 ? "Óptimo" : value >= 0.85 ? "En riesgo" : "Crítico";

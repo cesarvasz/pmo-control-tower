@@ -218,7 +218,7 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
                 <td>{diffCell(r)}</td>
                 <td>
                   {r.vem !== null
-                    ? (() => { const cf = vemCfg(r.vem as number); return <span className="pill" style={{ fontSize: ".68rem", color: cf.color, background: cf.bg, border: `1px solid ${cf.color}44` }}>{cf.icon} {cf.label}</span>; })()
+                    ? (() => { const cf = vemCfg(r.vem as number); return <span className="pill" style={{ fontSize: ".68rem", color: cf.color, background: cf.bg, border: `1px solid ${cf.color}44` }}>{cf.icon} {cf.label} · {Math.round((r.vem as number) * 100)}%</span>; })()
                     : <span className="pill pill-skip" style={{ fontSize: ".68rem" }}>— Sin datos</span>}
                 </td>
               </tr>

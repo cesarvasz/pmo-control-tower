@@ -30,14 +30,14 @@ export default function ControlTowerPage() {
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 
-  const { ini, req, proj, projBoards, calMap, nps } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps } = data;
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
 
   // ── Board health map ──
   const boardHealthMap = new Map<string, BoardHealthData>();
   projBoards.forEach((b) => {
-    boardHealthMap.set(b.id, deriveBoardHealth(calcBoardMetrics(proj.filter((r) => r.boardId === b.id))));
+    boardHealthMap.set(b.id, deriveBoardHealth(calcBoardMetrics(proj.filter((r) => r.boardId === b.id), projItemBaselines)));
   });
   const boardsWithHealth = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus !== null);
   const projBoardsOffTrack = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
@@ -78,14 +78,14 @@ export default function ControlTowerPage() {
   const hIcon  = teamCfg?.icon ?? "—";
 
   const G = {
-    iniTotal:    iniProc.length,
-    iniAtrasado: iniProc.filter((r) => r.estado === "ATRASADO").length,
-    iniParaHoy:  ini.filter((r) => iniIsParaHoy(r, calMap)).length,
-    iniEnTiempo: iniProc.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length,
-    reqTotal:    reqProc.length,
-    reqAtrasado: reqProc.filter((r) => r.estado === "ATRASADO").length,
-    reqParaHoy:  reqProc.filter((r) => r.estado === "PARA HOY").length,
-    reqEnTiempo: reqProc.filter((r) => r.estado === "EN TIEMPO").length,
+    iniTotal:       iniProc.length,
+    iniAtrasado:    iniProc.filter((r) => r.estado === "ATRASADO").length,
+    iniParaHoy:     ini.filter((r) => iniIsParaHoy(r, calMap)).length,
+    iniEnTiempo:    iniProc.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length,
+    reqTotal:       reqProc.length,
+    reqEvmOffTrack: reqProc.filter((r) => r.vem !== null && (r.vem as number) < 0.85).length,
+    reqEvmInRisk:   reqProc.filter((r) => r.vem !== null && (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length,
+    reqEvmOnTrack:  reqProc.filter((r) => r.vem !== null && (r.vem as number) >= 0.95).length,
   };
 
   return (
@@ -104,6 +104,9 @@ export default function ControlTowerPage() {
             {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
             {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
             {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
+          </div>
+          <div className="mt-2 text-center text-[0.6rem] text-[var(--text-muted)]">
+            VEM = (SPI + CPI + Scope) / 3 · Scope: items + subitems On Track / total
           </div>
         </div>
 
@@ -145,9 +148,9 @@ export default function ControlTowerPage() {
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
         <GlobalBlock title="REQ" onClick={() => router.push("/req")} stats={[
           [`${G.reqTotal} total`, "var(--text-primary)"],
-          [`✕ ${G.reqAtrasado} Off Track`, "#ef4444"],
-          [`⚠ ${G.reqParaHoy} In Risk`, "#f59e0b"],
-          [`✓ ${G.reqEnTiempo} On Track`, "#10b981"],
+          [`✕ ${G.reqEvmOffTrack} Off Track`, "#ef4444"],
+          [`⚠ ${G.reqEvmInRisk} In Risk`, "#f59e0b"],
+          [`✓ ${G.reqEvmOnTrack} On Track`, "#10b981"],
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
         <GlobalBlock title="PM" onClick={() => router.push("/proyectos")} stats={[
@@ -220,14 +223,14 @@ function PMPortfolioCard({
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
-  const rAtr = reqAct.filter((r) => r.estado === "ATRASADO").length;
   const reqVemItems = reqAct.filter((r) => r.vem != null);
   const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
   const reqVemStatus = healthStatusFromIndex(reqAvgVem);
   const rvc = reqVemStatus ? HEALTH_CFG[reqVemStatus] : null;
 
-  const reqParaHoyN = reqAct.filter((r) => r.estado === "PARA HOY").length;
-  const reqEnTiempoN = reqAct.filter((r) => r.estado === "EN TIEMPO").length;
+  const rEvmOff  = reqAct.filter((r) => r.vem !== null && (r.vem as number) < 0.85).length;
+  const rEvmRisk = reqAct.filter((r) => r.vem !== null && (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length;
+  const rEvmOn   = reqAct.filter((r) => r.vem !== null && (r.vem as number) >= 0.95).length;
   const reqEnEsperaN = reqItems.filter((r) => r.estado === "EN_ESPERA").length;
   const reqHas = reqAct.length > 0 || reqEnEsperaN > 0;
 
@@ -284,9 +287,9 @@ function PMPortfolioCard({
           ) : undefined}
         >
           <Stat n={reqAct.length} color="#6b7280" label="total" />
-          <Stat n={rAtr} color="#ef4444" label="Off Track" />
-          <Stat n={reqParaHoyN} color="#f59e0b" label="In Risk" />
-          <Stat n={reqEnTiempoN} color="#10b981" label="On Track" />
+          <Stat n={rEvmOff} color="#ef4444" label="Off Track" />
+          <Stat n={rEvmRisk} color="#f59e0b" label="In Risk" />
+          <Stat n={rEvmOn} color="#10b981" label="On Track" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section label={`PM (${pmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (
