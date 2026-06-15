@@ -307,7 +307,13 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
     if (REQ_ACTIVE_GRUPOS.has(grp)) {
       spi = pv > 0 ? Math.round((ev / pv) * 100) / 100 : 1;
       cpi = ac > 0 ? Math.round((ev / ac) * 100) / 100 : 1;
-      scope = doneCount / 5;
+      // Scope = (done + wip_en_tiempo) / (done + wip_en_tiempo + wip_atrasado)
+      // Solo existe una fase activa a la vez; "en tiempo" incluye PARA HOY y EN TIEMPO.
+      const currentDone = phaseDone[grp] ?? false;
+      const wipOnTime  = !currentDone && estado !== "ATRASADO" ? 1 : 0;
+      const wipLate    = !currentDone && estado === "ATRASADO" ? 1 : 0;
+      const scopeDen   = doneCount + wipOnTime + wipLate;
+      scope = scopeDen > 0 ? (doneCount + wipOnTime) / scopeDen : 1;
     }
     const vemRaw = calcVem(spi, cpi, scope);
     const vem = vemRaw !== null ? Math.round(vemRaw * 100) / 100 : null;

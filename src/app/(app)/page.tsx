@@ -105,8 +105,10 @@ export default function ControlTowerPage() {
             {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
             {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
           </div>
-          <div className="mt-2 text-center text-[0.6rem] text-[var(--text-muted)]">
-            VEM = (SPI + CPI + Scope) / 3 · Scope: items + subitems On Track / total
+          <div className="mt-2 space-y-0.5 text-center text-[0.6rem] text-[var(--text-muted)]">
+            <div>VEM = (SPI + CPI + Scope) / 3</div>
+            <div>Scope REQ: (fases done + WIP en tiempo) / (done + WIP total)</div>
+            <div>Scope PM: items + subitems On Track / total</div>
           </div>
         </div>
 
