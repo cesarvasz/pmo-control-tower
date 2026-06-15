@@ -277,7 +277,6 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
       "Operación":  !!oDone,
       "Cierre ROI": status === "ROI 30D",
     };
-    const doneCount = REQ_PHASES.filter((p) => phaseDone[p]).length;
 
     // ── Cronograma en días (para PV y timeline) ──
     const devDays0 = tld === "LM" ? 32 : tld === "S/dev" ? 0 : 7;
@@ -309,12 +308,8 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
     if (REQ_ACTIVE_GRUPOS.has(grp)) {
       spi = pv > 0 ? Math.round((ev / pv) * 100) / 100 : 1;
       cpi = ac > 0 ? Math.round((ev / ac) * 100) / 100 : 1;
-      // Scope = fases done / (fases done + fase actual atrasada).
-      // Si el REQ está atrasado suma 1 al denominador (hay una fase pendiente vencida),
-      // aunque la fase del grupo ya esté marcada done pero el item no haya avanzado.
-      const wipLate   = estado === "ATRASADO" ? 1 : 0;
-      const scopeDen  = doneCount + wipLate;
-      scope = scopeDen > 0 ? doneCount / scopeDen : 1;
+      // Scope: 0 si el REQ está atrasado, 1 de lo contrario.
+      scope = estado === "ATRASADO" ? 0 : 1;
     }
     const vemRaw = calcVem(spi, cpi, scope);
     const vem = vemRaw !== null ? Math.round(vemRaw * 100) / 100 : null;
