@@ -222,7 +222,9 @@ function PMPortfolioCard({
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
   const reqVemItems = reqAct.filter((r) => r.vem != null);
   const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
-  const reqVemStatus = healthStatusFromIndex(reqAvgVem);
+  // El estado REQ del PM es el peor de sus REQs (un Off Track → Off Track; si no, un At Risk → At Risk; si todos On Track → On Track). El % sigue siendo el promedio.
+  const reqSts = reqVemItems.map((r) => healthStatusFromIndex(r.vem as number));
+  const reqVemStatus = reqSts.includes("off-track") ? "off-track" : reqSts.includes("in-risk") ? "in-risk" : reqSts.length ? "on-track" : null;
   const rvc = reqVemStatus ? HEALTH_CFG[reqVemStatus] : null;
 
   const rEvmOff  = reqAct.filter((r) => r.vem !== null && (r.vem as number) < 0.85).length;
