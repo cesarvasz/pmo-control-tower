@@ -594,6 +594,10 @@ export function calcNps(rows: SheetRow[]): NpsData {
   const qAgg = new Map<string, { sum: number; count: number }>(); // promedio por pregunta
 
   rows.forEach((row) => {
+    // Filas con "X" en "Columna 5" se excluyen del cálculo.
+    const col5Key = Object.keys(row).find((k) => /^columna\s*5$/i.test(k.trim()));
+    if (col5Key && String(row[col5Key] ?? "").trim().toUpperCase() === "X") return;
+
     const keys = Object.keys(row);
     const scoreKey  = keys.find((k) => normCol(k).includes("recomiende"));
     const tsKey     = keys.find((k) => normCol(k).includes("marca temporal"));
