@@ -81,7 +81,7 @@ export function StatCard({
 // ── Estado pill ────────────────────────────────────────────────────────
 const ESTADO_PILL: Record<string, [string, string]> = {
   ATRASADO: ["pill-atrasado", "✕ Off Track"],
-  "PARA HOY": ["pill-parahoy", "⚠ In Risk"],
+  "PARA HOY": ["pill-parahoy", "⚠ At Risk"],
   "EN TIEMPO": ["pill-entiempo", "✓ On Track"],
   APROBADA: ["pill-aprobada", "✓ Aprobada"],
   "EN PROCESO": ["pill-skip", "— Pendiente"],

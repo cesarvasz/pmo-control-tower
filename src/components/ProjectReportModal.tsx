@@ -95,7 +95,7 @@ function computeMetrics(items: ProjItem[], spi: number | null, cpi: number | nul
 
 const HC = {
   "on-track":  { color: "#10b981", label: "On Track",  icon: "✓", desc: "El proyecto avanza según lo planificado. SPI, CPI y el porcentaje de alcance (items + subitems On Track / total) se mantienen en rango óptimo." },
-  "in-risk":   { color: "#f59e0b", label: "In Risk",   icon: "⚠", desc: "El proyecto presenta desviaciones menores en cronograma, costo o porcentaje de alcance. Se recomienda atención preventiva." },
+  "in-risk":   { color: "#f59e0b", label: "At Risk",   icon: "⚠", desc: "El proyecto presenta desviaciones menores en cronograma, costo o porcentaje de alcance. Se recomienda atención preventiva." },
   "off-track": { color: "#ef4444", label: "Off Track", icon: "✕", desc: "El proyecto tiene desviaciones significativas en SPI, CPI o alcance completado. Se requiere acción correctiva inmediata." },
 } as const;
 

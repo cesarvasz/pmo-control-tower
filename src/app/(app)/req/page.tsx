@@ -116,7 +116,7 @@ function ReqInner() {
           </span>
           <div className="ml-auto flex gap-4 text-[0.78rem]">
             <span style={{ color: "#10b981" }}>✓ {allVEM.filter((r) => (r.vem as number) >= 0.95).length} On Track</span>
-            <span style={{ color: "#f59e0b" }}>⚠ {allVEM.filter((r) => (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length} In Risk</span>
+            <span style={{ color: "#f59e0b" }}>⚠ {allVEM.filter((r) => (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length} At Risk</span>
             <span style={{ color: "#ef4444" }}>✕ {allVEM.filter((r) => (r.vem as number) < 0.85).length} Off Track</span>
           </div>
         </div>
@@ -129,7 +129,7 @@ function ReqInner() {
           const atrasados = items.filter((r) => r.estado === "ATRASADO").length;
           const paraHoy = items.filter((r) => r.estado === "PARA HOY").length;
           const enTiempo = items.filter((r) => r.estado === "EN TIEMPO").length;
-          // El estado del PM es el peor de sus REQs: un Off Track → Off Track; si no, un In Risk → In Risk; si todos On Track → On Track.
+          // El estado del PM es el peor de sus REQs: un Off Track → Off Track; si no, un At Risk → At Risk; si todos On Track → On Track.
           const sts = vemItems.map((r) => healthStatusFromIndex(r.vem as number));
           const worst = sts.includes("off-track") ? "off-track" : sts.includes("in-risk") ? "in-risk" : sts.length ? "on-track" : null;
           const cfg = worst ? HEALTH_CFG[worst] : { color: "#6b7280", bg: "var(--health-neutral-bg)", label: "Sin datos", icon: "—" };

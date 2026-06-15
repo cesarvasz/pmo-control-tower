@@ -420,7 +420,7 @@ export function healthStatusFromIndex(index: number | null): HealthStatus | null
 /** Config visual por estado de salud (color, fondo, wording, icono). */
 export const HEALTH_CFG: Record<HealthStatus, { color: string; bg: string; label: string; icon: string }> = {
   "on-track":  { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track",  icon: "✓" },
-  "in-risk":   { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "In Risk",   icon: "⚠" },
+  "in-risk":   { color: "#f59e0b", bg: "var(--health-in-risk-bg)",   label: "At Risk",   icon: "⚠" },
   "off-track": { color: "#ef4444", bg: "var(--health-off-track-bg)", label: "Off Track", icon: "✕" },
 };
 

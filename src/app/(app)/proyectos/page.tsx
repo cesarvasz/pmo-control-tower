@@ -17,7 +17,7 @@ import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/
 function estadoPill(status: string, estado: string): [string, string] {
   if (status === "Done")      return ["pill-entiempo", "✓ On Track"];
   if (estado === "ATRASADO")  return ["pill-atrasado", "✕ Off Track"];
-  if (estado === "PARA HOY")  return ["pill-parahoy",  "⚠ In Risk"];
+  if (estado === "PARA HOY")  return ["pill-parahoy",  "⚠ At Risk"];
   if (estado === "EN TIEMPO") return ["pill-entiempo", "✓ On Track"];
   return ["pill-skip", "— Pending"];
 }
@@ -109,7 +109,7 @@ function ProyectosInner() {
       <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard value={projBoards.length} label="Total Proyectos" />
         <StatCard value={boardsOffTrack} label="Off Track" color="#ef4444" borderColor="#ef4444" />
-        <StatCard value={boardsInRisk}   label="In Risk"   color="#f59e0b" borderColor="#f59e0b" />
+        <StatCard value={boardsInRisk}   label="At Risk"   color="#f59e0b" borderColor="#f59e0b" />
         <StatCard value={boardsOnTrack}  label="On Track"  color="#10b981" borderColor="#10b981" />
       </div>
 

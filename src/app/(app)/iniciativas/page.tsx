@@ -200,7 +200,7 @@ function mondayDateCell(v: string | undefined) {
 
 const ROW_PILL: Record<string, [string, string]> = {
   ATRASADO: ["pill-atrasado", "✕ Off Track"],
-  "PARA HOY": ["pill-parahoy", "⚠ In Risk"],
+  "PARA HOY": ["pill-parahoy", "⚠ At Risk"],
   "EN TIEMPO": ["pill-entiempo", "✓ On Track"],
   APROBADA: ["pill-aprobada", "✓ Aprobada"],
   SKIP: ["pill-skip", "— N/A"],

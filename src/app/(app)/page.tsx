@@ -139,14 +139,14 @@ export default function ControlTowerPage() {
         <GlobalBlock title="Iniciativas" onClick={() => router.push("/iniciativas")} stats={[
           [`${G.iniTotal} total`, "var(--text-primary)"],
           [`✕ ${G.iniAtrasado} Off Track`, "#ef4444"],
-          [`⚠ ${G.iniParaHoy} In Risk`, "#f59e0b"],
+          [`⚠ ${G.iniParaHoy} At Risk`, "#f59e0b"],
           [`✓ ${G.iniEnTiempo} On Track`, "#10b981"],
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
         <GlobalBlock title="REQ" onClick={() => router.push("/req")} stats={[
           [`${G.reqTotal} total`, "var(--text-primary)"],
           [`✕ ${G.reqEvmOffTrack} Off Track`, "#ef4444"],
-          [`⚠ ${G.reqEvmInRisk} In Risk`, "#f59e0b"],
+          [`⚠ ${G.reqEvmInRisk} At Risk`, "#f59e0b"],
           [`✓ ${G.reqEvmOnTrack} On Track`, "#10b981"],
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
@@ -269,7 +269,7 @@ function PMPortfolioCard({
         >
           <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
           <Stat n={iniHealth.offTrack} color="#ef4444" label="Off Track" />
-          <Stat n={iniHealth.inRisk} color="#f59e0b" label="In Risk" />
+          <Stat n={iniHealth.inRisk} color="#f59e0b" label="At Risk" />
           <Stat n={iniHealth.onTrack} color="#10b981" label="On Track" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
@@ -285,7 +285,7 @@ function PMPortfolioCard({
         >
           <Stat n={reqAct.length} color="#6b7280" label="total" />
           <Stat n={rEvmOff} color="#ef4444" label="Off Track" />
-          <Stat n={rEvmRisk} color="#f59e0b" label="In Risk" />
+          <Stat n={rEvmRisk} color="#f59e0b" label="At Risk" />
           <Stat n={rEvmOn} color="#10b981" label="On Track" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
