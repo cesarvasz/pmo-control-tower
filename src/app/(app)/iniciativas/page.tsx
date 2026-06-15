@@ -166,7 +166,7 @@ function PMHealth({ iniData, calMap, selectedPm, onSelect }: {
             </div>
             <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>{c.icon} {c.label} · {Math.round(h.index * 100)}%</span>
             <div className="text-[0.75rem] text-[var(--text-muted)]">
-              {h.enTiempo} en tiempo · {h.atrasadas} atrasadas · {h.sinMeeting} sin agendar
+              {h.onTrack} on track · {h.inRisk} in risk · {h.offTrack} off track
             </div>
           </div>
         );

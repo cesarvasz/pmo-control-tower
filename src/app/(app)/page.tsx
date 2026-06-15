@@ -268,9 +268,9 @@ function PMPortfolioCard({
           }
         >
           <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
-          <Stat n={iniHealth.atrasadas} color="#ef4444" label="Off Track" />
-          <Stat n={iniHealth.enTiempo} color="#10b981" label="On Track" />
-          <Stat n={iniHealth.sinMeeting} color="#f59e0b" label="sin agendar" />
+          <Stat n={iniHealth.offTrack} color="#ef4444" label="Off Track" />
+          <Stat n={iniHealth.inRisk} color="#f59e0b" label="In Risk" />
+          <Stat n={iniHealth.onTrack} color="#10b981" label="On Track" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section

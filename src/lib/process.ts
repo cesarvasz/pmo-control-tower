@@ -527,32 +527,43 @@ export function nextOrLatest(arr: { inicio: Date; fin: Date }[] | undefined): { 
 export interface IniPMHealth {
   status: "on-track" | "in-risk" | "off-track";
   index: number;
-  agendadas: number;
-  enTiempo: number;
-  atrasadas: number;
-  sinMeeting: number;
+  onTrack: number;
+  inRisk: number;
+  offTrack: number;
   total: number;
+}
+
+/** Estado de salud de una iniciativa activa (New / Meeting 1). */
+export function iniItemStatus(r: IniItem, hasMeeting: boolean): HealthStatus {
+  // Sin reunión agendada: >2 días desde la creación → off track; 2 o menos → in risk.
+  if (!hasMeeting) return r.dias !== null && r.dias > 2 ? "off-track" : "in-risk";
+  // Con reunión agendada: atrasada según deadline → off track; de lo contrario → on track.
+  return r.estado === "ATRASADO" ? "off-track" : "on-track";
 }
 
 export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap: CalMap): IniPMHealth {
   const items = iniData.filter((r) => r.pm === pm && INI_ACTIVE_STS.has(r.status));
   const total = items.length;
-  if (total === 0) return { status: "on-track", index: 1, agendadas: 0, enTiempo: 0, atrasadas: 0, sinMeeting: 0, total: 0 };
+  if (total === 0) return { status: "on-track", index: 1, onTrack: 0, inRisk: 0, offTrack: 0, total: 0 };
 
   const hasMeeting = (r: IniItem) => {
     const cal = calMap.get(r.id) || { M1: [], M2: [] };
     return cal[r.status === "New" ? "M1" : "M2"].length > 0;
   };
 
-  const agendadas = items.filter(hasMeeting).length;
-  const enTiempo = items.filter((r) => (r.estado === "EN TIEMPO" || r.estado === "PARA HOY") && hasMeeting(r)).length;
-  const atrasadas = items.filter((r) => r.estado === "ATRASADO").length;
-  const sinMeeting = items.filter((r) => !hasMeeting(r)).length;
+  let onTrack = 0, inRisk = 0, offTrack = 0;
+  items.forEach((r) => {
+    const s = iniItemStatus(r, hasMeeting(r));
+    if (s === "on-track") onTrack++;
+    else if (s === "in-risk") inRisk++;
+    else offTrack++;
+  });
 
-  const index = ((agendadas / total) + (enTiempo / total)) / 2;
+  // Índice: on track = 1, in risk = 0.9, off track = 0.
+  const index = (onTrack + inRisk * 0.9) / total;
   const status = healthStatusFromIndex(index) ?? "off-track";
 
-  return { status, index, agendadas, enTiempo, atrasadas, sinMeeting, total };
+  return { status, index, onTrack, inRisk, offTrack, total };
 }
 
 /** "Para Hoy" de iniciativas: deadline calculado hoy O reunión agendada hoy. */
