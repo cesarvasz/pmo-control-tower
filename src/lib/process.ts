@@ -308,9 +308,9 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
       spi = pv > 0 ? Math.round((ev / pv) * 100) / 100 : 1;
       cpi = ac > 0 ? Math.round((ev / ac) * 100) / 100 : 1;
       // Scope = fases done / (fases done + fase actual atrasada).
-      // Solo existe una fase activa a la vez; si la fase actual está atrasada suma 1 al denominador.
-      const currentDone = phaseDone[grp] ?? false;
-      const wipLate   = !currentDone && estado === "ATRASADO" ? 1 : 0;
+      // Si el REQ está atrasado suma 1 al denominador (hay una fase pendiente vencida),
+      // aunque la fase del grupo ya esté marcada done pero el item no haya avanzado.
+      const wipLate   = estado === "ATRASADO" ? 1 : 0;
       const scopeDen  = doneCount + wipLate;
       scope = scopeDen > 0 ? doneCount / scopeDen : 1;
     }
