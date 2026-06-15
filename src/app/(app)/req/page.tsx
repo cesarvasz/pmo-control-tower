@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
-import { REQ_ACTIVE_GRUPOS, REQ_GROUP_COLOR, REQ_PIPELINE, vemCfg } from "@/lib/process";
+import { HEALTH_CFG, healthStatusFromIndex, REQ_ACTIVE_GRUPOS, REQ_GROUP_COLOR, REQ_PIPELINE, vemCfg } from "@/lib/process";
 import type { ReqItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
@@ -129,7 +129,10 @@ function ReqInner() {
           const atrasados = items.filter((r) => r.estado === "ATRASADO").length;
           const paraHoy = items.filter((r) => r.estado === "PARA HOY").length;
           const enTiempo = items.filter((r) => r.estado === "EN TIEMPO").length;
-          const cfg = avg !== null ? vemCfg(avg) : { color: "#6b7280", bg: "var(--health-neutral-bg)", label: "Sin datos", icon: "—" };
+          // El estado del PM es el peor de sus REQs: un Off Track → Off Track; si no, un In Risk → In Risk; si todos On Track → On Track.
+          const sts = vemItems.map((r) => healthStatusFromIndex(r.vem as number));
+          const worst = sts.includes("off-track") ? "off-track" : sts.includes("in-risk") ? "in-risk" : sts.length ? "on-track" : null;
+          const cfg = worst ? HEALTH_CFG[worst] : { color: "#6b7280", bg: "var(--health-neutral-bg)", label: "Sin datos", icon: "—" };
           const isSel = pms.length === 1 && pms[0] === pm;
           return (
             <div
