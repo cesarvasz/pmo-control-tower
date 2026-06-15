@@ -293,14 +293,16 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
 
     // ── EV / PV / AC + desglose por fase ──
     // EV = Σ basePhaseCost de fases completadas (costo planificado).
-    // PV = EV + phaseCost[fase actual] si está atrasada (costo actual).
+    // PV = EV + phaseCost[fase actual] si el REQ está atrasado (costo actual).
     // AC = Σ phaseCost de fases completadas (costo actual de Monday).
     const phases: ReqPhaseInfo[] = REQ_PHASES.map((p, i) => ({
       name: p, cost: phaseCost[p], durDays: phaseDurs0[i], done: phaseDone[p], inPv: false,
     }));
     const ev = REQ_PHASES.reduce((s, p) => s + (phaseDone[p] ? basePhaseCost[p] : 0), 0);
     const ac = REQ_PHASES.reduce((s, p) => s + (phaseDone[p] ? phaseCost[p] : 0), 0);
-    const pv = ev + (estado === "ATRASADO" && !phaseDone[grp] ? phaseCost[grp] ?? 0 : 0);
+    // Si está atrasado, el PV incluye el costo de la fase actual aunque el item no
+    // haya avanzado de grupo: el atraso baja el SPI además del Scope.
+    const pv = ev + (estado === "ATRASADO" ? phaseCost[grp] ?? 0 : 0);
 
     // ── SPI / CPI / Scope / VEM ──
     let spi: number | null = null, cpi: number | null = null, scope: number | null = null;
