@@ -429,15 +429,16 @@ export function vemCfg(v: number) {
   return HEALTH_CFG[healthStatusFromIndex(v) ?? "off-track"];
 }
 
-const isOnTrack = (status: string, estado: string) =>
-  status === "Done" || estado === "EN TIEMPO";
+// Off Track = está atrasado y no se completó (un Done cuenta como On Track).
+const isOffTrack = (status: string, estado: string) =>
+  status !== "Done" && estado === "ATRASADO";
 
 export function calcBoardMetrics(
   allBoardItems: ProjItem[],
   projItemBaselines: Record<string, ProjItemBaseline> = {},
 ): { ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null } {
   let ev = 0, pv = 0, ac = 0;
-  let onTrackCount = 0, totalCount = 0;
+  let hasItems = false, anyOffTrack = false;
 
   for (const item of allBoardItems) {
     const isDone    = item.status === "Done";
@@ -446,12 +447,11 @@ export function calcBoardMetrics(
     // se usa el costo actual de Monday como fallback.
     const baseCost = projItemBaselines[item.id]?.cost ?? item.cost;
 
-    // Scope: items + subitems On Track / total items + subitems
-    totalCount++;
-    if (isOnTrack(item.status, item.estado)) onTrackCount++;
+    // Scope binario: 0 si algún item o subitem está atrasado (off track), 100 si todo on track.
+    hasItems = true;
+    if (isOffTrack(item.status, item.estado)) anyOffTrack = true;
     for (const sub of item.subitems) {
-      totalCount++;
-      if (isOnTrack(sub.status, sub.estado)) onTrackCount++;
+      if (isOffTrack(sub.status, sub.estado)) anyOffTrack = true;
     }
 
     if (isDone) {
@@ -466,7 +466,7 @@ export function calcBoardMetrics(
 
   const spi = pv > 0 ? ev / pv : null;
   const cpi = ac > 0 ? Math.min(1, ev / ac) : null;
-  const scope = totalCount > 0 ? (onTrackCount / totalCount) * 100 : null;
+  const scope = hasItems ? (anyOffTrack ? 0 : 100) : null;
 
   return { ev, pv, ac, scope, spi, cpi };
 }
