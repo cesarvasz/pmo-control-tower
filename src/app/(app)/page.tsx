@@ -56,7 +56,7 @@ export default function ControlTowerPage() {
 
   // ── VEM del equipo ──
   const teamIniHIs = allPMs
-    .map((pm) => calcIniPMHealth(pm, ini, calMap))
+    .map((pm) => calcIniPMHealth(pm, ini))
     .filter((h) => h.total > 0)
     .map((h) => h.index);
   const teamIniHealth = teamIniHIs.length > 0 ? teamIniHIs.reduce((a, b) => a + b, 0) / teamIniHIs.length : null;
@@ -167,7 +167,7 @@ export default function ControlTowerPage() {
         {allPMs.map((pm) => {
           const q = encodeURIComponent(pm);
           return (
-            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} projBoards={projBoards} boardHealthMap={boardHealthMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
           );
         })}
       </div>
@@ -209,14 +209,13 @@ const PROJ_HEALTH_COLOR: Record<string, string> = {
 };
 
 function PMPortfolioCard({
-  pm, ini, req, projBoards, boardHealthMap, calMap, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, projBoards, boardHealthMap, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[];
   projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>;
-  calMap: import("@/types").CalMap;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
-  const iniHealth = calcIniPMHealth(pm, ini, calMap);
+  const iniHealth = calcIniPMHealth(pm, ini);
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));

@@ -118,7 +118,7 @@ function IniciativasInner() {
       </div>
 
       {/* PM Health */}
-      <PMHealth iniData={iniData} calMap={calMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
+      <PMHealth iniData={iniData} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Secciones activas */}
       {sections.length === 0 && planFuturoItems.length === 0 ? (
@@ -137,9 +137,8 @@ function IniciativasInner() {
 
 // ── PM Health ──────────────────────────────────────────────────────────
 
-function PMHealth({ iniData, calMap, selectedPm, onSelect }: {
+function PMHealth({ iniData, selectedPm, onSelect }: {
   iniData: IniItem[];
-  calMap: CalMap;
   selectedPm: string | null;
   onSelect: (pm: string) => void;
 }) {
@@ -147,7 +146,7 @@ function PMHealth({ iniData, calMap, selectedPm, onSelect }: {
   return (
     <div className="mb-7 flex flex-wrap gap-4">
       {pms.map((pm) => {
-        const h = calcIniPMHealth(pm, iniData, calMap);
+        const h = calcIniPMHealth(pm, iniData);
         const c = HEALTH_CFG[h.status];
         const active = selectedPm === pm;
         return (
