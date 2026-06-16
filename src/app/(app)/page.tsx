@@ -246,7 +246,23 @@ function PMPortfolioCard({
   const pmEvmParts = ([iniHealth.index, reqAvgVem, pmProjAvgHI] as (number | null)[]).filter((v): v is number => v != null);
   const pmEvmRaw = pmEvmParts.length > 0 ? pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length : null;
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
-  const pmHealth: HealthStatus = healthStatusFromIndex(pmEvmRaw) ?? "on-track";
+
+  // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos.
+  // Si hay un Off Track en cualquier sección, la tarjeta muestra Off Track. El % sigue siendo el promedio.
+  const sectionStatuses: (HealthStatus | null)[] = [
+    iniHealth.total > 0
+      ? (iniHealth.offTrack > 0 ? "off-track" : iniHealth.inRisk > 0 ? "in-risk" : "on-track")
+      : null,
+    reqVemStatus,
+    pmProjBoards.length > 0
+      ? (pmProjBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track") ? "off-track"
+        : pmProjBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk") ? "in-risk"
+        : "on-track")
+      : null,
+  ];
+  const pmHealth: HealthStatus = sectionStatuses.includes("off-track") ? "off-track"
+    : sectionStatuses.includes("in-risk") ? "in-risk"
+    : "on-track";
   const hc = HEALTH_CFG[pmHealth];
 
   return (
