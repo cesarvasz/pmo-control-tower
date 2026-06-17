@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
@@ -93,6 +94,14 @@ export default function ControlTowerPage() {
     reqEvmOnTrack:  reqProc.filter((r) => r.vem !== null && (r.vem as number) >= 0.95).length,
   };
 
+  // ── Costos y beneficios totales (REQ + Proyectos) ──
+  const reqCost     = req.reduce((s, r) => s + r.costRH + r.costSft, 0);
+  const reqBenefit  = req.reduce((s, r) => s + r.benefit, 0);
+  const projCost    = proj.reduce((s, r) => s + r.cost, 0);
+  const projBenefit = proj.reduce((s, r) => s + r.benefit, 0);
+  const totalCost    = reqCost + projCost;
+  const totalBenefit = reqBenefit + projBenefit;
+
   return (
     <div>
       {/* Tarjetas de resumen (se irán agregando más en horizontal) */}
@@ -137,6 +146,25 @@ export default function ControlTowerPage() {
             </div>
           );
         })()}
+
+        {/* Costo & Beneficio — REQ + Proyectos */}
+        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: "#6c63ff", minWidth: 220 }}>
+          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
+          <div className="mb-3 flex justify-center gap-6">
+            <div>
+              <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Costo</div>
+              <div className="text-2xl font-extrabold leading-none" style={{ color: "#ef4444" }}>{fmtMoney(totalCost)}</div>
+            </div>
+            <div>
+              <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Beneficio</div>
+              <div className="text-2xl font-extrabold leading-none" style={{ color: "#10b981" }}>{fmtMoney(totalBenefit)}</div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-0.5 text-[0.74rem] font-semibold text-[var(--text-muted)]">
+            <span>REQ: <span style={{ color: "#ef4444" }}>{fmtMoney(reqCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(reqBenefit)}</span></span>
+            <span>Proyectos: <span style={{ color: "#ef4444" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
+          </div>
+        </div>
       </div>
 
       {/* Bloques globales */}
