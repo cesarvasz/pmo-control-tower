@@ -137,6 +137,15 @@ export default function ControlTowerPage() {
   const totalCost    = reqCost + projCost;
   const totalBenefit = reqBenefit + projBenefit;
 
+  // ── Payback (meses) y ROI (%) — REQ y Proyectos ──
+  // Payback = costo / (beneficio / 12).   ROI = ((beneficio − costo) / costo) × 100.
+  const reqPayback  = reqBenefit  > 0 ? reqCost  / (reqBenefit  / 12) : null;
+  const reqRoi      = reqCost     > 0 ? ((reqBenefit  - reqCost)  / reqCost)  * 100 : null;
+  const projPayback = projBenefit > 0 ? projCost / (projBenefit / 12) : null;
+  const projRoi     = projCost    > 0 ? ((projBenefit - projCost) / projCost) * 100 : null;
+  const fmtMonths = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} meses`);
+  const fmtRoi    = (v: number | null) => (v === null ? "—" : `${Math.round(v)}%`);
+
   return (
     <div>
       {/* Tarjetas de resumen (se irán agregando más en horizontal) */}
@@ -201,6 +210,20 @@ export default function ControlTowerPage() {
             <span>Aprobación: <span style={{ color: "#ef4444" }}>{fmtMoney(aprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(aprobBenefit)}</span></span>
             <span>Launch: <span style={{ color: "#ef4444" }}>{fmtMoney(ambosCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(ambosBenefit)}</span></span>
             <span>Total: <span style={{ color: "#ef4444" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
+          </div>
+        </div>
+
+        {/* Payback & ROI — REQ + Proyectos */}
+        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: "#0ea5e9", minWidth: 220 }}>
+          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Payback &amp; ROI</div>
+          <div className="flex flex-col gap-1 text-[0.8rem] font-semibold">
+            <div className="text-[0.62rem] uppercase tracking-wide text-[var(--text-muted)]">Payback</div>
+            <div className="flex justify-between"><span className="text-[var(--text-muted)]">REQ</span><span style={{ color: "#8b5cf6" }}>{fmtMonths(reqPayback)}</span></div>
+            <div className="flex justify-between"><span className="text-[var(--text-muted)]">Proyectos</span><span style={{ color: "#8b5cf6" }}>{fmtMonths(projPayback)}</span></div>
+            <hr className="my-1.5" style={{ border: "none", borderTop: "1px solid var(--accent)" }} />
+            <div className="text-[0.62rem] uppercase tracking-wide text-[var(--text-muted)]">ROI</div>
+            <div className="flex justify-between"><span className="text-[var(--text-muted)]">REQ</span><span style={{ color: "#0ea5e9" }}>{fmtRoi(reqRoi)}</span></div>
+            <div className="flex justify-between"><span className="text-[var(--text-muted)]">Proyectos</span><span style={{ color: "#0ea5e9" }}>{fmtRoi(projRoi)}</span></div>
           </div>
         </div>
       </div>
