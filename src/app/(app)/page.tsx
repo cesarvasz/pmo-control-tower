@@ -196,10 +196,10 @@ export default function ControlTowerPage() {
             </div>
           </div>
           <div className="flex flex-col gap-0.5 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-            <span>REQ: <span style={{ color: "#ef4444" }}>{fmtMoney(reqCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(reqBenefit)}</span></span>
-            <span>Proy. Aprobación: <span style={{ color: "#ef4444" }}>{fmtMoney(aprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(aprobBenefit)}</span></span>
-            <span>Proy. Aprob+Launch: <span style={{ color: "#ef4444" }}>{fmtMoney(ambosCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(ambosBenefit)}</span></span>
-            <span>Proy. Total: <span style={{ color: "#ef4444" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
+            <span>REQ: <span style={{ color: "#ef4444" }}>{fmtMoney(reqCost)}</span><br /><span style={{ color: "#10b981" }}>{fmtMoney(reqBenefit)}</span></span>
+            <span>Aprobación: <span style={{ color: "#ef4444" }}>{fmtMoney(aprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(aprobBenefit)}</span></span>
+            <span>Launch: <span style={{ color: "#ef4444" }}>{fmtMoney(ambosCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(ambosBenefit)}</span></span>
+            <span>Total: <span style={{ color: "#ef4444" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
           </div>
         </div>
       </div>
