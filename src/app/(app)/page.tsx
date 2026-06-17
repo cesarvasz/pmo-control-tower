@@ -25,6 +25,13 @@ const INI_HEALTH_CFG = HEALTH_CFG;
 // Fases REQ de la 2 en adelante (Aprobación → Cierre ROI), para sumar costo/beneficio.
 const REQ_PHASE2PLUS = new Set(["Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
 
+// Detección del item "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)" en proyectos.
+const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const isValueGate = (name: string) => {
+  const n = norm(name);
+  return n.includes("value gate") && n.includes("firmado") && n.includes("aprobado");
+};
+
 export default function ControlTowerPage() {
   const { data, loading, error } = useData();
   const router = useRouter();
@@ -98,12 +105,35 @@ export default function ControlTowerPage() {
   };
 
   // ── Costos y beneficios totales (REQ + Proyectos) ──
-  // REQ: solo se suman las fases 2 o posteriores (Aprobación → Cierre ROI). Se excluye Valuación, Cerrados y En Espera.
+  // REQ: solo fases 2 o posteriores (Aprobación → Cierre ROI). Se excluye Valuación, Cerrados y En Espera.
   const reqWithValue = req.filter((r) => REQ_PHASE2PLUS.has(r.grupo));
   const reqCost     = reqWithValue.reduce((s, r) => s + r.costRH + r.costSft, 0);
   const reqBenefit  = reqWithValue.reduce((s, r) => s + r.benefit, 0);
-  const projCost    = proj.reduce((s, r) => s + r.cost, 0);
-  const projBenefit = proj.reduce((s, r) => s + r.benefit, 0);
+
+  // Proyectos: se agrupan por board y se mide si el Value Gate (BC) está Done en Aprobación y/o Launch.
+  const projAgg = new Map<string, { cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
+  for (const r of proj) {
+    let a = projAgg.get(r.boardId);
+    if (!a) { a = { cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; projAgg.set(r.boardId, a); }
+    a.cost += r.cost;
+    a.benefit += r.benefit;
+    if (r.status === "Done" && isValueGate(r.name)) {
+      const g = norm(r.grupo);
+      if (g.includes("aprobacion")) a.doneAprob = true;
+      if (g.includes("launch")) a.doneLaunch = true;
+    }
+  }
+  const projBoardsAgg = [...projAgg.values()];
+  const projAprob = projBoardsAgg.filter((b) => b.doneAprob);
+  const projAmbos = projBoardsAgg.filter((b) => b.doneAprob && b.doneLaunch);
+  const aprobCost    = projAprob.reduce((s, b) => s + b.cost, 0);
+  const aprobBenefit = projAprob.reduce((s, b) => s + b.benefit, 0);
+  const ambosCost    = projAmbos.reduce((s, b) => s + b.cost, 0);
+  const ambosBenefit = projAmbos.reduce((s, b) => s + b.benefit, 0);
+  // Total Proyectos = ambos buckets sumados (Aprobación + Ambos).
+  const projCost    = aprobCost + ambosCost;
+  const projBenefit = aprobBenefit + ambosBenefit;
+
   const totalCost    = reqCost + projCost;
   const totalBenefit = reqBenefit + projBenefit;
 
@@ -165,9 +195,11 @@ export default function ControlTowerPage() {
               <div className="text-2xl font-extrabold leading-none" style={{ color: "#10b981" }}>{fmtMoney(totalBenefit)}</div>
             </div>
           </div>
-          <div className="flex flex-col gap-0.5 text-[0.74rem] font-semibold text-[var(--text-muted)]">
+          <div className="flex flex-col gap-0.5 text-[0.72rem] font-semibold text-[var(--text-muted)]">
             <span>REQ: <span style={{ color: "#ef4444" }}>{fmtMoney(reqCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(reqBenefit)}</span></span>
-            <span>Proyectos: <span style={{ color: "#ef4444" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
+            <span>Proy. Aprobación: <span style={{ color: "#ef4444" }}>{fmtMoney(aprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(aprobBenefit)}</span></span>
+            <span>Proy. Aprob+Launch: <span style={{ color: "#ef4444" }}>{fmtMoney(ambosCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(ambosBenefit)}</span></span>
+            <span>Proy. Total: <span style={{ color: "#ef4444" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
           </div>
         </div>
       </div>
