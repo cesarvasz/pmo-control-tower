@@ -22,6 +22,9 @@ const pmLabel = (pm: string) => {
 
 const INI_HEALTH_CFG = HEALTH_CFG;
 
+// Fases REQ de la 2 en adelante (Aprobación → Cierre ROI), para sumar costo/beneficio.
+const REQ_PHASE2PLUS = new Set(["Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
+
 export default function ControlTowerPage() {
   const { data, loading, error } = useData();
   const router = useRouter();
@@ -95,8 +98,10 @@ export default function ControlTowerPage() {
   };
 
   // ── Costos y beneficios totales (REQ + Proyectos) ──
-  const reqCost     = req.reduce((s, r) => s + r.costRH + r.costSft, 0);
-  const reqBenefit  = req.reduce((s, r) => s + r.benefit, 0);
+  // REQ: solo se suman las fases 2 o posteriores (Aprobación → Cierre ROI). Se excluye Valuación, Cerrados y En Espera.
+  const reqWithValue = req.filter((r) => REQ_PHASE2PLUS.has(r.grupo));
+  const reqCost     = reqWithValue.reduce((s, r) => s + r.costRH + r.costSft, 0);
+  const reqBenefit  = reqWithValue.reduce((s, r) => s + r.benefit, 0);
   const projCost    = proj.reduce((s, r) => s + r.cost, 0);
   const projBenefit = proj.reduce((s, r) => s + r.benefit, 0);
   const totalCost    = reqCost + projCost;
