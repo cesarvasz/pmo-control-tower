@@ -70,7 +70,12 @@ export default function ControlTowerPage() {
   const vemParts = [teamIniHealth, teamReqHealth, teamProjHealth].filter((v): v is number => v != null);
   const teamVem = vemParts.length > 0 ? vemParts.reduce((a, b) => a + b, 0) / vemParts.length : null;
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
-  const teamStatus = healthStatusFromIndex(teamVem);
+  // Estado del equipo = peor estado entre los PMs: si un PM está Off Track, el EVM del equipo es Off Track. El % sigue siendo el promedio.
+  const pmStatuses = allPMs.map((pm) => pmWorstStatus(pm, ini, req, projBoards, boardHealthMap));
+  const teamStatus: HealthStatus | null = teamVem === null ? null
+    : pmStatuses.includes("off-track") ? "off-track"
+    : pmStatuses.includes("in-risk") ? "in-risk"
+    : "on-track";
   const teamCfg = teamStatus ? HEALTH_CFG[teamStatus] : null;
   const hColor = teamCfg?.color ?? "#6b7280";
   const hBg    = teamCfg?.bg ?? "var(--health-neutral-bg)";
@@ -208,6 +213,37 @@ const PROJ_HEALTH_COLOR: Record<string, string> = {
   "off-track": "#ef4444",
 };
 
+/** Estado general de un PM = peor estado entre Iniciativas, REQ y Proyectos. */
+function pmWorstStatus(
+  pm: string,
+  ini: IniItem[],
+  req: ReqItem[],
+  projBoards: ProjBoard[],
+  boardHealthMap: Map<string, BoardHealthData>,
+): HealthStatus {
+  const iniHealth = calcIniPMHealth(pm, ini);
+  const iniStatus: HealthStatus | null = iniHealth.total > 0
+    ? (iniHealth.offTrack > 0 ? "off-track" : iniHealth.inRisk > 0 ? "in-risk" : "on-track")
+    : null;
+
+  const reqVemItems = req.filter(
+    (r) => r.pm === pm && r.estado !== "CERRADO" && REQ_ACTIVE_GRUPOS.has(r.grupo) && r.vem != null,
+  );
+  const reqSts = reqVemItems.map((r) => healthStatusFromIndex(r.vem as number));
+  const reqStatus: HealthStatus | null = reqSts.includes("off-track") ? "off-track"
+    : reqSts.includes("in-risk") ? "in-risk" : reqSts.length ? "on-track" : null;
+
+  const pmBoards = projBoards.filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus != null);
+  const projStatus: HealthStatus | null = pmBoards.length
+    ? (pmBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track") ? "off-track"
+      : pmBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk") ? "in-risk"
+      : "on-track")
+    : null;
+
+  const all = [iniStatus, reqStatus, projStatus];
+  return all.includes("off-track") ? "off-track" : all.includes("in-risk") ? "in-risk" : "on-track";
+}
+
 function PMPortfolioCard({
   pm, ini, req, projBoards, boardHealthMap, onGoIni, onGoReq, onGoProj,
 }: {
@@ -246,22 +282,8 @@ function PMPortfolioCard({
   const pmEvmRaw = pmEvmParts.length > 0 ? pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length : null;
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
 
-  // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos.
-  // Si hay un Off Track en cualquier sección, la tarjeta muestra Off Track. El % sigue siendo el promedio.
-  const sectionStatuses: (HealthStatus | null)[] = [
-    iniHealth.total > 0
-      ? (iniHealth.offTrack > 0 ? "off-track" : iniHealth.inRisk > 0 ? "in-risk" : "on-track")
-      : null,
-    reqVemStatus,
-    pmProjBoards.length > 0
-      ? (pmProjBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track") ? "off-track"
-        : pmProjBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk") ? "in-risk"
-        : "on-track")
-      : null,
-  ];
-  const pmHealth: HealthStatus = sectionStatuses.includes("off-track") ? "off-track"
-    : sectionStatuses.includes("in-risk") ? "in-risk"
-    : "on-track";
+  // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos. El % sigue siendo el promedio.
+  const pmHealth: HealthStatus = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap);
   const hc = HEALTH_CFG[pmHealth];
 
   return (
