@@ -111,9 +111,8 @@ export default function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           style={{ borderColor: "var(--border)" }}
         >
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-bold text-white">
-              P
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/pmo-logo.png" alt="PMO" className="h-8 w-8 flex-shrink-0 object-contain" />
             {!collapsed && (
               <span className="whitespace-nowrap text-[0.95rem] font-bold tracking-wide text-[var(--text-primary)]">
                 PMO Suite

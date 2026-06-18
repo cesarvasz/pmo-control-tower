@@ -57,9 +57,8 @@ export default function LoginPage() {
         style={{ borderColor: "var(--border)" }}
       >
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)] text-base font-bold text-white">
-            P
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/pmo-logo.png" alt="PMO" className="h-11 w-11 object-contain" />
           <div>
             <div className="text-lg font-bold text-[var(--text-primary)]">PMO Suite</div>
             <div className="text-xs text-[var(--text-muted)]">Inicia sesión para continuar</div>
