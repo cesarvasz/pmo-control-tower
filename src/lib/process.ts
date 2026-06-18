@@ -485,6 +485,13 @@ export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number;
 // Columnas mirror/board_relation de Iniciativas para el lookup hacia Proyectos.
 const INI_LOOKUP_COL = { estrategia: "board_relation_mm3by83p", sponsor: "lookup_mm3bdj38" };
 
+// El Sponsor viene de una columna People cuyos usuarios en Monday tienen el email como nombre.
+// Mapa manual email → nombre real. Si no está en el mapa, se muestra el valor tal cual (ya es nombre).
+const SPONSOR_NAMES: Record<string, string> = {
+  "plopez@c807.com": "Patricia López",
+};
+const resolveSponsor = (v: string) => SPONSOR_NAMES[v.trim().toLowerCase()] ?? v;
+
 /** Normaliza un nombre para el match Iniciativa ↔ Proyecto (sin acentos, minúsculas). */
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 /** Quita el prefijo "PM-XXX | " del nombre de un board de proyecto. */
@@ -499,7 +506,7 @@ export function buildIniLookup(iniItems: MondayItem[]): Map<string, { estrategia
   for (const it of iniItems) {
     map.set(normName(it.name), {
       estrategia: colDisplay(it.column_values, INI_LOOKUP_COL.estrategia),
-      sponsor:    colDisplay(it.column_values, INI_LOOKUP_COL.sponsor),
+      sponsor:    resolveSponsor(colDisplay(it.column_values, INI_LOOKUP_COL.sponsor)),
     });
   }
   return map;
