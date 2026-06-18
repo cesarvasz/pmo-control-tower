@@ -341,9 +341,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                 {m.criticalItems.map((r, i) => {
                   const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
                   const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
-                  // Si la acción menciona "CKU", el responsable es el CKU de la Iniciativa.
-                  const resp = r.name.toLowerCase().includes("cku") ? (board.cku || "CKU") : (r.resp || "Sin asignar");
-                  const comment = criticalComment(r.name);
+                  const { colResp, respLines, comment } = criticalMeta(r.name, r.resp, board.cku || "");
                   return (
                     <div
                       key={r.id}
@@ -364,15 +362,24 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                           </span>
                         )}
                       </div>
-                      <div className="mt-1 pl-6 text-[0.8rem] text-[var(--text-muted)]">
-                        Responsable: <span className="font-medium text-[var(--text-secondary)]">{resp}</span>
-                      </div>
+                      {colResp && (
+                        <div className="mt-1 pl-6 text-[0.8rem] text-[var(--text-muted)]">
+                          Responsable: <span className="font-medium text-[var(--text-secondary)]">{colResp}</span>
+                        </div>
+                      )}
                       {comment && (
                         <div
-                          className="mt-1.5 ml-6 rounded-md py-1.5 pl-3 pr-3 text-[0.76rem]"
+                          className="mt-1.5 ml-6 space-y-0.5 rounded-md py-1.5 pl-3 pr-3 text-[0.76rem]"
                           style={{ background: "var(--bg-hover)", borderLeft: "3px solid #f59e0b", color: "var(--text-secondary)" }}
                         >
-                          <b className="text-[var(--text-primary)]">Acción requerida:</b> {comment}
+                          {respLines.map((l) => (
+                            <div key={l.label}>
+                              <b className="text-[var(--text-primary)]">{l.label}:</b> {l.value}
+                            </div>
+                          ))}
+                          <div>
+                            <b className="text-[var(--text-primary)]">Acción requerida:</b> {comment}
+                          </div>
                         </div>
                       )}
                       {offSubs.length > 0 && (
@@ -419,7 +426,38 @@ function criticalComment(name: string): string | null {
   if (n.includes("sponsor") && n.includes("cku")) {
     return `Firma del CKU para los requerimientos de los siguientes hitos:`;
   }
+  if (n.includes("agenda bat")) {
+    return `No se puede agendar BAT porque las fechas de entrega de Desarrollo están pendientes para los siguientes hitos:`;
+  }
+  if (n.includes("fechas estimadas de desarrollo") || n.includes("costo dev")) {
+    return `El equipo de Desarrollo está pendiente de entregar las fechas de desarrollo de los siguientes hitos:`;
+  }
   return null;
+}
+
+/** Metadatos de una acción crítica: responsable de la columna, líneas del recuadro y comentario.
+ *  - Costo DEV: la columna queda en blanco; el recuadro muestra "Responsable: Equipo de Desarrollo"
+ *    y "Dará seguimiento: <responsable del item>".
+ *  - Tareas con CKU: el responsable es el CKU de la Iniciativa, también restado en el recuadro. */
+function criticalMeta(name: string, itemResp: string, cku: string): {
+  colResp: string;
+  respLines: { label: string; value: string }[];
+  comment: string | null;
+} {
+  const n = name.toLowerCase();
+  const comment = criticalComment(name);
+  const isCostoDev = n.includes("fechas estimadas de desarrollo") || n.includes("costo dev");
+  const isCku = n.includes("cku");
+  const colResp = isCostoDev ? "" : isCku ? (cku || "CKU") : (itemResp || "Sin asignar");
+  const respLines = !comment
+    ? []
+    : isCostoDev
+      ? [
+          { label: "Responsable", value: "Equipo de Desarrollo" },
+          { label: "Dará seguimiento", value: itemResp || "—" },
+        ]
+      : [{ label: "Responsable", value: isCku ? (cku || "CKU") : (itemResp || "Sin asignar") }];
+  return { colResp, respLines, comment };
 }
 
 // ── PDF / Print HTML ───────────────────────────────────────────────────────────
@@ -476,15 +514,14 @@ function buildPrintHTML(
     .map((r) => {
       const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
       const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
-      // Si el nombre de la acción menciona "CKU", el responsable es el CKU de la Iniciativa.
-      const resp = r.name.toLowerCase().includes("cku") ? (board.cku || "CKU") : (r.resp || "Sin asignar");
+      const { colResp, respLines, comment } = criticalMeta(r.name, r.resp, board.cku || "");
       const mainRow = `
       <tr>
         <td style="color:${color};font-weight:700;width:20px">
           ${r.estado === "ATRASADO" ? "✕" : "⚠"}
         </td>
         <td style="font-weight:500">${r.name}</td>
-        <td style="color:#6b7280;font-size:11px">${resp}</td>
+        <td style="color:#6b7280;font-size:11px">${colResp}</td>
         <td style="color:${color};font-size:11px;white-space:nowrap">
           ${r.deadline ? fmtDate(r.deadline) : "—"}
         </td>
@@ -502,14 +539,15 @@ function buildPrintHTML(
       </tr>`,
         )
         .join("");
-      const comment = criticalComment(r.name);
+      const respLinesHtml = respLines.map((l) => `<div><b>${l.label}:</b> ${l.value}</div>`).join("");
       const commentRow = comment
         ? `
       <tr>
         <td style="border-bottom:none"></td>
         <td colspan="3" style="border-bottom:none;padding-top:2px;padding-bottom:6px">
-          <div style="background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:7px 11px;font-size:11px;color:#78350f;line-height:1.5">
-            <b>Acción requerida:</b> ${comment}
+          <div style="background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:7px 11px;font-size:11px;color:#78350f;line-height:1.6">
+            ${respLinesHtml}
+            <div><b>Acción requerida:</b> ${comment}</div>
           </div>
         </td>
       </tr>`
