@@ -87,10 +87,11 @@ function computeMetrics(items: ProjItem[], spi: number | null, cpi: number | nul
     };
   });
 
+  // Off Track = no completado y atrasado (mismo criterio que el resto de la app).
+  const isOffTrack = (status: string, estado: string) => status !== "Done" && estado === "ATRASADO";
+  // Tareas críticas: el item está off track, o tiene algún subitem off track.
   const criticalItems = items.filter(
-    (r) =>
-      (r.status === "Working on it" || r.status === "Future Steps") &&
-      r.estado === "ATRASADO",
+    (r) => isOffTrack(r.status, r.estado) || r.subitems.some((s) => isOffTrack(s.status, s.estado)),
   );
 
   return { spi, cpi, scope, healthIndex, healthStatus, done, working, future, atrasados, totalCost, totalBenefit, roi, payback, phases, groupOrder, groupMap, criticalItems };
