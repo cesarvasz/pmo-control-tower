@@ -164,6 +164,7 @@ export interface ProjBoard {
   pm: string;
   estrategia?: string; // lookup desde la Iniciativa con el mismo nombre
   sponsor?: string;    // lookup desde la Iniciativa con el mismo nombre
+  cku?: string;        // lookup desde la Iniciativa (columna "CKU")
 }
 
 export interface CalMeeting {

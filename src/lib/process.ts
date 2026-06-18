@@ -37,6 +37,11 @@ const colDisplay = (cvs: MondayColumnValue[], id: string): string =>
 // helper: lee el texto de una columna por TÍTULO (boards de Proyectos)
 const colByTitle = (cvs: MondayColumnValue[], title: string): string =>
   cvs.find((c) => (c.column?.title ?? "") === title)?.text ?? "";
+// helper: lee una columna por TÍTULO devolviendo display_value o text (cualquier tipo de columna)
+const colByTitleAny = (cvs: MondayColumnValue[], title: string): string => {
+  const c = cvs.find((c) => (c.column?.title ?? "").trim().toLowerCase() === title.toLowerCase());
+  return (c?.display_value || c?.text) ?? "";
+};
 
 // ─────────────────────────────────────────────────────────────────────
 // INICIATIVAS
@@ -505,29 +510,34 @@ const stripPmPrefix = (boardName: string) => {
   return (i >= 0 ? boardName.slice(i + 1) : boardName).trim();
 };
 
-/** Lookup de Estrategia y Sponsor desde el board de Iniciativas, indexado por nombre normalizado.
- *  El Sponsor (email) se resuelve a nombre con el Directorio RH; si no hay match se deja el valor. */
+/** Datos que se traen de la Iniciativa para enriquecer el Proyecto del mismo nombre. */
+type IniLookupVal = { estrategia: string; sponsor: string; cku: string };
+
+/** Lookup de Estrategia, Sponsor y CKU desde el board de Iniciativas, indexado por nombre normalizado.
+ *  El Sponsor/CKU (email) se resuelve a nombre con el Directorio RH; si no hay match se deja el valor.
+ *  El CKU se lee por TÍTULO de columna ("CKU"). */
 export function buildIniLookup(
   iniItems: MondayItem[],
   hrItems: MondayItem[] = [],
-): Map<string, { estrategia: string; sponsor: string }> {
+): Map<string, IniLookupVal> {
   const emailToName = buildEmailNameMap(hrItems);
-  const resolveSponsor = (v: string) => emailToName.get(v.trim().toLowerCase()) ?? v;
-  const map = new Map<string, { estrategia: string; sponsor: string }>();
+  const resolveName = (v: string) => emailToName.get(v.trim().toLowerCase()) ?? v;
+  const map = new Map<string, IniLookupVal>();
   for (const it of iniItems) {
     map.set(normName(it.name), {
       estrategia: colDisplay(it.column_values, INI_LOOKUP_COL.estrategia),
-      sponsor:    resolveSponsor(colDisplay(it.column_values, INI_LOOKUP_COL.sponsor)),
+      sponsor:    resolveName(colDisplay(it.column_values, INI_LOOKUP_COL.sponsor)),
+      cku:        resolveName(colByTitleAny(it.column_values, "CKU")),
     });
   }
   return map;
 }
 
-/** Asigna a cada board su PM = Resp (o PM) del primer item, y la Estrategia/Sponsor de su Iniciativa. */
+/** Asigna a cada board su PM = Resp (o PM) del primer item, y la Estrategia/Sponsor/CKU de su Iniciativa. */
 export function projEnrichBoards(
   boards: { id: string; name: string }[],
   projData: ProjItem[],
-  iniLookup: Map<string, { estrategia: string; sponsor: string }> = new Map(),
+  iniLookup: Map<string, IniLookupVal> = new Map(),
 ): ProjBoard[] {
   const boardResp: Record<string, string> = {};
   projData.forEach((item) => {
@@ -542,7 +552,9 @@ export function projEnrichBoards(
         if (iniKey.length > 4 && key.startsWith(iniKey)) { ini = val; break; }
       }
     }
-    return { ...b, pm: boardResp[b.id] || "", estrategia: ini?.estrategia || "", sponsor: ini?.sponsor || "" };
+    // Excepción única: el Sponsor de "DUCAfast SV" siempre es Javier Claros.
+    const sponsor = key.includes("ducafast sv") ? "Javier Claros" : (ini?.sponsor || "");
+    return { ...b, pm: boardResp[b.id] || "", estrategia: ini?.estrategia || "", sponsor, cku: ini?.cku || "" };
   });
 }
 

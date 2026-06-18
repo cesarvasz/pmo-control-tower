@@ -66,9 +66,10 @@ async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: She
 const boardItemsQuery = (boardId: string) =>
   `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name group { title } column_values { id text } } } } }`;
 
-// Iniciativas: además del texto, trae display_value de columnas mirror/board_relation (Estrategia, Sponsor).
+// Iniciativas: además del texto y el título de columna (para match por nombre, ej. CKU),
+// trae display_value de columnas mirror/board_relation (Estrategia, Sponsor).
 const iniBoardQuery = (boardId: string) =>
-  `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name group { title } column_values { id text ... on MirrorValue { display_value } ... on BoardRelationValue { display_value } } } } } }`;
+  `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name group { title } column_values { id text column { title } ... on MirrorValue { display_value } ... on BoardRelationValue { display_value } } } } } }`;
 
 const projBoardsQuery = (ids: string) =>
   `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name group { title } column_values { id text column { title } } subitems { id name column_values { id text column { title } } } } } } }`;

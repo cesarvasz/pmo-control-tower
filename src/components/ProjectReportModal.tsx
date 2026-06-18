@@ -226,19 +226,6 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             </div>
           )}
 
-          {/* Diagnóstico (barra estilo "estrategia") */}
-          {hc && (
-            <div
-              className="flex items-center gap-3 rounded-lg py-2 pl-4 pr-3 text-[0.78rem]"
-              style={{ borderLeft: `4px solid ${hc.color}`, background: "var(--bg-hover)" }}
-            >
-              <span className="shrink-0 text-[0.62rem] font-bold uppercase tracking-widest" style={{ color: hc.color }}>
-                Diagnóstico
-              </span>
-              <span className="italic text-[var(--text-secondary)]">“{hc.desc}”</span>
-            </div>
-          )}
-
           {/* Ciclo de vida (grupos del board como fases) */}
           {m.phases.length > 0 && (
             <div>
@@ -303,37 +290,60 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
           <div>
             <SectionLabel>Fases del Proyecto</SectionLabel>
             <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
-              {m.groupOrder.map((grupo, i) => {
+              {/* Encabezado */}
+              <div
+                className="flex items-center gap-3 px-4 py-2 text-[0.58rem] font-bold uppercase tracking-wider text-[var(--text-muted)]"
+                style={{ background: "var(--bg-hover)" }}
+              >
+                <span className="flex-1">Fase</span>
+                <span className="w-20 text-center">Steps Atrasados</span>
+                <span className="w-20 text-center">Tareas Atrasadas</span>
+                <span className="w-12 text-center">Avance</span>
+              </div>
+              {m.groupOrder.map((grupo) => {
                 const gItems = m.groupMap.get(grupo)!;
                 const gDone  = gItems.filter((r) => r.status === "Done").length;
-                const gLate  = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+                // Items atrasados ("Steps Atrasados") y subitems atrasados ("Tareas Atrasadas").
+                const gLateItems = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+                const gLateSubs  = gItems.reduce(
+                  (s, r) => s + r.subitems.filter((su) => su.status !== "Done" && su.estado === "ATRASADO").length,
+                  0,
+                );
                 const pct    = Math.round((gDone / gItems.length) * 100);
                 const pctColor = pct === 100 ? "#10b981" : pct === 0 ? "#9ca3af" : "#f97316";
                 return (
                   <div
                     key={grupo}
                     className="flex items-center gap-3 px-4 py-2.5"
-                    style={{ borderTop: i > 0 ? "1px solid var(--border)" : undefined }}
+                    style={{ borderTop: "1px solid var(--border)" }}
                   >
                     <span className="flex-1 text-[0.78rem] font-medium text-[var(--text-primary)]">
                       {grupo || "Sin grupo"}
                     </span>
-                    <span className="text-[0.68rem] text-[var(--text-muted)]">{gItems.length} tareas</span>
-                    <span className="text-[0.68rem] font-semibold" style={{ color: pctColor }}>{pct}%</span>
+                    <span className="w-20 text-center text-[0.72rem] font-semibold" style={{ color: gLateItems > 0 ? "#ef4444" : "var(--text-muted)" }}>
+                      {gLateItems}
+                    </span>
+                    <span className="w-20 text-center text-[0.72rem] font-semibold" style={{ color: gLateSubs > 0 ? "#ef4444" : "var(--text-muted)" }}>
+                      {gLateSubs}
+                    </span>
+                    <span className="w-12 text-center text-[0.72rem] font-semibold" style={{ color: pctColor }}>{pct}%</span>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Tareas Críticas */}
+          {/* Acciones Críticas */}
           {m.criticalItems.length > 0 && (
             <div>
-              <SectionLabel>Tareas Críticas</SectionLabel>
+              <SectionLabel>Acciones Críticas</SectionLabel>
               <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
                 {m.criticalItems.map((r, i) => {
                   const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
                   const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
+                  // Si la acción menciona "CKU", el responsable es el CKU de la Iniciativa.
+                  const resp = r.name.toLowerCase().includes("cku") ? (board.cku || "CKU") : (r.resp || "Sin asignar");
+                  const comment = criticalComment(r.name);
                   return (
                     <div
                       key={r.id}
@@ -348,7 +358,6 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                           {r.estado === "ATRASADO" ? "✕" : "⚠"}
                         </span>
                         <span className="flex-1 font-medium text-[var(--text-primary)]">{r.name}</span>
-                        <span className="text-[0.67rem] text-[var(--text-muted)]">{r.grupo}</span>
                         {r.deadline && (
                           <span className="text-[0.67rem] font-semibold" style={{ color }}>
                             {fmtDate(r.deadline)}
@@ -356,8 +365,16 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                         )}
                       </div>
                       <div className="mt-1 pl-6 text-[0.8rem] text-[var(--text-muted)]">
-                        Responsable: <span className="font-medium text-[var(--text-secondary)]">{r.resp || "Sin asignar"}</span>
+                        Responsable: <span className="font-medium text-[var(--text-secondary)]">{resp}</span>
                       </div>
+                      {comment && (
+                        <div
+                          className="mt-1.5 ml-6 rounded-md py-1.5 pl-3 pr-3 text-[0.76rem]"
+                          style={{ background: "var(--bg-hover)", borderLeft: "3px solid #f59e0b", color: "var(--text-secondary)" }}
+                        >
+                          <b className="text-[var(--text-primary)]">Acción requerida:</b> {comment}
+                        </div>
+                      )}
                       {offSubs.length > 0 && (
                         <div className="mt-1.5 space-y-1 pl-6">
                           {offSubs.map((s) => (
@@ -400,7 +417,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function criticalComment(name: string): string | null {
   const n = name.toLowerCase();
   if (n.includes("sponsor") && n.includes("cku")) {
-    return `Tarea detenida a la espera de la participación directa del negocio. Se requiere que el <b>Sponsor</b> confirme la priorización del entregable, valide el alcance acordado y formalice la aprobación que habilita el avance a la siguiente fase; y que el <b>CKU</b> asigne disponibilidad para revisar y validar la solución, y entregue el visto bueno funcional necesario para cerrar el punto. Mientras ambos roles no completen su participación, la tarea permanece fuera de cronograma y representa un riesgo directo al plan del proyecto.`;
+    return `Firma del CKU para los requerimientos de los siguientes hitos:`;
   }
   return null;
 }
@@ -459,14 +476,15 @@ function buildPrintHTML(
     .map((r) => {
       const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
       const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
+      // Si el nombre de la acción menciona "CKU", el responsable es el CKU de la Iniciativa.
+      const resp = r.name.toLowerCase().includes("cku") ? (board.cku || "CKU") : (r.resp || "Sin asignar");
       const mainRow = `
       <tr>
         <td style="color:${color};font-weight:700;width:20px">
           ${r.estado === "ATRASADO" ? "✕" : "⚠"}
         </td>
         <td style="font-weight:500">${r.name}</td>
-        <td style="color:#6b7280;font-size:11px">${r.resp || "Sin asignar"}</td>
-        <td style="color:#6b7280;font-size:11px">${r.grupo}</td>
+        <td style="color:#6b7280;font-size:11px">${resp}</td>
         <td style="color:${color};font-size:11px;white-space:nowrap">
           ${r.deadline ? fmtDate(r.deadline) : "—"}
         </td>
@@ -477,7 +495,7 @@ function buildPrintHTML(
       <tr>
         <td style="color:#ef4444;font-size:11px;text-align:right">↳</td>
         <td style="padding-left:18px;color:#374151;font-size:11px">${s.name}</td>
-        <td style="color:#9ca3af;font-size:11px;font-style:italic">subitem</td>
+        <td></td>
         <td style="color:#ef4444;font-size:11px;white-space:nowrap">
           ${s.deadline ? fmtDate(s.deadline) : "—"}
         </td>
@@ -488,16 +506,16 @@ function buildPrintHTML(
       const commentRow = comment
         ? `
       <tr>
-        <td></td>
-        <td colspan="4" style="border-bottom:1px solid #f3f4f6">
-          <div style="background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:8px 12px;font-size:11px;color:#78350f;line-height:1.55">
-            <b style="display:block;text-transform:uppercase;letter-spacing:0.04em;font-size:9px;color:#b45309;margin-bottom:3px">Acción requerida — Sponsor y CKU</b>
-            ${comment}
+        <td style="border-bottom:none"></td>
+        <td colspan="3" style="border-bottom:none;padding-top:2px;padding-bottom:6px">
+          <div style="background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:7px 11px;font-size:11px;color:#78350f;line-height:1.5">
+            <b>Acción requerida:</b> ${comment}
           </div>
         </td>
       </tr>`
         : "";
-      return mainRow + subRows + commentRow;
+      // El comentario va debajo del nombre de la acción e introduce la lista de hitos (subitems).
+      return mainRow + commentRow + subRows;
     })
     .join("");
 
@@ -505,13 +523,20 @@ function buildPrintHTML(
     .map((grupo) => {
       const gItems = m.groupMap.get(grupo)!;
       const gDone  = gItems.filter((r) => r.status === "Done").length;
-      const gLate  = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+      // Items atrasados de la fase ("Steps Atrasados").
+      const gLateItems = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+      // Subitems atrasados de la fase ("Tareas Atrasadas").
+      const gLateSubs  = gItems.reduce(
+        (s, r) => s + r.subitems.filter((su) => su.status !== "Done" && su.estado === "ATRASADO").length,
+        0,
+      );
       const gpct   = Math.round((gDone / gItems.length) * 100);
       const gpctColor = gpct === 100 ? "#10b981" : gpct === 0 ? "#9ca3af" : "#f97316";
       return `
       <tr>
         <td style="font-weight:500">${grupo || "Sin grupo"}</td>
-        <td style="text-align:center;color:#6b7280">${gItems.length}</td>
+        <td style="text-align:center;color:${gLateItems > 0 ? "#ef4444" : "#d1d5db"};font-weight:600">${gLateItems}</td>
+        <td style="text-align:center;color:${gLateSubs > 0 ? "#ef4444" : "#d1d5db"};font-weight:600">${gLateSubs}</td>
         <td style="text-align:center;color:${gpctColor};font-weight:600">${gpct}%</td>
       </tr>`;
     })
@@ -576,13 +601,6 @@ ${board.estrategia ? `
   <span style="color:#4b5563;font-style:italic">“${board.estrategia}”</span>
 </div>` : ""}
 
-${hc ? `
-<!-- Diagnóstico -->
-<div class="diag" style="border-left:4px solid ${hc.color}">
-  <span class="lbl" style="color:${hc.color}">Diagnóstico</span>
-  <span style="color:#4b5563;font-style:italic">“${hc.desc}”</span>
-</div>` : ""}
-
 ${m.phases.length > 0 ? `
 <!-- Ciclo de vida -->
 <h2>Ciclo de Vida del Proyecto</h2>
@@ -602,16 +620,16 @@ ${m.phases.length > 0 ? `
 <h2>Fases del Proyecto</h2>
 <table>
   <thead>
-    <tr><th>Fase</th><th style="text-align:center">Tareas</th><th style="text-align:center">Avance</th></tr>
+    <tr><th style="text-align:left">Fase</th><th style="text-align:center">Steps Atrasados</th><th style="text-align:center">Tareas Atrasadas</th><th style="text-align:center">Avance</th></tr>
   </thead>
   <tbody>${groupRows}</tbody>
 </table>
 
 ${m.criticalItems.length > 0 ? `
 <!-- Critical Items -->
-<h2>Tareas Críticas</h2>
+<h2>Acciones Críticas</h2>
 <table>
-  <thead><tr><th></th><th>Tarea</th><th>Responsable</th><th>Grupo</th><th>Deadline</th></tr></thead>
+  <thead><tr><th></th><th>Acción</th><th>Responsable</th><th>Deadline</th></tr></thead>
   <tbody>${criticalRows}</tbody>
 </table>` : ""}
 
