@@ -57,6 +57,7 @@ export interface ProjItemBaseline {
 export interface DashboardRaw {
   iniItems: MondayItem[];
   reqItems: MondayItem[];
+  hrItems: MondayItem[]; // Directorio RH (email → nombre del recurso)
   projBoards: { id: string; name: string }[];
   projRaw: ProjBoardRaw[];
   calData: CalMeetingRaw[];

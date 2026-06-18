@@ -485,12 +485,17 @@ export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number;
 // Columnas mirror/board_relation de Iniciativas para el lookup hacia Proyectos.
 const INI_LOOKUP_COL = { estrategia: "board_relation_mm3by83p", sponsor: "lookup_mm3bdj38" };
 
-// El Sponsor viene de una columna People cuyos usuarios en Monday tienen el email como nombre.
-// Mapa manual email → nombre real. Si no está en el mapa, se muestra el valor tal cual (ya es nombre).
-const SPONSOR_NAMES: Record<string, string> = {
-  "plopez@c807.com": "Patricia López",
-};
-const resolveSponsor = (v: string) => SPONSOR_NAMES[v.trim().toLowerCase()] ?? v;
+// Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
+const RH_EMAIL_COL = "email_mkz5qg4v";
+/** Construye el mapa email → nombre del recurso desde los items del Directorio RH. */
+function buildEmailNameMap(hrItems: MondayItem[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const it of hrItems) {
+    const email = colText(it.column_values, RH_EMAIL_COL).trim().toLowerCase();
+    if (email && it.name) map.set(email, it.name);
+  }
+  return map;
+}
 
 /** Normaliza un nombre para el match Iniciativa ↔ Proyecto (sin acentos, minúsculas). */
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
@@ -500,8 +505,14 @@ const stripPmPrefix = (boardName: string) => {
   return (i >= 0 ? boardName.slice(i + 1) : boardName).trim();
 };
 
-/** Lookup de Estrategia y Sponsor desde el board de Iniciativas, indexado por nombre normalizado. */
-export function buildIniLookup(iniItems: MondayItem[]): Map<string, { estrategia: string; sponsor: string }> {
+/** Lookup de Estrategia y Sponsor desde el board de Iniciativas, indexado por nombre normalizado.
+ *  El Sponsor (email) se resuelve a nombre con el Directorio RH; si no hay match se deja el valor. */
+export function buildIniLookup(
+  iniItems: MondayItem[],
+  hrItems: MondayItem[] = [],
+): Map<string, { estrategia: string; sponsor: string }> {
+  const emailToName = buildEmailNameMap(hrItems);
+  const resolveSponsor = (v: string) => emailToName.get(v.trim().toLowerCase()) ?? v;
   const map = new Map<string, { estrategia: string; sponsor: string }>();
   for (const it of iniItems) {
     map.set(normName(it.name), {
