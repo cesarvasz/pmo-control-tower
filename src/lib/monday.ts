@@ -81,18 +81,17 @@ async function discoverProjBoards(): Promise<{ id: string; name: string }[]> {
 }
 
 /** Single Fetch: trae TODO en paralelo y devuelve datos crudos serializables. */
-// Board "Directorio RH": el nombre del item es el nombre del recurso; email en email_mkz5qg4v.
-const RH_BOARD_ID = "18393550621";
-
 export async function fetchDashboardRaw(): Promise<DashboardRaw> {
   const iniId = env("MONDAY_INI_BOARD_ID");
   const reqId = env("MONDAY_REQ_BOARD_ID");
+  // Board "Directorio RH": el nombre del item es el nombre del recurso; email en email_mkz5qg4v.
+  const rhId  = env("MONDAY_RH_BOARD_ID");
 
   // 1ª tanda en paralelo: ini, req, RH, web app (calendario + hoja) y descubrir boards.
   const [iniData, reqData, rhData, webApp, projBoards] = await Promise.all([
     mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(iniBoardQuery(iniId)),
     mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(reqId)),
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(RH_BOARD_ID)),
+    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(rhId)),
     fetchWebApp(),
     discoverProjBoards(),
   ]);
