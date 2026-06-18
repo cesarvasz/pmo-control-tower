@@ -38,6 +38,7 @@ interface Metrics {
   totalCost: number;
   totalBenefit: number;
   roi: number | null;
+  payback: number | null;
   phases: Phase[];
   groupOrder: string[];
   groupMap: Map<string, ProjItem[]>;
@@ -66,6 +67,8 @@ function computeMetrics(items: ProjItem[], spi: number | null, cpi: number | nul
   const totalCost    = items.reduce((s, r) => s + r.cost, 0);
   const totalBenefit = items.reduce((s, r) => s + r.benefit, 0);
   const roi = totalCost > 0 ? ((totalBenefit - totalCost) / totalCost) * 100 : null;
+  // Payback (meses) = costo / (beneficio / 12).
+  const payback = totalBenefit > 0 ? totalCost / (totalBenefit / 12) : null;
 
   // Cada grupo de Monday se trata como una fase del ciclo de vida del proyecto.
   const groupOrder: string[] = [];
@@ -90,7 +93,7 @@ function computeMetrics(items: ProjItem[], spi: number | null, cpi: number | nul
       r.estado === "ATRASADO",
   );
 
-  return { spi, cpi, scope, healthIndex, healthStatus, done, working, future, atrasados, totalCost, totalBenefit, roi, phases, groupOrder, groupMap, criticalItems };
+  return { spi, cpi, scope, healthIndex, healthStatus, done, working, future, atrasados, totalCost, totalBenefit, roi, payback, phases, groupOrder, groupMap, criticalItems };
 }
 
 const HC = {
@@ -127,7 +130,8 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
   const finCards = [
     { label: "Costo",      icon: "$", value: m.totalCost    ? fmtMoney(m.totalCost)    : "—", color: "#ef4444" },
     { label: "Beneficio",  icon: "↗", value: m.totalBenefit ? fmtMoney(m.totalBenefit) : "—", color: "#10b981" },
-    { label: "ROI",        icon: "⇄", value: m.roi !== null ? `${Math.round(m.roi)}%`  : "—", color: "#0ea5e9" },
+    { label: "ROI",        icon: "⇄", value: m.roi !== null     ? `${Math.round(m.roi)}%`        : "—", color: "#0ea5e9" },
+    { label: "Payback",    icon: "⏱", value: m.payback !== null ? `${m.payback.toFixed(1)} meses` : "—", color: "#f59e0b" },
     {
       label: "Valor Neto", icon: "◆",
       value: m.totalCost || m.totalBenefit ? fmtMoney(m.totalBenefit - m.totalCost) : "—",
@@ -306,7 +310,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
           </div>
 
           {/* Costo · Beneficio · ROI · Valor Neto */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-5 gap-3">
             {finCards.map(({ label, icon, value, color }) => (
               <div
                 key={label}
@@ -466,11 +470,13 @@ function buildPrintHTML(
     .join("");
 
   const roiTxt = m.roi !== null ? `${Math.round(m.roi)}%` : "—";
+  const paybackTxt = m.payback !== null ? `${m.payback.toFixed(1)} meses` : "—";
   const net = m.totalBenefit - m.totalCost;
   const finCards = [
     { label: "Costo",      icon: "$", value: m.totalCost    ? fmtMoney(m.totalCost)    : "—", color: "#ef4444" },
     { label: "Beneficio",  icon: "↗", value: m.totalBenefit ? fmtMoney(m.totalBenefit) : "—", color: "#10b981" },
     { label: "ROI",        icon: "⇄", value: roiTxt,                                          color: "#0ea5e9" },
+    { label: "Payback",    icon: "⏱", value: paybackTxt,                                      color: "#f59e0b" },
     { label: "Valor Neto", icon: "◆", value: m.totalCost || m.totalBenefit ? fmtMoney(net) : "—", color: net >= 0 ? "#8b5cf6" : "#ef4444" },
   ];
 
@@ -542,7 +548,7 @@ function buildPrintHTML(
   .diag { display: flex; align-items: center; gap: 10px; border-radius: 8px; background: #f9fafb; padding: 8px 12px; margin-top: 16px; font-size: 11px; }
   .diag .lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; flex-shrink: 0; }
   .grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .grid4 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
   .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; }
   .card-label { font-size: 9px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; }
   .fin { text-align: center; padding: 14px 10px; }
