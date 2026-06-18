@@ -19,6 +19,7 @@ import type {
   MondayItem,
   NpsData,
   NpsResponse,
+  ProjBoard,
   ProjItem,
   ProjItemBaseline,
   ReqBaseline,
@@ -30,6 +31,9 @@ import type {
 // helper: lee el texto de una columna por id
 const colText = (cvs: MondayColumnValue[], id: string): string =>
   cvs.find((c) => c.id === id)?.text ?? "";
+// helper: lee display_value (columnas mirror / board_relation) por id
+const colDisplay = (cvs: MondayColumnValue[], id: string): string =>
+  cvs.find((c) => c.id === id)?.display_value ?? "";
 // helper: lee el texto de una columna por TÍTULO (boards de Proyectos)
 const colByTitle = (cvs: MondayColumnValue[], title: string): string =>
   cvs.find((c) => (c.column?.title ?? "") === title)?.text ?? "";
@@ -478,16 +482,50 @@ export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number;
   return { ...metrics, healthIndex, healthStatus };
 }
 
-/** Asigna a cada board su PM = Resp (o PM) del primer item del board. */
+// Columnas mirror/board_relation de Iniciativas para el lookup hacia Proyectos.
+const INI_LOOKUP_COL = { estrategia: "board_relation_mm3by83p", sponsor: "lookup_mm3bdj38" };
+
+/** Normaliza un nombre para el match Iniciativa ↔ Proyecto (sin acentos, minúsculas). */
+const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+/** Quita el prefijo "PM-XXX | " del nombre de un board de proyecto. */
+const stripPmPrefix = (boardName: string) => {
+  const i = boardName.indexOf("|");
+  return (i >= 0 ? boardName.slice(i + 1) : boardName).trim();
+};
+
+/** Lookup de Estrategia y Sponsor desde el board de Iniciativas, indexado por nombre normalizado. */
+export function buildIniLookup(iniItems: MondayItem[]): Map<string, { estrategia: string; sponsor: string }> {
+  const map = new Map<string, { estrategia: string; sponsor: string }>();
+  for (const it of iniItems) {
+    map.set(normName(it.name), {
+      estrategia: colDisplay(it.column_values, INI_LOOKUP_COL.estrategia),
+      sponsor:    colDisplay(it.column_values, INI_LOOKUP_COL.sponsor),
+    });
+  }
+  return map;
+}
+
+/** Asigna a cada board su PM = Resp (o PM) del primer item, y la Estrategia/Sponsor de su Iniciativa. */
 export function projEnrichBoards(
   boards: { id: string; name: string }[],
-  projData: ProjItem[]
-): { id: string; name: string; pm: string }[] {
+  projData: ProjItem[],
+  iniLookup: Map<string, { estrategia: string; sponsor: string }> = new Map(),
+): ProjBoard[] {
   const boardResp: Record<string, string> = {};
   projData.forEach((item) => {
     if (!(item.boardId in boardResp)) boardResp[item.boardId] = item.resp || item.pm || "";
   });
-  return boards.map((b) => ({ ...b, pm: boardResp[b.id] || "" }));
+  return boards.map((b) => {
+    const key = normName(stripPmPrefix(b.name));
+    // Match exacto; si no, fallback por prefijo (ej. "Producto Terrestre MX" → "Producto Terrestre").
+    let ini = iniLookup.get(key);
+    if (!ini) {
+      for (const [iniKey, val] of iniLookup) {
+        if (iniKey.length > 4 && key.startsWith(iniKey)) { ini = val; break; }
+      }
+    }
+    return { ...b, pm: boardResp[b.id] || "", estrategia: ini?.estrategia || "", sponsor: ini?.sponsor || "" };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────

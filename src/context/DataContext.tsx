@@ -15,6 +15,7 @@ import {
   buildCalMap,
   calcNps,
   iniProcess,
+  buildIniLookup,
   projEnrichBoards,
   projProcess,
   reqProcess,
@@ -61,7 +62,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       raw.projRaw.forEach((b) =>
         proj.push(...projProcess(b.name, b.id, b.items_page.items))
       );
-      const projBoards = projEnrichBoards(raw.projBoards, proj);
+      const projBoards = projEnrichBoards(raw.projBoards, proj, buildIniLookup(raw.iniItems));
       const projItemBaselines: Record<string, ProjItemBaseline> = raw.projItemBaselines ?? {};
       const calMap = buildCalMap(raw.calData);
       const nps = calcNps(raw.sheetRows ?? []);

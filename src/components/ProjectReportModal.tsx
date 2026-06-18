@@ -118,8 +118,21 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
   const hc  = m.healthStatus ? HC[m.healthStatus] : null;
   const today = new Date().toLocaleDateString("es-CR", { year: "numeric", month: "long", day: "numeric" });
 
-  const handlePDF = () => {
-    const html = buildPrintHTML(board, items, ev, pv, ac, m, today);
+  const handlePDF = async () => {
+    // Incrusta el logo como data-URI para que siempre se imprima (la ventana de print no tiene origen).
+    let logo = "";
+    try {
+      const res = await fetch("/pmo-logo.png");
+      const blob = await res.blob();
+      logo = await new Promise<string>((resolve) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(typeof fr.result === "string" ? fr.result : "");
+        fr.onerror = () => resolve("");
+        fr.readAsDataURL(blob);
+      });
+    } catch { /* sin logo si no carga */ }
+
+    const html = buildPrintHTML(board, items, ev, pv, ac, m, today, logo);
     const win = window.open("", "_blank", "width=980,height=750");
     if (!win) return;
     win.document.write(html);
@@ -163,9 +176,11 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             <div className="mt-0.5 truncate text-[1.25rem] font-extrabold text-[var(--text-primary)]">
               <span style={{ color: "var(--accent)" }}>⚡</span> {board.name}
             </div>
-            {board.pm && (
+            {(board.pm || board.sponsor) && (
               <div className="text-[0.78rem] text-[var(--text-secondary)]">
-                PM: <span className="font-semibold">{board.pm}</span>
+                {board.pm && <>PM: <span className="font-semibold">{board.pm}</span></>}
+                {board.pm && board.sponsor && <span className="text-[var(--text-muted)]"> · </span>}
+                {board.sponsor && <>Sponsor: <span className="font-semibold">{board.sponsor}</span></>}
               </div>
             )}
           </div>
@@ -197,6 +212,19 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
 
         {/* ── Body ── */}
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+
+          {/* Estrategia (desde la Iniciativa) */}
+          {board.estrategia && (
+            <div
+              className="flex items-center gap-3 rounded-lg py-2 pl-4 pr-3 text-[0.78rem]"
+              style={{ borderLeft: "4px solid var(--accent)", background: "var(--bg-hover)" }}
+            >
+              <span className="shrink-0 text-[0.62rem] font-bold uppercase tracking-widest" style={{ color: "var(--accent)" }}>
+                Estrategia
+              </span>
+              <span className="italic text-[var(--text-secondary)]">“{board.estrategia}”</span>
+            </div>
+          )}
 
           {/* Diagnóstico (barra estilo "estrategia") */}
           {hc && (
@@ -442,6 +470,7 @@ function buildPrintHTML(
   ac: number,
   m: Metrics,
   today: string,
+  logo: string,
 ): string {
   const hc = m.healthStatus ? HC[m.healthStatus] : null;
   const metric = (v: number | null) => (v !== null ? v.toFixed(2) : "—");
@@ -568,10 +597,13 @@ function buildPrintHTML(
 
 <!-- Header -->
 <div class="header">
-  <div style="min-width:0">
-    <div class="meta">Informe de Proyecto · ${today}</div>
-    <h1>⚡ ${board.name}</h1>
-    ${board.pm ? `<div class="meta" style="margin-top:3px">PM: <b>${board.pm}</b></div>` : ""}
+  <div style="display:flex;align-items:center;gap:14px;min-width:0">
+    ${logo ? `<img src="${logo}" alt="PMO" style="height:54px;width:auto;flex-shrink:0" />` : ""}
+    <div style="min-width:0">
+      <div class="meta">Informe de Proyecto · ${today}</div>
+      <h1>${board.name}</h1>
+      ${board.pm || board.sponsor ? `<div class="meta" style="margin-top:3px">${board.pm ? `PM: <b>${board.pm}</b>` : ""}${board.pm && board.sponsor ? " · " : ""}${board.sponsor ? `Sponsor: <b>${board.sponsor}</b>` : ""}</div>` : ""}
+    </div>
   </div>
   ${hc ? `
   <div class="estado" style="background:${hc.color}">
@@ -579,6 +611,13 @@ function buildPrintHTML(
     <div class="val">${hc.icon} ${hc.label}</div>
   </div>` : ""}
 </div>
+
+${board.estrategia ? `
+<!-- Estrategia -->
+<div class="diag" style="border-left:4px solid #16a34a">
+  <span class="lbl" style="color:#16a34a">Estrategia</span>
+  <span style="color:#4b5563;font-style:italic">“${board.estrategia}”</span>
+</div>` : ""}
 
 ${hc ? `
 <!-- Diagnóstico -->

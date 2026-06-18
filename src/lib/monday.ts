@@ -66,6 +66,10 @@ async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: She
 const boardItemsQuery = (boardId: string) =>
   `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name group { title } column_values { id text } } } } }`;
 
+// Iniciativas: además del texto, trae display_value de columnas mirror/board_relation (Estrategia, Sponsor).
+const iniBoardQuery = (boardId: string) =>
+  `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name group { title } column_values { id text ... on MirrorValue { display_value } ... on BoardRelationValue { display_value } } } } } }`;
+
 const projBoardsQuery = (ids: string) =>
   `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name group { title } column_values { id text column { title } } subitems { id name column_values { id text column { title } } } } } } }`;
 
@@ -83,7 +87,7 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
 
   // 1ª tanda en paralelo: ini, req, web app (calendario + hoja) y descubrir boards.
   const [iniData, reqData, webApp, projBoards] = await Promise.all([
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(iniId)),
+    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(iniBoardQuery(iniId)),
     mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(reqId)),
     fetchWebApp(),
     discoverProjBoards(),

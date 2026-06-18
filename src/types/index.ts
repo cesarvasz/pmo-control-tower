@@ -6,6 +6,7 @@ export interface MondayColumnValue {
   id: string;
   text: string | null;
   column?: { title: string } | null;
+  display_value?: string | null; // valor de columnas mirror / board_relation
 }
 
 export interface MondaySubitem {
@@ -160,6 +161,8 @@ export interface ProjBoard {
   id: string;
   name: string;
   pm: string;
+  estrategia?: string; // lookup desde la Iniciativa con el mismo nombre
+  sponsor?: string;    // lookup desde la Iniciativa con el mismo nombre
 }
 
 export interface CalMeeting {
