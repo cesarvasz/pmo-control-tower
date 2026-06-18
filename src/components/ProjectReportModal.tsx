@@ -275,69 +275,6 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             </div>
           )}
 
-          {/* Health Index + Resumen */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border px-5 py-4" style={{ borderColor: "var(--border)" }}>
-              <div className="text-[0.63rem] font-bold uppercase tracking-widest text-[var(--text-muted)]">
-                ⚡ Health Index EVM
-              </div>
-              {hc && m.healthIndex !== null ? (
-                <>
-                  <div className="mt-1 flex items-baseline gap-3">
-                    <span className="text-[2.6rem] font-extrabold tabular-nums leading-none" style={{ color: hc.color }}>
-                      {m.healthIndex.toFixed(2)}
-                    </span>
-                    <span
-                      className="rounded-full px-3 py-0.5 text-[0.72rem] font-bold"
-                      style={{ color: hc.color, background: hc.color + "22" }}
-                    >
-                      {hc.icon} {hc.label}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-[0.7rem] text-[var(--text-muted)]">
-                    EV <b style={{ color: "#10b981" }}>{fmtMoney(ev)}</b> · PV{" "}
-                    <b style={{ color: "#f59e0b" }}>{fmtMoney(pv)}</b> · AC{" "}
-                    <b style={{ color: "#94a3b8" }}>{fmtMoney(ac)}</b>
-                  </div>
-                </>
-              ) : (
-                <div className="mt-2 text-[0.78rem] text-[var(--text-muted)]">
-                  Sin datos EVM suficientes para calcular el índice de salud.
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-xl border px-5 py-4" style={{ borderColor: "var(--border)" }}>
-              <div className="text-[0.63rem] font-bold uppercase tracking-widest text-[var(--text-muted)]">
-                📋 {items.length} tareas · {m.phases.length} fases
-              </div>
-              <div className="mt-1.5 space-y-1 text-[0.78rem] text-[var(--text-secondary)]">
-                <div>
-                  <b className="text-[var(--text-primary)]">{m.done}</b> completadas ·{" "}
-                  <b className="text-[var(--text-primary)]">{m.working}</b> en curso ·{" "}
-                  <b className="text-[var(--text-primary)]">{m.future}</b> futuras
-                </div>
-                <div>
-                  SPI: <b style={{ color: metricColor(m.spi) }}>{m.spi !== null ? m.spi.toFixed(2) : "—"}</b>{" "}
-                  · CPI: <b style={{ color: metricColor(m.cpi) }}>{m.cpi !== null ? m.cpi.toFixed(2) : "—"}</b>{" "}
-                  · Scope:{" "}
-                  <b style={{ color: metricColor(m.scope !== null ? m.scope / 100 : null) }}>
-                    {m.scope !== null ? `${Math.round(m.scope)}%` : "—"}
-                  </b>
-                </div>
-                <div>
-                  {m.criticalItems.length > 0 ? (
-                    <span style={{ color: "#ef4444" }}>
-                      ⚠ <b>{m.criticalItems.length}</b> tarea{m.criticalItems.length > 1 ? "s" : ""} crítica{m.criticalItems.length > 1 ? "s" : ""}
-                    </span>
-                  ) : (
-                    <span style={{ color: "#10b981" }}>✓ Sin tareas críticas</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Costo · Beneficio · ROI · Valor Neto */}
           <div className="grid grid-cols-5 gap-3">
             {finCards.map(({ label, icon, value, color }) => (
@@ -360,6 +297,33 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Fases del Proyecto */}
+          <div>
+            <SectionLabel>Fases del Proyecto</SectionLabel>
+            <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
+              {m.groupOrder.map((grupo, i) => {
+                const gItems = m.groupMap.get(grupo)!;
+                const gDone  = gItems.filter((r) => r.status === "Done").length;
+                const gLate  = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+                const pct    = Math.round((gDone / gItems.length) * 100);
+                const pctColor = pct === 100 ? "#10b981" : pct === 0 ? "#9ca3af" : "#f97316";
+                return (
+                  <div
+                    key={grupo}
+                    className="flex items-center gap-3 px-4 py-2.5"
+                    style={{ borderTop: i > 0 ? "1px solid var(--border)" : undefined }}
+                  >
+                    <span className="flex-1 text-[0.78rem] font-medium text-[var(--text-primary)]">
+                      {grupo || "Sin grupo"}
+                    </span>
+                    <span className="text-[0.68rem] text-[var(--text-muted)]">{gItems.length} tareas</span>
+                    <span className="text-[0.68rem] font-semibold" style={{ color: pctColor }}>{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Tareas Críticas */}
@@ -400,7 +364,6 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                             <div key={s.id} className="flex items-center gap-2 text-[0.8rem]">
                               <span style={{ color: "#ef4444" }}>↳ ✕</span>
                               <span className="flex-1 text-[var(--text-primary)]">{s.name}</span>
-                              <span className="text-[0.73rem] text-[var(--text-muted)]">{s.person || "Sin asignar"}</span>
                               {s.deadline && (
                                 <span className="text-[0.73rem] font-semibold" style={{ color: "#ef4444" }}>
                                   {fmtDate(s.deadline)}
@@ -417,35 +380,6 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             </div>
           )}
 
-          {/* Desglose por Grupo */}
-          <div>
-            <SectionLabel>Desglose por Grupo</SectionLabel>
-            <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
-              {m.groupOrder.map((grupo, i) => {
-                const gItems = m.groupMap.get(grupo)!;
-                const gDone  = gItems.filter((r) => r.status === "Done").length;
-                const gLate  = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
-                const pct    = Math.round((gDone / gItems.length) * 100);
-                return (
-                  <div
-                    key={grupo}
-                    className="flex items-center gap-3 px-4 py-2.5"
-                    style={{ borderTop: i > 0 ? "1px solid var(--border)" : undefined }}
-                  >
-                    <span className="flex-1 text-[0.78rem] font-medium text-[var(--text-primary)]">
-                      {grupo || "Sin grupo"}
-                    </span>
-                    <span className="text-[0.68rem] text-[var(--text-muted)]">{gItems.length} tareas</span>
-                    <span className="text-[0.68rem] font-semibold" style={{ color: "#10b981" }}>{pct}% done</span>
-                    {gLate > 0 && (
-                      <span className="text-[0.68rem] font-semibold" style={{ color: "#ef4444" }}>✕ {gLate}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
         </div>
       </div>
     </div>
@@ -458,6 +392,17 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+// ── Comentario ejecutivo automático ─────────────────────────────────────────────
+// Si una tarea crítica depende de roles del negocio (Sponsor + CKU), genera una nota
+// para gerencia indicando qué se espera de cada rol. Devuelve HTML (con <b>) o null.
+function criticalComment(name: string): string | null {
+  const n = name.toLowerCase();
+  if (n.includes("sponsor") && n.includes("cku")) {
+    return `Tarea detenida a la espera de la participación directa del negocio. Se requiere que el <b>Sponsor</b> confirme la priorización del entregable, valide el alcance acordado y formalice la aprobación que habilita el avance a la siguiente fase; y que el <b>CKU</b> asigne disponibilidad para revisar y validar la solución, y entregue el visto bueno funcional necesario para cerrar el punto. Mientras ambos roles no completen su participación, la tarea permanece fuera de cronograma y representa un riesgo directo al plan del proyecto.`;
+  }
+  return null;
 }
 
 // ── PDF / Print HTML ───────────────────────────────────────────────────────────
@@ -532,7 +477,6 @@ function buildPrintHTML(
       <tr>
         <td style="color:#ef4444;font-size:11px;text-align:right">↳</td>
         <td style="padding-left:18px;color:#374151;font-size:11px">${s.name}</td>
-        <td style="color:#9ca3af;font-size:11px">${s.person || "Sin asignar"}</td>
         <td style="color:#9ca3af;font-size:11px;font-style:italic">subitem</td>
         <td style="color:#ef4444;font-size:11px;white-space:nowrap">
           ${s.deadline ? fmtDate(s.deadline) : "—"}
@@ -540,7 +484,20 @@ function buildPrintHTML(
       </tr>`,
         )
         .join("");
-      return mainRow + subRows;
+      const comment = criticalComment(r.name);
+      const commentRow = comment
+        ? `
+      <tr>
+        <td></td>
+        <td colspan="4" style="border-bottom:1px solid #f3f4f6">
+          <div style="background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:8px 12px;font-size:11px;color:#78350f;line-height:1.55">
+            <b style="display:block;text-transform:uppercase;letter-spacing:0.04em;font-size:9px;color:#b45309;margin-bottom:3px">Acción requerida — Sponsor y CKU</b>
+            ${comment}
+          </div>
+        </td>
+      </tr>`
+        : "";
+      return mainRow + subRows + commentRow;
     })
     .join("");
 
@@ -550,12 +507,12 @@ function buildPrintHTML(
       const gDone  = gItems.filter((r) => r.status === "Done").length;
       const gLate  = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
       const gpct   = Math.round((gDone / gItems.length) * 100);
+      const gpctColor = gpct === 100 ? "#10b981" : gpct === 0 ? "#9ca3af" : "#f97316";
       return `
       <tr>
         <td style="font-weight:500">${grupo || "Sin grupo"}</td>
         <td style="text-align:center;color:#6b7280">${gItems.length}</td>
-        <td style="text-align:center;color:#10b981;font-weight:600">${gpct}%</td>
-        <td style="text-align:center;color:${gLate > 0 ? "#ef4444" : "#d1d5db"};font-weight:600">${gLate > 0 ? `✕ ${gLate}` : "—"}</td>
+        <td style="text-align:center;color:${gpctColor};font-weight:600">${gpct}%</td>
       </tr>`;
     })
     .join("");
@@ -566,7 +523,7 @@ function buildPrintHTML(
 <meta charset="UTF-8"/>
 <title>Informe – ${board.name}</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; background: #fff; padding: 28px 36px; font-size: 13px; }
   h1 { font-size: 21px; font-weight: 800; color: #111827; }
   h2 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #9ca3af; margin-bottom: 10px; margin-top: 22px; }
@@ -631,47 +588,8 @@ ${m.phases.length > 0 ? `
 <h2>Ciclo de Vida del Proyecto</h2>
 <div style="display:flex;gap:4px;align-items:stretch">${phasesHtml}</div>` : ""}
 
-<!-- Health + Resumen -->
-<h2>Salud del Proyecto</h2>
-<div class="grid2">
-  <div class="card">
-    <div class="card-label">⚡ Health Index EVM</div>
-    ${
-      hc && m.healthIndex !== null
-        ? `<div style="display:flex;align-items:baseline;gap:10px;margin-top:4px">
-             <span style="font-size:36px;font-weight:900;line-height:1;color:${hc.color}">${m.healthIndex.toFixed(2)}</span>
-             <span style="border-radius:999px;padding:3px 12px;font-size:11px;font-weight:700;color:${hc.color};background:${hc.color}22">${hc.icon} ${hc.label}</span>
-           </div>
-           <div style="margin-top:8px;font-size:10px;color:#6b7280">
-             EV <b style="color:#10b981">${fmtMoney(ev)}</b> ·
-             PV <b style="color:#f59e0b">${fmtMoney(pv)}</b> ·
-             AC <b style="color:#94a3b8">${fmtMoney(ac)}</b>
-           </div>`
-        : `<div style="margin-top:8px;font-size:11px;color:#6b7280">Sin datos EVM suficientes para calcular el índice de salud.</div>`
-    }
-  </div>
-  <div class="card">
-    <div class="card-label">📋 ${items.length} tareas · ${m.phases.length} fases</div>
-    <div style="margin-top:6px;font-size:11px;color:#4b5563;line-height:1.7">
-      <div><b style="color:#111827">${m.done}</b> completadas · <b style="color:#111827">${m.working}</b> en curso · <b style="color:#111827">${m.future}</b> futuras</div>
-      <div>
-        SPI: <b style="color:${mColor(m.spi)}">${metric(m.spi)}</b> ·
-        CPI: <b style="color:${mColor(m.cpi)}">${metric(m.cpi)}</b> ·
-        Scope: <b style="color:${mColor(m.scope !== null ? m.scope / 100 : null)}">${m.scope !== null ? `${Math.round(m.scope)}%` : "—"}</b>
-        <span style="color:#9ca3af;font-size:9px">(items + subitems On Track / total)</span>
-      </div>
-      <div>${
-        m.criticalItems.length > 0
-          ? `<span style="color:#ef4444">⚠ <b>${m.criticalItems.length}</b> tarea${m.criticalItems.length > 1 ? "s" : ""} crítica${m.criticalItems.length > 1 ? "s" : ""}</span>`
-          : `<span style="color:#10b981">✓ Sin tareas críticas</span>`
-      }</div>
-    </div>
-  </div>
-</div>
-
 <!-- Financiero -->
-<h2>Situación Financiera</h2>
-<div class="grid4">
+<div class="grid4" style="margin-top:18px">
   ${finCards.map(({ label, icon, value, color }) => `
   <div class="card fin">
     <span class="ic" style="color:${color};background:${color}1e">${icon}</span>
@@ -680,6 +598,15 @@ ${m.phases.length > 0 ? `
   </div>`).join("")}
 </div>
 
+<!-- Fases del Proyecto -->
+<h2>Fases del Proyecto</h2>
+<table>
+  <thead>
+    <tr><th>Fase</th><th style="text-align:center">Tareas</th><th style="text-align:center">Avance</th></tr>
+  </thead>
+  <tbody>${groupRows}</tbody>
+</table>
+
 ${m.criticalItems.length > 0 ? `
 <!-- Critical Items -->
 <h2>Tareas Críticas</h2>
@@ -687,15 +614,6 @@ ${m.criticalItems.length > 0 ? `
   <thead><tr><th></th><th>Tarea</th><th>Responsable</th><th>Grupo</th><th>Deadline</th></tr></thead>
   <tbody>${criticalRows}</tbody>
 </table>` : ""}
-
-<!-- Groups -->
-<h2>Desglose por Grupo</h2>
-<table>
-  <thead>
-    <tr><th>Grupo</th><th style="text-align:center">Tareas</th><th style="text-align:center">Done</th><th style="text-align:center">Atrasadas</th></tr>
-  </thead>
-  <tbody>${groupRows}</tbody>
-</table>
 
 <div style="height:1px;background:#f3f4f6;margin:20px 0"></div>
 <div style="font-size:10px;color:#d1d5db;text-align:center">Generado por PMO Dashboard · ${today}</div>
