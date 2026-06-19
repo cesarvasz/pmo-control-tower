@@ -11,6 +11,7 @@ import {
   INI_SEC_LABEL,
   INI_SEC_ORDER,
   calcIniPMHealth,
+  iniItemStatus,
   iniIsParaHoy,
   nextOrLatest,
 } from "@/lib/process";
@@ -118,7 +119,7 @@ function IniciativasInner() {
       </div>
 
       {/* PM Health */}
-      <PMHealth iniData={iniData} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
+      <PMHealth iniData={iniData} calMap={calMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Secciones activas */}
       {sections.length === 0 && planFuturoItems.length === 0 ? (
@@ -137,8 +138,9 @@ function IniciativasInner() {
 
 // ── PM Health ──────────────────────────────────────────────────────────
 
-function PMHealth({ iniData, selectedPm, onSelect }: {
+function PMHealth({ iniData, calMap, selectedPm, onSelect }: {
   iniData: IniItem[];
+  calMap: CalMap;
   selectedPm: string | null;
   onSelect: (pm: string) => void;
 }) {
@@ -146,7 +148,7 @@ function PMHealth({ iniData, selectedPm, onSelect }: {
   return (
     <div className="mb-7 flex flex-wrap gap-4">
       {pms.map((pm) => {
-        const h = calcIniPMHealth(pm, iniData);
+        const h = calcIniPMHealth(pm, iniData, calMap);
         const c = HEALTH_CFG[h.status];
         const active = selectedPm === pm;
         return (
@@ -205,6 +207,13 @@ const ROW_PILL: Record<string, [string, string]> = {
   SKIP: ["pill-skip", "— N/A"],
 };
 
+// Pill según el estado de salud (incluye At Risk / Off Track por falta de reunión).
+const HEALTH_PILL: Record<string, [string, string]> = {
+  "on-track":  ["pill-entiempo", "✓ On Track"],
+  "in-risk":   ["pill-parahoy",  "⚠ At Risk"],
+  "off-track": ["pill-atrasado", "✕ Off Track"],
+};
+
 function IniSection({ status, rows, calMap }: { status: string; rows: IniItem[]; calMap: CalMap }) {
   const limite = INI_LIMITS[status];
   const label = INI_SEC_LABEL[status] || status;
@@ -248,7 +257,11 @@ function IniSection({ status, rows, calMap }: { status: string; rows: IniItem[];
           </thead>
           <tbody>
             {sorted.map((r) => {
-              const [pcls, plbl] = ROW_PILL[r.estado] ?? ["pill-skip", r.estado];
+              // Con base de cálculo: el pill sigue el estado de salud (On Track / At Risk / Off Track).
+              // Sin fecha: cae al pill por estado.
+              const [pcls, plbl] = r.dias === null
+                ? ROW_PILL[r.estado] ?? ["pill-skip", r.estado]
+                : HEALTH_PILL[iniItemStatus(r, calMap)];
               const pct = r.dias !== null && r.limite ? Math.min((r.dias / r.limite) * 100, 100) : 0;
               const bc = pct > 100 ? "#ef4444" : pct >= 80 ? "#f59e0b" : "#10b981";
               const cal = calMap.get(r.id) || { M1: [], M2: [] };

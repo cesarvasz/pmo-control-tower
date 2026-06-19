@@ -118,12 +118,15 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
         const limite = INI_LIMITS[status];
         let dias: number | null = null, estado = "Sin fecha";
         let deadline: Date | null = null, creacion: Date | null = null;
-        const cre = parseCreation(creRaw);
-        if (cre) {
-          creacion = cre;
-          dias = businessDays(cre, t);
+        // Excepción: si la columna Plan Futuro tiene fecha, se usa como base de cálculo
+        // (creation log) en lugar de la fecha de creación real; si está vacía, se usa la creación.
+        const planFuturo = parseYMD(col(INI_COL.planFuturo));
+        const base = planFuturo ?? parseCreation(creRaw);
+        if (base) {
+          creacion = base;
+          dias = businessDays(base, t);
           estado = dias > limite ? "ATRASADO" : dias === limite ? "PARA HOY" : "EN TIEMPO";
-          deadline = addBusinessDays(cre, limite);
+          deadline = addBusinessDays(base, limite);
         }
         return {
           id: id_ini, name: item.name, grupo, pm, status, benefit,
@@ -599,19 +602,29 @@ export interface IniPMHealth {
   total: number;
 }
 
-/** Estado de salud de una iniciativa activa (New / Meeting 1). Igual que el pill de la tabla: solo las vencidas son off track. */
-export function iniItemStatus(r: IniItem): HealthStatus {
-  return r.estado === "ATRASADO" ? "off-track" : "on-track";
+/** Estado de salud de una iniciativa activa (New / Meeting 1):
+ *  - Vencida (pasó el deadline) → off track, aunque ya tenga reunión agendada.
+ *  - Sin reunión del tipo que corresponde: <3 días hábiles → at risk; ≥3 días → off track.
+ *  - Con reunión (y no vencida) → on track. */
+export function iniItemStatus(r: IniItem, calMap?: CalMap): HealthStatus {
+  if (r.estado === "ATRASADO") return "off-track";
+  if (calMap && INI_ACTIVE_STS.has(r.status) && r.dias !== null) {
+    const cal = calMap.get(r.id) || { M1: [], M2: [] };
+    const type = r.status === "New" ? "M1" : r.status === "Meeting 1" ? "M2" : null;
+    const sinReunion = type ? cal[type].length === 0 : false;
+    if (sinReunion) return r.dias < 3 ? "in-risk" : "off-track";
+  }
+  return "on-track";
 }
 
-export function calcIniPMHealth(pm: string, iniData: IniItem[]): IniPMHealth {
+export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap?: CalMap): IniPMHealth {
   const items = iniData.filter((r) => r.pm === pm && INI_ACTIVE_STS.has(r.status));
   const total = items.length;
   if (total === 0) return { status: "on-track", index: 1, onTrack: 0, inRisk: 0, offTrack: 0, total: 0 };
 
   let onTrack = 0, inRisk = 0, offTrack = 0;
   items.forEach((r) => {
-    const s = iniItemStatus(r);
+    const s = iniItemStatus(r, calMap);
     if (s === "on-track") onTrack++;
     else if (s === "in-risk") inRisk++;
     else offTrack++;

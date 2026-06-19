@@ -6,7 +6,7 @@ import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
-import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { CalMap, IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 
@@ -67,7 +67,7 @@ export default function ControlTowerPage() {
 
   // ── VEM del equipo ──
   const teamIniHIs = allPMs
-    .map((pm) => calcIniPMHealth(pm, ini))
+    .map((pm) => calcIniPMHealth(pm, ini, calMap))
     .filter((h) => h.total > 0)
     .map((h) => h.index);
   const teamIniHealth = teamIniHIs.length > 0 ? teamIniHIs.reduce((a, b) => a + b, 0) / teamIniHIs.length : null;
@@ -82,7 +82,7 @@ export default function ControlTowerPage() {
   const teamVem = vemParts.length > 0 ? vemParts.reduce((a, b) => a + b, 0) / vemParts.length : null;
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
   // Estado del equipo = peor estado entre los PMs: si un PM está Off Track, el EVM del equipo es Off Track. El % sigue siendo el promedio.
-  const pmStatuses = allPMs.map((pm) => pmWorstStatus(pm, ini, req, projBoards, boardHealthMap));
+  const pmStatuses = allPMs.map((pm) => pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap));
   const teamStatus: HealthStatus | null = teamVem === null ? null
     : pmStatuses.includes("off-track") ? "off-track"
     : pmStatuses.includes("in-risk") ? "in-risk"
@@ -261,7 +261,7 @@ export default function ControlTowerPage() {
         {allPMs.map((pm) => {
           const q = encodeURIComponent(pm);
           return (
-            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} projBoards={projBoards} boardHealthMap={boardHealthMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
           );
         })}
       </div>
@@ -309,8 +309,9 @@ function pmWorstStatus(
   req: ReqItem[],
   projBoards: ProjBoard[],
   boardHealthMap: Map<string, BoardHealthData>,
+  calMap: CalMap,
 ): HealthStatus {
-  const iniHealth = calcIniPMHealth(pm, ini);
+  const iniHealth = calcIniPMHealth(pm, ini, calMap);
   const iniStatus: HealthStatus | null = iniHealth.total > 0
     ? (iniHealth.offTrack > 0 ? "off-track" : iniHealth.inRisk > 0 ? "in-risk" : "on-track")
     : null;
@@ -334,13 +335,13 @@ function pmWorstStatus(
 }
 
 function PMPortfolioCard({
-  pm, ini, req, projBoards, boardHealthMap, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, projBoards, boardHealthMap, calMap, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[];
-  projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>;
+  projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
-  const iniHealth = calcIniPMHealth(pm, ini);
+  const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -372,7 +373,7 @@ function PMPortfolioCard({
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
 
   // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos. El % sigue siendo el promedio.
-  const pmHealth: HealthStatus = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap);
+  const pmHealth: HealthStatus = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
   const hc = HEALTH_CFG[pmHealth];
 
   return (
