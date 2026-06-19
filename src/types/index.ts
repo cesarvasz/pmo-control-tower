@@ -133,6 +133,7 @@ export interface ReqItem {
 export interface ProjSubitem {
   id: string;
   name: string;
+  pmsId: string; // ID del hito desde la columna "PMS ID" de Monday (ej. PMO-002-1)
   status: string;
   person: string;
   deadline: Date | null;

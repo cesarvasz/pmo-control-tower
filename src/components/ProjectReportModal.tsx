@@ -2,7 +2,7 @@
 
 import { fmtDate, fmtMoney } from "@/lib/business";
 import { calcVem, healthStatusFromIndex } from "@/lib/process";
-import type { ProjBoard, ProjItem } from "@/types";
+import type { ProjBoard, ProjItem, ProjSubitem } from "@/types";
 
 interface Props {
   board: ProjBoard;
@@ -342,6 +342,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                   const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
                   const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
                   const { colResp, respLines, comment } = criticalMeta(r.name, r.resp, board.cku || "");
+                  const hitos = hitosInline(offSubs);
                   return (
                     <div
                       key={r.id}
@@ -372,29 +373,20 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                           className="mt-1.5 ml-6 space-y-0.5 rounded-md py-1.5 pl-3 pr-3 text-[0.76rem]"
                           style={{ background: "var(--bg-hover)", borderLeft: "3px solid #f59e0b", color: "var(--text-secondary)" }}
                         >
+                          <div>
+                            <b className="text-[var(--text-primary)]">Acción requerida:</b> {comment}
+                            {hitos && ` ${hitos}`}
+                          </div>
                           {respLines.map((l) => (
                             <div key={l.label}>
                               <b className="text-[var(--text-primary)]">{l.label}:</b> {l.value}
                             </div>
                           ))}
-                          <div>
-                            <b className="text-[var(--text-primary)]">Acción requerida:</b> {comment}
-                          </div>
                         </div>
                       )}
-                      {offSubs.length > 0 && (
-                        <div className="mt-1.5 space-y-1 pl-6">
-                          {offSubs.map((s) => (
-                            <div key={s.id} className="flex items-center gap-2 text-[0.8rem]">
-                              <span style={{ color: "#ef4444" }}>↳ ✕</span>
-                              <span className="flex-1 text-[var(--text-primary)]">{s.name}</span>
-                              {s.deadline && (
-                                <span className="text-[0.73rem] font-semibold" style={{ color: "#ef4444" }}>
-                                  {fmtDate(s.deadline)}
-                                </span>
-                              )}
-                            </div>
-                          ))}
+                      {!comment && hitos && (
+                        <div className="mt-1.5 pl-6 text-[0.76rem] text-[var(--text-muted)]">
+                          <b className="text-[var(--text-secondary)]">Hitos:</b> {hitos}
                         </div>
                       )}
                     </div>
@@ -460,6 +452,13 @@ function criticalMeta(name: string, itemResp: string, cku: string): {
   return { colResp, respLines, comment };
 }
 
+/** Arma el detalle inline de hitos: "ID: PMO-002-1 - Deadline: 2/8/10, ..." (separado por comas). */
+function hitosInline(subs: ProjSubitem[]): string {
+  return subs
+    .map((s) => `ID: ${s.pmsId || "—"} - Deadline: ${s.deadline ? fmtDate(s.deadline) : "—"}`)
+    .join(", ");
+}
+
 // ── PDF / Print HTML ───────────────────────────────────────────────────────────
 
 function buildPrintHTML(
@@ -488,11 +487,11 @@ function buildPrintHTML(
     .map((ph, i) => {
       const st = PHASE_PRINT[ph.status];
       return `
-      <div style="flex:1;min-width:110px;display:flex;align-items:center;gap:4px">
-        <div style="position:relative;width:100%;border:2px solid ${st.border};background:${st.bg};border-radius:12px;padding:14px 10px 9px;opacity:${st.opacity}">
-          <span style="position:absolute;top:-9px;left:10px;background:${st.chipBg};color:#fff;border-radius:999px;padding:2px 8px;font-size:8px;font-weight:700;letter-spacing:0.03em;white-space:nowrap">${st.chip}</span>
-          <div style="font-size:12px;font-weight:700;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ph.name}</div>
-          <div style="font-size:9px;color:#6b7280">${ph.done}/${ph.total} tareas</div>
+      <div style="flex:1;min-width:100px;display:flex;align-items:center;gap:3px">
+        <div style="position:relative;width:100%;border:2px solid ${st.border};background:${st.bg};border-radius:10px;padding:10px 8px 6px;opacity:${st.opacity}">
+          <span style="position:absolute;top:-7px;left:8px;background:${st.chipBg};color:#fff;border-radius:999px;padding:1px 7px;font-size:7px;font-weight:700;letter-spacing:0.03em;white-space:nowrap">${st.chip}</span>
+          <div style="font-size:10.5px;font-weight:700;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ph.name}</div>
+          <div style="font-size:8px;color:#6b7280">${ph.done}/${ph.total} tareas</div>
         </div>
         ${i < m.phases.length - 1 ? `<span style="color:#9ca3af;flex-shrink:0">›</span>` : ""}
       </div>`;
@@ -515,45 +514,42 @@ function buildPrintHTML(
       const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
       const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
       const { colResp, respLines, comment } = criticalMeta(r.name, r.resp, board.cku || "");
+      const hitos = hitosInline(offSubs);
       const mainRow = `
       <tr>
-        <td style="color:${color};font-weight:700;width:20px">
+        <td style="color:${color};font-weight:700;width:18px">
           ${r.estado === "ATRASADO" ? "✕" : "⚠"}
         </td>
         <td style="font-weight:500">${r.name}</td>
-        <td style="color:#6b7280;font-size:11px">${colResp}</td>
-        <td style="color:${color};font-size:11px;white-space:nowrap">
+        <td style="color:#6b7280">${colResp}</td>
+        <td style="color:${color};white-space:nowrap">
           ${r.deadline ? fmtDate(r.deadline) : "—"}
         </td>
       </tr>`;
-      const subRows = offSubs
-        .map(
-          (s) => `
-      <tr>
-        <td style="color:#ef4444;font-size:11px;text-align:right">↳</td>
-        <td style="padding-left:18px;color:#374151;font-size:11px">${s.name}</td>
-        <td></td>
-        <td style="color:#ef4444;font-size:11px;white-space:nowrap">
-          ${s.deadline ? fmtDate(s.deadline) : "—"}
-        </td>
-      </tr>`,
-        )
-        .join("");
       const respLinesHtml = respLines.map((l) => `<div><b>${l.label}:</b> ${l.value}</div>`).join("");
       const commentRow = comment
         ? `
       <tr>
         <td style="border-bottom:none"></td>
-        <td colspan="3" style="border-bottom:none;padding-top:2px;padding-bottom:6px">
-          <div style="background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:7px 11px;font-size:11px;color:#78350f;line-height:1.6">
+        <td colspan="3" style="border-bottom:none;padding-top:1px;padding-bottom:4px">
+          <div style="background:#fffbeb;border-left:3px solid #f59e0b;border-radius:5px;padding:5px 9px;font-size:9px;color:#78350f;line-height:1.5">
+            <div><b>Acción requerida:</b> ${comment}${hitos ? ` ${hitos}` : ""}</div>
             ${respLinesHtml}
-            <div><b>Acción requerida:</b> ${comment}</div>
           </div>
         </td>
       </tr>`
         : "";
-      // El comentario va debajo del nombre de la acción e introduce la lista de hitos (subitems).
-      return mainRow + commentRow + subRows;
+      // Sin comentario: los hitos van en una línea "Hitos: ID ... - Deadline ...".
+      const hitosRow = !comment && hitos
+        ? `
+      <tr>
+        <td style="border-bottom:none"></td>
+        <td colspan="3" style="border-bottom:none;padding-top:1px;padding-bottom:4px;font-size:9px;color:#6b7280">
+          <b>Hitos:</b> ${hitos}
+        </td>
+      </tr>`
+        : "";
+      return mainRow + commentRow + hitosRow;
     })
     .join("");
 
@@ -587,30 +583,28 @@ function buildPrintHTML(
 <title>Informe – ${board.name}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; background: #fff; padding: 28px 36px; font-size: 13px; }
-  h1 { font-size: 21px; font-weight: 800; color: #111827; }
-  h2 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #9ca3af; margin-bottom: 10px; margin-top: 22px; }
-  .meta { color: #6b7280; font-size: 11px; margin-top: 2px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #f3f4f6; padding-bottom: 14px; }
-  .estado { border-radius: 12px; padding: 8px 16px; color: #fff; text-align: right; }
-  .estado .lbl { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.9; }
-  .estado .val { font-size: 13px; font-weight: 800; }
-  .diag { display: flex; align-items: center; gap: 10px; border-radius: 8px; background: #f9fafb; padding: 8px 12px; margin-top: 16px; font-size: 11px; }
-  .diag .lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; flex-shrink: 0; }
-  .grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .grid4 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
-  .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; }
-  .card-label { font-size: 9px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; }
-  .fin { text-align: center; padding: 14px 10px; }
-  .fin .ic { display: inline-flex; width: 26px; height: 26px; border-radius: 999px; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
-  .fin .val { font-size: 19px; font-weight: 800; margin-top: 3px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; background: #fff; padding: 16px 22px; font-size: 10px; }
+  h1 { font-size: 16px; font-weight: 800; color: #111827; }
+  h2 { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #9ca3af; margin-bottom: 5px; margin-top: 11px; }
+  .meta { color: #6b7280; font-size: 9px; margin-top: 1px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid #f3f4f6; padding-bottom: 8px; }
+  .estado { border-radius: 9px; padding: 5px 11px; color: #fff; text-align: right; }
+  .estado .lbl { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.9; }
+  .estado .val { font-size: 11px; font-weight: 800; }
+  .diag { display: flex; align-items: center; gap: 8px; border-radius: 7px; background: #f9fafb; padding: 5px 10px; margin-top: 8px; font-size: 9.5px; }
+  .diag .lbl { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; flex-shrink: 0; }
+  .grid4 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 9px; padding: 8px 10px; }
+  .card-label { font-size: 8px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+  .fin { text-align: center; padding: 8px 6px; }
+  .fin .ic { display: inline-flex; width: 21px; height: 21px; border-radius: 999px; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; }
+  .fin .val { font-size: 15px; font-weight: 800; margin-top: 2px; }
   table { width: 100%; border-collapse: collapse; }
-  td, th { padding: 7px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
-  th { background: #f9fafb; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; }
-  @media print {
-    body { padding: 18px 24px; }
-    @page { margin: 1.1cm; }
-  }
+  tr { page-break-inside: avoid; }
+  td, th { padding: 3.5px 8px; border-bottom: 1px solid #f3f4f6; font-size: 9.5px; }
+  th { background: #f9fafb; font-weight: 600; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
+  @page { size: A4 portrait; margin: 0.8cm; }
+  @media print { body { padding: 0; } }
 </style>
 </head>
 <body>
@@ -618,7 +612,7 @@ function buildPrintHTML(
 <!-- Header -->
 <div class="header">
   <div style="display:flex;align-items:center;gap:14px;min-width:0">
-    ${logo ? `<img src="${logo}" alt="PMO" style="height:54px;width:auto;flex-shrink:0" />` : ""}
+    ${logo ? `<img src="${logo}" alt="PMO" style="height:40px;width:auto;flex-shrink:0" />` : ""}
     <div style="min-width:0">
       <div class="meta">Informe de Proyecto · ${today}</div>
       <h1>${board.name}</h1>
@@ -642,10 +636,10 @@ ${board.estrategia ? `
 ${m.phases.length > 0 ? `
 <!-- Ciclo de vida -->
 <h2>Ciclo de Vida del Proyecto</h2>
-<div style="display:flex;gap:4px;align-items:stretch">${phasesHtml}</div>` : ""}
+<div style="display:flex;gap:3px;align-items:stretch">${phasesHtml}</div>` : ""}
 
 <!-- Financiero -->
-<div class="grid4" style="margin-top:18px">
+<div class="grid4" style="margin-top:11px">
   ${finCards.map(({ label, icon, value, color }) => `
   <div class="card fin">
     <span class="ic" style="color:${color};background:${color}1e">${icon}</span>
@@ -671,8 +665,8 @@ ${m.criticalItems.length > 0 ? `
   <tbody>${criticalRows}</tbody>
 </table>` : ""}
 
-<div style="height:1px;background:#f3f4f6;margin:20px 0"></div>
-<div style="font-size:10px;color:#d1d5db;text-align:center">Generado por PMO Dashboard · ${today}</div>
+<div style="height:1px;background:#f3f4f6;margin:10px 0"></div>
+<div style="font-size:8px;color:#d1d5db;text-align:center">Generado por PMO Dashboard · ${today}</div>
 
 </body>
 </html>`;

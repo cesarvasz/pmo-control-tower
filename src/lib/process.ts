@@ -353,6 +353,7 @@ export const PROJ_ACTIVE_STS = new Set(["Working on it", "Future Steps", "Done"]
 export const PROJ_COL = {
   pm: "PM", resp: "Resp", status: "Status",
   deadline: "Limit Date", cost: "Cost $", benefit: "Benefit $",
+  pmsId: "PMS ID", // ID del hito/subitem (ej. PMO-002-1)
 };
 
 function calcProjEstado(dl: Date | null): string {
@@ -377,6 +378,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
       const sdl = parseYMD(colByTitle(scv, PROJ_COL.deadline));
       return {
         id: sub.id, name: sub.name,
+        pmsId: colByTitle(scv, PROJ_COL.pmsId),
         status: colByTitle(scv, PROJ_COL.status),
         person: "",
         deadline: sdl, estado: calcProjEstado(sdl),
