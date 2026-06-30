@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useData } from "@/context/DataContext";
 import AsuetosModal from "@/components/AsuetosModal";
+import CalcHabilesModal from "@/components/CalcHabilesModal";
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/": { title: "Control Tower", subtitle: "Resumen de portafolios PMO" },
@@ -39,6 +40,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
   const [theme, setTheme] = useState<Theme>("dark");
   const [showAsuetos, setShowAsuetos] = useState(false);
+  const [showCalc, setShowCalc] = useState(false);
 
   // Inicializa el tema desde localStorage/preferencia del sistema al montar.
   // localStorage solo existe en el cliente, por eso debe leerse en un efecto
@@ -98,8 +100,16 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
           <span className="hidden text-[var(--text-secondary)] sm:inline">{user.email}</span>
         )}
         <button
+          onClick={() => setShowCalc(true)}
+          title="Calculadora de días hábiles"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          style={{ borderColor: "var(--border)" }}
+        >
+          🧮
+        </button>
+        <button
           onClick={() => setShowAsuetos(true)}
-          title="Asuetos oficiales de Guatemala 2026–2027"
+          title="Asuetos oficiales de Guatemala 2026"
           className="flex h-8 w-8 items-center justify-center rounded-lg border bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           style={{ borderColor: "var(--border)" }}
         >
@@ -130,6 +140,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
       </div>
 
       {showAsuetos && <AsuetosModal onClose={() => setShowAsuetos(false)} />}
+      {showCalc && <CalcHabilesModal onClose={() => setShowCalc(false)} />}
     </header>
   );
 }
