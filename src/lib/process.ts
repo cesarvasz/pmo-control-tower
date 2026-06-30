@@ -212,26 +212,26 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
 
     if (grp === "Valuación") {
       startDate = cpmStart;
-      if (startDate) deadline = addBusinessDays(startDate, 1);
+      if (startDate) deadline = addBusinessDays(startDate, 1, true);
     } else if (grp === "Aprobación") {
       startDate = vDone;
-      if (startDate) deadline = addBusinessDays(startDate, 2);
+      if (startDate) deadline = addBusinessDays(startDate, 2, true);
     } else if (grp === "Desarrollo") {
       startDate = aDone;
       if (startDate) {
         if (estDev) deadline = estDev;
-        else if (tld === "JA") deadline = addBusinessDays(startDate, 7);
-        else if (tld === "LM") deadline = addBusinessDays(startDate, 32);
+        else if (tld === "JA") deadline = addBusinessDays(startDate, 7, true);
+        else if (tld === "LM") deadline = addBusinessDays(startDate, 32, true);
         else if (tld === "S/dev") deadline = new Date(startDate);
       }
     } else if (grp === "Operación") {
       startDate = lDone;
-      if (isSaas && cpmEndEst) deadline = addBusinessDays(cpmEndEst, -20);
-      else if (startDate) deadline = addBusinessDays(startDate, 3);
+      if (isSaas && cpmEndEst) deadline = addBusinessDays(cpmEndEst, -20, true);
+      else if (startDate) deadline = addBusinessDays(startDate, 3, true);
     } else if (grp === "Cierre ROI") {
       startDate = oDone;
       if (isSaas && cpmEndEst) deadline = cpmEndEst;
-      else if (startDate) deadline = addBusinessDays(startDate, 20);
+      else if (startDate) deadline = addBusinessDays(startDate, 20, true);
     }
 
     // ── Estado ──
@@ -242,8 +242,8 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
       const dl = new Date(deadline); dl.setHours(0, 0, 0, 0);
       estado = dl < t ? "ATRASADO" : dl.getTime() === t.getTime() ? "PARA HOY" : "EN TIEMPO";
       if (startDate) {
-        dias = businessDays(startDate, t);
-        limite = businessDays(startDate, deadline);
+        dias = businessDays(startDate, t, true);
+        limite = businessDays(startDate, deadline, true);
       }
     }
 
@@ -300,7 +300,7 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
     const expectedDays = phaseIdx >= 0
       ? phaseDurs0.slice(0, phaseIdx + 1).reduce((a, b) => a + b, 0)
       : null;
-    const elapsed = cpmStart ? businessDays(cpmStart, t) : 0;
+    const elapsed = cpmStart ? businessDays(cpmStart, t, true) : 0;
 
     // ── EV / PV / AC + desglose por fase ──
     // EV = Σ basePhaseCost de fases completadas (costo planificado).

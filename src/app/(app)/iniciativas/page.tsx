@@ -315,8 +315,8 @@ function diffCell(r: IniItem, t: Date) {
   if (!r.deadline) return <span className="text-[var(--text-disabled)]">—</span>;
   const d = new Date(r.deadline); d.setHours(0, 0, 0, 0);
   if (d.getTime() === t.getTime()) return <span style={{ color: "#f59e0b", fontWeight: 600 }}>Hoy</span>;
-  if (d > t) { const n = businessDays(t, d); return <span style={{ color: "#10b981", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
-  const n = businessDays(d, t); return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
+  if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "#10b981", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
+  const n = businessDays(d, t, true); return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
 }
 
 function pfDateCell(date: Date | null | undefined, t: Date) {

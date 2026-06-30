@@ -178,8 +178,8 @@ function diffHtml(r: ReqItem, t: Date) {
   if (!r.deadline) return dash;
   const d = new Date(r.deadline); d.setHours(0, 0, 0, 0);
   if (d.getTime() === t.getTime()) return <span style={{ color: "#f59e0b", fontWeight: 700 }}>Hoy</span>;
-  if (d > t) { const n = businessDays(t, d); return <span style={{ color: "#10b981", fontWeight: 700 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
-  const n = businessDays(d, t); return <span style={{ color: "#ef4444", fontWeight: 700 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
+  if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "#10b981", fontWeight: 700 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
+  const n = businessDays(d, t, true); return <span style={{ color: "#ef4444", fontWeight: 700 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
 }
 
 function accumHtml(r: ReqItem) {
