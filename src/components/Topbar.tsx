@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useData } from "@/context/DataContext";
+import AsuetosModal from "@/components/AsuetosModal";
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/": { title: "Control Tower", subtitle: "Resumen de portafolios PMO" },
@@ -37,6 +38,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   const meta = PAGE_META[pathname] ?? { title: "PMO Dashboard", subtitle: "" };
 
   const [theme, setTheme] = useState<Theme>("dark");
+  const [showAsuetos, setShowAsuetos] = useState(false);
 
   // Inicializa el tema desde localStorage/preferencia del sistema al montar.
   // localStorage solo existe en el cliente, por eso debe leerse en un efecto
@@ -96,6 +98,14 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
           <span className="hidden text-[var(--text-secondary)] sm:inline">{user.email}</span>
         )}
         <button
+          onClick={() => setShowAsuetos(true)}
+          title="Asuetos oficiales de Guatemala 2026–2027"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          style={{ borderColor: "var(--border)" }}
+        >
+          🌴
+        </button>
+        <button
           onClick={cycleTheme}
           title={`Tema: ${THEME_META[theme].label} · clic para cambiar`}
           className="flex h-8 w-8 items-center justify-center rounded-lg border bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
@@ -118,6 +128,8 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
           Salir
         </button>
       </div>
+
+      {showAsuetos && <AsuetosModal onClose={() => setShowAsuetos(false)} />}
     </header>
   );
 }
