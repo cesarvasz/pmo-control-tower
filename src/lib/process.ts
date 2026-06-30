@@ -107,7 +107,7 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
       }
       if (status === "Plan Futuro") {
         const planFuturo = parseYMD(col(INI_COL.planFuturo));
-        const recordatorio = planFuturo ? addBusinessDays(planFuturo, -5) : null;
+        const recordatorio = planFuturo ? addBusinessDays(planFuturo, -5, true) : null;
         return {
           id: id_ini, name: item.name, grupo, pm, status, benefit,
           estado: "PLAN_FUTURO", dias: null, limite: null, deadline: null,
@@ -124,9 +124,9 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
         const base = planFuturo ?? parseCreation(creRaw);
         if (base) {
           creacion = base;
-          dias = businessDays(base, t);
+          dias = businessDays(base, t, true);
           estado = dias > limite ? "ATRASADO" : dias === limite ? "PARA HOY" : "EN TIEMPO";
-          deadline = addBusinessDays(base, limite);
+          deadline = addBusinessDays(base, limite, true);
         }
         return {
           id: id_ini, name: item.name, grupo, pm, status, benefit,

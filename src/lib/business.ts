@@ -2,8 +2,20 @@
 // Helpers de fechas puros, extraídos del PMO Dashboard original.
 // Sin dependencias del navegador salvo Date/Intl → seguros en cliente y servidor.
 
-/** Cuenta días hábiles (lun–vie) ENTRE start y end, excluyendo el día start. */
-export function businessDays(start: Date, end: Date): number {
+import { isHoliday } from "./holidays";
+
+/** ¿Es día hábil? Lun–vie y, si skipHolidays, tampoco un asueto oficial. */
+function isWorkday(d: Date, skipHolidays: boolean): boolean {
+  if (d.getDay() === 0 || d.getDay() === 6) return false;
+  if (skipHolidays && isHoliday(d)) return false;
+  return true;
+}
+
+/**
+ * Cuenta días hábiles (lun–vie) ENTRE start y end, excluyendo el día start.
+ * Con skipHolidays=true también descarta los asuetos oficiales de Guatemala.
+ */
+export function businessDays(start: Date, end: Date, skipHolidays = false): number {
   let days = 0;
   const d = new Date(start);
   d.setDate(d.getDate() + 1);
@@ -11,14 +23,17 @@ export function businessDays(start: Date, end: Date): number {
   const e = new Date(end);
   e.setHours(0, 0, 0, 0);
   while (d <= e) {
-    if (d.getDay() !== 0 && d.getDay() !== 6) days++;
+    if (isWorkday(d, skipHolidays)) days++;
     d.setDate(d.getDate() + 1);
   }
   return days;
 }
 
-/** Suma (o resta si n<0) n días hábiles a una fecha y devuelve la fecha resultante. */
-export function addBusinessDays(date: Date, n: number): Date {
+/**
+ * Suma (o resta si n<0) n días hábiles a una fecha y devuelve la fecha resultante.
+ * Con skipHolidays=true también salta los asuetos oficiales de Guatemala.
+ */
+export function addBusinessDays(date: Date, n: number, skipHolidays = false): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   if (n === 0) return d;
@@ -26,7 +41,7 @@ export function addBusinessDays(date: Date, n: number): Date {
   let remaining = Math.abs(n);
   while (remaining > 0) {
     d.setDate(d.getDate() + step);
-    if (d.getDay() !== 0 && d.getDay() !== 6) remaining--;
+    if (isWorkday(d, skipHolidays)) remaining--;
   }
   return d;
 }
