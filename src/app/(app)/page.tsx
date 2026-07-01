@@ -6,9 +6,10 @@ import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
-import type { CalMap, IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { CalMap, IniItem, ProjBoard, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
+import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -36,6 +37,7 @@ export default function ControlTowerPage() {
   const { data, loading, error } = useData();
   const router = useRouter();
   const [showNps, setShowNps] = useState(false);
+  const [showValueGate, setShowValueGate] = useState(false);
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -146,6 +148,35 @@ export default function ControlTowerPage() {
   const fmtMonths = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} meses`);
   const fmtRoi    = (v: number | null) => (v === null ? "—" : `${Math.round(v)}%`);
 
+  // ── VPA Actions ──
+  // Acciones que debe realizar el VPA, con visibilidad de su estado:
+  //  · Proyectos: steps "VPA valida Business Case…" (fase 1 y 3) y
+  //    "Plan de beneficios acordados con CFO", en Working on it (o Done, en el detalle).
+  //  · REQ: ítems en fase 2 (grupo Aprobación).
+  const isVgStep = (name: string) => {
+    const n = norm(name);
+    return n.includes("vpa valida business case") || n.includes("plan de beneficios acordados con cfo");
+  };
+  const vpaProj: VpaAction[] = proj
+    .filter((r) => isVgStep(r.name) && (r.status === "Working on it" || r.status === "Done"))
+    .map((r) => ({
+      id: `pm-${r.id}`, source: "PM", title: r.boardName,
+      subtitle: `${r.name} · ${r.grupo}`, estado: r.estado, deadline: r.deadline,
+      done: r.status === "Done",
+    }));
+  const vpaReq: VpaAction[] = req
+    .filter((r) => r.grupo === "Aprobación")
+    .map((r) => ({
+      id: `req-${r.id}`, source: "REQ", title: r.name,
+      subtitle: "REQ · Aprobación (fase 2)", estado: r.estado, deadline: r.deadline,
+      done: false,
+    }));
+  const vpaActions = [...vpaProj, ...vpaReq];
+  const vpaPending = vpaActions.filter((a) => !a.done);
+  const vgEnTiempo = vpaPending.filter((a) => a.estado === "EN TIEMPO").length;
+  const vgHoy      = vpaPending.filter((a) => a.estado === "PARA HOY").length;
+  const vgAtrasado = vpaPending.filter((a) => a.estado === "ATRASADO").length;
+
   return (
     <div>
       {/* Tarjetas de resumen (se irán agregando más en horizontal) */}
@@ -197,7 +228,7 @@ export default function ControlTowerPage() {
           <div className="mb-3 flex justify-center gap-6">
             <div>
               <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Costo</div>
-              <div className="text-2xl font-extrabold leading-none" style={{ color: "#ef4444" }}>{fmtMoney(totalCost)}</div>
+              <div className="text-2xl font-extrabold leading-none" style={{ color: "#0ea5e9" }}>{fmtMoney(totalCost)}</div>
             </div>
             <div>
               <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Beneficio</div>
@@ -205,11 +236,11 @@ export default function ControlTowerPage() {
             </div>
           </div>
           <div className="flex flex-col gap-0.5 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-            <span>REQ: <span style={{ color: "#ef4444" }}>{fmtMoney(reqCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(reqBenefit)}</span></span>
+            <span>REQ: <span style={{ color: "#0ea5e9" }}>{fmtMoney(reqCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(reqBenefit)}</span></span>
             <hr className="my-1" style={{ border: "none", borderTop: "1px solid var(--accent)" }} />
-            <span>Aprobación: <span style={{ color: "#ef4444" }}>{fmtMoney(aprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(aprobBenefit)}</span></span>
-            <span>Launch: <span style={{ color: "#ef4444" }}>{fmtMoney(ambosCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(ambosBenefit)}</span></span>
-            <span>Total: <span style={{ color: "#ef4444" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
+            <span>Aprobación: <span style={{ color: "#0ea5e9" }}>{fmtMoney(aprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(aprobBenefit)}</span></span>
+            <span>Launch: <span style={{ color: "#0ea5e9" }}>{fmtMoney(ambosCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(ambosBenefit)}</span></span>
+            <span>Total: <span style={{ color: "#0ea5e9" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
           </div>
         </div>
 
@@ -224,6 +255,22 @@ export default function ControlTowerPage() {
             <div className="text-[0.62rem] uppercase tracking-wide text-[var(--text-muted)]">ROI</div>
             <div className="flex justify-between"><span className="text-[var(--text-muted)]">REQ</span><span style={{ color: "#0ea5e9" }}>{fmtRoi(reqRoi)}</span></div>
             <div className="flex justify-between"><span className="text-[var(--text-muted)]">Proyectos</span><span style={{ color: "#0ea5e9" }}>{fmtRoi(projRoi)}</span></div>
+          </div>
+        </div>
+
+        {/* Value Gates — resumen de los que están en Working on it */}
+        <div
+          onClick={() => setShowValueGate(true)}
+          className="cursor-pointer rounded-xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5"
+          style={{ background: "var(--bg-surface)", borderColor: "#8b5cf6", minWidth: 220 }}
+        >
+          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">VPA Actions</div>
+          <div className="mb-1 text-5xl font-extrabold leading-none" style={{ color: "#8b5cf6" }}>{vpaPending.length}</div>
+          <div className="mb-3 text-[0.8rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">Pendientes</div>
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold">
+            <span style={{ color: "#10b981" }}>✓ {vgEnTiempo} En Tiempo</span>
+            <span style={{ color: "#f59e0b" }}>⚠ {vgHoy} Hoy</span>
+            <span style={{ color: "#ef4444" }}>✕ {vgAtrasado} Atrasado</span>
           </div>
         </div>
       </div>
@@ -267,6 +314,7 @@ export default function ControlTowerPage() {
       </div>
 
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
+      {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
     </div>
   );
 }
