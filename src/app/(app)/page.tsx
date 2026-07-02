@@ -6,10 +6,11 @@ import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
-import type { CalMap, IniItem, ProjBoard, ReqItem } from "@/types";
+import type { CalMap, IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
+import PMValueModal, { type PmValue } from "@/components/PMValueModal";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -308,7 +309,7 @@ export default function ControlTowerPage() {
         {allPMs.map((pm) => {
           const q = encodeURIComponent(pm);
           return (
-            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
           );
         })}
       </div>
@@ -382,13 +383,50 @@ function pmWorstStatus(
   return all.includes("off-track") ? "off-track" : all.includes("in-risk") ? "in-risk" : "on-track";
 }
 
+/** Costo/beneficio por PM: REQ (fase 2+) y Proyectos (Value Gate BC firmado en Aprobación/Launch). */
+function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[]): PmValue {
+  const reqItems   = req.filter((r) => r.pm === pm && REQ_PHASE2PLUS.has(r.grupo));
+  const reqCost    = reqItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
+  const reqBenefit = reqItems.reduce((s, r) => s + r.benefit, 0);
+
+  const pmBoardIds = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
+  const agg = new Map<string, { cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
+  for (const r of proj) {
+    if (!pmBoardIds.has(r.boardId)) continue;
+    let a = agg.get(r.boardId);
+    if (!a) { a = { cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; agg.set(r.boardId, a); }
+    a.cost += r.cost;
+    a.benefit += r.benefit;
+    if (r.status === "Done" && isValueGate(r.name)) {
+      const g = norm(r.grupo);
+      if (g.includes("aprobacion")) a.doneAprob = true;
+      if (g.includes("launch")) a.doneLaunch = true;
+    }
+  }
+  const boards = [...agg.values()];
+  const aprob = boards.filter((b) => b.doneAprob);
+  const ambos = boards.filter((b) => b.doneAprob && b.doneLaunch);
+  const aprobCost    = aprob.reduce((s, b) => s + b.cost, 0);
+  const aprobBenefit = aprob.reduce((s, b) => s + b.benefit, 0);
+  const ambosCost    = ambos.reduce((s, b) => s + b.cost, 0);
+  const ambosBenefit = ambos.reduce((s, b) => s + b.benefit, 0);
+  const projCost    = aprobCost + ambosCost;
+  const projBenefit = aprobBenefit + ambosBenefit;
+
+  return {
+    reqCost, reqBenefit, aprobCost, aprobBenefit, ambosCost, ambosBenefit,
+    projCost, projBenefit, totalCost: reqCost + projCost, totalBenefit: reqBenefit + projBenefit,
+  };
+}
+
 function PMPortfolioCard({
-  pm, ini, req, projBoards, boardHealthMap, calMap, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, proj, projBoards, boardHealthMap, calMap, onGoIni, onGoReq, onGoProj,
 }: {
-  pm: string; ini: IniItem[]; req: ReqItem[];
+  pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[];
   projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
+  const [showValue, setShowValue] = useState(false);
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
@@ -431,7 +469,17 @@ function PMPortfolioCard({
           <span className="text-[0.95rem] font-bold text-[var(--text-primary)]">{pmLabel(pm)}</span>
           <div className="mt-0.5 text-[0.75rem] text-[var(--text-muted)]">PM · {pm}</div>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}{pmEvmPct !== null ? ` · ${pmEvmPct}%` : ""}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowValue(true)}
+            title="Ver costo y beneficio"
+            className="flex h-7 w-7 items-center justify-center rounded-lg border text-[0.9rem] font-bold text-[var(--text-secondary)] transition-colors hover:border-[#0ea5e9] hover:text-[#0ea5e9]"
+            style={{ borderColor: "var(--border)" }}
+          >
+            $
+          </button>
+          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}{pmEvmPct !== null ? ` · ${pmEvmPct}%` : ""}</span>
+        </div>
       </div>
       <div className="flex">
         <Section
@@ -488,6 +536,10 @@ function PMPortfolioCard({
           </div>
         </Section>
       </div>
+
+      {showValue && (
+        <PMValueModal pm={pm} value={calcPmValue(pm, req, proj, projBoards)} onClose={() => setShowValue(false)} />
+      )}
     </div>
   );
 }
