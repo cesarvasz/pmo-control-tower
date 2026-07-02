@@ -140,6 +140,42 @@
   --pill-skip-bg:     #f3f4f6; --pill-skip-fg:     #6b7280; --pill-skip-br:     #d1d5db;
 }
 
+/* ── TEMA IRON MAN — paleta SchemeColor (alto contraste, oscuro) ──────
+   #AA0505 rojo · #6A0C0B burgundy · #B97D10 rusty gold · #FBCA03 dorado · #67C7EB arc reactor */
+:root[data-theme="ironman"] {
+  --bg-base: #0c0605;
+  --bg-surface: #1b0a08;
+  --bg-sidebar: #120706;
+  --bg-hover: #2b100c;
+  --bg-accent-soft: #3a0f0c;
+  --border: #7a2018;
+  --border-subtle: #9a3320;
+  --text-primary: #ffe9b0;
+  --text-secondary: #f0c877;
+  --text-muted: #c79a55;
+  --text-disabled: #8a6a3e;
+  --accent: #aa0505;
+  --accent-hover: #6a0c0b;
+  --accent-dim: #5a1512;
+  --accent-light: #fbca03;
+  --code-bg: #26100c;
+  --code-border: #7a2018;
+  --table-head-bg: #1b0a08;
+  --card-value-total: #fbca03;
+  --shadow: rgba(0, 0, 0, 0.6);
+
+  --pill-atrasado-bg: #4a0606; --pill-atrasado-fg: #ff8f8f; --pill-atrasado-br: #aa0505;
+  --pill-parahoy-bg:  #3a2400; --pill-parahoy-fg:  #fbca03; --pill-parahoy-br:  #b97d10;
+  --pill-entiempo-bg: #05321a; --pill-entiempo-fg: #7bf0b0; --pill-entiempo-br: #14743a;
+  --pill-aprobada-bg: #0a2833; --pill-aprobada-fg: #67c7eb; --pill-aprobada-br: #2a6b85;
+  --pill-skip-bg:     #2a1713; --pill-skip-fg:     #c79a55; --pill-skip-br:     #7a2018;
+
+  --health-on-track-bg:  #05321a88;
+  --health-in-risk-bg:   #3a240088;
+  --health-off-track-bg: #4a060688;
+  --health-neutral-bg:   #2b100c88;
+}
+
 html,
 body {
   height: 100%;

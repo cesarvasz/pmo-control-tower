@@ -19,13 +19,14 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
 
 const THEME_KEY = "pmo-theme";
 
-type Theme = "dark" | "light" | "c807" | "rose";
-const THEMES: Theme[] = ["dark", "light", "c807", "rose"];
+type Theme = "dark" | "light" | "c807" | "rose" | "ironman";
+const THEMES: Theme[] = ["dark", "light", "c807", "rose", "ironman"];
 const THEME_META: Record<Theme, { icon: string; label: string }> = {
   dark: { icon: "🌙", label: "Oscuro" },
   light: { icon: "☀️", label: "Claro" },
   c807: { icon: "🌿", label: "C807 (VALOR)" },
   rose: { icon: "🌸", label: "Rose" },
+  ironman: { icon: "🦾", label: "Iron Man" },
 };
 
 interface TopbarProps {
@@ -54,7 +55,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     document.documentElement.setAttribute("data-theme", initial);
   }, []);
 
-  // Cicla entre los 3 temas: Oscuro → Claro → C807 → Oscuro…
+  // Cicla entre los temas: Oscuro → Claro → C807 → Rose → Iron Man → Oscuro…
   const cycleTheme = () => {
     const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
     setTheme(next);
