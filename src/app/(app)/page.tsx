@@ -151,12 +151,15 @@ export default function ControlTowerPage() {
 
   // ── VPA Actions ──
   // Acciones que debe realizar el VPA, con visibilidad de su estado:
-  //  · Proyectos: steps "VPA valida Business Case…" (fase 1 y 3) y
-  //    "Plan de beneficios acordados con CFO", en Working on it (o Done, en el detalle).
+  //  · Proyectos: steps "VPA valida Business Case…" (fase 1 y 3),
+  //    "Plan de beneficios acordados con CFO" y "Value Gate (BC) Firmado y
+  //    aprobado (Sponsor+VPA+PMO Mgr)" (fase 2 y 3), en Working on it (o Done, en el detalle).
   //  · REQ: ítems en fase 2 (grupo Aprobación).
   const isVgStep = (name: string) => {
     const n = norm(name);
-    return n.includes("vpa valida business case") || n.includes("plan de beneficios acordados con cfo");
+    return n.includes("vpa valida business case")
+      || n.includes("plan de beneficios acordados con cfo")
+      || isValueGate(name);
   };
   const vpaProj: VpaAction[] = proj
     .filter((r) => isVgStep(r.name) && (r.status === "Working on it" || r.status === "Done"))
