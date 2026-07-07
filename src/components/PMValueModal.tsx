@@ -27,8 +27,6 @@ function Row({ label, c, b, strong }: { label: string; c: number; b: number; str
 }
 
 export default function PMValueModal({ pm, value, onClose }: { pm: string; value: PmValue; onClose: () => void }) {
-  const net = value.totalBenefit - value.totalCost;
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -57,7 +55,7 @@ export default function PMValueModal({ pm, value, onClose }: { pm: string; value
         {/* Body */}
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
           {/* Totales */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg p-3 text-center" style={{ background: "var(--bg-hover)" }}>
               <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Costo</div>
               <div className="mt-1 text-[1.05rem] font-bold tabular-nums" style={{ color: COST }}>{fmtMoney(value.totalCost)}</div>
@@ -66,22 +64,17 @@ export default function PMValueModal({ pm, value, onClose }: { pm: string; value
               <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Beneficio</div>
               <div className="mt-1 text-[1.05rem] font-bold tabular-nums" style={{ color: BEN }}>{fmtMoney(value.totalBenefit)}</div>
             </div>
-            <div className="rounded-lg p-3 text-center" style={{ background: "var(--bg-hover)" }}>
-              <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Valor Neto</div>
-              <div className="mt-1 text-[1.05rem] font-bold tabular-nums" style={{ color: net >= 0 ? BEN : "#ef4444" }}>{fmtMoney(net)}</div>
-            </div>
           </div>
 
           {/* Desglose */}
           <div className="space-y-2 rounded-xl border p-4" style={{ borderColor: "var(--border)" }}>
             <div className="mb-1 text-[0.62rem] uppercase tracking-widest text-[var(--text-muted)]">
-              Costo / Beneficio por origen
+              Costo / Beneficio
             </div>
             <Row label="REQ" c={value.reqCost} b={value.reqBenefit} />
             <div className="h-px" style={{ background: "var(--border)" }} />
-            <Row label="Proyectos · Aprobación" c={value.aprobCost} b={value.aprobBenefit} />
-            <Row label="Proyectos · Launch" c={value.ambosCost} b={value.ambosBenefit} />
-            <Row label="Total Proyectos" c={value.projCost} b={value.projBenefit} />
+            <Row label="Aprobación" c={value.aprobCost} b={value.aprobBenefit} />
+            <Row label="Confirmado" c={value.ambosCost} b={value.ambosBenefit} />
             <div className="h-px" style={{ background: "var(--border)" }} />
             <Row label="Total" c={value.totalCost} b={value.totalBenefit} strong />
           </div>

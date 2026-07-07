@@ -127,7 +127,9 @@ export default function ControlTowerPage() {
     }
   }
   const projBoardsAgg = [...projAgg.values()];
-  const projAprob = projBoardsAgg.filter((b) => b.doneAprob);
+  // Buckets mutuamente excluyentes (sin doble conteo):
+  //  Aprobación = solo Aprobación Done (Launch aún no).  Ambos = Aprobación y Launch Done.
+  const projAprob = projBoardsAgg.filter((b) => b.doneAprob && !b.doneLaunch);
   const projAmbos = projBoardsAgg.filter((b) => b.doneAprob && b.doneLaunch);
   const aprobCost    = projAprob.reduce((s, b) => s + b.cost, 0);
   const aprobBenefit = projAprob.reduce((s, b) => s + b.benefit, 0);
@@ -407,7 +409,9 @@ function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: P
     }
   }
   const boards = [...agg.values()];
-  const aprob = boards.filter((b) => b.doneAprob);
+  // Buckets mutuamente excluyentes (sin doble conteo):
+  //  aprob = solo Aprobación Done (Launch aún no).  ambos = Aprobación y Launch Done.
+  const aprob = boards.filter((b) => b.doneAprob && !b.doneLaunch);
   const ambos = boards.filter((b) => b.doneAprob && b.doneLaunch);
   const aprobCost    = aprob.reduce((s, b) => s + b.cost, 0);
   const aprobBenefit = aprob.reduce((s, b) => s + b.benefit, 0);
