@@ -45,7 +45,7 @@ export const PAGES: PageDef[] = [
   { key: "req",         label: "REQ",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
   { key: "visor",       label: "Visor",         href: "/visor",    icon: "🛃", public: true },
-  { key: "encuestas",   label: "Encuestas",     href: "/encuestas", icon: "📋", requiredAction: "manage_users" },
+  { key: "encuestas",   label: "Encuestas",     href: "/encuestas", icon: "📋" },
   { key: "usuarios",    label: "Usuarios",      href: "/usuarios",  icon: "⚙", requiredAction: "manage_users" },
   { key: "roles",       label: "Roles",         href: "/roles",     icon: "🛡", requiredAction: "manage_roles" },
   { key: "grupos",      label: "Grupos",        href: "/grupos",    icon: "🗂", requiredAction: "manage_roles" },
@@ -166,3 +166,21 @@ export const DEFAULT_ROLES: Role[] = [
 export const BOOTSTRAP_ADMIN_ROLE_ID  = "admin";
 export const DEFAULT_NEW_USER_ROLE_ID = "viewer";
 export const BOOTSTRAP_ADMIN_GROUP_ID = "administracion";
+
+/**
+ * Reconciliación del rol Administrador del sistema: SIEMPRE debe tener todo el
+ * catálogo vigente (páginas de contenido + acciones), aunque el rol se haya
+ * sembrado antes de que existieran páginas nuevas. Evita que al agregar una
+ * página el admin pierda acceso hasta re-otorgársela. Los demás roles se
+ * devuelven tal cual (ahí sí aplica la granularidad configurada). */
+export function reconcileSystemAdmin(role: Role): Role {
+  if (role.id !== BOOTSTRAP_ADMIN_ROLE_ID) return role;
+  return {
+    ...role,
+    permissions: {
+      pages:   { ...role.permissions.pages,   ...allContentPages(true) },
+      actions: { ...role.permissions.actions, ...allActions(true) },
+      groups:  { ...role.permissions.groups },
+    },
+  };
+}

@@ -3,19 +3,19 @@
 
 import { getAdminDb } from "@/lib/firebase-admin";
 import { normalizePermissions, type Permissions, type Role } from "@/lib/permissions";
-import { DEFAULT_ROLES } from "@/lib/registry";
+import { DEFAULT_ROLES, reconcileSystemAdmin } from "@/lib/registry";
 
 const COLL = "roles";
 
 function docToRole(id: string, d: FirebaseFirestore.DocumentData): Role {
-  return {
+  return reconcileSystemAdmin({
     id,
     name: d.name ?? id,
     permissions: normalizePermissions(d.permissions as Partial<Permissions>),
     isSystem: !!d.isSystem,
     createdAt: d.createdAt ?? undefined,
     updatedAt: d.updatedAt ?? undefined,
-  };
+  });
 }
 
 /** Siembra los roles base la primera vez (colección vacía). Idempotente. */

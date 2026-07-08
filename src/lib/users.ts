@@ -123,6 +123,13 @@ export async function requireAction(authHeader: string | null, action: string): 
   return me;
 }
 
+/** Verifica token + exige el permiso de una página concreta. */
+export async function requirePage(authHeader: string | null, pageKey: string): Promise<AppUser> {
+  const me = await getMe(await verifyRequest(authHeader));
+  if (!me.permissions.pages[pageKey]) throw new Error("forbidden");
+  return me;
+}
+
 /** Verifica token + exige AL MENOS UNA de las acciones dadas. */
 export async function requireAnyAction(authHeader: string | null, actions: string[]): Promise<AppUser> {
   const me = await getMe(await verifyRequest(authHeader));
