@@ -66,13 +66,18 @@ async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: She
 const boardItemsQuery = (boardId: string) =>
   `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name group { title } column_values { id text } } } } }`;
 
-// Iniciativas: además del texto y el título de columna (para match por nombre, ej. CKU),
+// Query "rica": además del texto y el título de columna (para match por nombre, ej. CKU),
 // trae display_value de columnas mirror/board_relation (Estrategia, Sponsor).
-const iniBoardQuery = (boardId: string) =>
+// Se usa para Iniciativas y REQ (ambos con relación a "Estrategia 🔝").
+const richBoardQuery = (boardId: string) =>
   `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name group { title } column_values { id text column { title } ... on MirrorValue { display_value } ... on BoardRelationValue { display_value } } } } } }`;
 
+// Board "Estrategia 🔝": nombre + U Neg + País + Sponsor (people; suele venir como email).
+const estBoardQuery = (boardId: string) =>
+  `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name column_values(ids:["text_mkx5ehzc","text_mkx5fa5a","multiple_person_mkz54zk0"]) { id text } } } } }`;
+
 const projBoardsQuery = (ids: string) =>
-  `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name group { title } column_values { id text column { title } } subitems { id name column_values { id text column { title } } } } } } }`;
+  `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name group { title } column_values { id text column { title } } subitems { id name column_values { id text column { title } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } } } } } }`;
 
 async function discoverProjBoards(): Promise<{ id: string; name: string }[]> {
   const data = await mondayFetch<{
@@ -87,12 +92,15 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
   const reqId = env("MONDAY_REQ_BOARD_ID");
   // Board "Directorio RH": el nombre del item es el nombre del recurso; email en email_mkz5qg4v.
   const rhId  = env("MONDAY_RH_BOARD_ID");
+  // Board "Estrategia 🔝": fuente de U Neg/País. Configurable; default al id descubierto.
+  const estId = process.env.MONDAY_EST_BOARD_ID || "18291587533";
 
-  // 1ª tanda en paralelo: ini, req, RH, web app (calendario + hoja) y descubrir boards.
-  const [iniData, reqData, rhData, webApp, projBoards] = await Promise.all([
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(iniBoardQuery(iniId)),
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(reqId)),
+  // 1ª tanda en paralelo: ini, req, RH, Estrategia, web app (calendario + hoja) y descubrir boards.
+  const [iniData, reqData, rhData, estData, webApp, projBoards] = await Promise.all([
+    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(richBoardQuery(iniId)),
+    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(richBoardQuery(reqId)),
     mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(rhId)),
+    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(estBoardQuery(estId)),
     fetchWebApp(),
     discoverProjBoards(),
   ]);
@@ -109,6 +117,7 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
     iniItems: iniData.boards[0]?.items_page.items ?? [],
     reqItems: reqData.boards[0]?.items_page.items ?? [],
     hrItems: rhData.boards[0]?.items_page.items ?? [],
+    estrategiaItems: estData.boards[0]?.items_page.items ?? [],
     projBoards,
     projRaw,
     calData: webApp.calData,

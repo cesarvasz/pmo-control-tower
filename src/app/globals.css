@@ -252,3 +252,19 @@ table.pmo tbody tr:hover td { background: var(--bg-hover); }
 /* ── PROGRESS BAR ───────────────────────────────────────────────────── */
 .progress-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; min-width: 60px; }
 .progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+/* ── CHART SERIES (Costo x Unid Neg · análisis) — colores validados (dataviz) ──
+   El tema por defecto (:root) es oscuro → valores dark. Se sobreescriben para
+   los temas de superficie clara. REQ=azul (slot 1), Hito=aqua (slot 2). */
+.viz { --series-req: #3987e5; --series-hito: #199e70; }
+:root[data-theme="light"] .viz,
+:root[data-theme="c807"] .viz,
+:root[data-theme="rose"] .viz { --series-req: #2a78d6; --series-hito: #1baf7a; }
+
+/* Barra apilada horizontal: baseline cuadrado (izq), data-end redondeado (der). */
+.viz-track { display: flex; gap: 2px; height: 18px; width: 100%; }
+.viz-seg { height: 100%; min-width: 2px; transition: filter 0.12s; }
+.viz-seg:hover { filter: brightness(1.12); }
+.viz-seg--first { border-radius: 2px 0 0 2px; }
+.viz-seg--last  { border-radius: 0 4px 4px 0; }
+.viz-seg--only  { border-radius: 2px 4px 4px 2px; }

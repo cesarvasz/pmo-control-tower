@@ -44,6 +44,7 @@ export const PAGES: PageDef[] = [
   { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
   { key: "req",         label: "REQ",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
+  { key: "costo-un",    label: "Costo $ x Unid Neg", href: "/costo-un", icon: "🏢" },
   { key: "visor",       label: "Visor",         href: "/visor",    icon: "🛃", public: true },
   { key: "encuestas",   label: "Encuestas",     href: "/encuestas", icon: "📋" },
   { key: "usuarios",    label: "Usuarios",      href: "/usuarios",  icon: "⚙", requiredAction: "manage_users" },

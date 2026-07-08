@@ -13,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import {
   buildCalMap,
+  buildEstrategiaMap,
   calcNps,
   iniProcess,
   buildIniLookup,
@@ -69,6 +70,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const projItemBaselines: Record<string, ProjItemBaseline> = raw.projItemBaselines ?? {};
       const calMap = buildCalMap(raw.calData);
       const nps = calcNps(raw.sheetRows ?? []);
+      const estrategiaMap = buildEstrategiaMap(raw.estrategiaItems ?? [], raw.hrItems ?? []);
 
       // Directorio RH: nombre del recurso (nombre del item) → email.
       const directorio: DirectorioEntry[] = (raw.hrItems ?? [])
@@ -79,7 +81,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         .filter((d) => d.name && d.email)
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, directorio, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, directorio, estrategiaMap, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

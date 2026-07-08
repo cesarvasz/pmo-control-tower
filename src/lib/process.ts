@@ -14,6 +14,7 @@ import {
 import type {
   CalMap,
   CalMeetingRaw,
+  EstrategiaInfo,
   IniItem,
   MondayColumnValue,
   MondayItem,
@@ -146,6 +147,8 @@ export const REQ_COLS = {
   pm: "multiple_person_mm3gq5vr",
   resp: "multiple_person_mkvdkw7j",
   status: "status",
+  estrategia: "board_relation_mm3g4b09", // relación a "Estrategia 🔝" (display_value = nombre)
+  cku: "board_relation_mm3gzm38",        // relación a CKU (display_value = nombre)
   cpmStart: "timeline9",
   estDev: "date_mm3gqxw0",
   costRH: "labor_budget_spent",
@@ -333,6 +336,8 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
       pm: col(REQ_COLS.pm),
       resp: col(REQ_COLS.resp),
       status,
+      estrategia: colDisplay(item.column_values, REQ_COLS.estrategia).trim(),
+      cku: colDisplay(item.column_values, REQ_COLS.cku).trim(),
       costRH, costSft, benefit,
       valueNet: benefit - costRH - costSft,
       tld, type, cpmEndEst,
@@ -357,6 +362,7 @@ export const PROJ_COL = {
   pm: "PM", resp: "Resp", status: "Status",
   deadline: "Limit Date", cost: "Cost $", benefit: "Benefit $",
   pmsId: "PMS ID", // ID del hito/subitem (ej. PMO-002-1)
+  developer: "Developer", tld: "TLD", // columnas de subelemento (hito)
 };
 
 function calcProjEstado(dl: Date | null): string {
@@ -384,6 +390,8 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
         pmsId: colByTitle(scv, PROJ_COL.pmsId),
         status: colByTitle(scv, PROJ_COL.status),
         person: "",
+        developer: colByTitleAny(scv, PROJ_COL.developer).trim(),
+        tld: colByTitleAny(scv, PROJ_COL.tld).trim(),
         deadline: sdl, estado: calcProjEstado(sdl),
         cost: parseFloat(colByTitle(scv, PROJ_COL.cost)) || 0,
         benefit: parseFloat(colByTitle(scv, PROJ_COL.benefit)) || 0,
@@ -536,6 +544,35 @@ export function buildIniLookup(
     });
   }
   return map;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ESTRATEGIA 🔝 (Unidad de Negocio / País por estrategia)
+// ─────────────────────────────────────────────────────────────────────
+export const EST_COLS = { uNeg: "text_mkx5ehzc", pais: "text_mkx5fa5a", sponsor: "multiple_person_mkz54zk0" };
+
+/** Mapa nombre-normalizado de Estrategia → { U Neg, País, Sponsor } desde "Estrategia 🔝".
+ *  El Sponsor viene como email → se resuelve a nombre con el Directorio RH (fallback al valor). */
+export function buildEstrategiaMap(estItems: MondayItem[], hrItems: MondayItem[] = []): Map<string, EstrategiaInfo> {
+  const emailToName = buildEmailNameMap(hrItems);
+  const resolveName = (v: string) => emailToName.get(v.trim().toLowerCase()) ?? v;
+  const map = new Map<string, EstrategiaInfo>();
+  for (const it of estItems) {
+    map.set(normName(it.name), {
+      uNeg: colText(it.column_values, EST_COLS.uNeg).trim(),
+      pais: colText(it.column_values, EST_COLS.pais).trim(),
+      sponsor: resolveName(colText(it.column_values, EST_COLS.sponsor).trim()),
+    });
+  }
+  return map;
+}
+
+/** Resuelve U Neg/País a partir del nombre de una estrategia (match por nombre normalizado). */
+export function lookupEstrategia(
+  map: Map<string, EstrategiaInfo>,
+  estrategiaName: string,
+): EstrategiaInfo | undefined {
+  return estrategiaName ? map.get(normName(estrategiaName)) : undefined;
 }
 
 /** Asigna a cada board su PM = Resp (o PM) del primer item, y la Estrategia/Sponsor/CKU de su Iniciativa. */

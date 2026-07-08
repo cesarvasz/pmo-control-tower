@@ -58,6 +58,7 @@ export interface DashboardRaw {
   iniItems: MondayItem[];
   reqItems: MondayItem[];
   hrItems: MondayItem[]; // Directorio RH (email → nombre del recurso)
+  estrategiaItems: MondayItem[]; // Board "Estrategia 🔝" (U Neg, País por estrategia)
   projBoards: { id: string; name: string }[];
   projRaw: ProjBoardRaw[];
   calData: CalMeetingRaw[];
@@ -103,6 +104,8 @@ export interface ReqItem {
   pm: string;
   resp: string;
   status: string;
+  estrategia: string; // nombre del ítem de Estrategia 🔝 (relación board_relation_mm3g4b09)
+  cku: string;        // nombre del CKU (relación board_relation_mm3gzm38, display_value)
   costRH: number;
   costSft: number;
   benefit: number;
@@ -136,6 +139,8 @@ export interface ProjSubitem {
   pmsId: string; // ID del hito desde la columna "PMS ID" de Monday (ej. PMO-002-1)
   status: string;
   person: string;
+  developer: string; // "Developer" del subelemento (board_relation, display_value)
+  tld: string;       // "TLD" del subelemento (lookup, display_value)
   deadline: Date | null;
   estado: string;
   cost: number;
@@ -211,6 +216,13 @@ export interface DirectorioEntry {
   email: string;
 }
 
+/** Unidad de Negocio, País y Sponsor de una Estrategia (board "Estrategia 🔝"). */
+export interface EstrategiaInfo {
+  uNeg: string;
+  pais: string;
+  sponsor: string; // nombre resuelto vía Directorio RH (la columna trae email)
+}
+
 export interface DashboardData {
   ini: IniItem[];
   req: ReqItem[];
@@ -220,5 +232,7 @@ export interface DashboardData {
   calMap: CalMap;
   nps: NpsData;
   directorio: DirectorioEntry[];
+  /** nombre-normalizado de Estrategia → { U Neg, País }. */
+  estrategiaMap: Map<string, EstrategiaInfo>;
   fetchedAt: Date;
 }
