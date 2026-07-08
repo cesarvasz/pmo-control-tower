@@ -20,7 +20,10 @@ import {
   projProcess,
   reqProcess,
 } from "@/lib/process";
-import type { DashboardData, DashboardRaw, ProjItem, ProjItemBaseline } from "@/types";
+import type { DashboardData, DashboardRaw, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
+
+// Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
+const RH_EMAIL_COL = "email_mkz5qg4v";
 
 interface DataContextValue {
   data: DashboardData | null;
@@ -67,7 +70,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const calMap = buildCalMap(raw.calData);
       const nps = calcNps(raw.sheetRows ?? []);
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, fetchedAt: new Date(raw.fetchedAt) });
+      // Directorio RH: nombre del recurso (nombre del item) → email.
+      const directorio: DirectorioEntry[] = (raw.hrItems ?? [])
+        .map((it) => ({
+          name: it.name,
+          email: (it.column_values.find((c) => c.id === RH_EMAIL_COL)?.text ?? "").trim(),
+        }))
+        .filter((d) => d.name && d.email)
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, directorio, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

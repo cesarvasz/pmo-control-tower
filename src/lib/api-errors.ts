@@ -12,6 +12,8 @@ export function apiError(err: unknown): NextResponse {
       return NextResponse.json({ error: "Dominio no autorizado" }, { status: 403 });
     case "forbidden":
       return NextResponse.json({ error: "No tienes permiso para esta acción" }, { status: 403 });
+    case "already-answered":
+      return NextResponse.json({ error: "Esta encuesta ya fue contestada" }, { status: 409 });
     case "user-not-found":
       return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
     case "role-not-found":

@@ -205,6 +205,12 @@ export interface NpsData {
 }
 
 /** Datos ya procesados que expone el DataContext a las páginas. */
+/** Entrada del Directorio RH (para el dropdown de destinatarios de encuestas). */
+export interface DirectorioEntry {
+  name: string;
+  email: string;
+}
+
 export interface DashboardData {
   ini: IniItem[];
   req: ReqItem[];
@@ -213,5 +219,6 @@ export interface DashboardData {
   projItemBaselines: Record<string, ProjItemBaseline>;
   calMap: CalMap;
   nps: NpsData;
+  directorio: DirectorioEntry[];
   fetchedAt: Date;
 }

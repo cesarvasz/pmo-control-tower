@@ -1,13 +1,17 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
+import { auth } from "@/lib/firebase";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { HEALTH_CFG, healthStatusFromIndex, REQ_ACTIVE_GRUPOS, REQ_GROUP_COLOR, REQ_PIPELINE, vemCfg } from "@/lib/process";
 import type { ReqItem } from "@/types";
+import type { SurveyDoc } from "@/lib/survey";
 import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
+import SurveySendModal from "@/components/SurveySendModal";
+import SurveyResultModal from "@/components/SurveyResultModal";
 import { EmptyRow, ErrorBox, FilterReset, Loader, SectionHeader, StatCard } from "@/components/ui";
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
@@ -31,6 +35,24 @@ function ReqInner() {
   const [groups, setGroups] = useState<string[]>([]);
   const [estado, setEstado] = useState("");
   const [selected, setSelected] = useState<ReqItem | null>(null);
+
+  // Encuestas por REQ (mapa reqId → encuesta) para los badges de estado.
+  const [surveys, setSurveys] = useState<Map<string, SurveyDoc>>(new Map());
+  const [sendTarget, setSendTarget] = useState<ReqItem | null>(null);
+  const [resultToken, setResultToken] = useState<string | null>(null);
+
+  const loadSurveys = useCallback(async () => {
+    try {
+      const t = await auth.currentUser?.getIdToken();
+      if (!t) return;
+      const res = await fetch("/api/surveys", { cache: "no-store", headers: { Authorization: `Bearer ${t}` } });
+      if (!res.ok) return;
+      const list = (await res.json()) as SurveyDoc[];
+      setSurveys(new Map(list.map((s) => [s.reqId, s])));
+    } catch { /* silencioso: los badges simplemente no aparecen */ }
+  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial de encuestas (sistema externo)
+  useEffect(() => { loadSurveys(); }, [loadSurveys]);
 
   const reqData = data?.req ?? [];
 
@@ -159,18 +181,72 @@ function ReqInner() {
 
       {/* Tabla */}
       <SectionHeader title="Detalle de Requerimientos" badge={`${filtered.length} items`} />
-      <ReqTable rows={filtered} onRowClick={setSelected} />
+      <ReqTable
+        rows={filtered}
+        onRowClick={setSelected}
+        surveys={surveys}
+        onSend={setSendTarget}
+        onResult={setResultToken}
+      />
 
       {/* Modal de detalle */}
       <ReqDetailModal req={selected} onClose={() => setSelected(null)} />
+
+      {/* Encuestas */}
+      {sendTarget && (
+        <SurveySendModal
+          target={{ reqId: sendTarget.id, reqCode: sendTarget.id, reqName: sendTarget.name, pm: sendTarget.pm }}
+          existing={surveys.get(sendTarget.id) ?? null}
+          directorio={data.directorio}
+          onClose={() => setSendTarget(null)}
+          onSaved={(s) => setSurveys((m) => new Map(m).set(s.reqId, s))}
+        />
+      )}
+      {resultToken && <SurveyResultModal token={resultToken} onClose={() => setResultToken(null)} />}
     </div>
   );
 }
 
-function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqItem) => void }) {
+function ReqTable({ rows, onRowClick, surveys, onSend, onResult }: {
+  rows: ReqItem[];
+  onRowClick: (r: ReqItem) => void;
+  surveys: Map<string, SurveyDoc>;
+  onSend: (r: ReqItem) => void;
+  onResult: (token: string) => void;
+}) {
   if (!rows.length) return <EmptyRow />;
   const t = today();
   const sorted = [...rows].sort((a, b) => REQ_PIPELINE.indexOf(a.grupo) - REQ_PIPELINE.indexOf(b.grupo));
+
+  const surveyCell = (r: ReqItem) => {
+    const s = surveys.get(r.id);
+    if (!s) {
+      return (
+        <button onClick={() => onSend(r)} className="rounded-md border px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ borderColor: "var(--border)", color: "var(--accent)" }}>
+          ✉ Enviar
+        </button>
+      );
+    }
+    if (s.invalidated) {
+      return (
+        <button onClick={() => onResult(s.token)} className="rounded-md px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ color: "#ef4444", background: "var(--pill-atrasado-bg)" }} title="Respuesta invalidada (no cuenta en métricas)">
+          ⊘ Invalidada
+        </button>
+      );
+    }
+    if (s.answered) {
+      return (
+        <button onClick={() => onResult(s.token)} className="rounded-md px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ color: "#10b981", background: "var(--health-on-track-bg)" }}>
+          ✓ Contestada
+        </button>
+      );
+    }
+    return (
+      <button onClick={() => onSend(r)} className="rounded-md px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ color: "#f59e0b", background: "var(--health-in-risk-bg)" }} title="Enviada · pendiente de respuesta (clic para copiar el enlace)">
+        ⏳ Enviada
+      </button>
+    );
+  };
 
   const estadoCell = (r: ReqItem) => {
     const cfg: Record<string, { label: string; color: string }> = {
@@ -202,7 +278,7 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
           <tr>
             <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
-            <th>Deadline</th><th>Diferencia</th><th>EVM</th>
+            <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Encuesta</th>
           </tr>
         </thead>
         <tbody>
@@ -224,6 +300,7 @@ function ReqTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqIt
                     ? (() => { const cf = vemCfg(r.vem as number); return <span className="pill" style={{ fontSize: ".68rem", color: cf.color, background: cf.bg, border: `1px solid ${cf.color}44` }}>{cf.icon} {cf.label} · {Math.round((r.vem as number) * 100)}%</span>; })()
                     : <span className="pill pill-skip" style={{ fontSize: ".68rem" }}>— Sin datos</span>}
                 </td>
+                <td>{surveyCell(r)}</td>
               </tr>
             );
           })}
