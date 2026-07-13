@@ -112,6 +112,18 @@ export async function reopenSurvey(token: string): Promise<SurveyDoc | null> {
   return getSurvey(token);
 }
 
+/** Cancela (elimina) una encuesta PENDIENTE. Lanza "survey-not-found" si no existe
+ *  y "survey-answered" si ya fue contestada (esas no se cancelan, se invalidan). Solo admin. */
+export async function deleteSurvey(token: string): Promise<void> {
+  const db = getAdminDb();
+  const ref = db.collection(SURVEYS).doc(token);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("survey-not-found");
+  if (snap.data()!.answered) throw new Error("survey-answered");
+  await db.collection(RESPONSES).doc(token).delete(); // por si hubiera una respuesta huérfana
+  await ref.delete();
+}
+
 export async function getResponse(token: string): Promise<SurveyResponseDoc | null> {
   const db = getAdminDb();
   const snap = await db.collection(RESPONSES).doc(token).get();

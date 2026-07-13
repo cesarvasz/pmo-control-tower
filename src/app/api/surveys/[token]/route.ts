@@ -4,7 +4,7 @@
 // No expone el correo asignado ni las respuestas.
 
 import { NextResponse } from "next/server";
-import { getSurvey, reopenSurvey, setInvalidated } from "@/lib/surveys";
+import { deleteSurvey, getSurvey, reopenSurvey, setInvalidated } from "@/lib/surveys";
 import { requireAction } from "@/lib/users";
 import type { PublicSurvey } from "@/lib/survey";
 import { apiError } from "@/lib/api-errors";
@@ -50,6 +50,21 @@ export async function PATCH(
 
     if (!survey) return NextResponse.json({ error: "Encuesta no encontrada" }, { status: 404 });
     return NextResponse.json(survey);
+  } catch (err) {
+    return apiError(err);
+  }
+}
+
+// DELETE: cancela una encuesta PENDIENTE (no contestada). Solo administrador.
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ token: string }> },
+) {
+  try {
+    await requireAction(request.headers.get("authorization"), "manage_roles");
+    const { token } = await params;
+    await deleteSurvey(token);
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);
   }

@@ -14,6 +14,10 @@ export function apiError(err: unknown): NextResponse {
       return NextResponse.json({ error: "No tienes permiso para esta acción" }, { status: 403 });
     case "already-answered":
       return NextResponse.json({ error: "Esta encuesta ya fue contestada" }, { status: 409 });
+    case "survey-answered":
+      return NextResponse.json({ error: "No se puede cancelar una encuesta ya contestada; usa Invalidar." }, { status: 409 });
+    case "survey-not-found":
+      return NextResponse.json({ error: "Encuesta no encontrada" }, { status: 404 });
     case "user-not-found":
       return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
     case "role-not-found":

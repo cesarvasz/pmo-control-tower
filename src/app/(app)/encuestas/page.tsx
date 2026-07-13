@@ -52,6 +52,15 @@ export default function EncuestasPage() {
       patch(token, { reopen: true });
     }
   };
+  const cancel = async (token: string) => {
+    if (!window.confirm("Se cancelará esta encuesta pendiente y el REQ volverá a mostrar el botón Enviar. ¿Continuar?")) return;
+    setBusyToken(token);
+    try {
+      const res = await authedFetch(`/api/surveys/${token}`, { method: "DELETE" });
+      if (res.ok) await load();
+    } catch { /* noop */ }
+    setBusyToken(null);
+  };
 
   if (error) return <ErrorBox msg={error} />;
   if (!surveys) return <Loader />;
@@ -104,37 +113,50 @@ export default function EncuestasPage() {
                   <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{fmt(s.createdAt)}</td>
                   <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{s.answeredAt ? fmt(s.answeredAt) : "—"}</td>
                   <td>
-                    {s.answered && (
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => setResultToken(s.token)}
-                          className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap"
-                          style={{ borderColor: "var(--border)", color: "var(--accent)" }}
-                        >
-                          Ver respuestas
-                        </button>
-                        {isAdmin && (
-                          <>
-                            <button
-                              onClick={() => patch(s.token, { invalidated: !s.invalidated })}
-                              disabled={busyToken === s.token}
-                              className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap disabled:opacity-50"
-                              style={{ borderColor: "var(--border)", color: s.invalidated ? "#10b981" : "#ef4444" }}
-                            >
-                              {s.invalidated ? "Validar" : "Invalidar"}
-                            </button>
-                            <button
-                              onClick={() => reopen(s.token)}
-                              disabled={busyToken === s.token}
-                              className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap disabled:opacity-50"
-                              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-                            >
-                              Volver a enviar
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {s.answered ? (
+                        <>
+                          <button
+                            onClick={() => setResultToken(s.token)}
+                            className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap"
+                            style={{ borderColor: "var(--border)", color: "var(--accent)" }}
+                          >
+                            Ver respuestas
+                          </button>
+                          {isAdmin && (
+                            <>
+                              <button
+                                onClick={() => patch(s.token, { invalidated: !s.invalidated })}
+                                disabled={busyToken === s.token}
+                                className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap disabled:opacity-50"
+                                style={{ borderColor: "var(--border)", color: s.invalidated ? "#10b981" : "#ef4444" }}
+                              >
+                                {s.invalidated ? "Validar" : "Invalidar"}
+                              </button>
+                              <button
+                                onClick={() => reopen(s.token)}
+                                disabled={busyToken === s.token}
+                                className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap disabled:opacity-50"
+                                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                              >
+                                Volver a enviar
+                              </button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        isAdmin && (
+                          <button
+                            onClick={() => cancel(s.token)}
+                            disabled={busyToken === s.token}
+                            className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap disabled:opacity-50"
+                            style={{ borderColor: "var(--border)", color: "#ef4444" }}
+                          >
+                            Cancelar
+                          </button>
+                        )
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
