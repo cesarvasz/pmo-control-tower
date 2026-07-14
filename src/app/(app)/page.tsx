@@ -405,11 +405,11 @@ function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: P
   const reqBenefit = reqItems.reduce((s, r) => s + r.benefit, 0);
 
   const pmBoardIds = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const agg = new Map<string, { cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
+  const agg = new Map<string, { name: string; cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
   for (const r of proj) {
     if (!pmBoardIds.has(r.boardId)) continue;
     let a = agg.get(r.boardId);
-    if (!a) { a = { cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; agg.set(r.boardId, a); }
+    if (!a) { a = { name: r.boardName, cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; agg.set(r.boardId, a); }
     a.cost += r.cost;
     a.benefit += r.benefit;
     if (r.status === "Done" && isValueGateSigned(r.name)) {
@@ -430,9 +430,17 @@ function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: P
   const projCost    = aprobCost + ambosCost;
   const projBenefit = aprobBenefit + ambosBenefit;
 
+  const detail = {
+    reqs: reqItems.map((r) => ({ name: r.name, cost: r.costRH + r.costSft, benefit: r.benefit })),
+    projects: boards
+      .filter((b) => b.doneAprob) // solo los que cuentan (aprob-only o confirmados)
+      .map((b) => ({ name: b.name, cost: b.cost, benefit: b.benefit, confirmed: b.doneAprob && b.doneLaunch })),
+  };
+
   return {
     reqCost, reqBenefit, aprobCost, aprobBenefit, ambosCost, ambosBenefit,
     projCost, projBenefit, totalCost: reqCost + projCost, totalBenefit: reqBenefit + projBenefit,
+    detail,
   };
 }
 
