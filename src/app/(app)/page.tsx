@@ -26,6 +26,9 @@ const INI_HEALTH_CFG = HEALTH_CFG;
 
 // Fases REQ de la 2 en adelante (Aprobación → Cierre ROI), para sumar costo/beneficio.
 const REQ_PHASE2PLUS = new Set(["Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
+// Los REQ solo tienen la fase 2 (Aprobación) como gate de valor. Si ya la pasaron
+// (fases posteriores) su valor se considera "Confirmación"; si siguen en fase 2, "Aprobación".
+const REQ_PASSED_PHASE2 = new Set(["Desarrollo", "Operación", "Cierre ROI"]);
 
 // Detección del item "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)" (fase Aprobación).
 // Se usa para las acciones del VPA.
@@ -120,6 +123,13 @@ export default function ControlTowerPage() {
   const reqWithValue = req.filter((r) => REQ_PHASE2PLUS.has(r.grupo));
   const reqCost     = reqWithValue.reduce((s, r) => s + r.costRH + r.costSft, 0);
   const reqBenefit  = reqWithValue.reduce((s, r) => s + r.benefit, 0);
+  // REQ que pasaron la fase 2 → Confirmación; los que siguen en fase 2 (Aprobación) → Aprobación.
+  const reqConfirmItems = reqWithValue.filter((r) => REQ_PASSED_PHASE2.has(r.grupo));
+  const reqAprobItems   = reqWithValue.filter((r) => !REQ_PASSED_PHASE2.has(r.grupo));
+  const reqConfirmCost    = reqConfirmItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
+  const reqConfirmBenefit = reqConfirmItems.reduce((s, r) => s + r.benefit, 0);
+  const reqAprobCost      = reqAprobItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
+  const reqAprobBenefit   = reqAprobItems.reduce((s, r) => s + r.benefit, 0);
 
   // Proyectos: se agrupan por board y se mide si el Value Gate (BC) está Done en Aprobación y/o Launch.
   const projAgg = new Map<string, { cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
@@ -149,6 +159,14 @@ export default function ControlTowerPage() {
 
   const totalCost    = reqCost + projCost;
   const totalBenefit = reqBenefit + projBenefit;
+
+  // Columnas combinadas (REQ + Proyectos) para la tarjeta y el pop-up:
+  //  Aprobación   = REQ en fase 2 + proyectos con solo el Value Gate de Aprobación.
+  //  Confirmación = REQ que pasaron fase 2 + proyectos con el Value Gate de Launch firmado.
+  const colAprobCost      = reqAprobCost + aprobCost;
+  const colAprobBenefit   = reqAprobBenefit + aprobBenefit;
+  const colConfirmCost    = reqConfirmCost + ambosCost;
+  const colConfirmBenefit = reqConfirmBenefit + ambosBenefit;
 
   // ── Payback (meses) y ROI (%) — REQ y Proyectos ──
   // Payback = costo / (beneficio / 12).   ROI = ((beneficio − costo) / costo) × 100.
@@ -252,11 +270,10 @@ export default function ControlTowerPage() {
             </div>
           </div>
           <div className="flex flex-col gap-0.5 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-            <span>REQ: <span style={{ color: "#0ea5e9" }}>{fmtMoney(reqCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(reqBenefit)}</span></span>
+            <span>Aprobación: <span style={{ color: "#0ea5e9" }}>{fmtMoney(colAprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(colAprobBenefit)}</span></span>
+            <span>Confirmación: <span style={{ color: "#0ea5e9" }}>{fmtMoney(colConfirmCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(colConfirmBenefit)}</span></span>
             <hr className="my-1" style={{ border: "none", borderTop: "1px solid var(--accent)" }} />
-            <span>Aprobación: <span style={{ color: "#0ea5e9" }}>{fmtMoney(aprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(aprobBenefit)}</span></span>
-            <span>Launch: <span style={{ color: "#0ea5e9" }}>{fmtMoney(ambosCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(ambosBenefit)}</span></span>
-            <span>Total: <span style={{ color: "#0ea5e9" }}>{fmtMoney(projCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(projBenefit)}</span></span>
+            <span>Total: <span style={{ color: "#0ea5e9" }}>{fmtMoney(totalCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(totalBenefit)}</span></span>
           </div>
         </div>
 
@@ -398,11 +415,21 @@ function pmWorstStatus(
   return all.includes("off-track") ? "off-track" : all.includes("in-risk") ? "in-risk" : "on-track";
 }
 
-/** Costo/beneficio por PM: REQ (fase 2+) y Proyectos (Value Gate BC firmado en Aprobación/Launch). */
+/** Costo/beneficio por PM en dos columnas: Aprobación (en fase 2 / gate Aprobación)
+ *  y Confirmación (REQ que pasó fase 2 / proyecto con Value Gate de Launch firmado). */
 function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[]): PmValue {
-  const reqItems   = req.filter((r) => r.pm === pm && REQ_PHASE2PLUS.has(r.grupo));
+  const reqItems = req.filter((r) => r.pm === pm && REQ_PHASE2PLUS.has(r.grupo));
   const reqCost    = reqItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
   const reqBenefit = reqItems.reduce((s, r) => s + r.benefit, 0);
+  // REQ que pasaron fase 2 → Confirmación; los que siguen en fase 2 → Aprobación.
+  const reqDetail = reqItems.map((r) => ({
+    name: r.name, cost: r.costRH + r.costSft, benefit: r.benefit,
+    confirmed: REQ_PASSED_PHASE2.has(r.grupo),
+  }));
+  const reqAprobCost      = reqDetail.filter((r) => !r.confirmed).reduce((s, r) => s + r.cost, 0);
+  const reqAprobBenefit   = reqDetail.filter((r) => !r.confirmed).reduce((s, r) => s + r.benefit, 0);
+  const reqConfirmCost    = reqDetail.filter((r) => r.confirmed).reduce((s, r) => s + r.cost, 0);
+  const reqConfirmBenefit = reqDetail.filter((r) => r.confirmed).reduce((s, r) => s + r.benefit, 0);
 
   const pmBoardIds = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
   const agg = new Map<string, { name: string; cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
@@ -419,27 +446,28 @@ function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: P
     }
   }
   const boards = [...agg.values()];
-  // Buckets mutuamente excluyentes (sin doble conteo):
-  //  aprob = solo Aprobación Done (Launch aún no).  ambos = Aprobación y Launch Done.
+  // Proyectos: aprob-only = solo Value Gate Aprobación; confirmado = también Launch firmado.
   const aprob = boards.filter((b) => b.doneAprob && !b.doneLaunch);
   const ambos = boards.filter((b) => b.doneAprob && b.doneLaunch);
   const aprobCost    = aprob.reduce((s, b) => s + b.cost, 0);
   const aprobBenefit = aprob.reduce((s, b) => s + b.benefit, 0);
   const ambosCost    = ambos.reduce((s, b) => s + b.cost, 0);
   const ambosBenefit = ambos.reduce((s, b) => s + b.benefit, 0);
-  const projCost    = aprobCost + ambosCost;
-  const projBenefit = aprobBenefit + ambosBenefit;
 
   const detail = {
-    reqs: reqItems.map((r) => ({ name: r.name, cost: r.costRH + r.costSft, benefit: r.benefit })),
+    reqs: reqDetail,
     projects: boards
       .filter((b) => b.doneAprob) // solo los que cuentan (aprob-only o confirmados)
       .map((b) => ({ name: b.name, cost: b.cost, benefit: b.benefit, confirmed: b.doneAprob && b.doneLaunch })),
   };
 
   return {
-    reqCost, reqBenefit, aprobCost, aprobBenefit, ambosCost, ambosBenefit,
-    projCost, projBenefit, totalCost: reqCost + projCost, totalBenefit: reqBenefit + projBenefit,
+    totalCost: reqCost + aprobCost + ambosCost,
+    totalBenefit: reqBenefit + aprobBenefit + ambosBenefit,
+    aprobCost: reqAprobCost + aprobCost,
+    aprobBenefit: reqAprobBenefit + aprobBenefit,
+    confirmCost: reqConfirmCost + ambosCost,
+    confirmBenefit: reqConfirmBenefit + ambosBenefit,
     detail,
   };
 }

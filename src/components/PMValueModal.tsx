@@ -3,18 +3,16 @@
 import { useState } from "react";
 import { fmtMoney } from "@/lib/business";
 
-export interface PmValueItem { name: string; cost: number; benefit: number }
+export interface PmValueItem { name: string; cost: number; benefit: number; confirmed: boolean }
 
 export interface PmValue {
-  reqCost: number; reqBenefit: number;
-  aprobCost: number; aprobBenefit: number;
-  ambosCost: number; ambosBenefit: number;
-  projCost: number; projBenefit: number;
   totalCost: number; totalBenefit: number;
-  // Detalle de ítems que componen los montos (para la pestaña Detalle).
+  aprobCost: number; aprobBenefit: number;       // Aprobación: REQ en fase 2 + proyectos con solo gate Aprobación
+  confirmCost: number; confirmBenefit: number;   // Confirmación: REQ que pasó fase 2 + proyectos con gate Launch firmado
+  // Detalle de ítems (para la pestaña Detalle). confirmed=true → columna Confirmación, si no Aprobación.
   detail: {
-    reqs: PmValueItem[];                                  // REQ (fase 2+) → columna Aprobación
-    projects: (PmValueItem & { confirmed: boolean })[];   // proyecto: confirmed=true → Confirmación, si no Aprobación
+    reqs: PmValueItem[];
+    projects: PmValueItem[];
   };
 }
 
@@ -49,10 +47,6 @@ const Dash = () => <span className="text-[var(--text-disabled)]">—</span>;
 export default function PMValueModal({ pm, value, onClose }: { pm: string; value: PmValue; onClose: () => void }) {
   const [tab, setTab] = useState<"resumen" | "detalle">("resumen");
   const d = value.detail;
-
-  // Totales por columna en el detalle: Aprobación = REQ + proyectos aprob-only; Confirmación = proyectos confirmados.
-  const aprobColCost = value.reqCost + value.aprobCost;
-  const aprobColBenefit = value.reqBenefit + value.aprobBenefit;
   const hasDetail = d.reqs.length + d.projects.length > 0;
 
   return (
@@ -117,10 +111,8 @@ export default function PMValueModal({ pm, value, onClose }: { pm: string; value
                 <div className="mb-1 text-[0.62rem] uppercase tracking-widest text-[var(--text-muted)]">
                   Costo / Beneficio
                 </div>
-                <Row label="REQ" c={value.reqCost} b={value.reqBenefit} />
-                <div className="h-px" style={{ background: "var(--border)" }} />
                 <Row label="Aprobación" c={value.aprobCost} b={value.aprobBenefit} />
-                <Row label="Confirmado" c={value.ambosCost} b={value.ambosBenefit} />
+                <Row label="Confirmación" c={value.confirmCost} b={value.confirmBenefit} />
                 <div className="h-px" style={{ background: "var(--border)" }} />
                 <Row label="Total" c={value.totalCost} b={value.totalBenefit} strong />
               </div>
@@ -129,7 +121,8 @@ export default function PMValueModal({ pm, value, onClose }: { pm: string; value
             <>
               <div className="text-[0.7rem] text-[var(--text-muted)]">
                 Cada ítem muestra <span style={{ color: BEN }}>Beneficio</span> / <span style={{ color: COST }}>Costo</span> en su fase.
-                Los REQ y proyectos con solo el Value Gate de Aprobación cuentan en <b>Aprobación</b>; los proyectos con el Value Gate de Launch firmado pasan a <b>Confirmación</b>.
+                En <b>Aprobación</b>: REQ que siguen en fase 2 y proyectos con solo el Value Gate de Aprobación.
+                En <b>Confirmación</b>: REQ que ya pasaron la fase 2 y proyectos con el Value Gate de Launch firmado.
               </div>
 
               {!hasDetail ? (
@@ -147,30 +140,24 @@ export default function PMValueModal({ pm, value, onClose }: { pm: string; value
                       </tr>
                     </thead>
                     <tbody>
-                      {d.reqs.map((r, i) => (
-                        <tr key={`req-${i}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                      {[
+                        ...d.reqs.map((r) => ({ ...r, kind: "REQ" as const })),
+                        ...d.projects.map((p) => ({ ...p, kind: "PM" as const })),
+                      ].map((it, i) => (
+                        <tr key={`${it.kind}-${i}`} className="border-t" style={{ borderColor: "var(--border)" }}>
                           <td className="px-3 py-2">
-                            <Tag kind="REQ" /> <span className="text-[var(--text-primary)]">{r.name}</span>
+                            <Tag kind={it.kind} /> <span className="text-[var(--text-primary)]">{it.name}</span>
                           </td>
-                          <td className="px-3 py-2"><CB c={r.cost} b={r.benefit} /></td>
-                          <td className="px-3 py-2 text-right"><Dash /></td>
-                        </tr>
-                      ))}
-                      {d.projects.map((p, i) => (
-                        <tr key={`proj-${i}`} className="border-t" style={{ borderColor: "var(--border)" }}>
-                          <td className="px-3 py-2">
-                            <Tag kind="PM" /> <span className="text-[var(--text-primary)]">{p.name}</span>
-                          </td>
-                          <td className="px-3 py-2">{p.confirmed ? <div className="text-right"><Dash /></div> : <CB c={p.cost} b={p.benefit} />}</td>
-                          <td className="px-3 py-2">{p.confirmed ? <CB c={p.cost} b={p.benefit} /> : <div className="text-right"><Dash /></div>}</td>
+                          <td className="px-3 py-2">{it.confirmed ? <div className="text-right"><Dash /></div> : <CB c={it.cost} b={it.benefit} />}</td>
+                          <td className="px-3 py-2">{it.confirmed ? <CB c={it.cost} b={it.benefit} /> : <div className="text-right"><Dash /></div>}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr className="border-t-2" style={{ borderColor: "var(--border)", background: "var(--bg-hover)" }}>
                         <td className="px-3 py-2 font-bold text-[var(--text-primary)]">Total</td>
-                        <td className="px-3 py-2"><CB c={aprobColCost} b={aprobColBenefit} /></td>
-                        <td className="px-3 py-2"><CB c={value.ambosCost} b={value.ambosBenefit} /></td>
+                        <td className="px-3 py-2"><CB c={value.aprobCost} b={value.aprobBenefit} /></td>
+                        <td className="px-3 py-2"><CB c={value.confirmCost} b={value.confirmBenefit} /></td>
                       </tr>
                     </tfoot>
                   </table>
