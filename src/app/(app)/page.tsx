@@ -27,11 +27,19 @@ const INI_HEALTH_CFG = HEALTH_CFG;
 // Fases REQ de la 2 en adelante (Aprobación → Cierre ROI), para sumar costo/beneficio.
 const REQ_PHASE2PLUS = new Set(["Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
 
-// Detección del item "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)" en proyectos.
+// Detección del item "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)" (fase Aprobación).
+// Se usa para las acciones del VPA.
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const isValueGate = (name: string) => {
   const n = norm(name);
   return n.includes("value gate") && n.includes("firmado") && n.includes("aprobado");
+};
+// Cualquier Value Gate (BC) FIRMADO, en cualquier fase. Cubre el de Aprobación
+// ("Firmado y aprobado") y el de Launch ("Actualizado y firmado"), para clasificar el
+// beneficio en el bucket correcto; el grupo (Aprobación/Launch) desambigua la fase.
+const isValueGateSigned = (name: string) => {
+  const n = norm(name);
+  return n.includes("value gate") && n.includes("firmado");
 };
 
 export default function ControlTowerPage() {
@@ -120,7 +128,7 @@ export default function ControlTowerPage() {
     if (!a) { a = { cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; projAgg.set(r.boardId, a); }
     a.cost += r.cost;
     a.benefit += r.benefit;
-    if (r.status === "Done" && isValueGate(r.name)) {
+    if (r.status === "Done" && isValueGateSigned(r.name)) {
       const g = norm(r.grupo);
       if (g.includes("aprobacion")) a.doneAprob = true;
       if (g.includes("launch")) a.doneLaunch = true;
@@ -404,7 +412,7 @@ function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: P
     if (!a) { a = { cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; agg.set(r.boardId, a); }
     a.cost += r.cost;
     a.benefit += r.benefit;
-    if (r.status === "Done" && isValueGate(r.name)) {
+    if (r.status === "Done" && isValueGateSigned(r.name)) {
       const g = norm(r.grupo);
       if (g.includes("aprobacion")) a.doneAprob = true;
       if (g.includes("launch")) a.doneLaunch = true;
