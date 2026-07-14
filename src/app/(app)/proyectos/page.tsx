@@ -269,9 +269,6 @@ function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean })
 }
 
 function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void }) {
-  // Step "Encuesta para NPS": habilita el envío de la encuesta solo si está en "Working on it".
-  const npsStep = items.find((it) => NPS_STEP_RE.test(it.name));
-  const npsActive = !!npsStep && isWorkingOnIt(npsStep.status);
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -439,27 +436,6 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
             {resetting ? "…" : resetState === "ok" ? "✓ Base actualizada" : resetState === "error" ? "✕ Error" : "↺ Costo Inicial"}
           </button>
         )}
-        {npsActive && npsStep && (() => {
-          const list = surveysByReq.get(npsStep.id) ?? [];
-          const total = list.length;
-          const answered = list.filter((s) => s.answered && !s.invalidated).length;
-          const done = total > 0 && answered === total;
-          const color = total === 0 ? "var(--accent)" : done ? "#10b981" : "#f59e0b";
-          const [code, ...rest] = board.name.split("|");
-          return (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenSurvey({ reqId: npsStep.id, reqCode: code.trim(), reqName: rest.join("|").trim() || board.name, pm: board.pm });
-              }}
-              className="rounded-full border px-2.5 py-0.5 text-[0.7rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
-              style={{ borderColor: color, color }}
-              title="Encuesta NPS · el step está en Working on it — agregar destinatarios y enviar enlaces"
-            >
-              {total > 0 ? `👥 ${answered}/${total}` : "✉ Encuesta NPS"}
-            </button>
-          );
-        })()}
         <button
           onClick={(e) => { e.stopPropagation(); setShowReport(true); }}
           className="rounded-full border px-2.5 py-0.5 text-[0.7rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
@@ -519,7 +495,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                     </tr>
                     {gOpen && gItems.map((r) => {
                       const [ecls, elbl] = estadoPill(r.status, r.estado);
-                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} />;
+                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} pm={board.pm} surveysByReq={surveysByReq} onOpenSurvey={onOpenSurvey} />;
                     })}
                   </React.Fragment>
                 );
@@ -533,13 +509,16 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
   );
 }
 
-function Row({ r, ecls, elbl, filterNoDl }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean }) {
+function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean; pm: string; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void }) {
   const [open, setOpen] = useState(false);
   const allSubitems = r.subitems;
   const visibleSubitems = filterNoDl ? allSubitems.filter((s) => s.deadline === null) : allSubitems;
   const hasSubitems = allSubitems.length > 0;
   const subOffTrack = allSubitems.some((s) => isOffTrack(s.status, s.estado));
   const isOpen = (filterNoDl && visibleSubitems.length > 0) || open;
+
+  // Solo los subitems del step "Encuesta para NPS" que estén en Working on it llevan encuesta.
+  const isNpsStep = NPS_STEP_RE.test(r.name);
 
   const SUB_BG = "var(--bg-hover)";
 
@@ -599,6 +578,23 @@ function Row({ r, ecls, elbl, filterNoDl }: { r: ProjItem; ecls: string; elbl: s
                 {isLast ? "└─" : "├─"}
               </span>
               {s.name}
+              {isNpsStep && isWorkingOnIt(s.status) && (() => {
+                const list = surveysByReq.get(s.id) ?? [];
+                const total = list.length;
+                const answered = list.filter((x) => x.answered && !x.invalidated).length;
+                const done = total > 0 && answered === total;
+                const color = total === 0 ? "var(--accent)" : done ? "#10b981" : "#f59e0b";
+                return (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onOpenSurvey({ reqId: s.id, reqCode: s.pmsId, reqName: s.name, pm }); }}
+                    className="ml-2 rounded-md border px-2 py-0.5 text-[0.66rem] font-semibold align-middle transition-colors hover:bg-[var(--bg-surface)]"
+                    style={{ borderColor: color, color }}
+                    title="Encuesta · agregar destinatarios y enviar enlaces"
+                  >
+                    {total > 0 ? `👥 ${answered}/${total}` : "✉ Encuesta"}
+                  </button>
+                );
+              })()}
             </td>
             <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.status || "—"}</td>
             <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
