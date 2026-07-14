@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { getAdminDb } from "@/lib/firebase-admin";
 import type { SurveyAnswers, SurveyDoc, SurveyResponseDoc } from "@/lib/survey";
+import type { NpsRecord } from "@/types";
 
 const SURVEYS = "surveys";
 const RESPONSES = "survey_responses";
@@ -39,38 +40,34 @@ export async function getSurvey(token: string): Promise<SurveyDoc | null> {
   return snap.exists ? toSurvey(snap.id, snap.data()!) : null;
 }
 
-export async function getSurveyByReq(reqId: string): Promise<SurveyDoc | null> {
+/** Todas las encuestas (links) de un REQ. Un REQ puede tener varias, una por persona. */
+export async function listSurveysByReq(reqId: string): Promise<SurveyDoc[]> {
   const db = getAdminDb();
-  const snap = await db.collection(SURVEYS).where("reqId", "==", reqId).limit(1).get();
-  return snap.empty ? null : toSurvey(snap.docs[0].id, snap.docs[0].data());
+  const snap = await db.collection(SURVEYS).where("reqId", "==", reqId).get();
+  return snap.docs.map((doc) => toSurvey(doc.id, doc.data()));
 }
 
 /**
- * Crea (o reasigna, si aún no fue contestada) la encuesta de un REQ.
- * Devuelve el doc resultante. Idempotente por reqId.
+ * Crea un link de encuesta para una persona dentro de un REQ.
+ * Un REQ puede tener varios links (uno por destinatario). Idempotente por (reqId, correo):
+ * si esa persona ya tiene un link PENDIENTE en el REQ, se reutiliza en vez de duplicarlo.
  */
-export async function upsertSurvey(input: {
+export async function createSurvey(input: {
   reqId: string; reqCode: string; reqName: string; pm: string;
   assignedEmail: string; assignedName: string; createdByEmail: string;
 }): Promise<SurveyDoc> {
   const db = getAdminDb();
-  const existing = await getSurveyByReq(input.reqId);
+  const email = input.assignedEmail.toLowerCase();
 
-  if (existing) {
-    // Ya contestada → no se puede reasignar; se devuelve tal cual.
-    if (existing.answered) return existing;
-    // Pendiente → se puede actualizar el destinatario y reutilizar el mismo link.
-    await db.collection(SURVEYS).doc(existing.token).set(
-      {
-        assignedEmail: input.assignedEmail.toLowerCase(),
-        assignedName: input.assignedName,
-        reqCode: input.reqCode,
-        reqName: input.reqName,
-        pm: input.pm,
-      },
+  // Reutiliza un link pendiente ya existente para la misma persona en el mismo REQ.
+  const existing = await listSurveysByReq(input.reqId);
+  const pending = existing.find((s) => s.assignedEmail === email && !s.answered);
+  if (pending) {
+    await db.collection(SURVEYS).doc(pending.token).set(
+      { assignedName: input.assignedName, reqCode: input.reqCode, reqName: input.reqName, pm: input.pm },
       { merge: true },
     );
-    return { ...existing, ...input, assignedEmail: input.assignedEmail.toLowerCase() };
+    return { ...pending, assignedName: input.assignedName, reqCode: input.reqCode, reqName: input.reqName, pm: input.pm };
   }
 
   const token = randomUUID();
@@ -122,6 +119,31 @@ export async function deleteSurvey(token: string): Promise<void> {
   if (snap.data()!.answered) throw new Error("survey-answered");
   await db.collection(RESPONSES).doc(token).delete(); // por si hubiera una respuesta huérfana
   await ref.delete();
+}
+
+/**
+ * Todas las respuestas unidas con el PM e `invalidated` de su encuesta.
+ * Fuente única del NPS (global y por PM). Las importadas del Sheet tienen pm="".
+ */
+export async function listNpsRecords(): Promise<NpsRecord[]> {
+  const db = getAdminDb();
+  const [respSnap, surveySnap] = await Promise.all([
+    db.collection(RESPONSES).get(),
+    db.collection(SURVEYS).get(),
+  ]);
+  const surveyById = new Map(surveySnap.docs.map((d) => [d.id, d.data()]));
+  return respSnap.docs.map((d) => {
+    const r = d.data();
+    const s = surveyById.get(d.id) ?? {};
+    return {
+      answers: (r.answers ?? {}) as NpsRecord["answers"],
+      pm: s.pm ?? "",
+      invalidated: !!s.invalidated,
+      respondentEmail: r.respondentEmail ?? "",
+      submittedAt: r.submittedAt ?? "",
+      reqCode: s.reqCode ?? "",
+    };
+  });
 }
 
 export async function getResponse(token: string): Promise<SurveyResponseDoc | null> {

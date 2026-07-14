@@ -1,10 +1,11 @@
 // src/app/api/surveys/route.ts
 // GET: lista todas las encuestas (para los badges de estado en la página REQ).
-// POST: crea (o reasigna) la encuesta de un REQ. Cualquier usuario autenticado.
+// POST: crea un link de encuesta para una persona dentro de un REQ (un REQ puede tener
+//       varios links, uno por destinatario). Cualquier usuario autenticado.
 
 import { NextResponse } from "next/server";
 import { verifyRequest } from "@/lib/firebase-admin";
-import { listSurveys, upsertSurvey } from "@/lib/surveys";
+import { createSurvey, listSurveys } from "@/lib/surveys";
 import { apiError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
     if (!body.reqId || !body.assignedEmail?.trim()) {
       return NextResponse.json({ error: "Falta reqId o el correo del destinatario" }, { status: 400 });
     }
-    const survey = await upsertSurvey({
+    const survey = await createSurvey({
       reqId: body.reqId,
       reqCode: body.reqCode ?? "",
       reqName: body.reqName ?? "",

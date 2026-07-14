@@ -14,7 +14,7 @@ import { auth } from "@/lib/firebase";
 import {
   buildCalMap,
   buildEstrategiaMap,
-  calcNps,
+  calcNpsFromRecords,
   iniProcess,
   buildIniLookup,
   projEnrichBoards,
@@ -69,7 +69,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const projBoards = projEnrichBoards(raw.projBoards, proj, buildIniLookup(raw.iniItems, raw.hrItems));
       const projItemBaselines: Record<string, ProjItemBaseline> = raw.projItemBaselines ?? {};
       const calMap = buildCalMap(raw.calData);
-      const nps = calcNps(raw.sheetRows ?? []);
+      const npsRecords = raw.npsRecords ?? [];
+      const nps = calcNpsFromRecords(npsRecords); // NPS global desde Firestore
       const estrategiaMap = buildEstrategiaMap(raw.estrategiaItems ?? [], raw.hrItems ?? []);
 
       // Directorio RH: nombre del recurso (nombre del item) → email.
@@ -81,7 +82,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         .filter((d) => d.name && d.email)
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, directorio, estrategiaMap, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, directorio, estrategiaMap, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

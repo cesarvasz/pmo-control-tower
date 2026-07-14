@@ -4,6 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
+import { listNpsRecords } from "@/lib/surveys";
 import { verifyRequest, getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline } from "@/lib/firebase-admin";
 import type { MondayColumnValue, MondayItem, ProjBoardRaw } from "@/types";
 
@@ -105,11 +106,12 @@ export async function GET(request: Request) {
   // 2. Single Fetch a Monday + sync baselines en Firestore.
   try {
     const data = await fetchDashboardRaw();
-    const [baselines, projItemBaselines] = await Promise.all([
+    const [baselines, projItemBaselines, npsRecords] = await Promise.all([
       syncBaselines(data.reqItems),
       syncProjItemBaselines(data.projRaw),
+      listNpsRecords(),
     ]);
-    return NextResponse.json({ ...data, baselines, projItemBaselines });
+    return NextResponse.json({ ...data, baselines, projItemBaselines, npsRecords });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: message }, { status: 500 });

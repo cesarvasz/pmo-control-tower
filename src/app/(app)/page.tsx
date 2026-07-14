@@ -4,9 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
-import { calcIniPMHealth, calcBoardMetrics, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
+import { calcIniPMHealth, calcBoardMetrics, calcNpsFromRecords, deriveBoardHealth, healthStatusFromIndex, HEALTH_CFG, INI_ACTIVE_STS, iniIsParaHoy, npsCfg, REQ_ACTIVE_GRUPOS } from "@/lib/process";
 import type { BoardHealthData, HealthStatus } from "@/lib/process";
-import type { CalMap, IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
@@ -44,7 +44,7 @@ export default function ControlTowerPage() {
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords } = data;
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
 
@@ -316,7 +316,7 @@ export default function ControlTowerPage() {
         {allPMs.map((pm) => {
           const q = encodeURIComponent(pm);
           return (
-            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
           );
         })}
       </div>
@@ -429,14 +429,19 @@ function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: P
 }
 
 function PMPortfolioCard({
-  pm, ini, req, proj, projBoards, boardHealthMap, calMap, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[];
   projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap;
+  npsRecords: NpsRecord[];
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
+
+  // NPS personal del PM (mismas fórmulas, filtrando por PM).
+  const pmNps = calcNpsFromRecords(npsRecords, pm);
+  const npsColor = npsCfg(pmNps.nps)?.color ?? "#6b7280";
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -487,6 +492,13 @@ function PMPortfolioCard({
           >
             $
           </button>
+          <span
+            title={`NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""}`}
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold"
+            style={{ color: npsColor, background: npsColor + "22" }}
+          >
+            NPS {pmNps.nps !== null ? pmNps.nps : "s/d"}
+          </span>
           <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}{pmEvmPct !== null ? ` · ${pmEvmPct}%` : ""}</span>
         </div>
       </div>

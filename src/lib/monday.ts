@@ -124,6 +124,7 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
     sheetRows: webApp.sheetRows,
     baselines: {},          // el route handler inyecta los baselines de REQ desde Firestore
     projItemBaselines: {}, // el route handler inyecta los baselines de Proyectos desde Firestore
+    npsRecords: [],        // el route handler inyecta las respuestas de encuestas desde Firestore
     fetchedAt: new Date().toISOString(),
   };
 }

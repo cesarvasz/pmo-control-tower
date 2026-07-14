@@ -65,6 +65,7 @@ export interface DashboardRaw {
   sheetRows: SheetRow[];
   baselines: Record<string, ReqBaseline>;
   projItemBaselines: Record<string, ProjItemBaseline>;
+  npsRecords: NpsRecord[]; // respuestas de encuestas (Firestore) para el NPS
   fetchedAt: string;
 }
 
@@ -197,6 +198,17 @@ export interface NpsQuestionAvg {
   count: number;  // respuestas dadas a esta pregunta
 }
 
+/** Respuesta cruda de encuesta (Firestore) lista para el cálculo de NPS.
+ *  `answers` viene indexado por id de pregunta (nps, razon, G1…H2). */
+export interface NpsRecord {
+  answers: Record<string, string | number>;
+  pm: string;              // PM del REQ asociado (vacío para respuestas importadas del Sheet)
+  invalidated: boolean;    // excluida de métricas si true
+  respondentEmail: string;
+  submittedAt: string;
+  reqCode: string;
+}
+
 /** Resultado del NPS (encuesta PMO). */
 export interface NpsData {
   nps: number | null;   // -100 a 100
@@ -230,7 +242,8 @@ export interface DashboardData {
   projBoards: ProjBoard[];
   projItemBaselines: Record<string, ProjItemBaseline>;
   calMap: CalMap;
-  nps: NpsData;
+  nps: NpsData;                // NPS global (fuente: Firestore)
+  npsRecords: NpsRecord[];     // respuestas crudas para NPS por PM
   directorio: DirectorioEntry[];
   /** nombre-normalizado de Estrategia → { U Neg, País }. */
   estrategiaMap: Map<string, EstrategiaInfo>;

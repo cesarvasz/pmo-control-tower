@@ -38,23 +38,13 @@ function ReqInner() {
   const [estado, setEstado] = useState("");
   const [selected, setSelected] = useState<ReqItem | null>(null);
 
-  // Encuestas por REQ (mapa reqId → encuesta) para los badges de estado.
-  const [surveys, setSurveys] = useState<Map<string, SurveyDoc>>(new Map());
+  // Encuestas por REQ (mapa reqId → lista de encuestas; una por destinatario).
+  const [surveys, setSurveys] = useState<Map<string, SurveyDoc[]>>(new Map());
   const [sendTarget, setSendTarget] = useState<ReqItem | null>(null);
   const [resultToken, setResultToken] = useState<string | null>(null);
 
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_roles");
-
-  const cancelSurvey = useCallback(async (reqId: string, token: string) => {
-    if (!window.confirm("Se cancelará esta encuesta pendiente y volverá a aparecer el botón Enviar. ¿Continuar?")) return;
-    try {
-      const t = await auth.currentUser?.getIdToken();
-      if (!t) return;
-      const res = await fetch(`/api/surveys/${token}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
-      if (res.ok) setSurveys((m) => { const n = new Map(m); n.delete(reqId); return n; });
-    } catch { /* noop */ }
-  }, []);
 
   const loadSurveys = useCallback(async () => {
     try {
@@ -63,7 +53,12 @@ function ReqInner() {
       const res = await fetch("/api/surveys", { cache: "no-store", headers: { Authorization: `Bearer ${t}` } });
       if (!res.ok) return;
       const list = (await res.json()) as SurveyDoc[];
-      setSurveys(new Map(list.map((s) => [s.reqId, s])));
+      const byReq = new Map<string, SurveyDoc[]>();
+      for (const s of list) {
+        const arr = byReq.get(s.reqId);
+        if (arr) arr.push(s); else byReq.set(s.reqId, [s]);
+      }
+      setSurveys(byReq);
     } catch { /* silencioso: los badges simplemente no aparecen */ }
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial de encuestas (sistema externo)
@@ -210,9 +205,6 @@ function ReqInner() {
         onRowClick={setSelected}
         surveys={surveys}
         onSend={setSendTarget}
-        onResult={setResultToken}
-        isAdmin={isAdmin}
-        onCancel={cancelSurvey}
       />
 
       {/* REQ Cerrados (tabla aparte al fondo) */}
@@ -224,9 +216,6 @@ function ReqInner() {
             onRowClick={setSelected}
             surveys={surveys}
             onSend={setSendTarget}
-            onResult={setResultToken}
-            isAdmin={isAdmin}
-            onCancel={cancelSurvey}
           />
         </div>
       )}
@@ -238,10 +227,12 @@ function ReqInner() {
       {sendTarget && (
         <SurveySendModal
           target={{ reqId: sendTarget.id, reqCode: sendTarget.id, reqName: sendTarget.name, pm: sendTarget.pm }}
-          existing={surveys.get(sendTarget.id) ?? null}
+          existing={surveys.get(sendTarget.id) ?? []}
           directorio={data.directorio}
+          isAdmin={isAdmin}
           onClose={() => setSendTarget(null)}
-          onSaved={(s) => setSurveys((m) => new Map(m).set(s.reqId, s))}
+          onChange={(list) => setSurveys((m) => new Map(m).set(sendTarget.id, list))}
+          onResult={(token) => { setSendTarget(null); setResultToken(token); }}
         />
       )}
       {resultToken && <SurveyResultModal token={resultToken} onClose={() => setResultToken(null)} />}
@@ -249,53 +240,40 @@ function ReqInner() {
   );
 }
 
-function ReqTable({ rows, onRowClick, surveys, onSend, onResult, isAdmin, onCancel }: {
+function ReqTable({ rows, onRowClick, surveys, onSend }: {
   rows: ReqItem[];
   onRowClick: (r: ReqItem) => void;
-  surveys: Map<string, SurveyDoc>;
+  surveys: Map<string, SurveyDoc[]>;
   onSend: (r: ReqItem) => void;
-  onResult: (token: string) => void;
-  isAdmin: boolean;
-  onCancel: (reqId: string, token: string) => void;
 }) {
   if (!rows.length) return <EmptyRow />;
   const t = today();
   const sorted = [...rows].sort((a, b) => REQ_PIPELINE.indexOf(a.grupo) - REQ_PIPELINE.indexOf(b.grupo));
 
+  // Un REQ puede tener varios links (uno por persona). La celda resume el estado y
+  // abre el modal para agregar destinatarios (＋), copiar enlaces o ver respuestas.
   const surveyCell = (r: ReqItem) => {
-    const s = surveys.get(r.id);
-    if (!s) {
+    const list = surveys.get(r.id) ?? [];
+    if (list.length === 0) {
       return (
         <button onClick={() => onSend(r)} className="rounded-md border px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ borderColor: "var(--border)", color: "var(--accent)" }}>
           ✉ Enviar
         </button>
       );
     }
-    if (s.invalidated) {
-      return (
-        <button onClick={() => onResult(s.token)} className="rounded-md px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ color: "#ef4444", background: "var(--pill-atrasado-bg)" }} title="Respuesta invalidada (no cuenta en métricas)">
-          ⊘ Invalidada
-        </button>
-      );
-    }
-    if (s.answered) {
-      return (
-        <button onClick={() => onResult(s.token)} className="rounded-md px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ color: "#10b981", background: "var(--health-on-track-bg)" }}>
-          ✓ Contestada
-        </button>
-      );
-    }
+    const total = list.length;
+    const answered = list.filter((s) => s.answered && !s.invalidated).length;
+    const invalid = list.filter((s) => s.invalidated).length;
+    const pending = total - answered - invalid;
+    const color = pending > 0 ? "#f59e0b" : "#10b981";
+    const bg = pending > 0 ? "var(--health-in-risk-bg)" : "var(--health-on-track-bg)";
+    const title = `${total} enviada${total !== 1 ? "s" : ""} · ${answered} contestada${answered !== 1 ? "s" : ""}`
+      + (invalid ? ` · ${invalid} invalidada${invalid !== 1 ? "s" : ""}` : "")
+      + " (clic para gestionar)";
     return (
-      <div className="flex items-center gap-1.5">
-        <button onClick={() => onSend(r)} className="rounded-md px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ color: "#f59e0b", background: "var(--health-in-risk-bg)" }} title="Enviada · pendiente de respuesta (clic para copiar el enlace)">
-          ⏳ Enviada
-        </button>
-        {isAdmin && (
-          <button onClick={() => onCancel(r.id, s.token)} className="rounded-md border px-1.5 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ borderColor: "var(--border)", color: "#ef4444" }} title="Cancelar encuesta (vuelve a mostrar Enviar)">
-            ✕
-          </button>
-        )}
-      </div>
+      <button onClick={() => onSend(r)} className="rounded-md px-2 py-1 text-[0.68rem] font-semibold whitespace-nowrap" style={{ color, background: bg }} title={title}>
+        👥 {answered}/{total}
+      </button>
     );
   };
 
