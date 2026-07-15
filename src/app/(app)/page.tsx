@@ -481,6 +481,7 @@ function PMPortfolioCard({
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
+  const pmValue = calcPmValue(pm, req, proj, projBoards);
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
   // NPS personal del PM (mismas fórmulas, filtrando por PM).
@@ -530,11 +531,12 @@ function PMPortfolioCard({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowValue(true)}
-            title="Ver costo y beneficio"
-            className="flex h-7 w-7 items-center justify-center rounded-lg border text-[0.9rem] font-bold text-[var(--text-secondary)] transition-colors hover:border-[#0ea5e9] hover:text-[#0ea5e9]"
+            title={`Confirmación (beneficio): ${fmtMoney(pmValue.confirmBenefit)} · clic para ver costo y beneficio`}
+            className="flex h-7 items-center gap-1 rounded-lg border px-2 text-[0.75rem] font-bold text-[var(--text-secondary)] transition-colors hover:border-[#0ea5e9] hover:text-[#0ea5e9]"
             style={{ borderColor: "var(--border)" }}
           >
-            $
+            <span className="text-[0.9rem]">$</span>
+            <span style={{ color: "#10b981" }}>{fmtMoney(pmValue.confirmBenefit)}</span>
           </button>
           <span
             title={`NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""}`}
@@ -603,7 +605,7 @@ function PMPortfolioCard({
       </div>
 
       {showValue && (
-        <PMValueModal pm={pm} value={calcPmValue(pm, req, proj, projBoards)} onClose={() => setShowValue(false)} />
+        <PMValueModal pm={pm} value={pmValue} onClose={() => setShowValue(false)} />
       )}
     </div>
   );
