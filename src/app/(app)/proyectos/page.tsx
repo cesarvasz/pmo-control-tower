@@ -268,6 +268,23 @@ function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean })
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
 }
 
+// Celda "Entrega": ✓ a tiempo / ✗ atraso (solo Done). Compara fecha real vs Limit Date.
+function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, limit: Date | null) {
+  if (!entrega) return <span className="text-[var(--text-disabled)]">—</span>;
+  const late = entrega === "late";
+  const color = late ? "#ef4444" : "#10b981";
+  const bg = late ? "var(--pill-atrasado-bg)" : "var(--health-on-track-bg)";
+  return (
+    <span
+      className="pill"
+      title={`Real: ${fmtDate(actual)} · Límite: ${fmtDate(limit)}`}
+      style={{ fontSize: ".66rem", color, background: bg, whiteSpace: "nowrap" }}
+    >
+      {late ? "✗ Atraso" : "✓ A tiempo"}
+    </span>
+  );
+}
+
 function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void }) {
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -396,6 +413,15 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
         >▶</span>
         <h2 className="flex-1 text-[0.95rem] font-bold text-[var(--text-primary)]">{board.name}</h2>
         {board.pm && <span className="text-[0.75rem] text-[var(--text-secondary)]">PM: <strong>{board.pm}</strong></span>}
+        {board.benefitType && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[0.7rem] font-semibold"
+            title="Benefit Type (heredado de la Iniciativa)"
+            style={{ color: board.benefitType === "HardSaving" ? "#10b981" : "#8b5cf6", background: (board.benefitType === "HardSaving" ? "#10b981" : "#8b5cf6") + "22" }}
+          >
+            {board.benefitType}
+          </span>
+        )}
         <span className="rounded-full px-2 py-0.5 text-[0.7rem]" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
           {items.length} items
         </span>
@@ -450,7 +476,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
           <table className="pmo">
             <thead>
               <tr>
-                <th>Tarea</th><th>Status</th><th>Estado</th><th>Deadline</th>
+                <th>Tarea</th><th>Status</th><th>Estado</th><th>Deadline</th><th>Entrega</th>
                 <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Beneficio</th>
               </tr>
             </thead>
@@ -467,7 +493,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                   <React.Fragment key={grupo}>
                     {/* ── Group header row ── */}
                     <tr onClick={() => toggleGroup(grupo)} className="cursor-pointer select-none">
-                      <td colSpan={6} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
+                      <td colSpan={7} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
                         <div
                           className="flex items-center gap-2 px-4 py-2"
                           style={{ background: "var(--bg-hover)", borderLeft: "3px solid var(--accent)" }}
@@ -555,6 +581,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
         <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.status || "—"}</td>
         <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
         <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
+        <td>{entregaCell(r.entrega, r.endDate, r.deadline)}</td>
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
       </tr>
@@ -599,6 +626,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
             <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.status || "—"}</td>
             <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
             <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true })}</td>
+            <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline)}</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
           </tr>

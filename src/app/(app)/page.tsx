@@ -50,6 +50,7 @@ export default function ControlTowerPage() {
   const router = useRouter();
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
+  const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -119,8 +120,10 @@ export default function ControlTowerPage() {
   };
 
   // ── Costos y beneficios totales (REQ + Proyectos) ──
+  // Filtro "Solo HardSaving": limita costo y beneficio a los ítems con Benefit Type = HardSaving.
+  const hardBoardIds = new Set(projBoards.filter((b) => b.benefitType === "HardSaving").map((b) => b.id));
   // REQ: solo fases 2 o posteriores (Aprobación → Cierre ROI). Se excluye Valuación, Cerrados y En Espera.
-  const reqWithValue = req.filter((r) => REQ_PHASE2PLUS.has(r.grupo));
+  const reqWithValue = req.filter((r) => REQ_PHASE2PLUS.has(r.grupo) && (!hardOnly || r.benefitType === "HardSaving"));
   const reqCost     = reqWithValue.reduce((s, r) => s + r.costRH + r.costSft, 0);
   const reqBenefit  = reqWithValue.reduce((s, r) => s + r.benefit, 0);
   // REQ que pasaron la fase 2 → Confirmación; los que siguen en fase 2 (Aprobación) → Aprobación.
@@ -134,6 +137,7 @@ export default function ControlTowerPage() {
   // Proyectos: se agrupan por board y se mide si el Value Gate (BC) está Done en Aprobación y/o Launch.
   const projAgg = new Map<string, { cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
   for (const r of proj) {
+    if (hardOnly && !hardBoardIds.has(r.boardId)) continue;
     let a = projAgg.get(r.boardId);
     if (!a) { a = { cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; projAgg.set(r.boardId, a); }
     a.cost += r.cost;
@@ -168,15 +172,6 @@ export default function ControlTowerPage() {
   const colConfirmCost    = reqConfirmCost + ambosCost;
   const colConfirmBenefit = reqConfirmBenefit + ambosBenefit;
 
-  // ── Payback (meses) y ROI (%) — REQ y Proyectos ──
-  // Payback = costo / (beneficio / 12).   ROI = ((beneficio − costo) / costo) × 100.
-  const reqPayback  = reqBenefit  > 0 ? reqCost  / (reqBenefit  / 12) : null;
-  const reqRoi      = reqCost     > 0 ? ((reqBenefit  - reqCost)  / reqCost)  * 100 : null;
-  const projPayback = projBenefit > 0 ? projCost / (projBenefit / 12) : null;
-  const projRoi     = projCost    > 0 ? ((projBenefit - projCost) / projCost) * 100 : null;
-  const fmtMonths = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} meses`);
-  const fmtRoi    = (v: number | null) => (v === null ? "—" : `${Math.round(v)}%`);
-
   // ── VPA Actions ──
   // Acciones que debe realizar el VPA, con visibilidad de su estado:
   //  · Proyectos: steps "VPA valida Business Case…" / "Entregable Business Case
@@ -210,6 +205,23 @@ export default function ControlTowerPage() {
   const vgEnTiempo = vpaPending.filter((a) => a.estado === "EN TIEMPO").length;
   const vgHoy      = vpaPending.filter((a) => a.estado === "PARA HOY").length;
   const vgAtrasado = vpaPending.filter((a) => a.estado === "ATRASADO").length;
+
+  // ── Compromiso de Entregas ──
+  // % de entregas a tiempo combinando la columna "Entrega" de REQ (cerrados), items y subitems.
+  let entOn = 0, entLate = 0;
+  for (const r of req) {
+    if (r.onTime.verdict === "on-time") entOn++;
+    else if (r.onTime.verdict === "late") entLate++;
+  }
+  for (const p of proj) {
+    if (p.entrega === "on-time") entOn++; else if (p.entrega === "late") entLate++;
+    for (const s of p.subitems) {
+      if (s.entrega === "on-time") entOn++; else if (s.entrega === "late") entLate++;
+    }
+  }
+  const entTotal = entOn + entLate;
+  const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
+  const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "#10b981" : entPct >= 75 ? "#f59e0b" : "#ef4444";
 
   return (
     <div>
@@ -257,7 +269,7 @@ export default function ControlTowerPage() {
         })()}
 
         {/* Costo & Beneficio — REQ + Proyectos */}
-        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: "#6c63ff", minWidth: 220 }}>
+        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "#10b981" : "#6c63ff", minWidth: 220 }}>
           <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
           <div className="mb-3 flex justify-center gap-6">
             <div>
@@ -275,37 +287,32 @@ export default function ControlTowerPage() {
             <hr className="my-1" style={{ border: "none", borderTop: "1px solid var(--accent)" }} />
             <span>Total: <span style={{ color: "#0ea5e9" }}>{fmtMoney(totalCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(totalBenefit)}</span></span>
           </div>
+          <button
+            onClick={() => setHardOnly((v) => !v)}
+            title="Filtrar Costo y Beneficio a solo HardSaving (afecta también el beneficio por PM)"
+            className="mt-3 rounded-full border px-3 py-1 text-[0.66rem] font-bold uppercase tracking-wide transition-colors"
+            style={hardOnly
+              ? { borderColor: "#10b981", color: "#10b981", background: "#10b98122" }
+              : { borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            {hardOnly ? "✓ Solo HardSaving" : "Solo HardSaving"}
+          </button>
         </div>
 
-        {/* Payback & ROI — REQ + Proyectos */}
-        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: "#0ea5e9", minWidth: 220 }}>
-          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Payback &amp; ROI</div>
-          <div className="flex flex-col gap-1 text-[0.8rem] font-semibold">
-            <div className="text-[0.62rem] uppercase tracking-wide text-[var(--text-muted)]">Payback</div>
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">REQ</span><span style={{ color: "#8b5cf6" }}>{fmtMonths(reqPayback)}</span></div>
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">Proyectos</span><span style={{ color: "#8b5cf6" }}>{fmtMonths(projPayback)}</span></div>
-            <hr className="my-1.5" style={{ border: "none", borderTop: "1px solid var(--accent)" }} />
-            <div className="text-[0.62rem] uppercase tracking-wide text-[var(--text-muted)]">ROI</div>
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">REQ</span><span style={{ color: "#0ea5e9" }}>{fmtRoi(reqRoi)}</span></div>
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">Proyectos</span><span style={{ color: "#0ea5e9" }}>{fmtRoi(projRoi)}</span></div>
+        {/* Compromiso de Entregas — % a tiempo (REQ + items + subitems) */}
+        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor, minWidth: 220 }}>
+          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Compromiso de Entregas</div>
+          <div className="mb-1.5 text-5xl font-extrabold leading-none" style={{ color: entColor }}>
+            {entPct !== null ? `${entPct}%` : "—"}
+          </div>
+          <div className="mb-3 text-[0.85rem] font-bold uppercase tracking-wide" style={{ color: entColor }}>A tiempo</div>
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold text-[var(--text-muted)]">
+            <span style={{ color: "#10b981" }}>{entOn} a tiempo</span>
+            <span style={{ color: "#ef4444" }}>{entLate} con atraso</span>
+            <span>{entTotal} entregas</span>
           </div>
         </div>
 
-        {/* Value Gates — resumen de los que están en Working on it */}
-        <div
-          onClick={() => setShowValueGate(true)}
-          className="cursor-pointer rounded-xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5"
-          style={{ background: "var(--bg-surface)", borderColor: "#8b5cf6", minWidth: 220 }}
-        >
-          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">VPA Actions</div>
-          <div className="mb-1 text-5xl font-extrabold leading-none" style={{ color: "#8b5cf6" }}>{vpaPending.length}</div>
-          <div className="mb-3 text-[0.8rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">Pendientes</div>
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold">
-            <span style={{ color: "#10b981" }}>✓ {vgEnTiempo} En Tiempo</span>
-            <span style={{ color: "#f59e0b" }}>⚠ {vgHoy} Hoy</span>
-            <span style={{ color: "#ef4444" }}>✕ {vgAtrasado} Atrasado</span>
-          </div>
-        </div>
       </div>
 
       {/* Bloques globales */}
@@ -344,6 +351,24 @@ export default function ControlTowerPage() {
             <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
           );
         })}
+      </div>
+
+      {/* VPA Actions — debajo de los Portafolios por PM */}
+      <div className="mt-6 flex flex-wrap gap-4">
+        <div
+          onClick={() => setShowValueGate(true)}
+          className="cursor-pointer rounded-xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5"
+          style={{ background: "var(--bg-surface)", borderColor: "#8b5cf6", minWidth: 220 }}
+        >
+          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">VPA Actions</div>
+          <div className="mb-1 text-5xl font-extrabold leading-none" style={{ color: "#8b5cf6" }}>{vpaPending.length}</div>
+          <div className="mb-3 text-[0.8rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">Pendientes</div>
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold">
+            <span style={{ color: "#10b981" }}>✓ {vgEnTiempo} En Tiempo</span>
+            <span style={{ color: "#f59e0b" }}>⚠ {vgHoy} Hoy</span>
+            <span style={{ color: "#ef4444" }}>✕ {vgAtrasado} Atrasado</span>
+          </div>
+        </div>
       </div>
 
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
@@ -417,8 +442,9 @@ function pmWorstStatus(
 
 /** Costo/beneficio por PM en dos columnas: Aprobación (en fase 2 / gate Aprobación)
  *  y Confirmación (REQ que pasó fase 2 / proyecto con Value Gate de Launch firmado). */
-function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[]): PmValue {
-  const reqItems = req.filter((r) => r.pm === pm && REQ_PHASE2PLUS.has(r.grupo));
+function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[], hardOnly = false): PmValue {
+  const reqItems = req.filter((r) => r.pm === pm && REQ_PHASE2PLUS.has(r.grupo) && (!hardOnly || r.benefitType === "HardSaving"));
+  const hardBoardIds = new Set(projBoards.filter((b) => b.benefitType === "HardSaving").map((b) => b.id));
   const reqCost    = reqItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
   const reqBenefit = reqItems.reduce((s, r) => s + r.benefit, 0);
   // REQ que pasaron fase 2 → Confirmación; los que siguen en fase 2 → Aprobación.
@@ -435,6 +461,7 @@ function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: P
   const agg = new Map<string, { name: string; cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
   for (const r of proj) {
     if (!pmBoardIds.has(r.boardId)) continue;
+    if (hardOnly && !hardBoardIds.has(r.boardId)) continue;
     let a = agg.get(r.boardId);
     if (!a) { a = { name: r.boardName, cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; agg.set(r.boardId, a); }
     a.cost += r.cost;
@@ -481,12 +508,32 @@ function PMPortfolioCard({
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
-  const pmValue = calcPmValue(pm, req, proj, projBoards);
+  const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
+  const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
+  const pmValue = pmValueHard; // el badge $ muestra siempre solo HardSaving
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
   // NPS personal del PM (mismas fórmulas, filtrando por PM).
   const pmNps = calcNpsFromRecords(npsRecords, pm);
   const npsColor = npsCfg(pmNps.nps)?.color ?? "#6b7280";
+
+  // Compromiso de Entregas del PM: % a tiempo (REQ + items + subitems de sus proyectos).
+  const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
+  let entOn = 0, entLate = 0;
+  for (const r of req) {
+    if (r.pm !== pm) continue;
+    if (r.onTime.verdict === "on-time") entOn++; else if (r.onTime.verdict === "late") entLate++;
+  }
+  for (const p of proj) {
+    if (!pmBoardIdSet.has(p.boardId)) continue;
+    if (p.entrega === "on-time") entOn++; else if (p.entrega === "late") entLate++;
+    for (const s of p.subitems) {
+      if (s.entrega === "on-time") entOn++; else if (s.entrega === "late") entLate++;
+    }
+  }
+  const entTotal = entOn + entLate;
+  const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
+  const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "#10b981" : entPct >= 75 ? "#f59e0b" : "#ef4444";
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -528,10 +575,10 @@ function PMPortfolioCard({
           <span className="text-[0.95rem] font-bold text-[var(--text-primary)]">{pmLabel(pm)}</span>
           <div className="mt-0.5 text-[0.75rem] text-[var(--text-muted)]">PM · {pm}</div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             onClick={() => setShowValue(true)}
-            title={`Confirmación (beneficio): ${fmtMoney(pmValue.confirmBenefit)} · clic para ver costo y beneficio`}
+            title={`Beneficio HardSaving (Confirmación): ${fmtMoney(pmValue.confirmBenefit)} · clic para ver el detalle (Todo / HardSaving)`}
             className="flex h-7 items-center gap-1 rounded-lg border px-2 text-[0.75rem] font-bold text-[var(--text-secondary)] transition-colors hover:border-[#0ea5e9] hover:text-[#0ea5e9]"
             style={{ borderColor: "var(--border)" }}
           >
@@ -544,6 +591,13 @@ function PMPortfolioCard({
             style={{ color: npsColor, background: npsColor + "22" }}
           >
             NPS {pmNps.nps !== null ? pmNps.nps : "s/d"}
+          </span>
+          <span
+            title={`Compromiso de Entregas · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal}`}
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold"
+            style={{ color: entColor, background: entColor + "22" }}
+          >
+            Entrega {entPct !== null ? `${entPct}%` : "s/d"}
           </span>
           <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}{pmEvmPct !== null ? ` · ${pmEvmPct}%` : ""}</span>
         </div>
@@ -605,7 +659,7 @@ function PMPortfolioCard({
       </div>
 
       {showValue && (
-        <PMValueModal pm={pm} value={pmValue} onClose={() => setShowValue(false)} />
+        <PMValueModal pm={pm} valueAll={pmValueAll} valueHard={pmValueHard} initialHard={true} onClose={() => setShowValue(false)} />
       )}
     </div>
   );

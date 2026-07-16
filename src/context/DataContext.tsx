@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import {
+  buildBenefitTypeMap,
   buildCalMap,
   buildEstrategiaMap,
   calcNpsFromRecords,
@@ -61,7 +62,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       // Procesamiento en cliente (zona horaria del usuario).
       const ini = iniProcess(raw.iniItems);
-      const req = reqProcess(raw.reqItems, raw.baselines ?? {});
+      const benefitTypeMap = buildBenefitTypeMap(raw.iniItems);
+      const req = reqProcess(raw.reqItems, raw.baselines ?? {}, benefitTypeMap);
       const proj: ProjItem[] = [];
       raw.projRaw.forEach((b) =>
         proj.push(...projProcess(b.name, b.id, b.items_page.items))

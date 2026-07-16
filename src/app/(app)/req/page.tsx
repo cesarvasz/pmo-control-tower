@@ -26,6 +26,13 @@ const onTimeBadge = (rows: ReqItem[]): string => {
   return ` · ${on}/${evalRows.length} a tiempo`;
 };
 
+// Badge de Benefit Type (heredado de la Iniciativa): HardSaving verde, SoftSaving violeta.
+function benefitTypeBadge(bt: string) {
+  if (!bt) return <span className="text-[var(--text-disabled)]">—</span>;
+  const color = bt === "HardSaving" ? "#10b981" : "#8b5cf6";
+  return <span className="pill" style={{ fontSize: ".66rem", color, background: color + "22", whiteSpace: "nowrap" }}>{bt}</span>;
+}
+
 export default function ReqPage() {
   return (
     <Suspense fallback={<Loader />}>
@@ -332,7 +339,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
         <thead>
           <tr>
             <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
-            <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
+            <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th><th>Benefit Type</th>
             <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Entrega</th><th>Encuesta</th>
           </tr>
         </thead>
@@ -348,6 +355,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
                 <td>{estadoCell(r)}</td>
                 <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : "—"}</td>
                 <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
+                <td>{benefitTypeBadge(r.benefitType)}</td>
                 <td>{deadlineCell(r)}</td>
                 <td>{diffCell(r)}</td>
                 <td>

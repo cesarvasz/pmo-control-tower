@@ -143,6 +143,7 @@ export interface ReqItem {
   estDev: Date | null;
   phases: ReqPhaseInfo[];
   onTime: ReqOnTime;
+  benefitType: string; // "Benefit Type" de la Iniciativa del mismo nombre (SoftSaving/HardSaving/"")
   ev: number;
   pv: number;
   ac: number;
@@ -162,6 +163,8 @@ export interface ProjSubitem {
   tld: string;       // "TLD" del subelemento (lookup, display_value)
   deadline: Date | null;
   estado: string;
+  actualEnd: Date | null;                     // "Actual End": fecha real de cierre del hito
+  entrega: "on-time" | "late" | null;         // a tiempo si Actual End ≤ Limit Date (solo Done)
   cost: number;
   benefit: number;
 }
@@ -176,6 +179,8 @@ export interface ProjItem {
   resp: string;
   status: string;
   deadline: Date | null;
+  endDate: Date | null;                       // "End Date": fecha real de cierre del item
+  entrega: "on-time" | "late" | null;         // a tiempo si End Date ≤ Limit Date (solo Done)
   cost: number;
   benefit: number;
   valueNet: number;
@@ -190,6 +195,7 @@ export interface ProjBoard {
   estrategia?: string; // lookup desde la Iniciativa con el mismo nombre
   sponsor?: string;    // lookup desde la Iniciativa con el mismo nombre
   cku?: string;        // lookup desde la Iniciativa (columna "CKU")
+  benefitType?: string; // "Benefit Type" de la Iniciativa (SoftSaving/HardSaving/"")
 }
 
 export interface CalMeeting {
