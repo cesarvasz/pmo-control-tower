@@ -107,12 +107,12 @@ export interface ReqPhaseOnTime {
   slipDays: number;      // días hábiles de atraso (0 si a tiempo)
 }
 
-/** Veredicto "a tiempo" del REQ: por fase (estricto) sobre las fases ya terminadas. */
+/** Veredicto de entrega del REQ: se evalúa la ÚLTIMA fase completada (la entrega). */
 export interface ReqOnTime {
-  verdict: "on-time" | "late" | "n/a"; // n/a si no hay fases con fecha real y objetivo
-  evaluated: number;                    // cantidad de fases evaluadas
-  latePhases: string[];                 // nombres de las fases atrasadas
-  phases: ReqPhaseOnTime[];
+  verdict: "on-time" | "late" | "n/a"; // n/a si no hay ninguna fase con fecha real y objetivo
+  deliveryPhase: string | null;         // última fase evaluada (la entrega)
+  slipDays: number;                     // días hábiles de atraso de la entrega (0 si a tiempo)
+  phases: ReqPhaseOnTime[];             // desglose por fase (para el tooltip)
 }
 
 export interface ReqItem {

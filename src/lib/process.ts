@@ -192,10 +192,11 @@ export const REQ_PIPELINE = ["Valuación", "Aprobación", "Desarrollo", "Operaci
 export const REQ_ACTIVE_GRUPOS = new Set(["Valuación", "Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
 
 /**
- * ¿El REQ se completó a tiempo? Criterio POR FASE (estricto): compara la fecha real de fin
- * de cada fase terminada contra su objetivo, con las MISMAS reglas de deadline que la app.
+ * ¿El REQ se entregó a tiempo? Se evalúa la ÚLTIMA fase completada (la entrega): compara su
+ * fecha real de fin contra su objetivo, con las MISMAS reglas de deadline que la app.
  * Fases con fecha real: Valuación (vDone), Aprobación (aDone), Desarrollo (lDone), Operación (oDone).
- * (Cierre ROI no tiene fecha real registrada, por eso no se evalúa.)
+ * Operación (oDone) es el último hito con fecha real (Cierre ROI no la registra), así que para un
+ * REQ entregado la entrega evaluada es Operación. El desglose de todas las fases queda en `phases`.
  */
 function computeReqOnTime(d: {
   cpmStart: Date | null; vDone: Date | null; aDone: Date | null; lDone: Date | null; oDone: Date | null;
@@ -226,10 +227,11 @@ function computeReqOnTime(d: {
     const late = a.getTime() > tgt.getTime();
     return { name: s.name, actual: s.actual, target: s.target, late, slipDays: late ? businessDays(tgt, a, true) : 0 };
   });
-  const evaluated = phases.filter((p) => p.actual && p.target).length;
-  const latePhases = phases.filter((p) => p.late).map((p) => p.name);
-  const verdict: ReqOnTime["verdict"] = evaluated === 0 ? "n/a" : latePhases.length > 0 ? "late" : "on-time";
-  return { verdict, evaluated, latePhases, phases };
+  // La entrega = la última fase (en orden) con fecha real y objetivo.
+  const evaluable = phases.filter((p) => p.actual && p.target);
+  const delivery = evaluable.length ? evaluable[evaluable.length - 1] : null;
+  const verdict: ReqOnTime["verdict"] = !delivery ? "n/a" : delivery.late ? "late" : "on-time";
+  return { verdict, deliveryPhase: delivery?.name ?? null, slipDays: delivery?.slipDays ?? 0, phases };
 }
 
 export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBaseline> = {}): ReqItem[] {

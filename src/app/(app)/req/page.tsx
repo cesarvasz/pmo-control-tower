@@ -291,16 +291,15 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
     const late = ot.verdict === "late";
     const color = late ? "#ef4444" : "#10b981";
     const bg = late ? "var(--pill-atrasado-bg)" : "var(--health-on-track-bg)";
-    const label = late
-      ? (ot.latePhases.length === 1 ? `✗ ${ot.latePhases[0]}` : `✗ Atraso (${ot.latePhases.length})`)
-      : "✓ A tiempo";
-    const title = ot.phases
+    const label = late ? `✗ +${ot.slipDays}d` : "✓ A tiempo";
+    const breakdown = ot.phases
       .filter((p) => p.actual || p.target)
       .map((p) => {
         const status = !p.actual || !p.target ? "s/dato" : p.late ? `atraso ${p.slipDays}d` : "✓";
         return `${p.name}: real ${fmtDate(p.actual)} / obj ${fmtDate(p.target)} · ${status}`;
       })
       .join("\n");
+    const title = `Entrega evaluada: ${ot.deliveryPhase}\n\n${breakdown}`;
     return <span className="pill" title={title} style={{ fontSize: ".68rem", color, background: bg, whiteSpace: "nowrap" }}>{label}</span>;
   };
 
@@ -334,7 +333,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
           <tr>
             <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
-            <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>A tiempo</th><th>Encuesta</th>
+            <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Entrega</th><th>Encuesta</th>
           </tr>
         </thead>
         <tbody>
