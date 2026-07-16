@@ -27,7 +27,9 @@ import type {
   ProjItemBaseline,
   ReqBaseline,
   ReqItem,
+  ReqOnTime,
   ReqPhaseInfo,
+  ReqPhaseOnTime,
   SheetRow,
 } from "@/types";
 
@@ -189,6 +191,47 @@ export const REQ_GROUP_COLOR: Record<string, string> = {
 export const REQ_PIPELINE = ["Valuación", "Aprobación", "Desarrollo", "Operación", "Cierre ROI", "Cerrados", "En Espera"];
 export const REQ_ACTIVE_GRUPOS = new Set(["Valuación", "Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
 
+/**
+ * ¿El REQ se completó a tiempo? Criterio POR FASE (estricto): compara la fecha real de fin
+ * de cada fase terminada contra su objetivo, con las MISMAS reglas de deadline que la app.
+ * Fases con fecha real: Valuación (vDone), Aprobación (aDone), Desarrollo (lDone), Operación (oDone).
+ * (Cierre ROI no tiene fecha real registrada, por eso no se evalúa.)
+ */
+function computeReqOnTime(d: {
+  cpmStart: Date | null; vDone: Date | null; aDone: Date | null; lDone: Date | null; oDone: Date | null;
+  estDev: Date | null; cpmEndEst: Date | null; tld: string; isSaas: boolean;
+}): ReqOnTime {
+  const devTarget = d.aDone
+    ? (d.estDev ? d.estDev
+      : d.tld === "JA" ? addBusinessDays(d.aDone, 7, true)
+      : d.tld === "LM" ? addBusinessDays(d.aDone, 32, true)
+      : d.tld === "S/dev" ? new Date(d.aDone)
+      : null)
+    : null;
+  const opTarget = (d.isSaas && d.cpmEndEst)
+    ? addBusinessDays(d.cpmEndEst, -20, true)
+    : d.lDone ? addBusinessDays(d.lDone, 3, true) : null;
+
+  const specs: { name: string; actual: Date | null; target: Date | null }[] = [
+    { name: "Valuación",  actual: d.vDone, target: d.cpmStart ? addBusinessDays(d.cpmStart, 1, true) : null },
+    { name: "Aprobación", actual: d.aDone, target: d.vDone ? addBusinessDays(d.vDone, 2, true) : null },
+    { name: "Desarrollo", actual: d.lDone, target: devTarget },
+    { name: "Operación",  actual: d.oDone, target: opTarget },
+  ];
+
+  const midnight = (x: Date) => { const c = new Date(x); c.setHours(0, 0, 0, 0); return c; };
+  const phases: ReqPhaseOnTime[] = specs.map((s) => {
+    if (!s.actual || !s.target) return { name: s.name, actual: s.actual, target: s.target, late: false, slipDays: 0 };
+    const a = midnight(s.actual), tgt = midnight(s.target);
+    const late = a.getTime() > tgt.getTime();
+    return { name: s.name, actual: s.actual, target: s.target, late, slipDays: late ? businessDays(tgt, a, true) : 0 };
+  });
+  const evaluated = phases.filter((p) => p.actual && p.target).length;
+  const latePhases = phases.filter((p) => p.late).map((p) => p.name);
+  const verdict: ReqOnTime["verdict"] = evaluated === 0 ? "n/a" : latePhases.length > 0 ? "late" : "on-time";
+  return { verdict, evaluated, latePhases, phases };
+}
+
 export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBaseline> = {}): ReqItem[] {
   const t = today();
 
@@ -349,6 +392,7 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
       expectedDays: REQ_ACTIVE_GRUPOS.has(grp) ? expectedDays : null,
       estDev,
       phases,
+      onTime: computeReqOnTime({ cpmStart, vDone, aDone, lDone, oDone, estDev, cpmEndEst, tld, isSaas }),
       ev, pv, ac,
       spi, cpi, scope, vem,
     };

@@ -18,6 +18,14 @@ import { EmptyRow, ErrorBox, FilterReset, Loader, SectionHeader, StatCard } from
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
 
+// Resumen "a tiempo" para el badge de la sección (solo cuenta REQ con fases evaluables).
+const onTimeBadge = (rows: ReqItem[]): string => {
+  const evalRows = rows.filter((r) => r.onTime.verdict !== "n/a");
+  if (!evalRows.length) return "";
+  const on = evalRows.filter((r) => r.onTime.verdict === "on-time").length;
+  return ` · ${on}/${evalRows.length} a tiempo`;
+};
+
 export default function ReqPage() {
   return (
     <Suspense fallback={<Loader />}>
@@ -199,7 +207,7 @@ function ReqInner() {
       </div>
 
       {/* Tabla */}
-      <SectionHeader title="Detalle de Requerimientos" badge={`${filtered.length} items`} />
+      <SectionHeader title="Detalle de Requerimientos" badge={`${filtered.length} items${onTimeBadge(filtered)}`} />
       <ReqTable
         rows={filtered}
         onRowClick={setSelected}
@@ -210,7 +218,7 @@ function ReqInner() {
       {/* REQ Cerrados (tabla aparte al fondo) */}
       {closed.length > 0 && (
         <div className="mt-9">
-          <SectionHeader title="REQ Cerrados" badge={`${closed.length} items`} />
+          <SectionHeader title="REQ Cerrados" badge={`${closed.length} items${onTimeBadge(closed)}`} />
           <ReqTable
             rows={closed}
             onRowClick={setSelected}
@@ -277,6 +285,25 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
     );
   };
 
+  const onTimeCell = (r: ReqItem) => {
+    const ot = r.onTime;
+    if (ot.verdict === "n/a") return <span className="text-[var(--text-disabled)]">—</span>;
+    const late = ot.verdict === "late";
+    const color = late ? "#ef4444" : "#10b981";
+    const bg = late ? "var(--pill-atrasado-bg)" : "var(--health-on-track-bg)";
+    const label = late
+      ? (ot.latePhases.length === 1 ? `✗ ${ot.latePhases[0]}` : `✗ Atraso (${ot.latePhases.length})`)
+      : "✓ A tiempo";
+    const title = ot.phases
+      .filter((p) => p.actual || p.target)
+      .map((p) => {
+        const status = !p.actual || !p.target ? "s/dato" : p.late ? `atraso ${p.slipDays}d` : "✓";
+        return `${p.name}: real ${fmtDate(p.actual)} / obj ${fmtDate(p.target)} · ${status}`;
+      })
+      .join("\n");
+    return <span className="pill" title={title} style={{ fontSize: ".68rem", color, background: bg, whiteSpace: "nowrap" }}>{label}</span>;
+  };
+
   const estadoCell = (r: ReqItem) => {
     const cfg: Record<string, { label: string; color: string }> = {
       ATRASADO: { label: "Atrasado", color: "#ef4444" },
@@ -307,7 +334,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
           <tr>
             <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
-            <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Encuesta</th>
+            <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>A tiempo</th><th>Encuesta</th>
           </tr>
         </thead>
         <tbody>
@@ -329,6 +356,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
                     ? (() => { const cf = vemCfg(r.vem as number); return <span className="pill" style={{ fontSize: ".68rem", color: cf.color, background: cf.bg, border: `1px solid ${cf.color}44` }}>{cf.icon} {cf.label} · {Math.round((r.vem as number) * 100)}%</span>; })()
                     : <span className="pill pill-skip" style={{ fontSize: ".68rem" }}>— Sin datos</span>}
                 </td>
+                <td>{onTimeCell(r)}</td>
                 <td>{surveyCell(r)}</td>
               </tr>
             );

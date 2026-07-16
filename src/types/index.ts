@@ -98,6 +98,23 @@ export interface ReqPhaseInfo {
   inPv: boolean;    // según cronograma ya debería estar cerrada (cuenta en PV)
 }
 
+/** Cumplimiento de plazo de una fase: fecha real de fin vs objetivo (mismas reglas del deadline). */
+export interface ReqPhaseOnTime {
+  name: string;          // Valuación | Aprobación | Desarrollo | Operación
+  actual: Date | null;   // fecha real de fin de la fase
+  target: Date | null;   // objetivo de fin de la fase
+  late: boolean;         // fin real posterior al objetivo
+  slipDays: number;      // días hábiles de atraso (0 si a tiempo)
+}
+
+/** Veredicto "a tiempo" del REQ: por fase (estricto) sobre las fases ya terminadas. */
+export interface ReqOnTime {
+  verdict: "on-time" | "late" | "n/a"; // n/a si no hay fases con fecha real y objetivo
+  evaluated: number;                    // cantidad de fases evaluadas
+  latePhases: string[];                 // nombres de las fases atrasadas
+  phases: ReqPhaseOnTime[];
+}
+
 export interface ReqItem {
   id: string;
   name: string;
@@ -125,6 +142,7 @@ export interface ReqItem {
   expectedDays: number | null;
   estDev: Date | null;
   phases: ReqPhaseInfo[];
+  onTime: ReqOnTime;
   ev: number;
   pv: number;
   ac: number;
