@@ -166,6 +166,7 @@ export const REQ_COLS = {
   aDone: "date_mm3gfn1r",
   lDone: "date_mm3g8mqz",
   oDone: "date_mm3g5j38",
+  rDone: "date_mm3gfd8b", // "R Done": fecha real de cierre (fase Cierre ROI) = fecha de entrega
 };
 
 export const REQ_GROUP_LABEL: Record<string, string> = {
@@ -192,15 +193,16 @@ export const REQ_PIPELINE = ["Valuación", "Aprobación", "Desarrollo", "Operaci
 export const REQ_ACTIVE_GRUPOS = new Set(["Valuación", "Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
 
 /**
- * ¿El REQ se entregó a tiempo? Se evalúa la ÚLTIMA fase completada (la entrega): compara su
- * fecha real de fin contra su objetivo, con las MISMAS reglas de deadline que la app.
- * Fases con fecha real: Valuación (vDone), Aprobación (aDone), Desarrollo (lDone), Operación (oDone).
- * Operación (oDone) es el último hito con fecha real (Cierre ROI no la registra), así que para un
- * REQ entregado la entrega evaluada es Operación. El desglose de todas las fases queda en `phases`.
+ * ¿El REQ se entregó a tiempo? La ENTREGA es la fase Cierre ROI: su fecha real es "R Done"
+ * (se llena al cerrar el REQ) y su objetivo es cpmEndEst (SaaS) o oDone + 20 días hábiles.
+ * El veredicto usa SOLO esa fase; si no hay R Done (REQ no cerrado) → n/a ("—").
+ * Las fases anteriores (Valuación/Aprobación/Desarrollo/Operación) se calculan solo para el
+ * desglose del tooltip (`phases`), con las mismas reglas de deadline de la app.
  */
 function computeReqOnTime(d: {
-  cpmStart: Date | null; vDone: Date | null; aDone: Date | null; lDone: Date | null; oDone: Date | null;
-  estDev: Date | null; cpmEndEst: Date | null; tld: string; isSaas: boolean;
+  cpmStart: Date | null; vDone: Date | null; aDone: Date | null; lDone: Date | null;
+  oDone: Date | null; rDone: Date | null; estDev: Date | null; cpmEndEst: Date | null;
+  tld: string; isSaas: boolean;
 }): ReqOnTime {
   const devTarget = d.aDone
     ? (d.estDev ? d.estDev
@@ -212,12 +214,16 @@ function computeReqOnTime(d: {
   const opTarget = (d.isSaas && d.cpmEndEst)
     ? addBusinessDays(d.cpmEndEst, -20, true)
     : d.lDone ? addBusinessDays(d.lDone, 3, true) : null;
+  const cierreTarget = (d.isSaas && d.cpmEndEst)
+    ? d.cpmEndEst
+    : d.oDone ? addBusinessDays(d.oDone, 20, true) : null;
 
   const specs: { name: string; actual: Date | null; target: Date | null }[] = [
     { name: "Valuación",  actual: d.vDone, target: d.cpmStart ? addBusinessDays(d.cpmStart, 1, true) : null },
     { name: "Aprobación", actual: d.aDone, target: d.vDone ? addBusinessDays(d.vDone, 2, true) : null },
     { name: "Desarrollo", actual: d.lDone, target: devTarget },
     { name: "Operación",  actual: d.oDone, target: opTarget },
+    { name: "Cierre ROI", actual: d.rDone, target: cierreTarget },
   ];
 
   const midnight = (x: Date) => { const c = new Date(x); c.setHours(0, 0, 0, 0); return c; };
@@ -227,11 +233,11 @@ function computeReqOnTime(d: {
     const late = a.getTime() > tgt.getTime();
     return { name: s.name, actual: s.actual, target: s.target, late, slipDays: late ? businessDays(tgt, a, true) : 0 };
   });
-  // La entrega = la última fase (en orden) con fecha real y objetivo.
-  const evaluable = phases.filter((p) => p.actual && p.target);
-  const delivery = evaluable.length ? evaluable[evaluable.length - 1] : null;
-  const verdict: ReqOnTime["verdict"] = !delivery ? "n/a" : delivery.late ? "late" : "on-time";
-  return { verdict, deliveryPhase: delivery?.name ?? null, slipDays: delivery?.slipDays ?? 0, phases };
+  // La entrega = la fase Cierre ROI (R Done). Solo esa define el veredicto.
+  const delivery = phases[phases.length - 1];
+  const evaluable = !!(delivery.actual && delivery.target);
+  const verdict: ReqOnTime["verdict"] = !evaluable ? "n/a" : delivery.late ? "late" : "on-time";
+  return { verdict, deliveryPhase: evaluable ? delivery.name : null, slipDays: delivery.slipDays, phases };
 }
 
 export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBaseline> = {}): ReqItem[] {
@@ -251,6 +257,7 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
     const aDone = parseYMD(col(REQ_COLS.aDone));
     const lDone = parseYMD(col(REQ_COLS.lDone));
     const oDone = parseYMD(col(REQ_COLS.oDone));
+    const rDone = parseYMD(col(REQ_COLS.rDone));
     const estDev = parseYMD(col(REQ_COLS.estDev));
     const type = col(REQ_COLS.type);
     const cpmEndEst = parseYMD(col(REQ_COLS.cpmEndEst));
@@ -394,7 +401,7 @@ export function reqProcess(items: MondayItem[], baselines: Record<string, ReqBas
       expectedDays: REQ_ACTIVE_GRUPOS.has(grp) ? expectedDays : null,
       estDev,
       phases,
-      onTime: computeReqOnTime({ cpmStart, vDone, aDone, lDone, oDone, estDev, cpmEndEst, tld, isSaas }),
+      onTime: computeReqOnTime({ cpmStart, vDone, aDone, lDone, oDone, rDone, estDev, cpmEndEst, tld, isSaas }),
       ev, pv, ac,
       spi, cpi, scope, vem,
     };
