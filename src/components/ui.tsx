@@ -98,6 +98,27 @@ export function EstadoPill({ estado, small }: { estado: string; small?: boolean 
   );
 }
 
+// ── Pill genérico por "tono" ───────────────────────────────────────────
+// Lenguaje de estado unificado en toda la app: ✓ ok · ⚠ warn · ✕ bad · — neutral.
+// Reutiliza las clases .pill-* (temáticas) para respetar los 5 temas.
+export type Tone = "ok" | "warn" | "bad" | "info" | "neutral";
+const TONE_CLASS: Record<Tone, string> = {
+  ok: "pill-entiempo",
+  warn: "pill-parahoy",
+  bad: "pill-atrasado",
+  info: "pill-aprobada",
+  neutral: "pill-skip",
+};
+export const TONE_ICON: Record<Tone, string> = { ok: "✓", warn: "⚠", bad: "✕", info: "•", neutral: "—" };
+
+export function Pill({ tone, children, small, title }: { tone: Tone; children: ReactNode; small?: boolean; title?: string }) {
+  return (
+    <span className={`pill ${TONE_CLASS[tone]}`} title={title} style={small ? { fontSize: ".68rem" } : undefined}>
+      {children}
+    </span>
+  );
+}
+
 // ── Section header ─────────────────────────────────────────────────────
 export function SectionHeader({ title, badge, children }: { title: string; badge?: ReactNode; children?: ReactNode }) {
   return (

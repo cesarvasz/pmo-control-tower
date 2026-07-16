@@ -14,7 +14,7 @@ import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyResultModal from "@/components/SurveyResultModal";
-import { EmptyRow, ErrorBox, FilterReset, Loader, SectionHeader, StatCard } from "@/components/ui";
+import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, SectionHeader, StatCard } from "@/components/ui";
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
 
@@ -296,9 +296,6 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
     const ot = r.onTime;
     if (ot.verdict === "n/a") return <span className="text-[var(--text-disabled)]">—</span>;
     const late = ot.verdict === "late";
-    const color = late ? "#ef4444" : "#10b981";
-    const bg = late ? "var(--pill-atrasado-bg)" : "var(--health-on-track-bg)";
-    const label = late ? `✗ +${ot.slipDays}d` : "✓ A tiempo";
     const breakdown = ot.phases
       .filter((p) => p.actual || p.target)
       .map((p) => {
@@ -307,31 +304,31 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
       })
       .join("\n");
     const title = `Entrega evaluada: ${ot.deliveryPhase}\n\n${breakdown}`;
-    return <span className="pill" title={title} style={{ fontSize: ".68rem", color, background: bg, whiteSpace: "nowrap" }}>{label}</span>;
+    return <Pill tone={late ? "bad" : "ok"} small title={title}>{late ? `✕ +${ot.slipDays}d` : "✓ A tiempo"}</Pill>;
   };
 
   const estadoCell = (r: ReqItem) => {
-    const cfg: Record<string, { label: string; color: string }> = {
-      ATRASADO: { label: "Atrasado", color: "#ef4444" },
-      "PARA HOY": { label: "Hoy", color: "#f59e0b" },
-      "EN TIEMPO": { label: "En Tiempo", color: "#10b981" },
+    const cfg: Record<string, { label: string; tone: "ok" | "warn" | "bad" }> = {
+      ATRASADO: { label: "✕ Atrasado", tone: "bad" },
+      "PARA HOY": { label: "⚠ Hoy", tone: "warn" },
+      "EN TIEMPO": { label: "✓ En Tiempo", tone: "ok" },
     };
     const c = cfg[r.estado];
     if (!c) return <span className="text-[var(--text-disabled)]">—</span>;
-    return <span style={{ color: c.color, fontWeight: 600, whiteSpace: "nowrap" }}>{c.label}</span>;
+    return <Pill tone={c.tone} small>{c.label}</Pill>;
   };
   const deadlineCell = (r: ReqItem) => {
     if (!r.deadline) return <span className="text-[var(--text-disabled)]">—</span>;
     const d = new Date(r.deadline); d.setHours(0, 0, 0, 0);
-    const color = d < t ? "#ef4444" : d.getTime() === t.getTime() ? "#f59e0b" : "#10b981";
+    const color = d < t ? "var(--bad)" : d.getTime() === t.getTime() ? "var(--warn)" : "var(--ok)";
     return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(r.deadline)}</span>;
   };
   const diffCell = (r: ReqItem) => {
     if (!r.deadline) return <span className="text-[var(--text-disabled)]">—</span>;
     const d = new Date(r.deadline); d.setHours(0, 0, 0, 0);
-    if (d.getTime() === t.getTime()) return <span style={{ color: "#f59e0b", fontWeight: 600 }}>Hoy</span>;
-    if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "#10b981", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
-    const n = businessDays(d, t, true); return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
+    if (d.getTime() === t.getTime()) return <span style={{ color: "var(--warn)", fontWeight: 600 }}>Hoy</span>;
+    if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "var(--ok)", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
+    const n = businessDays(d, t, true); return <span style={{ color: "var(--bad)", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
   };
   return (
     <div className="table-wrap">
@@ -354,7 +351,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
                 <td><span style={{ fontSize: ".72rem", fontWeight: 600, color: REQ_GROUP_COLOR[r.grupo] || "var(--text-muted)" }}>{r.grupo}</span></td>
                 <td>{estadoCell(r)}</td>
                 <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : "—"}</td>
-                <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
+                <td style={{ textAlign: "right", fontWeight: 600, color: "var(--ok)", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
                 <td>{benefitTypeBadge(r.benefitType)}</td>
                 <td>{deadlineCell(r)}</td>
                 <td>{diffCell(r)}</td>

@@ -24,6 +24,13 @@
   --card-value-total: #e2e8f0;
   --shadow: rgba(0, 0, 0, 0.4);
 
+  /* Semánticos de estado (métricas): ok / warn / bad / info + tinte de fondo.
+     Definidos una sola vez; cascada a light/c807 (colores vívidos válidos en todos los temas). */
+  --ok:   #10b981; --ok-bg:   #10b98122;
+  --warn: #f59e0b; --warn-bg: #f59e0b22;
+  --bad:  #ef4444; --bad-bg:  #ef444422;
+  --info: #0ea5e9; --info-bg: #0ea5e922;
+
   --pill-atrasado-bg: #450a0a; --pill-atrasado-fg: #fca5a5; --pill-atrasado-br: #7f1d1d;
   --pill-parahoy-bg:  #451a03; --pill-parahoy-fg:  #fcd34d; --pill-parahoy-br:  #78350f;
   --pill-entiempo-bg: #052e16; --pill-entiempo-fg: #6ee7b7; --pill-entiempo-br: #14532d;
@@ -228,9 +235,20 @@ body {
 .pill-skip     { background: var(--pill-skip-bg);     color: var(--pill-skip-fg);     border: 1px solid var(--pill-skip-br); }
 
 /* ── TABLE ──────────────────────────────────────────────────────────── */
-.table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
+/* La envoltura es su propio contenedor de scroll (vertical + horizontal) con
+   altura acotada: así el encabezado puede quedarse fijo (sticky) al desplazar
+   una tabla larga, sin depender del scroll de la página. */
+.table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 150px);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
 table.pmo { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
 table.pmo thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   background: var(--table-head-bg);
   padding: 10px 14px;
   text-align: left;
@@ -239,12 +257,18 @@ table.pmo thead th {
   letter-spacing: 0.05em;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 var(--border);
   white-space: nowrap;
 }
 table.pmo tbody tr { border-bottom: 1px solid var(--bg-hover); }
 table.pmo tbody tr:last-child { border-bottom: none; }
 table.pmo tbody td { padding: 11px 14px; vertical-align: middle; background: var(--bg-surface); }
-table.pmo tbody tr:hover td { background: var(--bg-hover); }
+/* Filas zebra: banda sutil en las pares para leer filas anchas sin perderse.
+   La tabla de Proyectos usa .grouped (filas de ítem/subítem con fondo propio) y
+   se excluye del zebra para no romper su agrupación. */
+table.pmo:not(.grouped) tbody tr:nth-child(even) td { background: var(--bg-hover); }
+table.pmo:not(.grouped) tbody tr:hover td { background: var(--bg-accent-soft); }
+table.pmo.grouped tbody tr:hover td { background: var(--bg-hover); }
 .ini-id { font-family: monospace; font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
 .ini-name { font-weight: 500; color: var(--text-primary); }
 .pm-name { color: var(--accent-light); white-space: nowrap; }

@@ -11,6 +11,8 @@ import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
 import PMValueModal, { type PmValue } from "@/components/PMValueModal";
+import KpiModal from "@/components/KpiModal";
+import { KPI_W, computeKpi, kpiColorFor, kpiBgFor } from "@/lib/kpi";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -50,7 +52,9 @@ export default function ControlTowerPage() {
   const router = useRouter();
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
+  const [showKpi, setShowKpi] = useState(false);
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
+  const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tabla"); // vista de Portafolios por PM
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -221,95 +225,140 @@ export default function ControlTowerPage() {
   }
   const entTotal = entOn + entLate;
   const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
-  const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "#10b981" : entPct >= 75 ? "#f59e0b" : "#ef4444";
+  const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
+
+  // ── KPI PMO ──
+  // Beneficio HardSaving CONFIRMADO (independiente del toggle "Solo HardSaving" de la
+  // tarjeta): REQ HardSaving que ya pasaron fase 2 + proyectos HardSaving con ambos
+  // Value Gates (Aprobación y Launch) firmados.
+  const kpiReqBenefit = req
+    .filter((r) => REQ_PASSED_PHASE2.has(r.grupo) && r.benefitType === "HardSaving")
+    .reduce((s, r) => s + r.benefit, 0);
+  const kpiProjAgg = new Map<string, { benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
+  for (const r of proj) {
+    if (!hardBoardIds.has(r.boardId)) continue;
+    let a = kpiProjAgg.get(r.boardId);
+    if (!a) { a = { benefit: 0, doneAprob: false, doneLaunch: false }; kpiProjAgg.set(r.boardId, a); }
+    a.benefit += r.benefit;
+    if (r.status === "Done" && isValueGateSigned(r.name)) {
+      const g = norm(r.grupo);
+      if (g.includes("aprobacion")) a.doneAprob = true;
+      if (g.includes("launch")) a.doneLaunch = true;
+    }
+  }
+  const kpiProjBenefit = [...kpiProjAgg.values()].filter((b) => b.doneAprob && b.doneLaunch).reduce((s, b) => s + b.benefit, 0);
+  const kpiBenefitConfirmed = kpiReqBenefit + kpiProjBenefit;
+
+  const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefit: kpiBenefitConfirmed, entregasPct: entPct });
+  const kpiPct = Math.round(kpi.score);
+  const kpiAchievable = kpi.achievable; // 80 hoy (el 5º componente está pendiente)
+  const kpiColor = kpiColorFor(kpi.ratio);
 
   return (
     <div>
-      {/* Tarjetas de resumen (se irán agregando más en horizontal) */}
-      <div className="mb-4 flex flex-wrap gap-4">
-        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: hColor, minWidth: 220 }}>
-          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">EVM - PMO</div>
-          <div className="mb-2 text-5xl font-extrabold leading-none" style={{ color: hColor }}>
-            {vemPct !== null ? `${vemPct}%` : "—"}
+      {/* ── Resumen: 4 métricas núcleo (grid uniforme) + KPI héroe a la derecha ── */}
+      <div className="mb-4 flex flex-col gap-4 xl:flex-row">
+        <div className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
+
+          {/* EVM */}
+          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hColor }}>
+            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">EVM · PMO</div>
+            <div className="text-5xl font-extrabold leading-none" style={{ color: hColor }}>
+              {vemPct !== null ? `${vemPct}%` : "—"}
+            </div>
+            <div className="mt-2 flex justify-center">
+              <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.72rem] font-bold" style={{ color: hColor, background: hBg }}>{hIcon} {hLabel}</span>
+            </div>
+            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
+              {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
+              {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
+            </div>
           </div>
-          <div className="mb-3 flex justify-center">
-            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.72rem] font-bold" style={{ color: hColor, background: hBg }}>{hIcon} {hLabel}</span>
+
+          {/* NPS — encuesta PMO */}
+          {(() => {
+            const cfg = npsCfg(nps.nps);
+            const npsColor = cfg?.color ?? "#6b7280";
+            return (
+              <div
+                onClick={() => setShowNps(true)}
+                title="Ver detalle NPS"
+                className="flex cursor-pointer flex-col rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5"
+                style={{ background: "var(--bg-surface)", borderColor: npsColor }}
+              >
+                <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">NPS</div>
+                <div className="text-5xl font-extrabold leading-none" style={{ color: npsColor }}>
+                  {nps.nps !== null ? nps.nps : "—"}
+                </div>
+                <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: npsColor }}>
+                  {cfg?.label ?? "Sin datos"}
+                </div>
+                <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+                  <span style={{ color: "var(--ok)" }}>{nps.promoters} prom.</span>
+                  <span style={{ color: "var(--bad)" }}>{nps.detractors} detr.</span>
+                  <span>{nps.total} resp.</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Costo & Beneficio — REQ + Proyectos */}
+          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "var(--ok)" : "var(--accent)" }}>
+            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
+            <div className="text-[2rem] font-extrabold leading-none" style={{ color: "var(--ok)" }}>{fmtMoney(totalBenefit)}</div>
+            <div className="mt-1 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              Costo <span style={{ color: "var(--info)" }}>{fmtMoney(totalCost)}</span>
+            </div>
+            <div className="mt-auto flex flex-col gap-0.5 pt-3 text-[0.72rem] font-semibold text-[var(--text-muted)]">
+              <span>Aprob. <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobBenefit)}</span></span>
+              <span>Confirm. <span style={{ color: "var(--info)" }}>{fmtMoney(colConfirmCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colConfirmBenefit)}</span></span>
+              <button
+                onClick={() => setHardOnly((v) => !v)}
+                title="Filtrar Costo y Beneficio a solo HardSaving (afecta también el beneficio por PM)"
+                className="mt-1.5 self-center rounded-full border px-3 py-1 text-[0.64rem] font-bold uppercase tracking-wide transition-colors"
+                style={hardOnly
+                  ? { borderColor: "var(--ok)", color: "var(--ok)", background: "var(--ok-bg)" }
+                  : { borderColor: "var(--border)", color: "var(--text-muted)" }}
+              >
+                {hardOnly ? "✓ Solo HardSaving" : "Solo HardSaving"}
+              </button>
+            </div>
           </div>
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold text-[var(--text-muted)]">
-            {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
-            {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
-            {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
+
+          {/* Compromiso de Entregas — % a tiempo (REQ + items + subitems) */}
+          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}>
+            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Compromiso de Entregas</div>
+            <div className="text-5xl font-extrabold leading-none" style={{ color: entColor }}>
+              {entPct !== null ? `${entPct}%` : "—"}
+            </div>
+            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: entColor }}>A tiempo</div>
+            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              <span style={{ color: "var(--ok)" }}>{entOn} a tiempo</span>
+              <span style={{ color: "var(--bad)" }}>{entLate} con atraso</span>
+              <span>{entTotal} entregas</span>
+            </div>
           </div>
+
         </div>
 
-        {/* NPS — encuesta PMO */}
-        {(() => {
-          const cfg = npsCfg(nps.nps);
-          const npsColor = cfg?.color ?? "#6b7280";
-          return (
-            <div
-              onClick={() => setShowNps(true)}
-              className="cursor-pointer rounded-xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5"
-              style={{ background: "var(--bg-surface)", borderColor: npsColor, minWidth: 220 }}
-            >
-              <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">NPS</div>
-              <div className="mb-1.5 text-5xl font-extrabold leading-none" style={{ color: npsColor }}>
-                {nps.nps !== null ? nps.nps : "—"}
-              </div>
-              <div className="mb-3 text-[0.85rem] font-bold uppercase tracking-wide" style={{ color: npsColor }}>
-                {cfg?.label ?? "Sin datos"}
-              </div>
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold text-[var(--text-muted)]">
-                <span style={{ color: "#10b981" }}>{nps.promoters} prom.</span>
-                <span style={{ color: "#ef4444" }}>{nps.detractors} detr.</span>
-                <span>{nps.total} resp.</span>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Costo & Beneficio — REQ + Proyectos */}
-        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "#10b981" : "#6c63ff", minWidth: 220 }}>
-          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
-          <div className="mb-3 flex justify-center gap-6">
-            <div>
-              <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Costo</div>
-              <div className="text-2xl font-extrabold leading-none" style={{ color: "#0ea5e9" }}>{fmtMoney(totalCost)}</div>
-            </div>
-            <div>
-              <div className="text-[0.6rem] uppercase tracking-wide text-[var(--text-muted)]">Beneficio</div>
-              <div className="text-2xl font-extrabold leading-none" style={{ color: "#10b981" }}>{fmtMoney(totalBenefit)}</div>
-            </div>
+        {/* KPI PMO — métrica general ponderada (héroe, pegado a la derecha) */}
+        <div
+          onClick={() => setShowKpi(true)}
+          title="Ver detalle del KPI"
+          className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5 xl:w-64 xl:shrink-0"
+          style={{ background: "var(--bg-surface)", borderColor: kpiColor }}
+        >
+          <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-widest text-[var(--text-secondary)]">KPI PMO</div>
+          <div className="leading-none">
+            <span className="text-6xl font-extrabold" style={{ color: kpiColor }}>{kpiPct}</span>
+            <span className="text-2xl font-bold text-[var(--text-muted)]"> / 100</span>
           </div>
-          <div className="flex flex-col gap-0.5 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-            <span>Aprobación: <span style={{ color: "#0ea5e9" }}>{fmtMoney(colAprobCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(colAprobBenefit)}</span></span>
-            <span>Confirmación: <span style={{ color: "#0ea5e9" }}>{fmtMoney(colConfirmCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(colConfirmBenefit)}</span></span>
-            <hr className="my-1" style={{ border: "none", borderTop: "1px solid var(--accent)" }} />
-            <span>Total: <span style={{ color: "#0ea5e9" }}>{fmtMoney(totalCost)}</span> / <span style={{ color: "#10b981" }}>{fmtMoney(totalBenefit)}</span></span>
+          <div className="mt-2 text-[0.72rem] font-semibold text-[var(--text-muted)]">
+            máx. {kpiAchievable} hoy · faltan {KPI_W.pendiente} por definir
           </div>
-          <button
-            onClick={() => setHardOnly((v) => !v)}
-            title="Filtrar Costo y Beneficio a solo HardSaving (afecta también el beneficio por PM)"
-            className="mt-3 rounded-full border px-3 py-1 text-[0.66rem] font-bold uppercase tracking-wide transition-colors"
-            style={hardOnly
-              ? { borderColor: "#10b981", color: "#10b981", background: "#10b98122" }
-              : { borderColor: "var(--border)", color: "var(--text-muted)" }}
-          >
-            {hardOnly ? "✓ Solo HardSaving" : "Solo HardSaving"}
-          </button>
-        </div>
-
-        {/* Compromiso de Entregas — % a tiempo (REQ + items + subitems) */}
-        <div className="rounded-xl border-2 p-6 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor, minWidth: 220 }}>
-          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Compromiso de Entregas</div>
-          <div className="mb-1.5 text-5xl font-extrabold leading-none" style={{ color: entColor }}>
-            {entPct !== null ? `${entPct}%` : "—"}
-          </div>
-          <div className="mb-3 text-[0.85rem] font-bold uppercase tracking-wide" style={{ color: entColor }}>A tiempo</div>
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold text-[var(--text-muted)]">
-            <span style={{ color: "#10b981" }}>{entOn} a tiempo</span>
-            <span style={{ color: "#ef4444" }}>{entLate} con atraso</span>
-            <span>{entTotal} entregas</span>
+          <div className="mt-4 rounded-full border px-3.5 py-1 text-[0.66rem] font-bold uppercase tracking-wide" style={{ borderColor: kpiColor, color: kpiColor }}>
+            Ver detalle →
           </div>
         </div>
 
@@ -343,15 +392,31 @@ export default function ControlTowerPage() {
       <div className="mb-4 mt-6 flex items-center gap-2.5">
         <h2 className="text-base font-semibold text-[var(--text-primary)]">Portafolios por PM</h2>
         <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{allPMs.length} PM{allPMs.length !== 1 ? "s" : ""}</span>
+        <div className="ml-auto flex rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }}>
+          {(["tabla", "tarjetas"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setPmView(v)}
+              className="rounded-md px-2.5 py-1 text-[0.72rem] font-bold capitalize transition-colors"
+              style={pmView === v ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-muted)" }}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {allPMs.map((pm) => {
-          const q = encodeURIComponent(pm);
-          return (
-            <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
-          );
-        })}
-      </div>
+      {pmView === "tabla" ? (
+        <PmScoreboard pms={allPMs} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {allPMs.map((pm) => {
+            const q = encodeURIComponent(pm);
+            return (
+              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+            );
+          })}
+        </div>
+      )}
 
       {/* VPA Actions — debajo de los Portafolios por PM */}
       <div className="mt-6 flex flex-wrap gap-4">
@@ -373,6 +438,9 @@ export default function ControlTowerPage() {
 
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
+      {showKpi && (
+        <KpiModal pct={kpiPct} achievable={kpiAchievable} pendingWeight={KPI_W.pendiente} color={kpiColor} components={kpi.components} onClose={() => setShowKpi(false)} />
+      )}
     </div>
   );
 }
@@ -508,6 +576,7 @@ function PMPortfolioCard({
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
+  const [showKpi, setShowKpi] = useState(false);
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
   const pmValue = pmValueHard; // el badge $ muestra siempre solo HardSaving
@@ -533,7 +602,7 @@ function PMPortfolioCard({
   }
   const entTotal = entOn + entLate;
   const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
-  const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "#10b981" : entPct >= 75 ? "#f59e0b" : "#ef4444";
+  const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -564,6 +633,13 @@ function PMPortfolioCard({
   const pmEvmRaw = pmEvmParts.length > 0 ? pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length : null;
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
 
+  // KPI del PM: mismo cálculo ponderado que el del equipo, con las métricas del PM
+  // (EVM propio, NPS propio, beneficio HardSaving confirmado propio y su % de entregas).
+  const pmKpi = computeKpi({ evm: pmEvmRaw, nps: pmNps.nps, benefit: pmValueHard.confirmBenefit, entregasPct: entPct });
+  const pmKpiPct = Math.round(pmKpi.score);
+  const pmKpiColor = kpiColorFor(pmKpi.ratio);
+  const pmKpiBg = kpiBgFor(pmKpi.ratio);
+
   // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos. El % sigue siendo el promedio.
   const pmHealth: HealthStatus = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
   const hc = HEALTH_CFG[pmHealth];
@@ -576,6 +652,14 @@ function PMPortfolioCard({
           <div className="mt-0.5 text-[0.75rem] text-[var(--text-muted)]">PM · {pm}</div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            onClick={() => setShowKpi(true)}
+            title={`KPI del PM: ${pmKpiPct}/100 · clic para ver el detalle`}
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.78rem] font-extrabold transition-transform hover:-translate-y-0.5"
+            style={{ color: pmKpiColor, background: pmKpiBg, boxShadow: `inset 0 0 0 1px ${pmKpiColor}` }}
+          >
+            KPI {pmKpiPct}
+          </button>
           <button
             onClick={() => setShowValue(true)}
             title={`Beneficio HardSaving (Confirmación): ${fmtMoney(pmValue.confirmBenefit)} · clic para ver el detalle (Todo / HardSaving)`}
@@ -660,6 +744,147 @@ function PMPortfolioCard({
 
       {showValue && (
         <PMValueModal pm={pm} valueAll={pmValueAll} valueHard={pmValueHard} initialHard={true} onClose={() => setShowValue(false)} />
+      )}
+      {showKpi && (
+        <KpiModal title={`KPI · ${pm}`} pct={pmKpiPct} achievable={pmKpi.achievable} pendingWeight={KPI_W.pendiente} color={pmKpiColor} components={pmKpi.components} onClose={() => setShowKpi(false)} />
+      )}
+    </div>
+  );
+}
+
+// Métricas de resumen de un PM para el scoreboard (mismas fórmulas que la tarjeta de PM):
+// EVM propio, NPS propio, % de entregas, beneficio HardSaving confirmado y KPI ponderado.
+function calcPmMetrics(
+  pm: string, ini: IniItem[], req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[],
+  boardHealthMap: Map<string, BoardHealthData>, calMap: CalMap, npsRecords: NpsRecord[],
+) {
+  const iniHealth = calcIniPMHealth(pm, ini, calMap);
+
+  const reqVemItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO" && REQ_ACTIVE_GRUPOS.has(r.grupo) && r.vem != null);
+  const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
+
+  const pmProjBoards = projBoards.filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null);
+  const pmProjHIs = pmProjBoards.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
+  const pmProjAvgHI = pmProjHIs.length > 0 ? pmProjHIs.reduce((a, b) => a + b, 0) / pmProjHIs.length : null;
+
+  const evmParts = ([iniHealth.index, reqAvgVem, pmProjAvgHI] as (number | null)[]).filter((v): v is number => v != null);
+  const evmRaw = evmParts.length > 0 ? evmParts.reduce((a, b) => a + b, 0) / evmParts.length : null;
+  const evmPct = evmRaw !== null ? Math.round(evmRaw * 100) : null;
+
+  const nps = calcNpsFromRecords(npsRecords, pm);
+
+  const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
+  let entOn = 0, entLate = 0;
+  for (const r of req) {
+    if (r.pm !== pm) continue;
+    if (r.onTime.verdict === "on-time") entOn++; else if (r.onTime.verdict === "late") entLate++;
+  }
+  for (const p of proj) {
+    if (!pmBoardIdSet.has(p.boardId)) continue;
+    if (p.entrega === "on-time") entOn++; else if (p.entrega === "late") entLate++;
+    for (const s of p.subitems) {
+      if (s.entrega === "on-time") entOn++; else if (s.entrega === "late") entLate++;
+    }
+  }
+  const entTotal = entOn + entLate;
+  const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
+
+  const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
+  const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
+  const benefit = pmValueHard.confirmBenefit;
+
+  const kpi = computeKpi({ evm: evmRaw, nps: nps.nps, benefit, entregasPct: entPct });
+  const health = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
+
+  return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };
+}
+
+// Scoreboard comparativo de PMs: tabla ordenada por KPI (desc). KPI y $ abren su detalle.
+function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords }: {
+  pms: string[]; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[];
+  boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap; npsRecords: NpsRecord[];
+}) {
+  const [kpiPm, setKpiPm] = useState<string | null>(null);
+  const [valuePm, setValuePm] = useState<string | null>(null);
+
+  const rows = pms
+    .map((pm) => calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords))
+    .sort((a, b) => b.kpi.score - a.kpi.score);
+
+  const openKpi = rows.find((r) => r.pm === kpiPm);
+  const openValue = rows.find((r) => r.pm === valuePm);
+
+  const th = "px-3 py-2.5 font-semibold text-[var(--text-secondary)]";
+  const td = "px-3 py-2.5";
+
+  return (
+    <div className="overflow-x-auto rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+      <table className="w-full text-[0.82rem]">
+        <thead>
+          <tr className="border-b" style={{ background: "var(--bg-hover)", borderColor: "var(--border)" }}>
+            <th className={`${th} text-center w-10`}>#</th>
+            <th className={`${th} text-left`}>Portafolio · PM</th>
+            <th className={`${th} text-center`}>KPI</th>
+            <th className={`${th} text-center`}>EVM</th>
+            <th className={`${th} text-center`}>NPS</th>
+            <th className={`${th} text-center`}>Entregas</th>
+            <th className={`${th} text-right`}>$ HardSaving</th>
+            <th className={`${th} text-center`}>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const kColor = kpiColorFor(r.kpi.ratio);
+            const kBg = kpiBgFor(r.kpi.ratio);
+            const evmStatus = healthStatusFromIndex(r.evmRaw);
+            const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
+            const npsColor = npsCfg(r.nps.nps)?.color ?? "#6b7280";
+            const entColor = r.entPct === null ? "#6b7280" : r.entPct >= 90 ? "var(--ok)" : r.entPct >= 75 ? "var(--warn)" : "var(--bad)";
+            const hc = HEALTH_CFG[r.health];
+            return (
+              <tr key={r.pm} className="border-t transition-colors hover:bg-[var(--bg-hover)]" style={{ borderColor: "var(--border)" }}>
+                <td className={`${td} text-center tabular-nums font-bold text-[var(--text-muted)]`}>{i + 1}</td>
+                <td className={td}>
+                  <div className="font-semibold text-[var(--text-primary)]">{pmLabel(r.pm)}</div>
+                  <div className="text-[0.7rem] text-[var(--text-muted)]">{r.pm}</div>
+                </td>
+                <td className={`${td} text-center`}>
+                  <button
+                    onClick={() => setKpiPm(r.pm)}
+                    title={`KPI ${r.kpiPct}/100 · ver detalle`}
+                    className="inline-flex items-center rounded-full px-2.5 py-1 text-[0.82rem] font-extrabold transition-transform hover:-translate-y-0.5"
+                    style={{ color: kColor, background: kBg, boxShadow: `inset 0 0 0 1px ${kColor}` }}
+                  >
+                    {r.kpiPct}
+                  </button>
+                </td>
+                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: evmColor }}>{r.evmPct !== null ? `${r.evmPct}%` : "—"}</td>
+                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</td>
+                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</td>
+                <td className={`${td} text-right`}>
+                  <button
+                    onClick={() => setValuePm(r.pm)}
+                    title="Ver costo y beneficio (detalle)"
+                    className="tabular-nums font-bold transition-colors hover:underline"
+                    style={{ color: "var(--ok)" }}
+                  >
+                    {fmtMoney(r.benefit)}
+                  </button>
+                </td>
+                <td className={`${td} text-center`}>
+                  <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.72rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {openKpi && (
+        <KpiModal title={`KPI · ${openKpi.pm}`} pct={openKpi.kpiPct} achievable={openKpi.kpi.achievable} pendingWeight={KPI_W.pendiente} color={kpiColorFor(openKpi.kpi.ratio)} components={openKpi.kpi.components} onClose={() => setKpiPm(null)} />
+      )}
+      {openValue && (
+        <PMValueModal pm={openValue.pm} valueAll={openValue.pmValueAll} valueHard={openValue.pmValueHard} initialHard={true} onClose={() => setValuePm(null)} />
       )}
     </div>
   );

@@ -16,7 +16,7 @@ import MultiSelect from "@/components/MultiSelect";
 import ProjectReportModal from "@/components/ProjectReportModal";
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyResultModal from "@/components/SurveyResultModal";
-import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/ui";
+import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard } from "@/components/ui";
 
 // El step del proyecto que habilita la encuesta de NPS y el estado que la activa.
 const NPS_STEP_RE = /encuesta para nps/i;
@@ -242,9 +242,9 @@ function PMHealth({ projBoards, boardHealthMap, selectedPm, onSelect }: {
               {pmBoards.length} proyecto{pmBoards.length !== 1 ? "s" : ""}
             </div>
             <div className="flex gap-3 text-[0.72rem] text-[var(--text-muted)]">
-              <span style={{ color: "#10b981" }}>✓ {onTrack} on track</span>
-              {inRisk > 0 && <span style={{ color: "#f59e0b" }}>⚠ {inRisk} in risk</span>}
-              <span style={{ color: "#ef4444" }}>✕ {offTrack} off track</span>
+              <span style={{ color: "var(--ok)" }}>✓ {onTrack} on track</span>
+              {inRisk > 0 && <span style={{ color: "var(--warn)" }}>⚠ {inRisk} in risk</span>}
+              <span style={{ color: "var(--bad)" }}>✕ {offTrack} off track</span>
             </div>
           </div>
         );
@@ -257,31 +257,25 @@ function PMHealth({ projBoards, boardHealthMap, selectedPm, onSelect }: {
 function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean }) {
   if (!dl) {
     return opts?.redDash
-      ? <span style={{ color: "#ef4444", fontWeight: 600 }}>—</span>
+      ? <span style={{ color: "var(--bad)", fontWeight: 600 }}>—</span>
       : <span className="text-[var(--text-disabled)]">—</span>;
   }
   if (opts?.isDone) {
     return <span style={{ color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
   }
   const t = new Date(); t.setHours(0, 0, 0, 0);
-  const color = dl < t ? "#ef4444" : dl.getTime() === t.getTime() ? "#f59e0b" : "#10b981";
+  const color = dl < t ? "var(--bad)" : dl.getTime() === t.getTime() ? "var(--warn)" : "var(--ok)";
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
 }
 
-// Celda "Entrega": ✓ a tiempo / ✗ atraso (solo Done). Compara fecha real vs Limit Date.
+// Celda "Entrega": ✓ a tiempo / ✕ atraso (solo Done). Compara fecha real vs Limit Date.
 function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, limit: Date | null) {
   if (!entrega) return <span className="text-[var(--text-disabled)]">—</span>;
   const late = entrega === "late";
-  const color = late ? "#ef4444" : "#10b981";
-  const bg = late ? "var(--pill-atrasado-bg)" : "var(--health-on-track-bg)";
   return (
-    <span
-      className="pill"
-      title={`Real: ${fmtDate(actual)} · Límite: ${fmtDate(limit)}`}
-      style={{ fontSize: ".66rem", color, background: bg, whiteSpace: "nowrap" }}
-    >
-      {late ? "✗ Atraso" : "✓ A tiempo"}
-    </span>
+    <Pill tone={late ? "bad" : "ok"} small title={`Real: ${fmtDate(actual)} · Límite: ${fmtDate(limit)}`}>
+      {late ? "✕ Atraso" : "✓ A tiempo"}
+    </Pill>
   );
 }
 
@@ -473,7 +467,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
 
       {open && (
         <div className="table-wrap" style={{ margin: 0, borderRadius: 0, border: 0 }}>
-          <table className="pmo">
+          <table className="pmo grouped">
             <thead>
               <tr>
                 <th>Tarea</th><th>Status</th><th>Estado</th><th>Deadline</th><th>Entrega</th>
@@ -583,7 +577,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
         <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
         <td>{entregaCell(r.entrega, r.endDate, r.deadline)}</td>
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
-        <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
+        <td style={{ textAlign: "right", fontWeight: 600, color: "var(--ok)", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
       </tr>
       {/* ── Subitem rows ── */}
       {isOpen && visibleSubitems.map((s, i) => {
