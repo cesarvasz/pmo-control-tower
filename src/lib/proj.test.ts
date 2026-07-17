@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { calcProjEstado, calcProjEntrega, deriveBoardHealth } from "./proj";
+import { calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess } from "./proj";
 import { today } from "./business";
+import type { MondayColumnValue, MondayItem, MondaySubitem } from "@/types";
 
 const daysFromToday = (n: number): Date => {
   const d = today();
@@ -43,5 +44,50 @@ describe("calcProjEntrega", () => {
     expect(calcProjEntrega("Done", new Date(2026, 5, 10), limit)).toBe("on-time");
     expect(calcProjEntrega("Done", new Date(2026, 5, 1), limit)).toBe("on-time");
     expect(calcProjEntrega("Done", new Date(2026, 5, 11), limit)).toBe("late");
+  });
+});
+
+// ── projProcess (procesador completo; columnas por TÍTULO) ────────────────
+const pcol = (title: string, text: string): MondayColumnValue => ({ id: title, text, column: { title } });
+const mkProj = (name: string, cols: MondayColumnValue[], subitems: MondaySubitem[] = []): MondayItem => ({
+  id: name, name, group: { title: "Fase 1" }, column_values: cols, subitems,
+});
+
+describe("projProcess", () => {
+  it("Done a tiempo → entrega on-time; parsea costo/beneficio y metadatos del board", () => {
+    const [r] = projProcess("Board X", "b1", [mkProj("Item 1", [
+      pcol("Status", "Done"),
+      pcol("Limit Date", "2026-06-10"),
+      pcol("End Date", "2026-06-05"),
+      pcol("Cost $", "1000"),
+      pcol("Benefit $", "4000"),
+      pcol("PM", "Luis"),
+    ])]);
+    expect(r.entrega).toBe("on-time");
+    expect(r.cost).toBe(1000);
+    expect(r.benefit).toBe(4000);
+    expect(r.valueNet).toBe(3000);
+    expect(r.boardId).toBe("b1");
+    expect(r.boardName).toBe("Board X");
+    expect(r.pm).toBe("Luis");
+  });
+
+  it("Done después del límite → entrega late", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [
+      pcol("Status", "Done"), pcol("Limit Date", "2026-06-10"), pcol("End Date", "2026-06-15"),
+    ])]);
+    expect(r.entrega).toBe("late");
+  });
+
+  it("procesa subitems con su propia entrega (Actual End)", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [pcol("Status", "Working on it")], [
+      { id: "s1", name: "Sub 1", column_values: [
+        pcol("Status", "Done"), pcol("Limit Date", "2026-06-10"), pcol("Actual End", "2026-06-01"),
+      ] },
+    ])]);
+    expect(r.entrega).toBeNull(); // el item no está Done
+    expect(r.subitems).toHaveLength(1);
+    expect(r.subitems[0].name).toBe("Sub 1");
+    expect(r.subitems[0].entrega).toBe("on-time");
   });
 });
