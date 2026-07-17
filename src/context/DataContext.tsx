@@ -11,17 +11,10 @@ import {
 } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
-import {
-  buildBenefitTypeMap,
-  buildCalMap,
-  buildEstrategiaMap,
-  calcNpsFromRecords,
-  iniProcess,
-  buildIniLookup,
-  projEnrichBoards,
-  projProcess,
-  reqProcess,
-} from "@/lib/process";
+import { buildCalMap, iniProcess } from "@/lib/ini";
+import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
+import { reqProcess } from "@/lib/req";
+import { calcNpsFromRecords } from "@/lib/nps";
 import type { DashboardData, DashboardRaw, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).

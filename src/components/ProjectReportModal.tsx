@@ -1,7 +1,7 @@
 "use client";
 
 import { fmtDate, fmtMoney } from "@/lib/business";
-import { calcVem, healthStatusFromIndex } from "@/lib/process";
+import { calcVem, healthStatusFromIndex } from "@/lib/health";
 import type { ProjBoard, ProjItem, ProjSubitem } from "@/types";
 import Modal from "@/components/Modal";
 

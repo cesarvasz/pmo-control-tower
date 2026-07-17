@@ -1,7 +1,8 @@
 "use client";
 
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
-import { REQ_GROUP_COLOR, vemCfg } from "@/lib/process";
+import { REQ_GROUP_COLOR } from "@/lib/req";
+import { vemCfg } from "@/lib/health";
 import type { ReqItem } from "@/types";
 import Modal from "@/components/Modal";
 

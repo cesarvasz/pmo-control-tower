@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { npsCfg } from "@/lib/process";
+import { npsCfg } from "@/lib/nps";
 import type { NpsData } from "@/types";
 import Modal from "@/components/Modal";
 

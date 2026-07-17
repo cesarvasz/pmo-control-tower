@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
-import { lookupEstrategia } from "@/lib/process";
+import { lookupEstrategia } from "@/lib/proj";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
 // El step (ítem) que contiene los Hitos como subelementos, en la fase "Launch | Desarrollo".

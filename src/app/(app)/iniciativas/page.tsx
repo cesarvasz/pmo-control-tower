@@ -4,8 +4,8 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate } from "@/lib/business";
+import { HEALTH_CFG } from "@/lib/health";
 import {
-  HEALTH_CFG,
   INI_ACTIVE_STS,
   INI_LIMITS,
   INI_SEC_LABEL,
@@ -14,7 +14,7 @@ import {
   iniItemStatus,
   iniIsParaHoy,
   nextOrLatest,
-} from "@/lib/process";
+} from "@/lib/ini";
 import type { CalMap, CalMeeting, IniItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard, type Tone } from "@/components/ui";
