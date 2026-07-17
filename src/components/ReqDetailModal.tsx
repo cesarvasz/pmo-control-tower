@@ -5,7 +5,7 @@ import { REQ_GROUP_COLOR, vemCfg } from "@/lib/process";
 import type { ReqItem } from "@/types";
 import Modal from "@/components/Modal";
 
-const evmColor = (v: number) => (v >= 1 ? "#10b981" : v >= 0.8 ? "#f59e0b" : "#ef4444");
+const evmColor = (v: number) => (v >= 1 ? "var(--ok)" : v >= 0.8 ? "var(--warn)" : "var(--bad)");
 const evmBg = (v: number) => (v >= 1 ? "var(--health-on-track-bg)" : v >= 0.8 ? "var(--health-in-risk-bg)" : "var(--health-off-track-bg)");
 
 function Cell({ label, children }: { label: string; children: React.ReactNode }) {
@@ -97,7 +97,7 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
                 <Cell label="Costo Total">{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : dash}</Cell>
                 <Cell label="Beneficio">{r.benefit ? fmtMoney(r.benefit) : dash}</Cell>
                 <Cell label="Valor Neto">
-                  {r.valueNet ? <span style={{ color: r.valueNet >= 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>{fmtMoney(r.valueNet)}</span> : dash}
+                  {r.valueNet ? <span style={{ color: r.valueNet >= 0 ? "var(--ok)" : "var(--bad)", fontWeight: 700 }}>{fmtMoney(r.valueNet)}</span> : dash}
                 </Cell>
               </div>
             </div>
@@ -128,7 +128,7 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
             <div>
               <SectionLabel>Valores</SectionLabel>
               <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-                <Cell label="Valor Ganado (EV)"><span style={{ color: "#10b981" }}>{fmtMoney(r.ev)}</span></Cell>
+                <Cell label="Valor Ganado (EV)"><span style={{ color: "var(--ok)" }}>{fmtMoney(r.ev)}</span></Cell>
                 <Cell label="Valor Planificado (PV)"><span style={{ color: "#6c63ff" }}>{fmtMoney(r.pv)}</span></Cell>
                 <Cell label="Costo Real (AC)">{fmtMoney(r.ac)}</Cell>
               </div>
@@ -149,9 +149,9 @@ function PhaseCosts({ r }: { r: ReqItem }) {
         {r.phases.map((p) => {
           // done → completada (EV) · vencida sin cerrar (drag SPI) → roja · futura → neutra
           const st = p.done
-            ? { dot: "#10b981", label: "Completada", color: "#10b981", bg: "var(--health-on-track-bg)" }
+            ? { dot: "var(--ok)", label: "Completada", color: "var(--ok)", bg: "var(--health-on-track-bg)" }
             : p.inPv
-              ? { dot: "#ef4444", label: "Vencida", color: "#ef4444", bg: "var(--health-off-track-bg)" }
+              ? { dot: "var(--bad)", label: "Vencida", color: "var(--bad)", bg: "var(--health-off-track-bg)" }
               : { dot: "var(--text-disabled)", label: "Pendiente", color: "var(--text-muted)", bg: "var(--bg-hover)" };
           return (
             <div key={p.name} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ background: "var(--bg-hover)", borderColor: "var(--border)" }}>
@@ -166,8 +166,8 @@ function PhaseCosts({ r }: { r: ReqItem }) {
         })}
       </div>
       <div className="mt-2 flex flex-wrap gap-3 text-[0.66rem] text-[var(--text-muted)]">
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#10b981" }} /> Completada → EV</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#ef4444" }} /> Vencida sin cerrar → baja el SPI</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "var(--ok)" }} /> Completada → EV</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "var(--bad)" }} /> Vencida sin cerrar → baja el SPI</span>
         <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "var(--text-disabled)" }} /> Pendiente / futura</span>
       </div>
     </div>
@@ -177,17 +177,17 @@ function PhaseCosts({ r }: { r: ReqItem }) {
 function diffHtml(r: ReqItem, t: Date) {
   if (!r.deadline) return dash;
   const d = new Date(r.deadline); d.setHours(0, 0, 0, 0);
-  if (d.getTime() === t.getTime()) return <span style={{ color: "#f59e0b", fontWeight: 700 }}>Hoy</span>;
-  if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "#10b981", fontWeight: 700 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
-  const n = businessDays(d, t, true); return <span style={{ color: "#ef4444", fontWeight: 700 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
+  if (d.getTime() === t.getTime()) return <span style={{ color: "var(--warn)", fontWeight: 700 }}>Hoy</span>;
+  if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "var(--ok)", fontWeight: 700 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
+  const n = businessDays(d, t, true); return <span style={{ color: "var(--bad)", fontWeight: 700 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
 }
 
 function accumHtml(r: ReqItem) {
   if (r.elapsed === null || r.expectedDays === null) return dash;
   const diff = r.expectedDays - r.elapsed;
-  if (diff === 0) return <span style={{ color: "#f59e0b", fontWeight: 700 }}>Hoy</span>;
-  if (diff > 0) return <span style={{ color: "#10b981", fontWeight: 700 }}>+{diff} día{diff !== 1 ? "s" : ""}</span>;
-  return <span style={{ color: "#ef4444", fontWeight: 700 }}>-{-diff} día{-diff !== 1 ? "s" : ""}</span>;
+  if (diff === 0) return <span style={{ color: "var(--warn)", fontWeight: 700 }}>Hoy</span>;
+  if (diff > 0) return <span style={{ color: "var(--ok)", fontWeight: 700 }}>+{diff} día{diff !== 1 ? "s" : ""}</span>;
+  return <span style={{ color: "var(--bad)", fontWeight: 700 }}>-{-diff} día{-diff !== 1 ? "s" : ""}</span>;
 }
 
 // ── Timeline visual (barra de fases + marcadores real/esperado) ─────────
@@ -274,9 +274,9 @@ function Timeline({ r }: { r: ReqItem }) {
       {diff !== null && (
         <div className="mt-2 text-[0.74rem] text-[var(--text-muted)]">
           Hoy vas{" "}
-          {diff === 0 ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>exactamente en tiempo</span>
-            : diff > 0 ? <><span style={{ color: "#10b981", fontWeight: 600 }}>+{diff}d adelantado</span> en su fase</>
-              : <><span style={{ color: "#ef4444", fontWeight: 600 }}>{diff}d atrasado</span> respecto a su fase</>}
+          {diff === 0 ? <span style={{ color: "var(--warn)", fontWeight: 600 }}>exactamente en tiempo</span>
+            : diff > 0 ? <><span style={{ color: "var(--ok)", fontWeight: 600 }}>+{diff}d adelantado</span> en su fase</>
+              : <><span style={{ color: "var(--bad)", fontWeight: 600 }}>{diff}d atrasado</span> respecto a su fase</>}
         </div>
       )}
     </div>

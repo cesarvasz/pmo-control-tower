@@ -293,7 +293,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
   const badge = healthStatus ? HEALTH_CFG[healthStatus] : null;
 
   const toggleGroup = (g: string) =>
-    setOpenGroups((s) => { const n = new Set(s); n.has(g) ? n.delete(g) : n.add(g); return n; });
+    setOpenGroups((s) => { const n = new Set(s); if (n.has(g)) n.delete(g); else n.add(g); return n; });
 
   const groupOrder: string[] = [];
   const groupMap = new Map<string, ProjItem[]>();

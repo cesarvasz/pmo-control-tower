@@ -111,9 +111,6 @@ const PHASE_STYLE: Record<PhaseStatus, { chip: string; chipColor: string; border
   pending: { chip: "PENDIENTE",      chipColor: "var(--text-muted)", border: "var(--border)", bg: "var(--bg-hover)", opacity: 0.55 },
 };
 
-const metricColor = (v: number | null) =>
-  v === null ? "var(--text-muted)" : v >= 1 ? "#10b981" : v >= 0.85 ? "#f59e0b" : "#ef4444";
-
 export default function ProjectReportModal({ board, items, ev, pv, ac, scope, spi, cpi, onClose }: Props) {
   const m   = computeMetrics(items, spi, cpi, scope);
   const hc  = m.healthStatus ? HC[m.healthStatus] : null;
@@ -463,9 +460,6 @@ function buildPrintHTML(
   logo: string,
 ): string {
   const hc = m.healthStatus ? HC[m.healthStatus] : null;
-  const metric = (v: number | null) => (v !== null ? v.toFixed(2) : "—");
-  const mColor = (v: number | null) =>
-    v === null ? "#6b7280" : v >= 1 ? "#10b981" : v >= 0.85 ? "#f59e0b" : "#ef4444";
 
   const PHASE_PRINT: Record<PhaseStatus, { chip: string; chipBg: string; border: string; bg: string; opacity: string }> = {
     done:    { chip: "✓ COMPLETADO",   chipBg: "#10b981", border: "#10b981", bg: "#ecfdf5", opacity: "1" },

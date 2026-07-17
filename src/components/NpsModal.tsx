@@ -6,12 +6,12 @@ import type { NpsData } from "@/types";
 import Modal from "@/components/Modal";
 
 const CAT_CFG = {
-  promoter:  { color: "#10b981", label: "Promotor" },
-  passive:   { color: "#f59e0b", label: "Pasivo" },
-  detractor: { color: "#ef4444", label: "Detractor" },
+  promoter:  { color: "var(--ok)", label: "Promotor" },
+  passive:   { color: "var(--warn)", label: "Pasivo" },
+  detractor: { color: "var(--bad)", label: "Detractor" },
 } as const;
 
-const pctColor = (p: number) => (p >= 80 ? "#10b981" : p >= 60 ? "#f59e0b" : "#ef4444");
+const pctColor = (p: number) => (p >= 80 ? "var(--ok)" : p >= 60 ? "var(--warn)" : "var(--bad)");
 
 function fmtTs(ts: string): string {
   if (!ts) return "—";

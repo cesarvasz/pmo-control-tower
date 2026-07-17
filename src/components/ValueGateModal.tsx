@@ -20,9 +20,9 @@ interface Cfg { color: string; icon: string; label: string; rank: number }
 function cfgFor(a: VpaAction): Cfg {
   if (a.done) return { color: "#6b7280", icon: "✓", label: "Done", rank: 10 };
   switch (a.estado) {
-    case "PARA HOY":  return { color: "#f59e0b", icon: "⚠", label: "Hoy",       rank: 0 };
-    case "ATRASADO":  return { color: "#ef4444", icon: "✕", label: "Atrasado",  rank: 1 };
-    case "EN TIEMPO": return { color: "#10b981", icon: "✓", label: "En Tiempo", rank: 2 };
+    case "PARA HOY":  return { color: "var(--warn)", icon: "⚠", label: "Hoy",       rank: 0 };
+    case "ATRASADO":  return { color: "var(--bad)", icon: "✕", label: "Atrasado",  rank: 1 };
+    case "EN TIEMPO": return { color: "var(--ok)", icon: "✓", label: "En Tiempo", rank: 2 };
     default:          return { color: "#6b7280", icon: "•", label: a.estado,    rank: 5 };
   }
 }

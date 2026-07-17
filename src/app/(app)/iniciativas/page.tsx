@@ -79,7 +79,6 @@ function IniciativasInner() {
   const atrasadas = base.filter((r) => r.estado === "ATRASADO").length;
   const paraHoy = base.filter((r) => iniIsParaHoy(r, calMap)).length;
   const enTiempo = base.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length;
-  const aprobadas = base.filter((r) => r.estado === "APROBADA").length;
   const enProceso = base.filter((r) => INI_ACTIVE_STS.has(r.status)).length;
   const sinAgendarCount = getFiltered(pms, statuses, "", true).length;
 

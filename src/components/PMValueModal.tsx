@@ -17,8 +17,8 @@ export interface PmValue {
   };
 }
 
-const COST = "#0ea5e9";
-const BEN = "#10b981";
+const COST = "var(--info)";
+const BEN = "var(--ok)";
 
 function Row({ label, c, b, strong }: { label: string; c: number; b: number; strong?: boolean }) {
   return (
@@ -93,7 +93,7 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                 onClick={() => setHard(val)}
                 className="rounded-md px-2.5 py-1 text-[0.68rem] font-bold transition-colors"
                 style={hard === val
-                  ? { background: "#10b981", color: "#fff" }
+                  ? { background: "var(--ok)", color: "#fff" }
                   : { color: "var(--text-muted)" }}
               >
                 {label}

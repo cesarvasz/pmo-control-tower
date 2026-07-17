@@ -12,7 +12,7 @@ const LIKERT_COLOR: Record<string, string> = {
   "En desacuerdo": "#f97316",
   "Totalmente en desacuerdo": "#ef4444",
 };
-const npsColor = (v: number) => (v >= 9 ? "#10b981" : v >= 7 ? "#f59e0b" : "#ef4444");
+const npsColor = (v: number) => (v >= 9 ? "var(--ok)" : v >= 7 ? "var(--warn)" : "var(--bad)");
 const npsLabel = (v: number) => (v >= 9 ? "Promotor" : v >= 7 ? "Pasivo" : "Detractor");
 
 export default function SurveyResultModal({ token, onClose }: { token: string; onClose: () => void }) {
@@ -45,7 +45,7 @@ export default function SurveyResultModal({ token, onClose }: { token: string; o
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
               <span className="text-[1.05rem] font-bold text-[var(--text-primary)]">{survey?.reqCode || survey?.reqName || "—"}</span>
               {survey?.invalidated && (
-                <span className="rounded-full px-2 py-0.5 text-[0.64rem] font-bold uppercase" style={{ color: "#ef4444", background: "var(--pill-atrasado-bg)" }}>⊘ Invalidada</span>
+                <span className="rounded-full px-2 py-0.5 text-[0.64rem] font-bold uppercase" style={{ color: "var(--bad)", background: "var(--pill-atrasado-bg)" }}>⊘ Invalidada</span>
               )}
             </div>
             {survey && (
@@ -60,7 +60,7 @@ export default function SurveyResultModal({ token, onClose }: { token: string; o
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {state === "loading" && <div className="py-10 text-center text-[0.85rem] text-[var(--text-muted)]">Cargando…</div>}
-          {state === "error" && <div className="py-10 text-center text-[0.85rem]" style={{ color: "#ef4444" }}>{err}</div>}
+          {state === "error" && <div className="py-10 text-center text-[0.85rem]" style={{ color: "var(--bad)" }}>{err}</div>}
 
           {state === "ready" && !response && (
             <div className="py-10 text-center text-[0.85rem] text-[var(--text-muted)]">Aún no ha sido contestada.</div>

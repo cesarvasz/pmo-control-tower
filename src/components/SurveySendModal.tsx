@@ -118,7 +118,7 @@ export default function SurveySendModal({
               {saving ? "…" : "＋ Agregar"}
             </button>
           </div>
-          {err && <div className="mt-2 text-[0.8rem]" style={{ color: "#ef4444" }}>{err}</div>}
+          {err && <div className="mt-2 text-[0.8rem]" style={{ color: "var(--bad)" }}>{err}</div>}
         </div>
 
         {/* Lista de destinatarios */}
@@ -146,10 +146,10 @@ export default function SurveySendModal({
                       <div className="truncate text-[0.7rem] text-[var(--text-muted)]">{s.assignedEmail}</div>
                     </div>
                     {s.invalidated
-                      ? <span className="shrink-0 text-[0.72rem] font-semibold" style={{ color: "#ef4444" }}>⊘ Invalidada</span>
+                      ? <span className="shrink-0 text-[0.72rem] font-semibold" style={{ color: "var(--bad)" }}>⊘ Invalidada</span>
                       : s.answered
-                        ? <span className="shrink-0 text-[0.72rem] font-semibold" style={{ color: "#10b981" }}>✓ Contestada</span>
-                        : <span className="shrink-0 text-[0.72rem] font-semibold" style={{ color: "#f59e0b" }}>⏳ Pendiente</span>}
+                        ? <span className="shrink-0 text-[0.72rem] font-semibold" style={{ color: "var(--ok)" }}>✓ Contestada</span>
+                        : <span className="shrink-0 text-[0.72rem] font-semibold" style={{ color: "var(--warn)" }}>⏳ Pendiente</span>}
                   </div>
 
                   {s.answered ? (
@@ -183,7 +183,7 @@ export default function SurveySendModal({
                           onClick={() => cancel(s.token)}
                           disabled={busyToken === s.token}
                           className="shrink-0 rounded-lg border px-2.5 py-1.5 text-[0.72rem] font-semibold disabled:opacity-50"
-                          style={{ borderColor: "var(--border)", color: "#ef4444" }}
+                          style={{ borderColor: "var(--border)", color: "var(--bad)" }}
                           title="Eliminar este enlace pendiente"
                         >
                           Cancelar
