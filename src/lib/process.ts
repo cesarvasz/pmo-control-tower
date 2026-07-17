@@ -423,7 +423,7 @@ export const PROJ_COL = {
   actualEnd: "Actual End", // fecha real de cierre del subitem (hito)
 };
 
-function calcProjEstado(dl: Date | null): string {
+export function calcProjEstado(dl: Date | null): string {
   const t = today();
   if (!dl) return "ATRASADO";
   return dl < t ? "ATRASADO" : dl.getTime() === t.getTime() ? "PARA HOY" : "EN TIEMPO";
