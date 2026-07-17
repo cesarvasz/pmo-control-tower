@@ -3,19 +3,7 @@
 import { useState } from "react";
 import { fmtMoney } from "@/lib/business";
 import Modal from "@/components/Modal";
-
-export interface PmValueItem { name: string; cost: number; benefit: number; confirmed: boolean }
-
-export interface PmValue {
-  totalCost: number; totalBenefit: number;
-  aprobCost: number; aprobBenefit: number;       // Aprobación: REQ en fase 2 + proyectos con solo gate Aprobación
-  confirmCost: number; confirmBenefit: number;   // Confirmación: REQ que pasó fase 2 + proyectos con gate Launch firmado
-  // Detalle de ítems (para la pestaña Detalle). confirmed=true → columna Confirmación, si no Aprobación.
-  detail: {
-    reqs: PmValueItem[];
-    projects: PmValueItem[];
-  };
-}
+import type { PmValue } from "@/lib/dashboard";
 
 const COST = "var(--info)";
 const BEN = "var(--ok)";
