@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { addBusinessDays, businessDays } from "@/lib/business";
+import Modal from "@/components/Modal";
 
 // "2026-01-01" → Date local (sin desfase de zona horaria).
 function parseInput(v: string): Date | null {
@@ -50,16 +51,7 @@ export default function CalcHabilesModal({ onClose }: { onClose: () => void }) {
   const resultDate = db && numOk ? addBusinessDays(db, dir === "forward" ? n : -n, true) : null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={448}>
         {/* Header */}
         <div
           className="flex shrink-0 items-start justify-between border-b px-6 py-4"
@@ -171,7 +163,6 @@ export default function CalcHabilesModal({ onClose }: { onClose: () => void }) {
         >
           Excluye fines de semana y asuetos oficiales de Guatemala. La diferencia no cuenta el día inicial.
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -37,7 +37,7 @@ export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () =
   return (
     <Modal open onClose={onClose} width={720}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
+      <div className="flex shrink-0 items-center justify-between border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
         <div className="flex items-center gap-3">
           <span className="text-[1.05rem] font-bold text-[var(--text-primary)]">NPS · Encuesta PMO</span>
           {nps.nps !== null && (
@@ -50,7 +50,7 @@ export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () =
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b px-6 pt-3" style={{ borderColor: "var(--border)" }}>
+      <div className="flex shrink-0 gap-1 border-b px-6 pt-3" style={{ borderColor: "var(--border)" }}>
         {(["resumen", "detalles"] as const).map((t) => (
           <button
             key={t}
@@ -68,7 +68,7 @@ export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () =
       </div>
 
       {/* Body */}
-      <div className="px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-6 py-5">
         {tab === "resumen" ? (
           <div className="flex flex-col gap-5">
             {/* Nota grande */}

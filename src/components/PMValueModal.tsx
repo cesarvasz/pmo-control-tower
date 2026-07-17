@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fmtMoney } from "@/lib/business";
+import Modal from "@/components/Modal";
 
 export interface PmValueItem { name: string; cost: number; benefit: number; confirmed: boolean }
 
@@ -54,16 +55,7 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
   const hasDetail = d.reqs.length + d.projects.length > 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={672}>
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
@@ -186,8 +178,7 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

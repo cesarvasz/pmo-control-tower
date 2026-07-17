@@ -1,22 +1,14 @@
 "use client";
 
 import { kpiCompColor as compColor, type KpiComponent } from "@/lib/kpi";
+import Modal from "@/components/Modal";
 
 export default function KpiModal({ title = "KPI PMO", pct, achievable, pendingWeight, color, components, onClose }: {
   title?: string; pct: number; achievable: number; pendingWeight: number; color: string;
   components: KpiComponent[]; onClose: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={512}>
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
@@ -74,7 +66,6 @@ export default function KpiModal({ title = "KPI PMO", pct, achievable, pendingWe
           <span className="text-[0.82rem] font-bold text-[var(--text-primary)]">Total</span>
           <span className="tabular-nums text-[0.9rem] font-extrabold" style={{ color }}>{pct} <span className="text-[0.75rem] font-bold text-[var(--text-muted)]">/ 100</span></span>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

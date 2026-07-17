@@ -43,7 +43,7 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
       {r && (
         <>
           {/* Header */}
-          <div className="flex items-start gap-3.5 border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
+          <div className="flex shrink-0 items-start gap-3.5 border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
             <span className="mt-0.5 whitespace-nowrap rounded-md border px-2 py-1 text-[0.72rem] font-bold" style={{ color: "var(--accent)", background: "var(--bg-accent-soft)", borderColor: "#4c4a9a55" }}>
               {r.id || "—"}
             </span>
@@ -52,7 +52,7 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
           </div>
 
           {/* Body */}
-          <div className="flex flex-col gap-5 px-6 pb-6 pt-5">
+          <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 pb-6 pt-5">
             {/* Estado (derivado del VEM) + grupo */}
             <div className="flex flex-wrap items-center gap-2">
               {r.vem !== null

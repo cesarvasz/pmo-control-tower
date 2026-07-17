@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { authedFetch } from "@/lib/api";
 import { SURVEY_QUESTIONS, type SurveyDoc, type SurveyResponseDoc } from "@/lib/survey";
+import Modal from "@/components/Modal";
 
 const LIKERT_COLOR: Record<string, string> = {
   "Totalmente de acuerdo": "#10b981",
@@ -36,12 +37,7 @@ export default function SurveyResultModal({ token, onClose }: { token: string; o
   const nps = response ? Number(response.answers["nps"]) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={768}>
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-3 border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
@@ -127,7 +123,6 @@ export default function SurveyResultModal({ token, onClose }: { token: string; o
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

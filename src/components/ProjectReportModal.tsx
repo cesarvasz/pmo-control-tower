@@ -3,6 +3,7 @@
 import { fmtDate, fmtMoney } from "@/lib/business";
 import { calcVem, healthStatusFromIndex } from "@/lib/process";
 import type { ProjBoard, ProjItem, ProjSubitem } from "@/types";
+import Modal from "@/components/Modal";
 
 interface Props {
   board: ProjBoard;
@@ -154,16 +155,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
   ];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={1024}>
         {/* ── Header ── */}
         <div
           className="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-4"
@@ -397,8 +389,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
           )}
 
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

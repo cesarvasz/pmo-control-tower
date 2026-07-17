@@ -1,6 +1,7 @@
 "use client";
 
 import { fmtDate } from "@/lib/business";
+import Modal from "@/components/Modal";
 
 /** Acción del VPA unificada (proyecto o REQ) para el resumen y el detalle. */
 export interface VpaAction {
@@ -34,16 +35,7 @@ export default function ValueGateModal({ items, onClose }: { items: VpaAction[];
     .sort((x, y) => x.cfg.rank - y.cfg.rank);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={512}>
         {/* Header */}
         <div
           className="flex shrink-0 items-start justify-between border-b px-6 py-4"
@@ -110,7 +102,6 @@ export default function ValueGateModal({ items, onClose }: { items: VpaAction[];
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

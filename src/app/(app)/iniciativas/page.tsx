@@ -17,7 +17,7 @@ import {
 } from "@/lib/process";
 import type { CalMap, CalMeeting, IniItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
-import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/ui";
+import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard, type Tone } from "@/components/ui";
 
 const VISIBLE_SECTIONS = new Set(["New", "Meeting 1"]);
 const estadoOrder = (e: string) =>
@@ -185,7 +185,7 @@ function CalCell({ arr }: { arr: CalMeeting[] }) {
   const mDay = new Date(m.inicio); mDay.setHours(0, 0, 0, 0);
   const isPast = m.inicio < now;
   const today = mDay.getTime() === today0.getTime();
-  const color = isPast ? "var(--text-disabled)" : today ? "#f59e0b" : "#10b981";
+  const color = isPast ? "var(--text-disabled)" : today ? "var(--warn)" : "var(--ok)";
   const dateStr = m.inicio.toLocaleDateString("es-GT", { day: "2-digit", month: "short" });
   const timeStr = m.inicio.toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit", hour12: false });
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap", fontSize: ".8rem" }}>{isPast ? "✓" : "📅"} {dateStr} {timeStr}</span>;
@@ -195,23 +195,23 @@ function mondayDateCell(v: string | undefined) {
   if (!v) return <span className="text-[var(--text-disabled)]">—</span>;
   const d = new Date(v); d.setHours(0, 0, 0, 0);
   const t = new Date(); t.setHours(0, 0, 0, 0);
-  const color = d < t ? "var(--text-disabled)" : d.getTime() === t.getTime() ? "#f59e0b" : "#10b981";
+  const color = d < t ? "var(--text-disabled)" : d.getTime() === t.getTime() ? "var(--warn)" : "var(--ok)";
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(d)}</span>;
 }
 
-const ROW_PILL: Record<string, [string, string]> = {
-  ATRASADO: ["pill-atrasado", "✕ Off Track"],
-  "PARA HOY": ["pill-entiempo", "✓ On Track"],
-  "EN TIEMPO": ["pill-entiempo", "✓ On Track"],
-  APROBADA: ["pill-aprobada", "✓ Aprobada"],
-  SKIP: ["pill-skip", "— N/A"],
+const ROW_PILL: Record<string, [Tone, string]> = {
+  ATRASADO: ["bad", "✕ Off Track"],
+  "PARA HOY": ["warn", "⚠ At Risk"],
+  "EN TIEMPO": ["ok", "✓ On Track"],
+  APROBADA: ["info", "✓ Aprobada"],
+  SKIP: ["neutral", "— N/A"],
 };
 
 // Pill según el estado de salud (incluye At Risk / Off Track por falta de reunión).
-const HEALTH_PILL: Record<string, [string, string]> = {
-  "on-track":  ["pill-entiempo", "✓ On Track"],
-  "in-risk":   ["pill-parahoy",  "⚠ At Risk"],
-  "off-track": ["pill-atrasado", "✕ Off Track"],
+const HEALTH_PILL: Record<string, [Tone, string]> = {
+  "on-track":  ["ok",   "✓ On Track"],
+  "in-risk":   ["warn", "⚠ At Risk"],
+  "off-track": ["bad",  "✕ Off Track"],
 };
 
 function IniSection({ status, rows, calMap }: { status: string; rows: IniItem[]; calMap: CalMap }) {
@@ -232,7 +232,7 @@ function IniSection({ status, rows, calMap }: { status: string; rows: IniItem[];
         <span className="rounded-full border px-2 py-0.5 text-[0.72rem] text-[var(--text-muted)]" style={{ background: "var(--code-bg)", borderColor: "var(--code-border)" }}>
           {limite ? `Límite: ${limite} días hábiles desde creación` : "Sin límite de tiempo"}
         </span>
-        {atrasados > 0 && <span className="pill pill-atrasado" style={{ fontSize: ".7rem" }}>{atrasados} atrasado{atrasados > 1 ? "s" : ""}</span>}
+        {atrasados > 0 && <Pill tone="bad" small>{atrasados} atrasado{atrasados > 1 ? "s" : ""}</Pill>}
       </div>
       <div className="table-wrap">
         <table className="pmo">
@@ -259,11 +259,11 @@ function IniSection({ status, rows, calMap }: { status: string; rows: IniItem[];
             {sorted.map((r) => {
               // Con base de cálculo: el pill sigue el estado de salud (On Track / At Risk / Off Track).
               // Sin fecha: cae al pill por estado.
-              const [pcls, plbl] = r.dias === null
-                ? ROW_PILL[r.estado] ?? ["pill-skip", r.estado]
-                : HEALTH_PILL[iniItemStatus(r, calMap)];
+              const [ptone, plbl] = r.dias === null
+                ? ROW_PILL[r.estado] ?? (["neutral", r.estado] as [Tone, string])
+                : HEALTH_PILL[iniItemStatus(r, calMap)] ?? (["neutral", "—"] as [Tone, string]);
               const pct = r.dias !== null && r.limite ? Math.min((r.dias / r.limite) * 100, 100) : 0;
-              const bc = pct > 100 ? "#ef4444" : pct >= 80 ? "#f59e0b" : "#10b981";
+              const bc = pct > 100 ? "var(--bad)" : pct >= 80 ? "var(--warn)" : "var(--ok)";
               const cal = calMap.get(r.id) || { M1: [], M2: [] };
               return (
                 <tr key={r.id || r.name}>
@@ -294,7 +294,7 @@ function IniSection({ status, rows, calMap }: { status: string; rows: IniItem[];
                       <td>{mondayDateCell(r.meet2)}</td>
                     </>
                   )}
-                  <td><span className={`pill ${pcls}`}>{plbl}</span></td>
+                  <td><Pill tone={ptone}>{plbl}</Pill></td>
                 </tr>
               );
             })}
@@ -307,22 +307,22 @@ function IniSection({ status, rows, calMap }: { status: string; rows: IniItem[];
 
 function deadlineCell(r: IniItem, t: Date) {
   if (!r.deadline) return <span className="text-[var(--text-disabled)]">—</span>;
-  const color = r.deadline < t ? "#ef4444" : r.deadline.getTime() === t.getTime() ? "#f59e0b" : "#10b981";
+  const color = r.deadline < t ? "var(--bad)" : r.deadline.getTime() === t.getTime() ? "var(--warn)" : "var(--ok)";
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(r.deadline)}</span>;
 }
 
 function diffCell(r: IniItem, t: Date) {
   if (!r.deadline) return <span className="text-[var(--text-disabled)]">—</span>;
   const d = new Date(r.deadline); d.setHours(0, 0, 0, 0);
-  if (d.getTime() === t.getTime()) return <span style={{ color: "#f59e0b", fontWeight: 600 }}>Hoy</span>;
-  if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "#10b981", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
-  const n = businessDays(d, t, true); return <span style={{ color: "#ef4444", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
+  if (d.getTime() === t.getTime()) return <span style={{ color: "var(--warn)", fontWeight: 600 }}>Hoy</span>;
+  if (d > t) { const n = businessDays(t, d, true); return <span style={{ color: "var(--ok)", fontWeight: 600 }}>+{n} día{n !== 1 ? "s" : ""}</span>; }
+  const n = businessDays(d, t, true); return <span style={{ color: "var(--bad)", fontWeight: 600 }}>-{n} día{n !== 1 ? "s" : ""}</span>;
 }
 
 function pfDateCell(date: Date | null | undefined, t: Date) {
   if (!date) return <span className="text-[var(--text-disabled)]">—</span>;
   const d = new Date(date); d.setHours(0, 0, 0, 0);
-  const color = d < t ? "#ef4444" : d.getTime() === t.getTime() ? "#f59e0b" : "#10b981";
+  const color = d < t ? "var(--bad)" : d.getTime() === t.getTime() ? "var(--warn)" : "var(--ok)";
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(d)}</span>;
 }
 

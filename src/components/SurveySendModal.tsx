@@ -4,6 +4,7 @@ import { useState } from "react";
 import { auth } from "@/lib/firebase";
 import type { DirectorioEntry } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
+import Modal from "@/components/Modal";
 
 interface ReqTarget { reqId: string; reqCode: string; reqName: string; pm: string }
 
@@ -81,12 +82,7 @@ export default function SurveySendModal({
   const answeredCount = list.filter((s) => s.answered).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div
-        className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={512}>
         {/* Header */}
         <div className="flex items-start justify-between border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
@@ -200,7 +196,6 @@ export default function SurveySendModal({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { ASUETOS_2026 } from "@/lib/holidays";
+import Modal from "@/components/Modal";
 
 // Formatea "2026-01-01" → { dia: "Jue", fecha: "1 ene" } en es-GT, sin desfase de zona horaria.
 function fmtAsueto(iso: string): { dia: string; fecha: string } {
@@ -13,16 +14,7 @@ function fmtAsueto(iso: string): { dia: string; fecha: string } {
 
 export default function AsuetosModal({ onClose }: { onClose: () => void }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border shadow-2xl"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width={448}>
         {/* Header */}
         <div
           className="flex shrink-0 items-start justify-between border-b px-6 py-4"
@@ -79,7 +71,6 @@ export default function AsuetosModal({ onClose }: { onClose: () => void }) {
           Asuetos según el Art. 127 del Código de Trabajo. Estos días se excluyen de los
           cálculos de días hábiles en Iniciativas. No incluye fiestas patronales fuera de la Ciudad de Guatemala.
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
