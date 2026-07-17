@@ -10,6 +10,7 @@ import { pageByHref } from "@/lib/registry";
 import { usePageTracking } from "@/hooks/usePageTracking";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { Loader } from "@/components/ui";
 
 function PageTracker() {
@@ -98,7 +99,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <Topbar onMenuClick={() => setMobileSidebarOpen(true)} />
         <main className="px-4 py-4 md:px-8 md:py-7">
           {allowed ? (
-            children
+            <ErrorBoundary key={pathname}>{children}</ErrorBoundary>
           ) : (
             <div className="flex flex-col items-center gap-3 py-24 text-center">
               <div className="text-4xl opacity-30">🔒</div>
