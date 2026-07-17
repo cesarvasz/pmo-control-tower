@@ -99,6 +99,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [user, refresh]);
 
+  // Auto-refresco al recuperar el foco/visibilidad si los datos envejecieron (> 10 min).
+  // Evita mostrar métricas viejas cuando se deja la pestaña abierta mucho tiempo.
+  useEffect(() => {
+    const STALE_MS = 10 * 60_000;
+    const maybeRefresh = () => {
+      if (document.visibilityState === "hidden") return;
+      if (!data || loading) return;
+      if (Date.now() - data.fetchedAt.getTime() > STALE_MS) refresh();
+    };
+    window.addEventListener("visibilitychange", maybeRefresh);
+    window.addEventListener("focus", maybeRefresh);
+    return () => {
+      window.removeEventListener("visibilitychange", maybeRefresh);
+      window.removeEventListener("focus", maybeRefresh);
+    };
+  }, [data, loading, refresh]);
+
   return (
     <DataContext.Provider value={{ data, loading, error, refresh }}>
       {children}
