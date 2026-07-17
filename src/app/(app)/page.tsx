@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
@@ -9,7 +9,7 @@ import { calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
-import type { CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
@@ -52,6 +52,13 @@ const isValueGateSigned = (name: string) => {
 
 export default function ControlTowerPage() {
   const { data, loading, error } = useData();
+  if (loading && !data) return <Loader />;
+  if (error) return <ErrorBox msg={error} />;
+  if (!data) return null;
+  return <ControlTower data={data} />;
+}
+
+function ControlTower({ data }: { data: DashboardData }) {
   const router = useRouter();
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
@@ -59,11 +66,18 @@ export default function ControlTowerPage() {
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tabla"); // vista de Portafolios por PM
 
-  if (loading && !data) return <Loader />;
-  if (error) return <ErrorBox msg={error} />;
-  if (!data) return null;
-
   const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords } = data;
+
+  // Todas las derivaciones dependen solo de los datos (estáticos entre refreshes) y del
+  // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
+  const {
+    boardHealthMap, boardsWithHealth, projBoardsOffTrack, projBoardsInRisk, projBoardsOnTrack,
+    allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
+    G, totalCost, totalBenefit, colAprobCost, colAprobBenefit, colConfirmCost, colConfirmBenefit,
+    vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
+    entOn, entLate, entTotal, entPct, entColor,
+    kpi, kpiPct, kpiAchievable, kpiColor,
+  } = useMemo(() => {
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
 
@@ -256,6 +270,16 @@ export default function ControlTowerPage() {
   const kpiPct = Math.round(kpi.score);
   const kpiAchievable = kpi.achievable; // 80 hoy (el 5º componente está pendiente)
   const kpiColor = kpiColorFor(kpi.ratio);
+
+  return {
+    boardHealthMap, boardsWithHealth, projBoardsOffTrack, projBoardsInRisk, projBoardsOnTrack,
+    allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
+    G, totalCost, totalBenefit, colAprobCost, colAprobBenefit, colConfirmCost, colConfirmBenefit,
+    vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
+    entOn, entLate, entTotal, entPct, entColor,
+    kpi, kpiPct, kpiAchievable, kpiColor,
+  };
+  }, [ini, req, proj, projBoards, projItemBaselines, calMap, nps, hardOnly]);
 
   return (
     <div>
@@ -580,6 +604,14 @@ function PMPortfolioCard({
 }) {
   const [showValue, setShowValue] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
+
+  const {
+    pmValueAll, pmValueHard, pmValue, iniHealth, pmNps, npsColor,
+    entOn, entLate, entTotal, entPct, entColor,
+    reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
+    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct,
+    pmKpi, pmKpiPct, pmKpiColor, pmKpiBg, hc,
+  } = useMemo(() => {
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
   const pmValue = pmValueHard; // el badge $ muestra siempre solo HardSaving
@@ -646,6 +678,15 @@ function PMPortfolioCard({
   // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos. El % sigue siendo el promedio.
   const pmHealth: HealthStatus = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
   const hc = HEALTH_CFG[pmHealth];
+
+  return {
+    pmValueAll, pmValueHard, pmValue, iniHealth, pmNps, npsColor,
+    entOn, entLate, entTotal, entPct, entColor,
+    reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
+    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct,
+    pmKpi, pmKpiPct, pmKpiColor, pmKpiBg, hc,
+  };
+  }, [pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords]);
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
@@ -810,9 +851,12 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
   const [kpiPm, setKpiPm] = useState<string | null>(null);
   const [valuePm, setValuePm] = useState<string | null>(null);
 
-  const rows = pms
-    .map((pm) => calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords))
-    .sort((a, b) => b.kpi.score - a.kpi.score);
+  const rows = useMemo(
+    () => pms
+      .map((pm) => calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords))
+      .sort((a, b) => b.kpi.score - a.kpi.score),
+    [pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords],
+  );
 
   const openKpi = rows.find((r) => r.pm === kpiPm);
   const openValue = rows.find((r) => r.pm === valuePm);
