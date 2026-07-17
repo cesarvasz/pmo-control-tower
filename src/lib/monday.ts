@@ -86,8 +86,46 @@ async function discoverProjBoards(): Promise<{ id: string; name: string }[]> {
   return data.folders?.[0]?.children ?? [];
 }
 
-/** Single Fetch: trae TODO en paralelo y devuelve datos crudos serializables. */
+// ── Caché en memoria (TTL) + single-flight ───────────────────────────────
+// El fetch a Monday/Apps Script es la parte cara y con rate-limit. Se cachea
+// una ventana corta y se coalescen las peticiones concurrentes (una sola
+// llamada en vuelo). Ante un fallo transitorio se sirve la última copia buena.
+const DASHBOARD_TTL_MS = 60_000;
+let dashboardCache: { data: DashboardRaw; at: number } | null = null;
+let dashboardInflight: Promise<DashboardRaw> | null = null;
+
+/** Single Fetch con caché TTL, coalescencia de peticiones y fallback a copia previa. */
 export async function fetchDashboardRaw(): Promise<DashboardRaw> {
+  if (dashboardCache && Date.now() - dashboardCache.at < DASHBOARD_TTL_MS) {
+    return dashboardCache.data;
+  }
+  if (dashboardInflight) return dashboardInflight;
+
+  dashboardInflight = (async () => {
+    try {
+      const data = await fetchDashboardRawUncached();
+      dashboardCache = { data, at: Date.now() };
+      return data;
+    } catch (err) {
+      // Resiliencia: si hay una copia previa (aunque esté vencida) se sirve,
+      // para sobrevivir a caídas transitorias de Monday/Apps Script.
+      if (dashboardCache) {
+        console.warn("fetchDashboardRaw falló; se sirve la copia en caché:", err);
+        return dashboardCache.data;
+      }
+      throw err;
+    } finally {
+      dashboardInflight = null;
+    }
+  })();
+
+  return dashboardInflight;
+}
+
+/** Trae TODO de Monday/Apps Script en paralelo y devuelve datos crudos serializables.
+ *  Degrada con parciales: las fuentes de enriquecimiento (RH, Estrategia, calendario,
+ *  boards de Proyectos) que fallen quedan vacías; Iniciativas y REQ son obligatorias. */
+async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
   const iniId = env("MONDAY_INI_BOARD_ID");
   const reqId = env("MONDAY_REQ_BOARD_ID");
   // Board "Directorio RH": el nombre del item es el nombre del recurso; email en email_mkz5qg4v.
@@ -96,14 +134,36 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
   const estId = process.env.MONDAY_EST_BOARD_ID || "18291587533";
 
   // 1ª tanda en paralelo: ini, req, RH, Estrategia, web app (calendario + hoja) y descubrir boards.
-  const [iniData, reqData, rhData, estData, webApp, projBoards] = await Promise.all([
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(richBoardQuery(iniId)),
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(richBoardQuery(reqId)),
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(boardItemsQuery(rhId)),
-    mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(estBoardQuery(estId)),
+  // allSettled → una fuente que falle no tumba todo el dashboard.
+  type BoardsResp = { boards: { items_page: { items: MondayItem[] } }[] };
+  const emptyBoards: BoardsResp = { boards: [] };
+  const [iniR, reqR, rhR, estR, webAppR, projBoardsR] = await Promise.allSettled([
+    mondayFetch<BoardsResp>(richBoardQuery(iniId)),
+    mondayFetch<BoardsResp>(richBoardQuery(reqId)),
+    mondayFetch<BoardsResp>(boardItemsQuery(rhId)),
+    mondayFetch<BoardsResp>(estBoardQuery(estId)),
     fetchWebApp(),
     discoverProjBoards(),
   ]);
+
+  // Iniciativas y REQ son obligatorias: si fallan, se propaga el error
+  // (el wrapper con caché servirá la última copia buena si existe).
+  const reason = (r: PromiseRejectedResult) => (r.reason instanceof Error ? r.reason.message : String(r.reason));
+  if (iniR.status === "rejected") throw new Error(`Iniciativas: ${reason(iniR)}`);
+  if (reqR.status === "rejected") throw new Error(`REQ: ${reason(reqR)}`);
+  const iniData = iniR.value;
+  const reqData = reqR.value;
+
+  // Enriquecimiento opcional: si falla, se degrada a vacío (con aviso).
+  const soft = <T>(r: PromiseSettledResult<T>, fallback: T, label: string): T => {
+    if (r.status === "fulfilled") return r.value;
+    console.warn(`${label} falló; se degrada a vacío:`, r.reason);
+    return fallback;
+  };
+  const rhData = soft(rhR, emptyBoards, "Directorio RH");
+  const estData = soft(estR, emptyBoards, "Estrategia");
+  const webApp = soft(webAppR, { calData: [] as CalMeetingRaw[], sheetRows: [] as SheetRow[] }, "WebApp");
+  const projBoards = soft(projBoardsR, [] as { id: string; name: string }[], "Boards de Proyectos");
 
   // 2ª tanda: items de todos los boards de proyectos (depende del descubrimiento).
   let projRaw: ProjBoardRaw[] = [];
