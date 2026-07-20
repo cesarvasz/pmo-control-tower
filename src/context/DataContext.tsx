@@ -15,7 +15,7 @@ import { buildCalMap, iniProcess } from "@/lib/ini";
 import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
 import { reqProcess } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
-import type { DashboardData, DashboardRaw, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
+import type { AttributionKind, DashboardData, DashboardRaw, DelayResponsible, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
 const RH_EMAIL_COL = "email_mkz5qg4v";
@@ -25,6 +25,9 @@ interface DataContextValue {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  /** Actualiza localmente (optimista) el responsable de una atribución (atraso o
+   *  reproceso). responsible null → quita la asignación. La persistencia la hace el caller. */
+  setAttribution: (kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -77,12 +80,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
         .filter((d) => d.name && d.email)
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, directorio, estrategiaMap, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, directorio, estrategiaMap, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Actualización optimista del responsable (atraso o reproceso); evita un refetch completo.
+  const setAttribution = useCallback((kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => {
+    const field = kind === "delay" ? "delayAttributions" : "reprocesoAttributions";
+    setData((prev) => {
+      if (!prev) return prev;
+      const map = { ...prev[field] };
+      if (responsible) map[itemId] = { responsible, at: new Date().toISOString() };
+      else delete map[itemId];
+      return { ...prev, [field]: map };
+    });
   }, []);
 
   // Carga inicial una sola vez, cuando hay sesión.
@@ -117,7 +132,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [data, loading, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, loading, error, refresh }}>
+    <DataContext.Provider value={{ data, loading, error, refresh, setAttribution }}>
       {children}
     </DataContext.Provider>
   );

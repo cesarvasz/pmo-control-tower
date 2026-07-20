@@ -8,8 +8,9 @@ import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
   REQ_PHASE2PLUS, REQ_PASSED_PHASE2, isValueGateSigned,
-  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics,
+  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct,
 } from "@/lib/dashboard";
+import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
@@ -19,7 +20,7 @@ import NpsModal from "@/components/NpsModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
 import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
-import { KPI_W, computeKpi, kpiColorFor, kpiBgFor } from "@/lib/kpi";
+import { computeKpi, kpiColorFor, kpiBgFor } from "@/lib/kpi";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -57,7 +58,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tabla"); // vista de Portafolios por PM
 
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
 
   // Todas las derivaciones dependen solo de los datos (estáticos entre refreshes) y del
   // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
@@ -217,17 +218,8 @@ function ControlTower({ data }: { data: DashboardData }) {
 
   // ── Compromiso de Entregas ──
   // % de entregas a tiempo combinando la columna "Entrega" de REQ (cerrados), items y subitems.
-  let entOn = 0, entLate = 0;
-  for (const r of req) {
-    if (r.onTime.verdict === "on-time") entOn++;
-    else if (r.onTime.verdict === "late") entLate++;
-  }
-  for (const p of proj) {
-    if (p.entrega === "on-time") entOn++; else if (p.entrega === "late") entLate++;
-    for (const s of p.subitems) {
-      if (s.entrega === "on-time") entOn++; else if (s.entrega === "late") entLate++;
-    }
-  }
+  // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
+  const { on: entOn, late: entLate } = countDeliveries(req, proj, delays);
   const entTotal = entOn + entLate;
   const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
@@ -254,7 +246,9 @@ function ControlTower({ data }: { data: DashboardData }) {
   const kpiProjBenefit = [...kpiProjAgg.values()].filter((b) => b.doneAprob && b.doneLaunch).reduce((s, b) => s + b.benefit, 0);
   const kpiBenefitConfirmed = kpiReqBenefit + kpiProjBenefit;
 
-  const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefit: kpiBenefitConfirmed, entregasPct: entPct });
+  // Reproceso del equipo: % de REQ cerrados sin reproceso imputable al PM (5º componente, peso 20).
+  const teamReprocesoPct = calcReprocesoPct(req, reproceso);
+  const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefit: kpiBenefitConfirmed, entregasPct: entPct, reprocesoPct: teamReprocesoPct });
   const kpiPct = Math.round(kpi.score);
   const kpiAchievable = kpi.achievable; // 80 hoy (el 5º componente está pendiente)
   const kpiColor = kpiColorFor(kpi.ratio);
@@ -267,7 +261,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     entOn, entLate, entTotal, entPct, entColor,
     kpi, kpiPct, kpiAchievable, kpiColor,
   };
-  }, [ini, req, proj, projBoards, projItemBaselines, calMap, nps, hardOnly]);
+  }, [ini, req, proj, projBoards, projItemBaselines, calMap, nps, hardOnly, delays, reproceso]);
 
   return (
     <div>
@@ -342,7 +336,10 @@ function ControlTower({ data }: { data: DashboardData }) {
           </div>
 
           {/* Compromiso de Entregas — % a tiempo (REQ + items + subitems) */}
-          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}>
+          <div
+            title="Un atraso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador). Un atraso imputado a PM sigue contando."
+            className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}
+          >
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Compromiso de Entregas</div>
             <div className="text-5xl font-extrabold leading-none" style={{ color: entColor }}>
               {entPct !== null ? `${entPct}%` : "—"}
@@ -370,7 +367,7 @@ function ControlTower({ data }: { data: DashboardData }) {
             <span className="text-2xl font-bold text-[var(--text-muted)]"> / 100</span>
           </div>
           <div className="mt-2 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-            máx. {kpiAchievable} hoy · faltan {KPI_W.pendiente} por definir
+            máx. {kpiAchievable} hoy{kpiAchievable < 100 ? ` · faltan ${100 - kpiAchievable} por definir` : ""}
           </div>
           <div className="mt-4 rounded-full border px-3.5 py-1 text-[0.66rem] font-bold uppercase tracking-wide" style={{ borderColor: kpiColor, color: kpiColor }}>
             Ver detalle →
@@ -421,13 +418,13 @@ function ControlTower({ data }: { data: DashboardData }) {
         </div>
       </div>
       {pmView === "tabla" ? (
-        <PmScoreboard pms={allPMs} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} />
+        <PmScoreboard pms={allPMs} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {allPMs.map((pm) => {
             const q = encodeURIComponent(pm);
             return (
-              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
             );
           })}
         </div>
@@ -454,7 +451,7 @@ function ControlTower({ data }: { data: DashboardData }) {
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
       {showKpi && (
-        <KpiModal pct={kpiPct} achievable={kpiAchievable} pendingWeight={KPI_W.pendiente} color={kpiColor} components={kpi.components} onClose={() => setShowKpi(false)} />
+        <KpiModal pct={kpiPct} achievable={kpiAchievable} pendingWeight={100 - kpiAchievable} color={kpiColor} components={kpi.components} onClose={() => setShowKpi(false)} />
       )}
     </div>
   );
@@ -492,11 +489,11 @@ const PROJ_HEALTH_COLOR: Record<string, string> = {
 };
 
 function PMPortfolioCard({
-  pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[];
   projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap;
-  npsRecords: NpsRecord[];
+  npsRecords: NpsRecord[]; delays: DelayMap; reproceso: DelayMap;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
@@ -519,19 +516,13 @@ function PMPortfolioCard({
   const npsColor = npsCfg(pmNps.nps)?.color ?? "#6b7280";
 
   // Compromiso de Entregas del PM: % a tiempo (REQ + items + subitems de sus proyectos).
+  // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  let entOn = 0, entLate = 0;
-  for (const r of req) {
-    if (r.pm !== pm) continue;
-    if (r.onTime.verdict === "on-time") entOn++; else if (r.onTime.verdict === "late") entLate++;
-  }
-  for (const p of proj) {
-    if (!pmBoardIdSet.has(p.boardId)) continue;
-    if (p.entrega === "on-time") entOn++; else if (p.entrega === "late") entLate++;
-    for (const s of p.subitems) {
-      if (s.entrega === "on-time") entOn++; else if (s.entrega === "late") entLate++;
-    }
-  }
+  const { on: entOn, late: entLate } = countDeliveries(
+    req.filter((r) => r.pm === pm),
+    proj.filter((p) => pmBoardIdSet.has(p.boardId)),
+    delays,
+  );
   const entTotal = entOn + entLate;
   const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
@@ -566,8 +557,9 @@ function PMPortfolioCard({
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
 
   // KPI del PM: mismo cálculo ponderado que el del equipo, con las métricas del PM
-  // (EVM propio, NPS propio, beneficio HardSaving confirmado propio y su % de entregas).
-  const pmKpi = computeKpi({ evm: pmEvmRaw, nps: pmNps.nps, benefit: pmValueHard.confirmBenefit, entregasPct: entPct });
+  // (EVM propio, NPS propio, beneficio HardSaving confirmado propio, su % de entregas y su % de reproceso).
+  const pmReprocesoPct = calcReprocesoPct(req.filter((r) => r.pm === pm), reproceso);
+  const pmKpi = computeKpi({ evm: pmEvmRaw, nps: pmNps.nps, benefit: pmValueHard.confirmBenefit, entregasPct: entPct, reprocesoPct: pmReprocesoPct });
   const pmKpiPct = Math.round(pmKpi.score);
   const pmKpiColor = kpiColorFor(pmKpi.ratio);
   const pmKpiBg = kpiBgFor(pmKpi.ratio);
@@ -583,7 +575,7 @@ function PMPortfolioCard({
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct,
     pmKpi, pmKpiPct, pmKpiColor, pmKpiBg, hc,
   };
-  }, [pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords]);
+  }, [pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso]);
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
@@ -618,7 +610,7 @@ function PMPortfolioCard({
             NPS {pmNps.nps !== null ? pmNps.nps : "s/d"}
           </span>
           <span
-            title={`Compromiso de Entregas · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal}`}
+            title={`Compromiso de Entregas · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal} (los atrasos cuentan salvo los excusados a un responsable ≠ PM)`}
             className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold"
             style={{ color: entColor, background: entColor + "22" }}
           >
@@ -687,25 +679,25 @@ function PMPortfolioCard({
         <PMValueModal pm={pm} valueAll={pmValueAll} valueHard={pmValueHard} initialHard={true} onClose={() => setShowValue(false)} />
       )}
       {showKpi && (
-        <KpiModal title={`KPI · ${pm}`} pct={pmKpiPct} achievable={pmKpi.achievable} pendingWeight={KPI_W.pendiente} color={pmKpiColor} components={pmKpi.components} onClose={() => setShowKpi(false)} />
+        <KpiModal title={`KPI · ${pm}`} pct={pmKpiPct} achievable={pmKpi.achievable} pendingWeight={100 - pmKpi.achievable} color={pmKpiColor} components={pmKpi.components} onClose={() => setShowKpi(false)} />
       )}
     </div>
   );
 }
 
 // Scoreboard comparativo de PMs: tabla ordenada por KPI (desc). KPI y $ abren su detalle.
-function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords }: {
+function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso }: {
   pms: string[]; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[];
-  boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap; npsRecords: NpsRecord[];
+  boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap; npsRecords: NpsRecord[]; delays: DelayMap; reproceso: DelayMap;
 }) {
   const [kpiPm, setKpiPm] = useState<string | null>(null);
   const [valuePm, setValuePm] = useState<string | null>(null);
 
   const rows = useMemo(
     () => pms
-      .map((pm) => calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords))
+      .map((pm) => calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso))
       .sort((a, b) => b.kpi.score - a.kpi.score),
-    [pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords],
+    [pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso],
   );
 
   const openKpi = rows.find((r) => r.pm === kpiPm);
@@ -778,7 +770,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
       </table>
 
       {openKpi && (
-        <KpiModal title={`KPI · ${openKpi.pm}`} pct={openKpi.kpiPct} achievable={openKpi.kpi.achievable} pendingWeight={KPI_W.pendiente} color={kpiColorFor(openKpi.kpi.ratio)} components={openKpi.kpi.components} onClose={() => setKpiPm(null)} />
+        <KpiModal title={`KPI · ${openKpi.pm}`} pct={openKpi.kpiPct} achievable={openKpi.kpi.achievable} pendingWeight={100 - openKpi.kpi.achievable} color={kpiColorFor(openKpi.kpi.ratio)} components={openKpi.kpi.components} onClose={() => setKpiPm(null)} />
       )}
       {openValue && (
         <PMValueModal pm={openValue.pm} valueAll={openValue.pmValueAll} valueHard={openValue.pmValueHard} initialHard={true} onClose={() => setValuePm(null)} />

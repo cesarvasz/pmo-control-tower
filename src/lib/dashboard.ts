@@ -9,6 +9,7 @@ import { calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
 import { computeKpi } from "@/lib/kpi";
+import { lateExcused, type DelayMap } from "@/lib/delay";
 import type {
   CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem,
 } from "@/types";
@@ -143,11 +144,44 @@ export function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBo
   };
 }
 
+// ── Compromiso de Entregas ───────────────────────────────────────────────
+/** Cuenta entregas a tiempo y atrasadas (REQ + items + subitems de Proyectos).
+ *  Un atraso cuenta como tal por defecto (incluso sin responsable asignado); solo
+ *  se EXCUSA (se excluye del cálculo) si se le asignó un responsable distinto de
+ *  "PM". Un atraso imputado a PM sigue contando como atraso. */
+export function countDeliveries(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap): { on: number; late: number } {
+  let on = 0, late = 0;
+  const tally = (id: string, verdict: "on-time" | "late" | "n/a" | null) => {
+    if (verdict === "on-time") on++;
+    else if (verdict === "late" && !lateExcused(id, delays)) late++;
+  };
+  for (const r of reqs) tally(r.id, r.onTime.verdict);
+  for (const p of projs) {
+    tally(p.id, p.entrega);
+    for (const s of p.subitems) tally(s.id, s.entrega);
+  }
+  return { on, late };
+}
+
+// ── Reproceso (componente del KPI, peso 20) ──────────────────────────────
+/** % de REQ CERRADOS "limpios" de reproceso (ideal 100%). Misma regla que
+ *  entregas: cada REQ cerrado penaliza (cuenta como reproceso) por defecto —
+ *  incluso sin responsable asignado— y también si es "PM"; solo se EXCUSA si se
+ *  le asignó un responsable distinto de PM. Todo REQ cerrado debería tener una
+ *  opción seleccionada. Devuelve null si no hay REQ cerrados (→ pendiente). */
+export function calcReprocesoPct(reqs: ReqItem[], reproceso: DelayMap): number | null {
+  const closed = reqs.filter((r) => r.estado === "CERRADO");
+  if (!closed.length) return null;
+  const conReproceso = closed.filter((r) => !lateExcused(r.id, reproceso)).length;
+  return Math.round(((closed.length - conReproceso) / closed.length) * 100);
+}
+
 // Métricas de resumen de un PM para el scoreboard (mismas fórmulas que la tarjeta de PM):
 // EVM propio, NPS propio, % de entregas, beneficio HardSaving confirmado y KPI ponderado.
 export function calcPmMetrics(
   pm: string, ini: IniItem[], req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[],
   boardHealthMap: Map<string, BoardHealthData>, calMap: CalMap, npsRecords: NpsRecord[],
+  delays: DelayMap = {}, reproceso: DelayMap = {},
 ) {
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
@@ -165,18 +199,11 @@ export function calcPmMetrics(
   const nps = calcNpsFromRecords(npsRecords, pm);
 
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  let entOn = 0, entLate = 0;
-  for (const r of req) {
-    if (r.pm !== pm) continue;
-    if (r.onTime.verdict === "on-time") entOn++; else if (r.onTime.verdict === "late") entLate++;
-  }
-  for (const p of proj) {
-    if (!pmBoardIdSet.has(p.boardId)) continue;
-    if (p.entrega === "on-time") entOn++; else if (p.entrega === "late") entLate++;
-    for (const s of p.subitems) {
-      if (s.entrega === "on-time") entOn++; else if (s.entrega === "late") entLate++;
-    }
-  }
+  const { on: entOn, late: entLate } = countDeliveries(
+    req.filter((r) => r.pm === pm),
+    proj.filter((p) => pmBoardIdSet.has(p.boardId)),
+    delays,
+  );
   const entTotal = entOn + entLate;
   const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
 
@@ -184,8 +211,9 @@ export function calcPmMetrics(
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
   const benefit = pmValueHard.confirmBenefit;
 
-  const kpi = computeKpi({ evm: evmRaw, nps: nps.nps, benefit, entregasPct: entPct });
+  const reprocesoPct = calcReprocesoPct(req.filter((r) => r.pm === pm), reproceso);
+  const kpi = computeKpi({ evm: evmRaw, nps: nps.nps, benefit, entregasPct: entPct, reprocesoPct });
   const health = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
 
-  return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };
+  return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, reprocesoPct, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };
 }

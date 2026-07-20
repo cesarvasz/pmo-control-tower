@@ -5,14 +5,19 @@ import {
   pmWorstStatus,
   buildBoardHealthMap,
   calcPmMetrics,
+  countDeliveries,
+  calcReprocesoPct,
 } from "./dashboard";
 import type { BoardHealthData } from "./proj";
-import type { ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { DelayMap } from "./delay";
+import type { ProjBoard, ProjItem, ProjSubitem, ReqItem } from "@/types";
 
 // Fixtures mínimos: solo se rellenan los campos que leen las funciones.
 const req = (o: Partial<ReqItem>): ReqItem => o as ReqItem;
 const proj = (o: Partial<ProjItem>): ProjItem => ({ subitems: [], ...o }) as ProjItem;
+const sub = (o: Partial<ProjSubitem>): ProjSubitem => o as ProjSubitem;
 const board = (o: Partial<ProjBoard>): ProjBoard => o as ProjBoard;
+const onTime = (verdict: "on-time" | "late" | "n/a"): ReqItem["onTime"] => ({ verdict } as ReqItem["onTime"]);
 
 describe("isValueGateSigned", () => {
   it("detecta un Value Gate (BC) firmado en cualquier fase", () => {
@@ -81,7 +86,79 @@ describe("pmWorstStatus", () => {
   });
 });
 
+describe("countDeliveries (responsable del atraso)", () => {
+  const p = (id: string, entrega: "on-time" | "late" | null) => proj({ id, boardId: "b1", entrega });
+
+  it("un atraso sin asignar SÍ cuenta como atraso (penaliza por defecto)", () => {
+    expect(countDeliveries([], [p("1", "on-time"), p("2", "late")], {})).toEqual({ on: 1, late: 1 });
+  });
+
+  it("PM y sin asignar cuentan; solo un responsable ≠ PM excusa el atraso", () => {
+    const projs = [p("1", "on-time"), p("2", "late"), p("3", "late"), p("4", "late")];
+    const delays: DelayMap = { "2": { responsible: "PM" }, "3": { responsible: "VPA" } };
+    // p2 (PM) cuenta, p3 (VPA) excusado, p4 (sin asignar) cuenta → 2 atrasos, 1 a tiempo.
+    expect(countDeliveries([], projs, delays)).toEqual({ on: 1, late: 2 });
+  });
+
+  it("cuenta REQ y subitems con la misma regla", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("late") })];
+    const projs = [proj({ id: "p1", boardId: "b1", entrega: null, subitems: [sub({ id: "s1", entrega: "late" })] })];
+    const delays: DelayMap = { r1: { responsible: "PM" }, s1: { responsible: "Sponsor" } };
+    // r1 (PM) cuenta; s1 (Sponsor) excusado.
+    expect(countDeliveries(reqs, projs, delays)).toEqual({ on: 0, late: 1 });
+  });
+});
+
+describe("calcReprocesoPct (5º componente del KPI)", () => {
+  const cerrado = (id: string) => req({ id, pm: "Luis", estado: "CERRADO" });
+
+  it("null si no hay REQ cerrados (componente pendiente)", () => {
+    expect(calcReprocesoPct([req({ id: "1", estado: "EN PROCESO" })], {})).toBeNull();
+  });
+
+  it("sin asignar penaliza: 2 cerrados sin responsable → 0% limpio", () => {
+    expect(calcReprocesoPct([cerrado("1"), cerrado("2")], {})).toBe(0);
+  });
+
+  it("100% solo si todos los cerrados están excusados (responsable ≠ PM)", () => {
+    const reqs = [cerrado("1"), cerrado("2")];
+    expect(calcReprocesoPct(reqs, { "1": { responsible: "VPA" }, "2": { responsible: "CKU" } })).toBe(100);
+  });
+
+  it("PM y sin asignar penalizan; solo un responsable ≠ PM excusa (1 de 4 → 25%)", () => {
+    const reqs = [cerrado("1"), cerrado("2"), cerrado("3"), cerrado("4")];
+    // 1=PM (penaliza), 2=Sponsor (excusa), 3 y 4 sin asignar (penalizan) → 1 limpio de 4.
+    expect(calcReprocesoPct(reqs, { "1": { responsible: "PM" }, "2": { responsible: "Sponsor" } })).toBe(25);
+  });
+});
+
 describe("calcPmMetrics", () => {
+  it("Reproceso (5º componente): PM y sin asignar penalizan, ≠PM excusa; afecta el KPI", () => {
+    const reqs = [
+      req({ id: "r1", pm: "Luis", estado: "CERRADO", onTime: onTime("n/a") }),
+      req({ id: "r2", pm: "Luis", estado: "CERRADO", onTime: onTime("n/a") }),
+    ];
+    const run = (reproceso: DelayMap) => calcPmMetrics("Luis", [], reqs, [], [], new Map(), new Map(), [], {}, reproceso);
+    expect(run({}).reprocesoPct).toBe(0);                                                            // ambos sin asignar → penalizan
+    expect(run({ r1: { responsible: "VPA" }, r2: { responsible: "CKU" } }).reprocesoPct).toBe(100);  // ambos excusados
+    const half = run({ r1: { responsible: "VPA" } });                                                // r1 excusado, r2 sin asignar
+    expect(half.reprocesoPct).toBe(50);
+    expect(run({}).kpi.score).toBeLessThan(half.kpi.score);                                          // más reprocesos → menor KPI
+  });
+
+  it("un atraso baja el % del PM por defecto; solo se excusa con responsable ≠ PM", () => {
+    const projBoards = [board({ id: "b1", pm: "Luis" })];
+    const projItems = [
+      proj({ boardId: "b1", id: "i1", status: "Done", estado: "EN TIEMPO", entrega: "on-time", name: "x", grupo: "Launch", cost: 0, benefit: 0 }),
+      proj({ boardId: "b1", id: "i2", status: "Done", estado: "ATRASADO", entrega: "late", name: "y", grupo: "Launch", cost: 0, benefit: 0 }),
+    ];
+    const bhm = buildBoardHealthMap(projItems, projBoards, {});
+    const run = (delays: DelayMap) => calcPmMetrics("Luis", [], [], projItems, projBoards, bhm, new Map(), [], delays);
+    expect(run({}).entPct).toBe(50);                                    // sin asignar → atraso cuenta (1 de 2)
+    expect(run({ i2: { responsible: "PM" } }).entPct).toBe(50);          // PM → cuenta (1 de 2)
+    expect(run({ i2: { responsible: "Sponsor" } }).entPct).toBe(100);    // excusado → excluido
+  });
+
   it("compone las métricas del PM (entregas, salud, KPI) de forma coherente", () => {
     const projBoards = [board({ id: "b1", pm: "Luis", benefitType: "HardSaving" })];
     const projItems = [

@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { ProjItemBaseline, ReqBaseline } from "@/types";
+import type { AttributionKind, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -74,6 +74,30 @@ export async function getProjItemBaselines(): Promise<Record<string, ProjItemBas
 export async function saveProjItemBaseline(itemId: string, data: Omit<ProjItemBaseline, "savedAt">): Promise<void> {
   const db = getAdminDb();
   await db.collection("proj_item_baselines").doc(itemId).set({ ...data, savedAt: new Date().toISOString() });
+}
+
+// ── Atribuciones de responsable (delay / reproceso), una colección por kind ──
+const ATTRIBUTION_COLL: Record<AttributionKind, string> = {
+  delay: "delay_attributions",
+  reproceso: "reproceso_attributions",
+};
+
+export async function getAttributions(kind: AttributionKind): Promise<Record<string, DelayAttribution>> {
+  const db = getAdminDb();
+  const snap = await db.collection(ATTRIBUTION_COLL[kind]).get();
+  const result: Record<string, DelayAttribution> = {};
+  snap.forEach((doc) => { result[doc.id] = doc.data() as DelayAttribution; });
+  return result;
+}
+
+export async function saveAttribution(kind: AttributionKind, itemId: string, responsible: DelayResponsible, by: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection(ATTRIBUTION_COLL[kind]).doc(itemId).set({ responsible, by, at: new Date().toISOString() });
+}
+
+export async function deleteAttribution(kind: AttributionKind, itemId: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection(ATTRIBUTION_COLL[kind]).doc(itemId).delete();
 }
 
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {

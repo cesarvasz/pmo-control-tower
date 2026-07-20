@@ -3,8 +3,12 @@
 // Métrica ponderada general (global y por PM). Cada componente aporta
 // (logro × peso), con logro = min(real / meta, 100%) y piso 0%. Los pesos suman 100:
 //   EVM 30 · NPS 10 · Beneficio HardSaving (Confirmado) 25 · Compromiso Entregas 15
-//   · Por definir 20 (pendiente → aporta 0 por ahora, así el KPI es sobre 100 con
-//     máximo actual 80). Metas: EVM 100%, NPS 30, Beneficio $11,000, Entregas 85%.
+//   · Reproceso 20. Metas: EVM 100%, NPS 30, Beneficio $11,000, Entregas 85%, Reproceso 100%.
+// El Reproceso mide el % de REQ cerrados "limpios" (ideal 100%): cada cerrado
+// penaliza por defecto —incluso sin responsable asignado— y también si es PM; solo
+// se excusa con un responsable ≠ PM (misma regla que Entregas). Si no hay REQ
+// cerrados (reprocesoPct = null) el componente queda "pendiente" y se excluye del
+// máximo alcanzable (achievable).
 //
 // La UI (tarjeta/modal) es puramente presentacional: recibe el resultado de
 // computeKpi() y lo pinta. Así el mismo cálculo sirve para el KPI del equipo y
@@ -12,12 +16,12 @@
 
 import { fmtMoney } from "@/lib/business";
 
-export const KPI_META = { evm: 1.0, nps: 30, benefit: 11000, entregas: 0.85 };
-export const KPI_W = { evm: 30, nps: 10, benefit: 25, entregas: 15, pendiente: 20 };
+export const KPI_META = { evm: 1.0, nps: 30, benefit: 11000, entregas: 0.85, reproceso: 1.0 };
+export const KPI_W = { evm: 30, nps: 10, benefit: 25, entregas: 15, reproceso: 20 };
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-export type KpiInput = { evm: number | null; nps: number | null; benefit: number; entregasPct: number | null };
+export type KpiInput = { evm: number | null; nps: number | null; benefit: number; entregasPct: number | null; reprocesoPct?: number | null };
 export interface KpiComponent {
   key: string;
   label: string;
@@ -34,7 +38,7 @@ export interface KpiResult {
   components: KpiComponent[];
 }
 
-export function computeKpi({ evm, nps, benefit, entregasPct }: KpiInput): KpiResult {
+export function computeKpi({ evm, nps, benefit, entregasPct, reprocesoPct = null }: KpiInput): KpiResult {
   const components: KpiComponent[] = [
     { key: "evm", label: "EVM", weight: KPI_W.evm,
       logro: evm != null ? clamp01(evm / KPI_META.evm) : 0,
@@ -48,7 +52,11 @@ export function computeKpi({ evm, nps, benefit, entregasPct }: KpiInput): KpiRes
     { key: "entregas", label: "Compromiso de Entregas", weight: KPI_W.entregas,
       logro: entregasPct != null ? clamp01(entregasPct / 100 / KPI_META.entregas) : 0,
       real: entregasPct != null ? `${entregasPct}%` : "—", meta: `${Math.round(KPI_META.entregas * 100)}%` },
-    { key: "pendiente", label: "Por definir", weight: KPI_W.pendiente, logro: 0, real: "—", meta: "—", pending: true },
+    // Reproceso: % de REQ cerrados sin reproceso imputable al PM. Sin REQ cerrados → pendiente.
+    { key: "reproceso", label: "Reproceso", weight: KPI_W.reproceso,
+      logro: reprocesoPct != null ? clamp01(reprocesoPct / 100 / KPI_META.reproceso) : 0,
+      real: reprocesoPct != null ? `${reprocesoPct}%` : "—", meta: `${Math.round(KPI_META.reproceso * 100)}%`,
+      pending: reprocesoPct == null },
   ];
   const score = components.reduce((s, c) => s + c.logro * c.weight, 0);
   const achievable = components.filter((c) => !c.pending).reduce((s, c) => s + c.weight, 0);

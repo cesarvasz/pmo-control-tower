@@ -53,6 +53,18 @@ export interface ProjItemBaseline {
   savedAt: string;
 }
 
+// ── Atribución de responsable (compartida por Entrega/atraso y Reproceso) ──
+// Se asigna manualmente (solo Admin). Solo el valor "PM" penaliza la métrica
+// asociada (% de Compromiso de Entregas y % de Reproceso del KPI).
+export type DelayResponsible = "VPA" | "CKU" | "PM" | "Sponsor" | "Desarrollador";
+export interface DelayAttribution {
+  responsible: DelayResponsible;
+  by?: string;  // correo del admin que la asignó
+  at?: string;  // ISO timestamp
+}
+/** Tipos de atribución persistidos por ítem, cada uno en su colección Firestore. */
+export type AttributionKind = "delay" | "reproceso";
+
 /** Payload completo que devuelve `GET /api/dashboard`. */
 export interface DashboardRaw {
   iniItems: MondayItem[];
@@ -66,6 +78,8 @@ export interface DashboardRaw {
   baselines: Record<string, ReqBaseline>;
   projItemBaselines: Record<string, ProjItemBaseline>;
   npsRecords: NpsRecord[]; // respuestas de encuestas (Firestore) para el NPS
+  delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Firestore)
+  reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Firestore)
   fetchedAt: string;
 }
 
@@ -268,6 +282,8 @@ export interface DashboardData {
   calMap: CalMap;
   nps: NpsData;                // NPS global (fuente: Firestore)
   npsRecords: NpsRecord[];     // respuestas crudas para NPS por PM
+  delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso
+  reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso
   directorio: DirectorioEntry[];
   /** nombre-normalizado de Estrategia → { U Neg, País }. */
   estrategiaMap: Map<string, EstrategiaInfo>;

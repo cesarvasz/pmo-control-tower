@@ -185,6 +185,8 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     baselines: {},          // el route handler inyecta los baselines de REQ desde Firestore
     projItemBaselines: {}, // el route handler inyecta los baselines de Proyectos desde Firestore
     npsRecords: [],        // el route handler inyecta las respuestas de encuestas desde Firestore
+    delayAttributions: {}, // el route handler inyecta los responsables de atraso desde Firestore
+    reprocesoAttributions: {}, // el route handler inyecta los responsables de reproceso desde Firestore
     fetchedAt: new Date().toISOString(),
   };
 }

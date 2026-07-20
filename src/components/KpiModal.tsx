@@ -18,7 +18,7 @@ export default function KpiModal({ title = "KPI PMO", pct, achievable, pendingWe
               <span className="text-[1.1rem] font-bold text-[var(--text-muted)]"> / 100</span>
             </div>
             <div className="mt-1 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-              máx. {achievable} hoy · faltan {pendingWeight} por definir
+              máx. {achievable} hoy{pendingWeight > 0 ? ` · faltan ${pendingWeight} por definir` : ""}
             </div>
           </div>
           <button

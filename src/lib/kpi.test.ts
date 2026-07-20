@@ -8,14 +8,29 @@ import {
   type KpiComponent,
 } from "./kpi";
 
-// Pesos: EVM 30 · NPS 10 · Beneficio 25 · Entregas 15 · Pendiente 20 (aporta 0).
-// Máximo alcanzable hoy = 80.
+// Pesos: EVM 30 · NPS 10 · Beneficio 25 · Entregas 15 · Reproceso 20.
+// Sin reprocesoPct (null) el 5º queda pendiente → máximo alcanzable = 80.
 describe("computeKpi", () => {
-  it("logro perfecto → score 80 (máx actual), ratio 1", () => {
+  it("sin reproceso: logro perfecto en los otros 4 → score 80, achievable 80, ratio 1", () => {
     const r = computeKpi({ evm: 1.0, nps: 30, benefit: 11000, entregasPct: 85 });
     expect(r.score).toBeCloseTo(80, 5);
     expect(r.achievable).toBe(80);
     expect(r.ratio).toBeCloseTo(1, 5);
+  });
+
+  it("con reproceso 100%: logro perfecto en los 5 → score 100, achievable 100", () => {
+    const r = computeKpi({ evm: 1.0, nps: 30, benefit: 11000, entregasPct: 85, reprocesoPct: 100 });
+    expect(r.score).toBeCloseTo(100, 5);
+    expect(r.achievable).toBe(100);
+    const rep = r.components.find((c) => c.key === "reproceso")!;
+    expect(rep.pending).toBe(false);
+    expect(rep.logro).toBeCloseTo(1, 5);
+  });
+
+  it("reproceso 50% aporta 10 (0.5 × 20)", () => {
+    const r = computeKpi({ evm: null, nps: null, benefit: 0, entregasPct: null, reprocesoPct: 50 });
+    expect(r.score).toBeCloseTo(10, 5);
+    expect(r.achievable).toBe(100);
   });
 
   it("todo nulo/cero → score 0, achievable 80, ratio 0", () => {
@@ -46,12 +61,12 @@ describe("computeKpi", () => {
     expect(r.score).toBeCloseTo(KPI_W.entregas, 5);
   });
 
-  it("expone 5 componentes; el 5º es 'pendiente' con logro 0", () => {
+  it("expone 5 componentes; el 5º es 'reproceso', pendiente cuando no se pasa su %", () => {
     const r = computeKpi({ evm: 1, nps: 30, benefit: 11000, entregasPct: 85 });
     expect(r.components).toHaveLength(5);
-    const pend = r.components.find((c) => c.key === "pendiente")!;
-    expect(pend.pending).toBe(true);
-    expect(pend.logro).toBe(0);
+    const rep = r.components.find((c) => c.key === "reproceso")!;
+    expect(rep.pending).toBe(true);
+    expect(rep.logro).toBe(0);
   });
 });
 

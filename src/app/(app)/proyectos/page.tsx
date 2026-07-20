@@ -12,6 +12,7 @@ import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth, type BoardHealthD
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import type { ProjBoard, ProjItem } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
+import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect from "@/components/MultiSelect";
 import ProjectReportModal from "@/components/ProjectReportModal";
 import SurveySendModal from "@/components/SurveySendModal";
@@ -269,13 +270,16 @@ function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean })
 }
 
 // Celda "Entrega": ✓ a tiempo / ✕ atraso (solo Done). Compara fecha real vs Limit Date.
-function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, limit: Date | null) {
+// En un atraso, el Admin puede asignar el responsable (solo "PM" cuenta en el %).
+function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, limit: Date | null, itemId: string) {
   if (!entrega) return <span className="text-[var(--text-disabled)]">—</span>;
-  const late = entrega === "late";
+  const title = `Real: ${fmtDate(actual)} · Límite: ${fmtDate(limit)}`;
+  if (entrega !== "late") return <Pill tone="ok" small title={title}>✓ A tiempo</Pill>;
   return (
-    <Pill tone={late ? "bad" : "ok"} small title={`Real: ${fmtDate(actual)} · Límite: ${fmtDate(limit)}`}>
-      {late ? "✕ Atraso" : "✓ A tiempo"}
-    </Pill>
+    <div className="flex flex-col items-start gap-0.5">
+      <Pill tone="bad" small title={title}>✕ Atraso</Pill>
+      <ResponsibleSelect itemId={itemId} kind="delay" />
+    </div>
   );
 }
 
@@ -575,7 +579,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
         <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.status || "—"}</td>
         <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
         <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
-        <td>{entregaCell(r.entrega, r.endDate, r.deadline)}</td>
+        <td>{entregaCell(r.entrega, r.endDate, r.deadline, r.id)}</td>
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "var(--ok)", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
       </tr>
@@ -620,7 +624,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
             <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.status || "—"}</td>
             <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
             <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true })}</td>
-            <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline)}</td>
+            <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline, s.id)}</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
           </tr>

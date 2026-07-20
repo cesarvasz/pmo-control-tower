@@ -9,8 +9,10 @@ import { auth } from "@/lib/firebase";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { HEALTH_CFG, healthStatusFromIndex, vemCfg } from "@/lib/health";
 import { REQ_ACTIVE_GRUPOS, REQ_GROUP_COLOR, REQ_PIPELINE } from "@/lib/req";
+import { lateExcused, type DelayMap } from "@/lib/delay";
 import type { ReqItem } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
+import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
 import SurveySendModal from "@/components/SurveySendModal";
@@ -19,12 +21,17 @@ import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, SectionHeader, StatCard 
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
 
-// Resumen "a tiempo" para el badge de la sección (solo cuenta REQ con fases evaluables).
-const onTimeBadge = (rows: ReqItem[]): string => {
-  const evalRows = rows.filter((r) => r.onTime.verdict !== "n/a");
-  if (!evalRows.length) return "";
-  const on = evalRows.filter((r) => r.onTime.verdict === "on-time").length;
-  return ` · ${on}/${evalRows.length} a tiempo`;
+// Resumen "a tiempo" para el badge de la sección. Un atraso cuenta en el
+// denominador salvo que se haya excusado (responsable distinto de PM).
+const onTimeBadge = (rows: ReqItem[], delays: DelayMap): string => {
+  let on = 0, late = 0;
+  for (const r of rows) {
+    if (r.onTime.verdict === "on-time") on++;
+    else if (r.onTime.verdict === "late" && !lateExcused(r.id, delays)) late++;
+  }
+  const denom = on + late;
+  if (!denom) return "";
+  return ` · ${on}/${denom} a tiempo`;
 };
 
 // Badge de Benefit Type (heredado de la Iniciativa): HardSaving verde, SoftSaving violeta.
@@ -61,6 +68,7 @@ function ReqInner() {
 
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_roles");
+  const delays: DelayMap = data?.delayAttributions ?? {};
 
   const loadSurveys = useCallback(async () => {
     try {
@@ -215,7 +223,7 @@ function ReqInner() {
       </div>
 
       {/* Tabla */}
-      <SectionHeader title="Detalle de Requerimientos" badge={`${filtered.length} items${onTimeBadge(filtered)}`} />
+      <SectionHeader title="Detalle de Requerimientos" badge={`${filtered.length} items${onTimeBadge(filtered, delays)}`} />
       <ReqTable
         rows={filtered}
         onRowClick={setSelected}
@@ -226,7 +234,7 @@ function ReqInner() {
       {/* REQ Cerrados (tabla aparte al fondo) */}
       {closed.length > 0 && (
         <div className="mt-9">
-          <SectionHeader title="REQ Cerrados" badge={`${closed.length} items${onTimeBadge(closed)}`} />
+          <SectionHeader title="REQ Cerrados" badge={`${closed.length} items${onTimeBadge(closed, delays)}`} />
           <ReqTable
             rows={closed}
             onRowClick={setSelected}
@@ -305,7 +313,14 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
       })
       .join("\n");
     const title = `Entrega evaluada: ${ot.deliveryPhase}\n\n${breakdown}`;
-    return <Pill tone={late ? "bad" : "ok"} small title={title}>{late ? `✕ +${ot.slipDays}d` : "✓ A tiempo"}</Pill>;
+    if (!late) return <Pill tone="ok" small title={title}>✓ A tiempo</Pill>;
+    // Atraso: se muestra siempre como tal; el Admin puede asignar el responsable.
+    return (
+      <div className="flex flex-col items-start gap-0.5">
+        <Pill tone="bad" small title={title}>✕ +{ot.slipDays}d</Pill>
+        <ResponsibleSelect itemId={r.id} kind="delay" />
+      </div>
+    );
   };
 
   const estadoCell = (r: ReqItem) => {
@@ -338,7 +353,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
           <tr>
             <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th><th>Benefit Type</th>
-            <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Entrega</th><th>Encuesta</th>
+            <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Entrega</th><th>Reproceso</th><th>Encuesta</th>
           </tr>
         </thead>
         <tbody>
@@ -362,6 +377,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
                     : <span className="pill pill-skip" style={{ fontSize: ".68rem" }}>— Sin datos</span>}
                 </td>
                 <td>{onTimeCell(r)}</td>
+                <td><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.estado === "CERRADO"} /></td>
                 <td>{surveyCell(r)}</td>
               </tr>
             );
