@@ -717,6 +717,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
             <th className={`${th} text-center`}>EVM</th>
             <th className={`${th} text-center`}>NPS</th>
             <th className={`${th} text-center`}>Entregas</th>
+            <th className={`${th} text-center`}>Reproceso</th>
             <th className={`${th} text-right`}>$ HardSaving</th>
             <th className={`${th} text-center`}>Estado</th>
           </tr>
@@ -729,6 +730,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
             const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
             const npsColor = npsCfg(r.nps.nps)?.color ?? "#6b7280";
             const entColor = r.entPct === null ? "#6b7280" : r.entPct >= 90 ? "var(--ok)" : r.entPct >= 75 ? "var(--warn)" : "var(--bad)";
+            const repColor = r.reprocesoPct === null ? "#6b7280" : r.reprocesoPct >= 90 ? "var(--ok)" : r.reprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
             const hc = HEALTH_CFG[r.health];
             return (
               <tr key={r.pm} className="border-t transition-colors hover:bg-[var(--bg-hover)]" style={{ borderColor: "var(--border)" }}>
@@ -750,6 +752,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                 <td className={`${td} text-center tabular-nums font-bold`} style={{ color: evmColor }}>{r.evmPct !== null ? `${r.evmPct}%` : "—"}</td>
                 <td className={`${td} text-center tabular-nums font-bold`} style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</td>
                 <td className={`${td} text-center tabular-nums font-bold`} style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</td>
+                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: repColor }} title={r.reprocesoPct === null ? "Sin REQ cerrados (no aplica)" : "% de REQ cerrados limpios de reproceso imputable al PM"}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</td>
                 <td className={`${td} text-right`}>
                   <button
                     onClick={() => setValuePm(r.pm)}
