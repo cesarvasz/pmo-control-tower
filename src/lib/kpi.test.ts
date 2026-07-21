@@ -12,14 +12,14 @@ import {
 // Sin reprocesoPct (null) el 5º queda pendiente → máximo alcanzable = 80.
 describe("computeKpi", () => {
   it("sin reproceso: logro perfecto en los otros 4 → score 80, achievable 80, ratio 1", () => {
-    const r = computeKpi({ evm: 1.0, nps: 30, benefit: 11000, entregasPct: 85 });
+    const r = computeKpi({ evm: 1.0, nps: 50, benefit: 11000, entregasPct: 100 });
     expect(r.score).toBeCloseTo(80, 5);
     expect(r.achievable).toBe(80);
     expect(r.ratio).toBeCloseTo(1, 5);
   });
 
   it("con reproceso 100%: logro perfecto en los 5 → score 100, achievable 100", () => {
-    const r = computeKpi({ evm: 1.0, nps: 30, benefit: 11000, entregasPct: 85, reprocesoPct: 100 });
+    const r = computeKpi({ evm: 1.0, nps: 50, benefit: 11000, entregasPct: 100, reprocesoPct: 100 });
     expect(r.score).toBeCloseTo(100, 5);
     expect(r.achievable).toBe(100);
     const rep = r.components.find((c) => c.key === "reproceso")!;
@@ -54,11 +54,20 @@ describe("computeKpi", () => {
     expect(r.ratio).toBeCloseTo(27 / 80, 5);
   });
 
-  it("entregas: 85% sobre meta 85% = logro 1", () => {
+  it("entregas: el % es directamente la fracción del peso (85% → logro 0.85)", () => {
     const r = computeKpi({ evm: null, nps: null, benefit: 0, entregasPct: 85 });
     const ent = r.components.find((c) => c.key === "entregas")!;
-    expect(ent.logro).toBeCloseTo(1, 5);
-    expect(r.score).toBeCloseTo(KPI_W.entregas, 5);
+    expect(ent.logro).toBeCloseTo(0.85, 5);
+    expect(r.score).toBeCloseTo(0.85 * KPI_W.entregas, 5); // 12.75
+  });
+
+  it("NPS: meta 50 — <0 → logro 0, proporcional 0–50, tope en 50", () => {
+    const neg = computeKpi({ evm: null, nps: -10, benefit: 0, entregasPct: null }).components.find((c) => c.key === "nps")!;
+    expect(neg.logro).toBe(0);
+    const mid = computeKpi({ evm: null, nps: 25, benefit: 0, entregasPct: null }).components.find((c) => c.key === "nps")!;
+    expect(mid.logro).toBeCloseTo(0.5, 5);
+    const over = computeKpi({ evm: null, nps: 80, benefit: 0, entregasPct: null }).components.find((c) => c.key === "nps")!;
+    expect(over.logro).toBe(1);
   });
 
   it("expone 5 componentes; el 5º es 'reproceso', pendiente cuando no se pasa su %", () => {

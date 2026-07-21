@@ -1,9 +1,13 @@
 // src/lib/kpi.ts
 // ── KPI PMO ──────────────────────────────────────────────────────────────────
 // Métrica ponderada general (global y por PM). Cada componente aporta
-// (logro × peso), con logro = min(real / meta, 100%) y piso 0%. Los pesos suman 100:
+// (logro × peso), con logro = min(real / meta, 100%) y piso 0%. La meta es el valor
+// que rinde el 100% del peso (no un tope de la métrica). Los pesos suman 100:
 //   EVM 30 · NPS 10 · Beneficio HardSaving (Confirmado) 25 · Compromiso Entregas 15
-//   · Reproceso 20. Metas: EVM 100%, NPS 30, Beneficio $11,000, Entregas 85%, Reproceso 100%.
+//   · Reproceso 20. Metas: EVM 100%, NPS 50, Beneficio $11,000, Entregas 100%, Reproceso 100%.
+//   · EVM: el % rinde directo el peso (90% → 0.9×30). NPS: <0 → 0; 0–50 proporcional;
+//     >50 tope en 50. Beneficio: $11,000 = 100% (tope). Entregas y Reproceso: el % es
+//     directamente la fracción del peso (85% → 0.85×peso).
 // El Reproceso mide el % de REQ cerrados "limpios" (ideal 100%): cada cerrado
 // penaliza por defecto —incluso sin responsable asignado— y también si es PM; solo
 // se excusa con un responsable ≠ PM (misma regla que Entregas). Si no hay REQ
@@ -16,7 +20,7 @@
 
 import { fmtMoney } from "@/lib/business";
 
-export const KPI_META = { evm: 1.0, nps: 30, benefit: 11000, entregas: 0.85, reproceso: 1.0 };
+export const KPI_META = { evm: 1.0, nps: 50, benefit: 11000, entregas: 1.0, reproceso: 1.0 };
 export const KPI_W = { evm: 30, nps: 10, benefit: 25, entregas: 15, reproceso: 20 };
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));

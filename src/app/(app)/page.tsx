@@ -664,6 +664,16 @@ function PMPortfolioCard({
   );
 }
 
+// Paleta por rangos para el número "Player" (KPI) del scoreboard, según lo pedido:
+//  >85 negro · 70–85 verde · 60–69.99 amarillo · 50–59.99 rojo · <50 morado.
+function playerPalette(pct: number): { bg: string; fg: string } {
+  if (pct > 85) return { bg: "#000000", fg: "#ffffff" };   // Mayor que 85
+  if (pct >= 70) return { bg: "#3ecf4a", fg: "#06230e" };  // Entre 70 y 85
+  if (pct >= 60) return { bg: "#ffd400", fg: "#3a2e00" };  // Entre 60 y 69.99
+  if (pct >= 50) return { bg: "#ef4444", fg: "#ffffff" };  // Entre 50 y 59.99
+  return { bg: "#9b30d0", fg: "#ffffff" };                 // Menor que 50
+}
+
 // Scoreboard comparativo de PMs: tabla ordenada por KPI (desc). KPI y $ abren su detalle.
 function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso }: {
   pms: string[]; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[];
@@ -693,22 +703,26 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
             <th className={`${th} text-center w-12`}>#</th>
             <th className={`${th} text-left w-48`}>Portafolio · PM</th>
             <th className={`${th} text-center w-32`}>Player</th>
-            <th className={`${th} text-center w-32`}>EVM</th>
-            <th className={`${th} text-center w-32`}>Beneficio</th>
-            <th className={`${th} text-center w-32`}>Calidad de Entregas</th>
-            <th className={`${th} text-center w-32`}>Compromiso de Entregas</th>
-            <th className={`${th} text-center w-32`}>NPS</th>
+            <th className={`${th} text-center w-32`}>EVM<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 30</span></th>
+            <th className={`${th} text-center w-32`}>Beneficio<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 25</span></th>
+            <th className={`${th} text-center w-32`}>Calidad de Entregas<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 20</span></th>
+            <th className={`${th} text-center w-32`}>Compromiso de Entregas<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 15</span></th>
+            <th className={`${th} text-center w-32`}>NPS<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 10</span></th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => {
-            const kColor = kpiColorFor(r.kpi.ratio);
-            const kBg = kpiBgFor(r.kpi.ratio);
+            const player = playerPalette(r.kpiPct);
             const evmStatus = healthStatusFromIndex(r.evmRaw);
             const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
             const npsColor = npsCfg(r.nps.nps)?.color ?? "#6b7280";
             const entColor = r.entPct === null ? "#6b7280" : r.entPct >= 90 ? "var(--ok)" : r.entPct >= 75 ? "var(--warn)" : "var(--bad)";
             const repColor = r.reprocesoPct === null ? "#6b7280" : r.reprocesoPct >= 90 ? "var(--ok)" : r.reprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+            // Peso ganado por cada métrica = logro × peso (aporte al KPI del PM).
+            const pts = (key: string) => {
+              const c = r.kpi.components.find((x) => x.key === key);
+              return c ? Math.round(c.logro * c.weight) : 0;
+            };
             return (
               <tr key={r.pm} className="border-t transition-colors hover:bg-[var(--bg-hover)]" style={{ borderColor: "var(--border)" }}>
                 <td className={`${td} text-center tabular-nums font-bold text-[var(--text-muted)]`}>{i + 1}</td>
@@ -722,13 +736,17 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                     onClick={() => setKpiPm(r.pm)}
                     title={`KPI ${r.kpiPct}/100 · ver detalle`}
                     className="inline-flex items-center rounded-full px-3 py-1 text-[0.95rem] font-extrabold transition-transform hover:-translate-y-0.5"
-                    style={{ color: kColor, background: kBg, boxShadow: `inset 0 0 0 1.5px ${kColor}` }}
+                    style={{ color: player.fg, background: player.bg, boxShadow: "inset 0 0 0 1px rgba(128,128,128,0.35)" }}
                   >
                     {r.kpiPct}
                   </button>
                 </td>
-                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: evmColor }}>{r.evmPct !== null ? `${r.evmPct}%` : "—"}</td>
-                {/* Beneficio (HardSaving confirmado) */}
+                {/* EVM (peso 30) */}
+                <td className={`${td} text-center`}>
+                  <div className="tabular-nums font-bold" style={{ color: evmColor }}>{r.evmPct !== null ? `${r.evmPct}%` : "—"}</div>
+                  {r.evmPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("evm")} pts</div>}
+                </td>
+                {/* Beneficio HardSaving confirmado (peso 25) */}
                 <td className={`${td} text-center`}>
                   <button
                     onClick={() => setValuePm(r.pm)}
@@ -738,12 +756,23 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                   >
                     {fmtMoney(r.benefit)}
                   </button>
+                  <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
                 </td>
-                {/* Calidad de Entregas (métrica de reproceso) */}
-                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: repColor }} title={r.reprocesoPct === null ? "Sin REQ cerrados (no aplica)" : "% de REQ cerrados limpios de reproceso imputable al PM"}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</td>
-                {/* Compromiso de Entregas (% a tiempo) */}
-                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</td>
-                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</td>
+                {/* Calidad de Entregas — reproceso (peso 20) */}
+                <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : "% de unidades limpias (REQ cerrados + fases completadas) sin reproceso imputable al PM"}>
+                  <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</div>
+                  {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
+                </td>
+                {/* Compromiso de Entregas — % a tiempo (peso 15) */}
+                <td className={`${td} text-center`}>
+                  <div className="tabular-nums font-bold" style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</div>
+                  {r.entPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("entregas")} pts</div>}
+                </td>
+                {/* NPS (peso 10) */}
+                <td className={`${td} text-center`}>
+                  <div className="tabular-nums font-bold" style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</div>
+                  {r.nps.nps !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("nps")} pts</div>}
+                </td>
               </tr>
             );
           })}
