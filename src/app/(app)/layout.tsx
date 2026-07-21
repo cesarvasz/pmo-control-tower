@@ -7,16 +7,10 @@ import { useMe } from "@/context/PermissionsContext";
 import { useData } from "@/context/DataContext";
 import { hasAction, hasPage } from "@/lib/permissions";
 import { pageByHref } from "@/lib/registry";
-import { usePageTracking } from "@/hooks/usePageTracking";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { Loader } from "@/components/ui";
-
-function PageTracker() {
-  usePageTracking();
-  return null;
-}
 
 function FullScreen({ children }: { children: ReactNode }) {
   return (
@@ -89,7 +83,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex">
-      <PageTracker />
       <RefreshOverlay />
       <Sidebar
         mobileOpen={mobileSidebarOpen}

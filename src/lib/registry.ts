@@ -50,7 +50,6 @@ export const PAGES: PageDef[] = [
   { key: "usuarios",    label: "Usuarios",      href: "/usuarios",  icon: "⚙", requiredAction: "manage_users" },
   { key: "roles",       label: "Roles",         href: "/roles",     icon: "🛡", requiredAction: "manage_roles" },
   { key: "grupos",      label: "Grupos",        href: "/grupos",    icon: "🗂", requiredAction: "manage_roles" },
-  { key: "analytics",   label: "Analíticas",    href: "/analytics", icon: "📊", requiredAction: "manage_users" },
 ];
 
 // ── Acciones (lo que un rol puede HACER) ───────────────────────────────
