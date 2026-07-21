@@ -5,9 +5,22 @@
 import { getAdminDb } from "@/lib/firebase-admin";
 import type { Group } from "@/lib/permissions";
 import { BOOTSTRAP_ADMIN_GROUP_ID, PAGES } from "@/lib/registry";
+import { invalidateRolesCache } from "@/lib/roles";
 
 const COLL = "groups";
 const VALID_PAGE_KEYS = new Set(PAGES.map((p) => p.key));
+
+// ── Caché en memoria (por instancia) ───────────────────────────────────
+// listGroups() se invoca en cada getMe(); se cachea con TTL corto para no
+// releer la colección en cada request. Las mutaciones invalidan el caché.
+const CACHE_TTL_MS = 60_000;
+let groupsCache: { list: Group[]; at: number } | null = null;
+let defaultsSeeded = false;
+
+/** Invalida el caché de grupos (llamar tras cualquier escritura en la colección). */
+export function invalidateGroupsCache(): void {
+  groupsCache = null;
+}
 
 function docToGroup(id: string, d: FirebaseFirestore.DocumentData): Group {
   return {
@@ -29,6 +42,7 @@ const ADMIN_PAGE_KEYS = ["usuarios", "roles", "grupos"];
  * las páginas de admin (instancias migradas), las agrega automáticamente.
  */
 export async function ensureDefaultGroups(): Promise<void> {
+  if (defaultsSeeded) return;
   const db = getAdminDb();
   const ref = db.collection(COLL).doc(BOOTSTRAP_ADMIN_GROUP_ID);
   const snap = await ref.get();
@@ -43,6 +57,8 @@ export async function ensureDefaultGroups(): Promise<void> {
       createdAt: now,
       updatedAt: now,
     });
+    invalidateGroupsCache();
+    defaultsSeeded = true;
     return;
   }
 
@@ -51,7 +67,9 @@ export async function ensureDefaultGroups(): Promise<void> {
   const missing = ADMIN_PAGE_KEYS.filter((k) => !current.includes(k));
   if (missing.length) {
     await ref.set({ pageKeys: [...current, ...missing], updatedAt: now }, { merge: true });
+    invalidateGroupsCache();
   }
+  defaultsSeeded = true;
 }
 
 /** Deja solo claves de página que existen en el catálogo, sin duplicados. */
@@ -61,10 +79,13 @@ function cleanPageKeys(keys: unknown): string[] {
 }
 
 export async function listGroups(): Promise<Group[]> {
+  if (groupsCache && Date.now() - groupsCache.at < CACHE_TTL_MS) return groupsCache.list;
   const snap = await getAdminDb().collection(COLL).get();
-  return snap.docs
+  const list = snap.docs
     .map((d) => docToGroup(d.id, d.data()))
     .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.name.localeCompare(b.name));
+  groupsCache = { list, at: Date.now() };
+  return list;
 }
 
 export async function getGroup(id: string): Promise<Group | null> {
@@ -81,6 +102,7 @@ export async function createGroup(name: string, icon: string, pageKeys: unknown)
     createdAt: now,
     updatedAt: now,
   });
+  invalidateGroupsCache();
   return docToGroup(ref.id, (await ref.get()).data()!);
 }
 
@@ -97,6 +119,7 @@ export async function updateGroup(
   if (patch.pageKeys !== undefined) update.pageKeys = cleanPageKeys(patch.pageKeys);
 
   await ref.set(update, { merge: true });
+  invalidateGroupsCache();
   return docToGroup(id, (await ref.get()).data()!);
 }
 
@@ -107,6 +130,7 @@ export async function deleteGroup(id: string): Promise<void> {
   if (!snap.exists) throw new Error("group-not-found");
   if (snap.data()!.isSystem) throw new Error("group-is-system");
   await ref.delete();
+  invalidateGroupsCache();
 
   // Limpia el grupo borrado de los permisos de cada rol que lo concedía.
   const roles = await db.collection("roles").get();
@@ -121,5 +145,8 @@ export async function deleteGroup(id: string): Promise<void> {
       touched++;
     }
   }
-  if (touched) await batch.commit();
+  if (touched) {
+    await batch.commit();
+    invalidateRolesCache(); // los permisos de roles cambiaron
+  }
 }

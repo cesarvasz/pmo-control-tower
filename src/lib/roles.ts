@@ -7,6 +7,29 @@ import { DEFAULT_ROLES, reconcileSystemAdmin } from "@/lib/registry";
 
 const COLL = "roles";
 
+// ── Caché en memoria (por instancia de servidor) ───────────────────────
+// getMe() corre en CADA request protegido; sin caché, releer roles/grupos
+// en cada llamada quema la cuota de lecturas de Firestore. Se cachea la lista
+// completa de roles con un TTL corto; las mutaciones invalidan el caché.
+const CACHE_TTL_MS = 60_000;
+let rolesCache: { list: Role[]; map: Map<string, Role>; at: number } | null = null;
+let defaultsSeeded = false;
+
+/** Invalida el caché de roles (llamar tras cualquier escritura en la colección). */
+export function invalidateRolesCache(): void {
+  rolesCache = null;
+}
+
+async function getRolesCached(): Promise<{ list: Role[]; map: Map<string, Role> }> {
+  if (rolesCache && Date.now() - rolesCache.at < CACHE_TTL_MS) return rolesCache;
+  const snap = await getAdminDb().collection(COLL).get();
+  const list = snap.docs
+    .map((d) => docToRole(d.id, d.data()))
+    .sort((a, b) => Number(!!b.isSystem) - Number(!!a.isSystem) || a.name.localeCompare(b.name));
+  rolesCache = { list, map: new Map(list.map((r) => [r.id, r])), at: Date.now() };
+  return rolesCache;
+}
+
 function docToRole(id: string, d: FirebaseFirestore.DocumentData): Role {
   return reconcileSystemAdmin({
     id,
@@ -18,11 +41,16 @@ function docToRole(id: string, d: FirebaseFirestore.DocumentData): Role {
   });
 }
 
-/** Siembra los roles base la primera vez (colección vacía). Idempotente. */
+/** Siembra los roles base la primera vez (colección vacía). Idempotente.
+ *  Tras confirmar (una vez por instancia) que ya existen, no vuelve a leer. */
 export async function ensureDefaultRoles(): Promise<void> {
+  if (defaultsSeeded) return;
   const db = getAdminDb();
   const snap = await db.collection(COLL).limit(1).get();
-  if (!snap.empty) return;
+  if (!snap.empty) {
+    defaultsSeeded = true;
+    return;
+  }
   const now = new Date().toISOString();
   const batch = db.batch();
   for (const r of DEFAULT_ROLES) {
@@ -35,19 +63,16 @@ export async function ensureDefaultRoles(): Promise<void> {
     });
   }
   await batch.commit();
+  invalidateRolesCache();
+  defaultsSeeded = true;
 }
 
 export async function listRoles(): Promise<Role[]> {
-  const db = getAdminDb();
-  const snap = await db.collection(COLL).get();
-  return snap.docs
-    .map((d) => docToRole(d.id, d.data()))
-    .sort((a, b) => Number(!!b.isSystem) - Number(!!a.isSystem) || a.name.localeCompare(b.name));
+  return (await getRolesCached()).list;
 }
 
 export async function getRole(id: string): Promise<Role | null> {
-  const snap = await getAdminDb().collection(COLL).doc(id).get();
-  return snap.exists ? docToRole(snap.id, snap.data()!) : null;
+  return (await getRolesCached()).map.get(id) ?? null;
 }
 
 export async function createRole(name: string, permissions: Permissions): Promise<Role> {
@@ -60,6 +85,7 @@ export async function createRole(name: string, permissions: Permissions): Promis
     createdAt: now,
     updatedAt: now,
   });
+  invalidateRolesCache();
   return docToRole(ref.id, (await ref.get()).data()!);
 }
 
@@ -77,6 +103,7 @@ export async function updateRole(
   if (patch.permissions) update.permissions = normalizePermissions(patch.permissions);
 
   await ref.set(update, { merge: true });
+  invalidateRolesCache();
   return docToRole(id, (await ref.get()).data()!);
 }
 
@@ -91,4 +118,5 @@ export async function deleteRole(id: string): Promise<void> {
   if (!assigned.empty) throw new Error("role-in-use");
 
   await ref.delete();
+  invalidateRolesCache();
 }
