@@ -1,13 +1,11 @@
 // src/app/api/attribution/route.ts
 // POST /api/attribution — asigna (o borra) el responsable de una atribución.
-// Autorización según kind:
-//   · "delay" (atraso de entrega) → solo Admin ("manage_users").
-//   · "reproceso"                 → cualquier usuario válido del dominio.
+// Autorización: ambas atribuciones (delay y reproceso) requieren Admin ("manage_users").
 // Body: { kind, itemId, responsible|null }. responsible null/"" → borra la asignación.
 
 import { NextResponse } from "next/server";
 import { requireAction } from "@/lib/users";
-import { verifyRequest, saveAttribution, deleteAttribution } from "@/lib/firebase-admin";
+import { saveAttribution, deleteAttribution } from "@/lib/firebase-admin";
 import { isDelayResponsible } from "@/lib/delay";
 import { apiError } from "@/lib/api-errors";
 import type { AttributionKind } from "@/types";
@@ -29,10 +27,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "kind inválido" }, { status: 400 });
     const kind = body.kind;
 
-    // Delay solo Admin; Reproceso cualquier usuario autenticado del dominio.
-    const me = kind === "delay"
-      ? await requireAction(authHeader, "manage_users")
-      : await verifyRequest(authHeader);
+    // Ambas atribuciones (delay y reproceso) requieren Admin.
+    const me = await requireAction(authHeader, "manage_users");
 
     const itemId = body?.itemId;
     if (typeof itemId !== "string" || !itemId)

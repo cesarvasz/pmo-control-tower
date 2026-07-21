@@ -25,8 +25,8 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
   const { data, setAttribution, refresh } = useData();
   const [saving, setSaving] = useState(false);
 
-  // Delay (atraso) solo lo edita un Admin; Reproceso lo puede editar cualquier usuario.
-  const canEdit = kind === "reproceso" || hasAction(me?.permissions, "manage_users");
+  // Ambos dropdowns (Entrega/atraso y Reproceso) solo los ve/edita un Admin.
+  const canEdit = hasAction(me?.permissions, "manage_users");
   if (!canEdit) return null;
 
   const map = kind === "delay" ? data?.delayAttributions : data?.reprocesoAttributions;
