@@ -26,11 +26,14 @@ function RefreshOverlay() {
   if (!loading || !data) return null;
   return (
     <div
-      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 text-[var(--text-muted)]"
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4"
       style={{ background: "var(--bg-base)" }}
+      role="status"
+      aria-live="polite"
     >
-      <video className="loader-video" src="/loader.webm" autoPlay loop muted playsInline />
-      <span>Cargando...</span>
+      <img className="loader-pmo loader-pmo--light" src="/loader-pmo-verde.svg" alt="" />
+      <img className="loader-pmo loader-pmo--dark" src="/loader-pmo-blanco.svg" alt="" />
+      <span className="sr-only">Procesando…</span>
     </div>
   );
 }
