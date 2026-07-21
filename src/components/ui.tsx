@@ -3,18 +3,19 @@
 import type { ReactNode } from "react";
 
 // ── Loader / Error ─────────────────────────────────────────────────────
+// Logo PMO con la "O" convertida en rueda de carga giratoria + "Procesando…".
+// Se muestra la variante de letras verdes en temas claros (light/c807/rose)
+// y la de letras blancas en temas oscuros (dark/ironman) vía CSS (globals.css).
 export function Loader() {
   return (
-    <div className="flex min-h-[80vh] flex-col items-center justify-center gap-4 text-[var(--text-muted)]">
-      <video
-        className="loader-video"
-        src="/loader.webm"
-        autoPlay
-        loop
-        muted
-        playsInline
-      />
-      <span>Cargando...</span>
+    <div
+      className="flex min-h-[80vh] flex-col items-center justify-center"
+      role="status"
+      aria-live="polite"
+    >
+      <img className="loader-pmo loader-pmo--light" src="/loader-pmo-verde.svg" alt="" />
+      <img className="loader-pmo loader-pmo--dark" src="/loader-pmo-blanco.svg" alt="" />
+      <span className="sr-only">Procesando…</span>
     </div>
   );
 }
