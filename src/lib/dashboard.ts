@@ -164,16 +164,40 @@ export function countDeliveries(reqs: ReqItem[], projs: ProjItem[], delays: Dela
 }
 
 // ── Reproceso (componente del KPI, peso 20) ──────────────────────────────
-/** % de REQ CERRADOS "limpios" de reproceso (ideal 100%). Misma regla que
- *  entregas: cada REQ cerrado penaliza (cuenta como reproceso) por defecto —
- *  incluso sin responsable asignado— y también si es "PM"; solo se EXCUSA si se
- *  le asignó un responsable distinto de PM. Todo REQ cerrado debería tener una
- *  opción seleccionada. Devuelve null si no hay REQ cerrados (→ pendiente). */
-export function calcReprocesoPct(reqs: ReqItem[], reproceso: DelayMap): number | null {
-  const closed = reqs.filter((r) => r.estado === "CERRADO");
-  if (!closed.length) return null;
-  const conReproceso = closed.filter((r) => !lateExcused(r.id, reproceso)).length;
-  return Math.round(((closed.length - conReproceso) / closed.length) * 100);
+/** Clave sintética de atribución de una fase (grupo) de un proyecto.
+ *  Debe coincidir con la usada en la UI de Proyectos (cabecera de cada fase). */
+export const projPhaseKey = (boardId: string, grupo: string) => `${boardId}::${grupo}`;
+
+/** Fases (board+grupo) COMPLETADAS: todos sus items en status "Done".
+ *  Devuelve la clave de atribución de cada fase completada (unidad de reproceso). */
+export function completedProjectPhases(projs: ProjItem[]): string[] {
+  const groups = new Map<string, ProjItem[]>();
+  for (const r of projs) {
+    const key = projPhaseKey(r.boardId, r.grupo);
+    const arr = groups.get(key);
+    if (arr) arr.push(r); else groups.set(key, [r]);
+  }
+  const done: string[] = [];
+  for (const [key, items] of groups) {
+    if (items.every((r) => r.status === "Done")) done.push(key);
+  }
+  return done;
+}
+
+/** % de unidades "limpias" de reproceso (ideal 100%). Las unidades en scope son
+ *  los REQ CERRADOS + las fases de proyecto COMPLETADAS (todos sus items Done).
+ *  Misma regla que entregas: cada unidad penaliza (cuenta como reproceso) por
+ *  defecto —incluso sin responsable asignado— y también si es "PM"; solo se
+ *  EXCUSA si se le asignó un responsable distinto de PM (incluida "Sin reproceso").
+ *  Devuelve null si no hay unidades en scope (→ componente pendiente). */
+export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): number | null {
+  const units = [
+    ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
+    ...completedProjectPhases(projs),
+  ];
+  if (!units.length) return null;
+  const conReproceso = units.filter((id) => !lateExcused(id, reproceso)).length;
+  return Math.round(((units.length - conReproceso) / units.length) * 100);
 }
 
 // Métricas de resumen de un PM para el scoreboard (mismas fórmulas que la tarjeta de PM):
@@ -211,7 +235,11 @@ export function calcPmMetrics(
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
   const benefit = pmValueHard.confirmBenefit;
 
-  const reprocesoPct = calcReprocesoPct(req.filter((r) => r.pm === pm), reproceso);
+  const reprocesoPct = calcReprocesoPct(
+    req.filter((r) => r.pm === pm),
+    proj.filter((p) => pmBoardIdSet.has(p.boardId)),
+    reproceso,
+  );
   const kpi = computeKpi({ evm: evmRaw, nps: nps.nps, benefit, entregasPct: entPct, reprocesoPct });
   const health = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
 

@@ -12,7 +12,7 @@ import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
-import { DELAY_RESPONSIBLES } from "@/lib/delay";
+import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES } from "@/lib/delay";
 import type { AttributionKind, DelayResponsible } from "@/types";
 
 export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
@@ -43,11 +43,15 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
   const tone = current === "PM" ? "var(--bad)" : needsAssign ? "var(--warn)" : null;
   const title = current === "PM"
     ? `Responsable: PM — este ${noun} cuenta en el ${metric}`
-    : current
-      ? `Responsable: ${current} — ${noun} excusado, excluido del ${metric}`
-      : penalizesEmpty
-        ? `Sin asignar — cuenta en el ${metric}. Asigna un responsable ≠ PM para excusarlo.`
-        : `Sin asignar — no cuenta en el ${metric}`;
+    : current === "Sin reproceso"
+      ? `Sin reproceso — no cuenta en el ${metric}`
+      : current
+        ? `Responsable: ${current} — ${noun} excusado, excluido del ${metric}`
+        : penalizesEmpty
+          ? `Sin asignar — cuenta en el ${metric}. Asigna un responsable ≠ PM (o "Sin reproceso") para excusarlo.`
+          : `Sin asignar — no cuenta en el ${metric}`;
+
+  const options = isDelay ? DELAY_RESPONSIBLES : REPROCESO_RESPONSIBLES;
 
   const onChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const responsible = (e.target.value || null) as DelayResponsible | null;
@@ -81,7 +85,7 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
       }}
     >
       <option value="">— Responsable</option>
-      {DELAY_RESPONSIBLES.map((r) => (
+      {options.map((r) => (
         <option key={r} value={r}>{r}</option>
       ))}
     </select>

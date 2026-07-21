@@ -9,6 +9,7 @@ import { fmtDate, fmtMoney } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
 import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib/proj";
+import { projPhaseKey } from "@/lib/dashboard";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import type { ProjBoard, ProjItem } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
@@ -487,6 +488,9 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                 if (filterNoDl && gItems.length === 0) return null;
                 const gOpen = filterNoDl || openGroups.has(grupo);
                 const gOffTrack = gItems.some((r) => isOffTrack(r.status, r.estado) || r.subitems.some((s) => isOffTrack(s.status, s.estado)));
+                // Fase completada = todos sus items en "Done" (análogo a REQ cerrado). Solo entonces
+                // el reproceso cuenta en la métrica; en las demás el dropdown es informativo.
+                const faseDone = allGItems.every((r) => r.status === "Done");
                 return (
                   <React.Fragment key={grupo}>
                     {/* ── Group header row ── */}
@@ -503,8 +507,13 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                           <span className="text-[0.72rem] font-bold uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>
                             {grupo || "Sin grupo"}
                           </span>
+                          {/* Reproceso de la fase — cuenta en la métrica solo si la fase está completada */}
+                          <div className="ml-auto flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Reproceso</span>
+                            <ResponsibleSelect itemId={projPhaseKey(board.id, grupo)} kind="reproceso" emptyPenalizes={faseDone} />
+                          </div>
                           <span
-                            className="ml-auto h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                            className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
                             style={{ background: gOffTrack ? "#ef4444" : "#10b981" }}
                             title={gOffTrack ? "Hay items Off Track en esta fase" : "Fase On Track"}
                           />

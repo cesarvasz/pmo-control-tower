@@ -54,7 +54,6 @@ function ControlTower({ data }: { data: DashboardData }) {
   const router = useRouter();
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
-  const [showKpi, setShowKpi] = useState(false);
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tabla"); // vista de Portafolios por PM
 
@@ -68,7 +67,6 @@ function ControlTower({ data }: { data: DashboardData }) {
     G, totalCost, totalBenefit, colAprobCost, colAprobBenefit, colConfirmCost, colConfirmBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor,
-    kpi, kpiPct, kpiAchievable, kpiColor,
   } = useMemo(() => {
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -246,8 +244,9 @@ function ControlTower({ data }: { data: DashboardData }) {
   const kpiProjBenefit = [...kpiProjAgg.values()].filter((b) => b.doneAprob && b.doneLaunch).reduce((s, b) => s + b.benefit, 0);
   const kpiBenefitConfirmed = kpiReqBenefit + kpiProjBenefit;
 
-  // Reproceso del equipo: % de REQ cerrados sin reproceso imputable al PM (5º componente, peso 20).
-  const teamReprocesoPct = calcReprocesoPct(req, reproceso);
+  // Reproceso del equipo: % de unidades limpias (REQ cerrados + fases de proyecto
+  // completadas) sin reproceso imputable al PM (5º componente, peso 20).
+  const teamReprocesoPct = calcReprocesoPct(req, proj, reproceso);
   const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefit: kpiBenefitConfirmed, entregasPct: entPct, reprocesoPct: teamReprocesoPct });
   const kpiPct = Math.round(kpi.score);
   const kpiAchievable = kpi.achievable; // 80 hoy (el 5º componente está pendiente)
@@ -265,9 +264,9 @@ function ControlTower({ data }: { data: DashboardData }) {
 
   return (
     <div>
-      {/* ── Resumen: 4 métricas núcleo (grid uniforme) + KPI héroe a la derecha ── */}
-      <div className="mb-4 flex flex-col gap-4 xl:flex-row">
-        <div className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
+      {/* ── Resumen: tarjetas núcleo del equipo (EVM, NPS, Costo&Beneficio, Entregas, VPA Actions) ── */}
+      <div className="mb-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
 
           {/* EVM */}
           <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hColor }}>
@@ -352,26 +351,23 @@ function ControlTower({ data }: { data: DashboardData }) {
             </div>
           </div>
 
-        </div>
+          {/* VPA Actions — subida al bloque de tarjetas de resumen */}
+          <div
+            onClick={() => setShowValueGate(true)}
+            title="Ver acciones del VPA"
+            className="flex cursor-pointer flex-col rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5"
+            style={{ background: "var(--bg-surface)", borderColor: "#8b5cf6" }}
+          >
+            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">VPA Actions</div>
+            <div className="text-5xl font-extrabold leading-none" style={{ color: "#8b5cf6" }}>{vpaPending.length}</div>
+            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">Pendientes</div>
+            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold">
+              <span style={{ color: "#10b981" }}>✓ {vgEnTiempo} En Tiempo</span>
+              <span style={{ color: "#f59e0b" }}>⚠ {vgHoy} Hoy</span>
+              <span style={{ color: "#ef4444" }}>✕ {vgAtrasado} Atrasado</span>
+            </div>
+          </div>
 
-        {/* KPI PMO — métrica general ponderada (héroe, pegado a la derecha) */}
-        <div
-          onClick={() => setShowKpi(true)}
-          title="Ver detalle del KPI"
-          className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5 xl:w-64 xl:shrink-0"
-          style={{ background: "var(--bg-surface)", borderColor: kpiColor }}
-        >
-          <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-widest text-[var(--text-secondary)]">KPI PMO</div>
-          <div className="leading-none">
-            <span className="text-6xl font-extrabold" style={{ color: kpiColor }}>{kpiPct}</span>
-            <span className="text-2xl font-bold text-[var(--text-muted)]"> / 100</span>
-          </div>
-          <div className="mt-2 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-            máx. {kpiAchievable} hoy{kpiAchievable < 100 ? ` · faltan ${100 - kpiAchievable} por definir` : ""}
-          </div>
-          <div className="mt-4 rounded-full border px-3.5 py-1 text-[0.66rem] font-bold uppercase tracking-wide" style={{ borderColor: kpiColor, color: kpiColor }}>
-            Ver detalle →
-          </div>
         </div>
 
       </div>
@@ -430,29 +426,8 @@ function ControlTower({ data }: { data: DashboardData }) {
         </div>
       )}
 
-      {/* VPA Actions — debajo de los Portafolios por PM */}
-      <div className="mt-6 flex flex-wrap gap-4">
-        <div
-          onClick={() => setShowValueGate(true)}
-          className="cursor-pointer rounded-xl border-2 p-6 text-center transition-transform hover:-translate-y-0.5"
-          style={{ background: "var(--bg-surface)", borderColor: "#8b5cf6", minWidth: 220 }}
-        >
-          <div className="mb-3 text-[0.9rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">VPA Actions</div>
-          <div className="mb-1 text-5xl font-extrabold leading-none" style={{ color: "#8b5cf6" }}>{vpaPending.length}</div>
-          <div className="mb-3 text-[0.8rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">Pendientes</div>
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.82rem] font-semibold">
-            <span style={{ color: "#10b981" }}>✓ {vgEnTiempo} En Tiempo</span>
-            <span style={{ color: "#f59e0b" }}>⚠ {vgHoy} Hoy</span>
-            <span style={{ color: "#ef4444" }}>✕ {vgAtrasado} Atrasado</span>
-          </div>
-        </div>
-      </div>
-
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
-      {showKpi && (
-        <KpiModal pct={kpiPct} achievable={kpiAchievable} pendingWeight={100 - kpiAchievable} color={kpiColor} components={kpi.components} onClose={() => setShowKpi(false)} />
-      )}
     </div>
   );
 }
@@ -558,7 +533,11 @@ function PMPortfolioCard({
 
   // KPI del PM: mismo cálculo ponderado que el del equipo, con las métricas del PM
   // (EVM propio, NPS propio, beneficio HardSaving confirmado propio, su % de entregas y su % de reproceso).
-  const pmReprocesoPct = calcReprocesoPct(req.filter((r) => r.pm === pm), reproceso);
+  const pmReprocesoPct = calcReprocesoPct(
+    req.filter((r) => r.pm === pm),
+    proj.filter((p) => pmBoardIdSet.has(p.boardId)),
+    reproceso,
+  );
   const pmKpi = computeKpi({ evm: pmEvmRaw, nps: pmNps.nps, benefit: pmValueHard.confirmBenefit, entregasPct: entPct, reprocesoPct: pmReprocesoPct });
   const pmKpiPct = Math.round(pmKpi.score);
   const pmKpiColor = kpiColorFor(pmKpi.ratio);
@@ -708,18 +687,17 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
 
   return (
     <div className="overflow-x-auto rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
-      <table className="w-full text-[0.82rem]">
+      <table className="w-full table-fixed text-[0.82rem]">
         <thead>
           <tr className="border-b" style={{ background: "var(--bg-hover)", borderColor: "var(--border)" }}>
-            <th className={`${th} text-center w-10`}>#</th>
-            <th className={`${th} text-left`}>Portafolio · PM</th>
-            <th className={`${th} text-center`}>KPI</th>
-            <th className={`${th} text-center`}>EVM</th>
-            <th className={`${th} text-center`}>NPS</th>
-            <th className={`${th} text-center`}>Entregas</th>
-            <th className={`${th} text-center`}>Reproceso</th>
-            <th className={`${th} text-right`}>$ HardSaving</th>
-            <th className={`${th} text-center`}>Estado</th>
+            <th className={`${th} text-center w-12`}>#</th>
+            <th className={`${th} text-left w-48`}>Portafolio · PM</th>
+            <th className={`${th} text-center w-32`}>Player</th>
+            <th className={`${th} text-center w-32`}>EVM</th>
+            <th className={`${th} text-center w-32`}>Beneficio</th>
+            <th className={`${th} text-center w-32`}>Calidad de Entregas</th>
+            <th className={`${th} text-center w-32`}>Compromiso de Entregas</th>
+            <th className={`${th} text-center w-32`}>NPS</th>
           </tr>
         </thead>
         <tbody>
@@ -731,7 +709,6 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
             const npsColor = npsCfg(r.nps.nps)?.color ?? "#6b7280";
             const entColor = r.entPct === null ? "#6b7280" : r.entPct >= 90 ? "var(--ok)" : r.entPct >= 75 ? "var(--warn)" : "var(--bad)";
             const repColor = r.reprocesoPct === null ? "#6b7280" : r.reprocesoPct >= 90 ? "var(--ok)" : r.reprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
-            const hc = HEALTH_CFG[r.health];
             return (
               <tr key={r.pm} className="border-t transition-colors hover:bg-[var(--bg-hover)]" style={{ borderColor: "var(--border)" }}>
                 <td className={`${td} text-center tabular-nums font-bold text-[var(--text-muted)]`}>{i + 1}</td>
@@ -739,21 +716,20 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                   <div className="font-semibold text-[var(--text-primary)]">{pmLabel(r.pm)}</div>
                   <div className="text-[0.7rem] text-[var(--text-muted)]">{r.pm}</div>
                 </td>
+                {/* Player (KPI) — número héroe, formato diferenciado (pill con borde) */}
                 <td className={`${td} text-center`}>
                   <button
                     onClick={() => setKpiPm(r.pm)}
                     title={`KPI ${r.kpiPct}/100 · ver detalle`}
-                    className="inline-flex items-center rounded-full px-2.5 py-1 text-[0.82rem] font-extrabold transition-transform hover:-translate-y-0.5"
-                    style={{ color: kColor, background: kBg, boxShadow: `inset 0 0 0 1px ${kColor}` }}
+                    className="inline-flex items-center rounded-full px-3 py-1 text-[0.95rem] font-extrabold transition-transform hover:-translate-y-0.5"
+                    style={{ color: kColor, background: kBg, boxShadow: `inset 0 0 0 1.5px ${kColor}` }}
                   >
                     {r.kpiPct}
                   </button>
                 </td>
                 <td className={`${td} text-center tabular-nums font-bold`} style={{ color: evmColor }}>{r.evmPct !== null ? `${r.evmPct}%` : "—"}</td>
-                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</td>
-                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</td>
-                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: repColor }} title={r.reprocesoPct === null ? "Sin REQ cerrados (no aplica)" : "% de REQ cerrados limpios de reproceso imputable al PM"}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</td>
-                <td className={`${td} text-right`}>
+                {/* Beneficio (HardSaving confirmado) */}
+                <td className={`${td} text-center`}>
                   <button
                     onClick={() => setValuePm(r.pm)}
                     title="Ver costo y beneficio (detalle)"
@@ -763,9 +739,11 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                     {fmtMoney(r.benefit)}
                   </button>
                 </td>
-                <td className={`${td} text-center`}>
-                  <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.72rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}</span>
-                </td>
+                {/* Calidad de Entregas (métrica de reproceso) */}
+                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: repColor }} title={r.reprocesoPct === null ? "Sin REQ cerrados (no aplica)" : "% de REQ cerrados limpios de reproceso imputable al PM"}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</td>
+                {/* Compromiso de Entregas (% a tiempo) */}
+                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</td>
+                <td className={`${td} text-center tabular-nums font-bold`} style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</td>
               </tr>
             );
           })}

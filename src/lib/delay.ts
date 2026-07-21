@@ -11,12 +11,18 @@ export type { DelayResponsible, DelayAttribution };
 /** itemId → responsable (atraso o reproceso). */
 export type DelayMap = Record<string, DelayAttribution>;
 
-/** Opciones seleccionables en el dropdown (orden de presentación). */
+/** Opciones del dropdown de Entrega/atraso (orden de presentación). */
 export const DELAY_RESPONSIBLES: readonly DelayResponsible[] = [
   "VPA", "CKU", "PM", "Sponsor", "Desarrollador",
 ];
 
-const VALID = new Set<string>(DELAY_RESPONSIBLES);
+/** Opciones del dropdown de Reproceso: incluye "Sin reproceso" (no penaliza). */
+export const REPROCESO_RESPONSIBLES: readonly DelayResponsible[] = [
+  "Sin reproceso", "VPA", "CKU", "PM", "Sponsor", "Desarrollador",
+];
+
+// Superset válido (incluye "Sin reproceso"); el dropdown de atraso simplemente no la ofrece.
+const VALID = new Set<string>(REPROCESO_RESPONSIBLES);
 export const isDelayResponsible = (v: unknown): v is DelayResponsible =>
   typeof v === "string" && VALID.has(v);
 
