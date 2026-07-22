@@ -7,6 +7,7 @@ import { useMe } from "@/context/PermissionsContext";
 import { hasAction } from "@/lib/permissions";
 import type { SurveyDoc } from "@/lib/survey";
 import SurveyResultModal from "@/components/SurveyResultModal";
+import NpsCommentsReport from "@/components/NpsCommentsReport";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
 export default function EncuestasPage() {
@@ -15,6 +16,7 @@ export default function EncuestasPage() {
   const [resultToken, setResultToken] = useState<string | null>(null);
   const [onlyAnswered, setOnlyAnswered] = useState(false);
   const [busyToken, setBusyToken] = useState<string | null>(null);
+  const [tab, setTab] = useState<"enviadas" | "comentarios">("enviadas");
 
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_roles");
@@ -74,6 +76,26 @@ export default function EncuestasPage() {
 
   return (
     <div>
+      {/* Tabs: Enviadas (gestión de encuestas) · Comentarios (reporte NPS) */}
+      <div className="mb-6 flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
+        {([["enviadas", "Enviadas"], ["comentarios", "Comentarios NPS"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className="rounded-t-lg px-4 py-2 text-[0.85rem] font-semibold transition-colors"
+            style={tab === key
+              ? { color: "var(--accent)", borderBottom: "2px solid var(--accent)" }
+              : { color: "var(--text-muted)" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "comentarios" ? (
+        <NpsCommentsReport />
+      ) : (
+      <>
       <div className="mb-7 grid grid-cols-3 gap-4 sm:max-w-xl">
         <StatCard value={total} label="Enviadas" />
         <StatCard value={answered} label="Contestadas" color="#10b981" borderColor="#10b981" active={onlyAnswered} onClick={() => setOnlyAnswered((v) => !v)} />
@@ -163,6 +185,8 @@ export default function EncuestasPage() {
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
 
       {resultToken && <SurveyResultModal token={resultToken} onClose={() => setResultToken(null)} />}
