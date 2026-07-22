@@ -8,6 +8,7 @@ import { hasAction } from "@/lib/permissions";
 import type { SurveyDoc } from "@/lib/survey";
 import SurveyResultModal from "@/components/SurveyResultModal";
 import NpsCommentsReport from "@/components/NpsCommentsReport";
+import NpsDimensionsChart from "@/components/NpsDimensionsChart";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
 export default function EncuestasPage() {
@@ -16,7 +17,7 @@ export default function EncuestasPage() {
   const [resultToken, setResultToken] = useState<string | null>(null);
   const [onlyAnswered, setOnlyAnswered] = useState(false);
   const [busyToken, setBusyToken] = useState<string | null>(null);
-  const [tab, setTab] = useState<"enviadas" | "comentarios">("enviadas");
+  const [tab, setTab] = useState<"enviadas" | "comentarios" | "dimensiones">("enviadas");
 
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_roles");
@@ -78,7 +79,7 @@ export default function EncuestasPage() {
     <div>
       {/* Tabs: Enviadas (gestión de encuestas) · Comentarios (reporte NPS) */}
       <div className="mb-6 flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
-        {([["enviadas", "Enviadas"], ["comentarios", "Comentarios NPS"]] as const).map(([key, label]) => (
+        {([["enviadas", "Enviadas"], ["comentarios", "Comentarios NPS"], ["dimensiones", "Dimensiones"]] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -94,6 +95,8 @@ export default function EncuestasPage() {
 
       {tab === "comentarios" ? (
         <NpsCommentsReport />
+      ) : tab === "dimensiones" ? (
+        <NpsDimensionsChart />
       ) : (
       <>
       <div className="mb-7 grid grid-cols-3 gap-4 sm:max-w-xl">
