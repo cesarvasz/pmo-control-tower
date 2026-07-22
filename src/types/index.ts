@@ -82,8 +82,24 @@ export interface DashboardRaw {
   npsRecords: NpsRecord[]; // respuestas de encuestas (Firestore) para el NPS
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Firestore)
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Firestore)
+  reminderLog: ReminderEnvio[]; // registro de correos "Sin Valor Def" enviados por Apps Script
   fetchedAt: string;
 }
+
+/** Una fila del registro "Envios" del Apps Script de recordatorios (Sin Valor Def). */
+export interface ReminderEnvio {
+  fecha: string;   // yyyy-mm-dd del envío
+  itemId: string;  // id de Monday
+  iniId: string;   // Ini ID (ej. "IN-030") — clave de match con IniItem.id
+  nombre: string;
+  para: string;    // destinatario (CKU Mail)
+  cc: string;      // CC (PM)
+  numero: number | null; // # de correo (1..4)
+  espera: string;  // fecha En Espera
+}
+
+/** Registro agregado por Ini ID: cuántos correos y la fecha del último. */
+export interface ReminderRecord { count: number; lastSent: Date | null; }
 
 // ── Datos PROCESADOS (lado cliente) ────────────────────────────────────
 export interface IniItem {
@@ -101,6 +117,8 @@ export interface IniItem {
   meet1?: string;
   meet2?: string;
   espera?: string;
+  pku?: string;       // checkbox PKU (marcado = no se envían recordatorios) — solo EN_ESPERA
+  ckuMail?: string;   // email del CKU (destinatario del recordatorio) — solo EN_ESPERA
   planFuturo?: Date | null;
   recordatorio?: Date | null;
 }
@@ -289,5 +307,7 @@ export interface DashboardData {
   directorio: DirectorioEntry[];
   /** nombre-normalizado de Estrategia → { U Neg, País }. */
   estrategiaMap: Map<string, EstrategiaInfo>;
+  /** Ini ID → { count, lastSent } de correos "Sin Valor Def" ya enviados. */
+  reminderMap: Map<string, ReminderRecord>;
   fetchedAt: Date;
 }

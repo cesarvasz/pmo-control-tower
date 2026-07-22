@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
-import { buildCalMap, iniProcess } from "@/lib/ini";
+import { buildCalMap, buildReminderMap, iniProcess } from "@/lib/ini";
 import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
 import { reqProcess } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
@@ -80,7 +80,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         .filter((d) => d.name && d.email)
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, directorio, estrategiaMap, fetchedAt: new Date(raw.fetchedAt) });
+      const reminderMap = buildReminderMap(raw.reminderLog ?? []);
+
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, directorio, estrategiaMap, reminderMap, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

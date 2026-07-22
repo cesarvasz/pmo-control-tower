@@ -7,6 +7,7 @@ import type {
   DashboardRaw,
   MondayItem,
   ProjBoardRaw,
+  ReminderEnvio,
   SheetRow,
 } from "@/types";
 
@@ -59,6 +60,21 @@ async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: She
   } catch (e) {
     console.warn("WebApp fetch failed:", e);
     return { calData: [], sheetRows: [] };
+  }
+}
+
+/** Web App del Apps Script de recordatorios: devuelve el registro de correos enviados.
+ *  Opcional: si REMINDERS_WEBAPP_URL no está configurado o falla, retorna []. */
+async function fetchReminderLog(): Promise<ReminderEnvio[]> {
+  const url = process.env.REMINDERS_WEBAPP_URL;
+  if (!url) return [];
+  try {
+    const res = await fetch(url, { redirect: "follow", cache: "no-store" });
+    const json = await res.json();
+    return (json.envios ?? []) as ReminderEnvio[];
+  } catch (e) {
+    console.warn("Reminder log fetch failed:", e);
+    return [];
   }
 }
 
@@ -137,13 +153,14 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
   // allSettled → una fuente que falle no tumba todo el dashboard.
   type BoardsResp = { boards: { items_page: { items: MondayItem[] } }[] };
   const emptyBoards: BoardsResp = { boards: [] };
-  const [iniR, reqR, rhR, estR, webAppR, projBoardsR] = await Promise.allSettled([
+  const [iniR, reqR, rhR, estR, webAppR, projBoardsR, reminderLogR] = await Promise.allSettled([
     mondayFetch<BoardsResp>(richBoardQuery(iniId)),
     mondayFetch<BoardsResp>(richBoardQuery(reqId)),
     mondayFetch<BoardsResp>(boardItemsQuery(rhId)),
     mondayFetch<BoardsResp>(estBoardQuery(estId)),
     fetchWebApp(),
     discoverProjBoards(),
+    fetchReminderLog(),
   ]);
 
   // Iniciativas y REQ son obligatorias: si fallan, se propaga el error
@@ -164,6 +181,7 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
   const estData = soft(estR, emptyBoards, "Estrategia");
   const webApp = soft(webAppR, { calData: [] as CalMeetingRaw[], sheetRows: [] as SheetRow[] }, "WebApp");
   const projBoards = soft(projBoardsR, [] as { id: string; name: string }[], "Boards de Proyectos");
+  const reminderLog = soft(reminderLogR, [] as ReminderEnvio[], "Registro de recordatorios");
 
   // 2ª tanda: items de todos los boards de proyectos (depende del descubrimiento).
   let projRaw: ProjBoardRaw[] = [];
@@ -187,6 +205,7 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     npsRecords: [],        // el route handler inyecta las respuestas de encuestas desde Firestore
     delayAttributions: {}, // el route handler inyecta los responsables de atraso desde Firestore
     reprocesoAttributions: {}, // el route handler inyecta los responsables de reproceso desde Firestore
+    reminderLog,
     fetchedAt: new Date().toISOString(),
   };
 }

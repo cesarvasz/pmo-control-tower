@@ -16,8 +16,9 @@ import {
   nextOrLatest,
   porDefinirDias,
   porDefinirStatus,
+  esperaReminderInfo,
 } from "@/lib/ini";
-import type { CalMap, CalMeeting, IniItem } from "@/types";
+import type { CalMap, CalMeeting, IniItem, ReminderRecord } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard, type Tone } from "@/components/ui";
 
@@ -86,6 +87,11 @@ function IniciativasInner() {
     if (pms.length && !pms.includes(r.pm)) return false;
     return true;
   });
+  const enEsperaItems = iniData.filter((r) => {
+    if (r.estado !== "EN_ESPERA") return false;
+    if (pms.length && !pms.includes(r.pm)) return false;
+    return true;
+  });
 
   // ── Cards ──
   const atrasadas = base.filter((r) => r.estado === "ATRASADO").length;
@@ -133,13 +139,16 @@ function IniciativasInner() {
       <PMHealth iniData={iniData} calMap={calMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Secciones activas */}
-      {sections.length === 0 && planFuturoItems.length === 0 && porDefinirItems.length === 0 && cambioEstrategiaItems.length === 0 ? (
+      {sections.length === 0 && planFuturoItems.length === 0 && porDefinirItems.length === 0 && cambioEstrategiaItems.length === 0 && enEsperaItems.length === 0 ? (
         <EmptyRow />
       ) : (
         sections.map((s) => (
           <IniSection key={s} status={s} rows={byStatus[s]} calMap={calMap} />
         ))
       )}
+
+      {/* En Espera (Sin Valor Def) — recordatorios */}
+      <EnEsperaSection items={enEsperaItems} reminderMap={data.reminderMap} />
 
       {/* Por Definir (Meeting 2) */}
       <PorDefinirSection items={porDefinirItems} />
@@ -402,6 +411,65 @@ function meet2OrMeet1Cell(r: IniItem) {
       {mondayDateCell(v)}
       <span className="text-[0.65rem] text-[var(--text-muted)]">{r.meet2 ? "M2" : "M1"}</span>
     </span>
+  );
+}
+
+function EnEsperaSection({ items, reminderMap }: { items: IniItem[]; reminderMap: Map<string, ReminderRecord> }) {
+  if (items.length === 0) return null;
+  const rows = items.map((r) => ({ r, info: esperaReminderInfo(r, reminderMap.get(r.id)) }));
+  // Orden: vencidos (por enviar) primero, luego por próximo más cercano; pausados/completados/sin correo al final.
+  const sortKey = (i: ReturnType<typeof esperaReminderInfo>) =>
+    (i.sinCorreo || i.pausado || i.enviados >= i.total || !i.proximo) ? Infinity
+      : i.vencido ? -1 : i.proximo.getTime();
+  rows.sort((a, b) => sortKey(a.info) - sortKey(b.info));
+  const totalEnviados = rows.reduce((s, { info }) => s + info.enviados, 0);
+  return (
+    <div className="mb-8">
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <h2 className="text-base font-semibold text-[var(--text-primary)]">En Espera</h2>
+        <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{items.length} items</span>
+        <span className="rounded-full border px-2 py-0.5 text-[0.72rem] text-[var(--text-muted)]" style={{ background: "var(--code-bg)", borderColor: "var(--code-border)" }}>
+          Correos enviados (registro Apps Script) · próximo = último envío + 10 días háb.
+        </span>
+        {totalEnviados === 0 && <Pill tone="neutral" small>Aún sin envíos registrados</Pill>}
+      </div>
+      <div className="table-wrap">
+        <table className="pmo">
+          <thead>
+            <tr>
+              <th>ID</th><th>Iniciativa</th><th>PM</th><th>En Espera</th><th>Correos</th><th>Próximo correo</th><th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ r, info }) => {
+              let tone: Tone, label: string;
+              if (info.sinCorreo) { tone = "warn"; label = "Sin correo destino"; }
+              else if (info.pausado) { tone = "neutral"; label = "Pausado (PKU)"; }
+              else if (info.enviados >= info.total) { tone = "ok"; label = "Completado"; }
+              else { tone = "info"; label = "En curso"; }
+              const activo = !info.sinCorreo && !info.pausado && info.enviados < info.total;
+              return (
+                <tr key={r.id || r.name}>
+                  <td className="ini-id">{r.id || "—"}</td>
+                  <td className="ini-name">{r.name}</td>
+                  <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                  <td>{mondayDateCell(r.espera)}</td>
+                  <td className="tabular-nums">{info.sinCorreo ? <span className="text-[var(--text-disabled)]">—</span> : <><span style={{ fontWeight: 600 }}>{info.enviados}</span><span className="text-[var(--text-muted)]">/{info.total}</span></>}</td>
+                  <td>
+                    {!activo || !info.proximo
+                      ? <span className="text-[var(--text-disabled)]">—</span>
+                      : info.vencido
+                        ? <span style={{ color: "var(--warn)", fontWeight: 600 }}>Pendiente · próxima corrida</span>
+                        : <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(info.proximo)} <span className="text-[0.72rem] text-[var(--text-muted)]">· en {info.faltanDias} día{info.faltanDias !== 1 ? "s" : ""} háb.</span></span>}
+                  </td>
+                  <td><Pill tone={tone}>{label}</Pill></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

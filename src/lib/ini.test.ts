@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess, porDefinirStatus, porDefinirDias, calcIniPMHealth } from "./ini";
+import { nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess, porDefinirStatus, porDefinirDias, calcIniPMHealth, esperaReminderInfo, buildReminderMap } from "./ini";
 import { today } from "./business";
 import type { IniItem, CalMap, MondayColumnValue, MondayItem } from "@/types";
 
@@ -90,6 +90,50 @@ describe("calcIniPMHealth incluye Por Definir (Meeting 2)", () => {
     expect(h.total).toBe(1);
     expect(h.onTrack).toBe(1);
     expect(h.index).toBe(1);
+  });
+});
+
+describe("esperaReminderInfo (registro real)", () => {
+  it("PKU marcado → pausado; sin CKU Mail → sinCorreo", () => {
+    expect(esperaReminderInfo(iniItem({ pku: "v", ckuMail: "a@b.com", espera: ymdFromToday(-30) })).pausado).toBe(true);
+    expect(esperaReminderInfo(iniItem({ pku: "", ckuMail: "", espera: ymdFromToday(-30) })).sinCorreo).toBe(true);
+  });
+  it("sin registro y En Espera vencida → 0 enviados y próximo vencido (pendiente)", () => {
+    const info = esperaReminderInfo(iniItem({ pku: "", ckuMail: "a@b.com", espera: ymdFromToday(-30) }));
+    expect(info.enviados).toBe(0);
+    expect(info.vencido).toBe(true);
+    expect(info.proximo).toBeInstanceOf(Date);
+  });
+  it("con 1 envío → próximo = último envío + 10 días háb.", () => {
+    const info = esperaReminderInfo(iniItem({ pku: "", ckuMail: "a@b.com", espera: ymdFromToday(-30) }), { count: 1, lastSent: today() });
+    expect(info.enviados).toBe(1);
+    expect(info.vencido).toBe(false);
+    expect(info.faltanDias).toBe(10);
+    expect(info.proximo).toBeInstanceOf(Date);
+  });
+  it("4 correos enviados → completado, sin próximo", () => {
+    const info = esperaReminderInfo(iniItem({ pku: "", ckuMail: "a@b.com", espera: ymdFromToday(-60) }), { count: 4, lastSent: daysFromToday(-5) });
+    expect(info.enviados).toBe(4);
+    expect(info.proximo).toBeNull();
+  });
+  it("sin fecha En Espera y sin registro → 0 enviados, sin próximo", () => {
+    const info = esperaReminderInfo(iniItem({ pku: "", ckuMail: "a@b.com" }));
+    expect(info.enviados).toBe(0);
+    expect(info.proximo).toBeNull();
+  });
+});
+
+describe("buildReminderMap", () => {
+  it("agrupa por Ini ID: count y última fecha", () => {
+    const mk = (iniId: string, fecha: string, numero: number) =>
+      ({ fecha, itemId: "x", iniId, nombre: "N", para: "a@b.com", cc: "", numero, espera: "2026-05-01" });
+    const map = buildReminderMap([
+      mk("IN-1", "2026-05-15", 1), mk("IN-1", "2026-05-29", 2), mk("IN-2", "2026-06-01", 1),
+    ]);
+    expect(map.get("IN-1")?.count).toBe(2);
+    expect(map.get("IN-1")?.lastSent).toEqual(new Date(2026, 4, 29));
+    expect(map.get("IN-2")?.count).toBe(1);
+    expect(map.has("IN-3")).toBe(false);
   });
 });
 

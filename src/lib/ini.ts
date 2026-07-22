@@ -10,9 +10,9 @@ import {
   parseYMD,
   today,
 } from "@/lib/business";
-import { colText } from "@/lib/monday-cols";
+import { colText, colDisplay } from "@/lib/monday-cols";
 import { healthStatusFromIndex, type HealthStatus } from "@/lib/health";
-import type { CalMap, CalMeetingRaw, IniItem, MondayItem } from "@/types";
+import type { CalMap, CalMeetingRaw, IniItem, MondayItem, ReminderEnvio, ReminderRecord } from "@/types";
 
 // ─────────────────────────────────────────────────────────────────────
 // INICIATIVAS
@@ -39,6 +39,8 @@ const INI_COL = {
   meet2: "date_mm3at176",
   espera: "date_mm3gw8yy",
   planFuturo: "date_mm40dvyn",
+  pku: "boolean_mm3gbngt",      // checkbox: marcado → no se envían recordatorios
+  ckuMail: "lookup_mm3baydr",   // mirror: email del CKU (destinatario del recordatorio)
 };
 
 export function iniProcess(items: MondayItem[]): IniItem[] {
@@ -67,6 +69,8 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
           id: id_ini, name: item.name, grupo, pm, status, benefit,
           estado: "EN_ESPERA", dias: null, limite: null, deadline: null,
           creacion: parseCreation(creRaw), espera: col(INI_COL.espera), meet1, meet2,
+          pku: col(INI_COL.pku),
+          ckuMail: colDisplay(item.column_values, INI_COL.ckuMail),
         };
       }
       // Meeting 2: sección "Por Definir". La salud se mide con la fecha de Meet 2 (ver porDefinirStatus).
@@ -196,6 +200,60 @@ export function porDefinirDias(r: IniItem): number | null {
 export function porDefinirStatus(r: IniItem): "on-track" | "off-track" {
   const d = porDefinirDias(r);
   return d !== null && d > 1 ? "off-track" : "on-track";
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// EN ESPERA — recordatorios "Sin Valor Def" (mismo cadence que el Apps Script)
+// ─────────────────────────────────────────────────────────────────────
+export const ESPERA_INTERVALO_DIAS = 10;  // días hábiles entre correos
+export const ESPERA_MAX_CORREOS = 4;
+
+export interface EsperaReminder {
+  enviados: number;          // correos REALMENTE enviados (del registro Apps Script), 0..MAX
+  total: number;             // ESPERA_MAX_CORREOS
+  proximo: Date | null;      // fecha del próximo correo (último envío +10 días háb., o En Espera +10 si aún no hay ninguno)
+  faltanDias: number | null; // días hábiles de hoy al próximo (solo si es futuro)
+  vencido: boolean;          // el próximo ya venció → se enviará en la próxima corrida del script
+  pausado: boolean;          // PKU marcado → no se envían correos
+  sinCorreo: boolean;        // sin CKU Mail → no hay destinatario
+}
+
+/** Agrega el registro de correos (Apps Script) por Ini ID → { count, lastSent }. */
+export function buildReminderMap(log: ReminderEnvio[]): Map<string, ReminderRecord> {
+  const map = new Map<string, ReminderRecord>();
+  for (const e of log) {
+    const key = (e.iniId || "").trim();
+    if (!key) continue;
+    const d = parseYMD(e.fecha);
+    const rec = map.get(key) ?? { count: 0, lastSent: null };
+    rec.count++;
+    if (d && (!rec.lastSent || d > rec.lastSent)) rec.lastSent = d;
+    map.set(key, rec);
+  }
+  return map;
+}
+
+/** Estado de recordatorios de una iniciativa "En Espera" a partir del registro REAL de envíos.
+ *  Cadencia: 1er correo a 10 días háb. de En Espera; los demás a +10 días háb. del último envío (máx. 4). */
+export function esperaReminderInfo(r: IniItem, rec?: ReminderRecord): EsperaReminder {
+  const pausado = (r.pku || "").trim() !== "";     // checkbox marcado → texto no vacío ("v")
+  const sinCorreo = !(r.ckuMail || "").trim();
+  const enviados = Math.min(rec?.count ?? 0, ESPERA_MAX_CORREOS);
+  const info: EsperaReminder = {
+    enviados, total: ESPERA_MAX_CORREOS, proximo: null, faltanDias: null, vencido: false, pausado, sinCorreo,
+  };
+  if (pausado || sinCorreo || enviados >= ESPERA_MAX_CORREOS) return info;
+
+  // Base del próximo: último envío real, o la fecha En Espera si aún no se ha enviado ninguno.
+  const base = rec?.lastSent ?? parseYMD(r.espera);
+  if (!base) return info;
+
+  const proximo = addBusinessDays(base, ESPERA_INTERVALO_DIAS, true);
+  info.proximo = proximo;
+  const hoy = today();
+  if (proximo.getTime() <= hoy.getTime()) info.vencido = true;   // ya toca; saldrá en la próxima corrida
+  else info.faltanDias = businessDays(hoy, proximo, true);
+  return info;
 }
 
 export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap?: CalMap): IniPMHealth {
