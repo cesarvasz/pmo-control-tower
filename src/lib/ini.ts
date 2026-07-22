@@ -92,6 +92,16 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
           creacion: parseCreation(creRaw), planFuturo, recordatorio, meet1, meet2,
         };
       }
+      // Cambio Estrategia: sección informativa al final (sin salud ni impacto en el KPI).
+      // Match tolerante a mayúsculas/acentos/espacios (el label de Monday puede variar).
+      const ns = status.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      if (ns.includes("cambio") && ns.includes("estrategia")) {
+        return {
+          id: id_ini, name: item.name, grupo, pm, status, benefit,
+          estado: "CAMBIO_ESTRATEGIA", dias: null, limite: null, deadline: null,
+          creacion: parseCreation(creRaw), meet1, meet2,
+        };
+      }
       if (INI_LIMITS[status] !== undefined) {
         const limite = INI_LIMITS[status];
         let dias: number | null = null, estado = "Sin fecha";

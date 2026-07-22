@@ -124,6 +124,12 @@ describe("iniProcess", () => {
     expect(iniProcess([mkIni("C", [])])[0].estado).toBe("SKIP");
   });
 
+  it("Cambio Estrategia → CAMBIO_ESTRATEGIA (tolerante a casing/acentos)", () => {
+    expect(iniProcess([mkIni("F", [col(INI_COL_ID.status, "Cambio Estrategia")])])[0].estado).toBe("CAMBIO_ESTRATEGIA");
+    expect(iniProcess([mkIni("G", [col(INI_COL_ID.status, "cambio estrategia")])])[0].estado).toBe("CAMBIO_ESTRATEGIA");
+    expect(iniProcess([mkIni("H", [col(INI_COL_ID.status, "Cambio de Estrategía")])])[0].estado).toBe("CAMBIO_ESTRATEGIA");
+  });
+
   it("New con creación muy antigua → ATRASADO con deadline y límite 5", () => {
     const [r] = iniProcess([mkIni("D", [
       col(INI_COL_ID.status, "New"), col(INI_COL_ID.creRaw, "2020-01-01 08:00:00 UTC"),

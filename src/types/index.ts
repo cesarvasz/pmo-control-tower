@@ -93,7 +93,7 @@ export interface IniItem {
   pm: string;
   status: string;
   benefit: string;
-  estado: string; // ATRASADO | PARA HOY | EN TIEMPO | APROBADA | EN_ESPERA | PLAN_FUTURO | POR_DEFINIR | SKIP | Sin fecha
+  estado: string; // ATRASADO | PARA HOY | EN TIEMPO | APROBADA | EN_ESPERA | PLAN_FUTURO | POR_DEFINIR | CAMBIO_ESTRATEGIA | SKIP | Sin fecha
   dias: number | null;
   limite: number | null;
   deadline: Date | null;

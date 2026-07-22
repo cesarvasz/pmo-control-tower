@@ -49,7 +49,7 @@ function IniciativasInner() {
 
   const getFiltered = (p: string[], s: string[], est: string, sa: boolean) =>
     iniData.filter((r) => {
-      if (r.estado === "SKIP" || r.estado === "PLAN_FUTURO" || r.estado === "POR_DEFINIR") return false;
+      if (r.estado === "SKIP" || r.estado === "PLAN_FUTURO" || r.estado === "POR_DEFINIR" || r.estado === "CAMBIO_ESTRATEGIA") return false;
       if (p.length && !p.includes(r.pm)) return false;
       if (s.length && !s.includes(r.status)) return false;
       if (est) {
@@ -78,6 +78,11 @@ function IniciativasInner() {
   });
   const porDefinirItems = iniData.filter((r) => {
     if (r.estado !== "POR_DEFINIR") return false;
+    if (pms.length && !pms.includes(r.pm)) return false;
+    return true;
+  });
+  const cambioEstrategiaItems = iniData.filter((r) => {
+    if (r.estado !== "CAMBIO_ESTRATEGIA") return false;
     if (pms.length && !pms.includes(r.pm)) return false;
     return true;
   });
@@ -128,7 +133,7 @@ function IniciativasInner() {
       <PMHealth iniData={iniData} calMap={calMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Secciones activas */}
-      {sections.length === 0 && planFuturoItems.length === 0 && porDefinirItems.length === 0 ? (
+      {sections.length === 0 && planFuturoItems.length === 0 && porDefinirItems.length === 0 && cambioEstrategiaItems.length === 0 ? (
         <EmptyRow />
       ) : (
         sections.map((s) => (
@@ -141,6 +146,9 @@ function IniciativasInner() {
 
       {/* Plan Futuro */}
       <PlanFuturoSection items={planFuturoItems} />
+
+      {/* Cambio Estrategia */}
+      <CambioEstrategiaSection items={cambioEstrategiaItems} />
     </div>
   );
 }
@@ -378,6 +386,50 @@ function PorDefinirSection({ items }: { items: IniItem[] }) {
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Fecha de Meet 2; si no tiene, la de Meet 1 (con etiqueta del origen).
+function meet2OrMeet1Cell(r: IniItem) {
+  const v = r.meet2 || r.meet1;
+  if (!v) return <span className="text-[var(--text-disabled)]">—</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {mondayDateCell(v)}
+      <span className="text-[0.65rem] text-[var(--text-muted)]">{r.meet2 ? "M2" : "M1"}</span>
+    </span>
+  );
+}
+
+function CambioEstrategiaSection({ items }: { items: IniItem[] }) {
+  if (items.length === 0) return null;
+  const sorted = [...items].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  return (
+    <div className="mb-8">
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <h2 className="text-base font-semibold text-[var(--text-primary)]">Cambio Estrategia</h2>
+        <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{items.length} items</span>
+      </div>
+      <div className="table-wrap">
+        <table className="pmo">
+          <thead>
+            <tr>
+              <th>ID</th><th>Iniciativa</th><th>PM</th><th>Meet 2 / Meet 1</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => (
+              <tr key={r.id || r.name}>
+                <td className="ini-id">{r.id || "—"}</td>
+                <td className="ini-name">{r.name}</td>
+                <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                <td>{meet2OrMeet1Cell(r)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
