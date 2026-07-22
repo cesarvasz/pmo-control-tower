@@ -102,7 +102,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Carga inicial una sola vez, cuando hay sesión.
+  // Carga inicial una sola vez, cuando hay sesión. Los datos NO se refrescan solos:
+  // solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
   useEffect(() => {
     if (user && !fetchedOnce.current) {
       fetchedOnce.current = true;
@@ -115,23 +116,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setData(null);
     }
   }, [user, refresh]);
-
-  // Auto-refresco al recuperar el foco/visibilidad si los datos envejecieron (> 10 min).
-  // Evita mostrar métricas viejas cuando se deja la pestaña abierta mucho tiempo.
-  useEffect(() => {
-    const STALE_MS = 10 * 60_000;
-    const maybeRefresh = () => {
-      if (document.visibilityState === "hidden") return;
-      if (!data || loading) return;
-      if (Date.now() - data.fetchedAt.getTime() > STALE_MS) refresh();
-    };
-    window.addEventListener("visibilitychange", maybeRefresh);
-    window.addEventListener("focus", maybeRefresh);
-    return () => {
-      window.removeEventListener("visibilitychange", maybeRefresh);
-      window.removeEventListener("focus", maybeRefresh);
-    };
-  }, [data, loading, refresh]);
 
   return (
     <DataContext.Provider value={{ data, loading, error, refresh, setAttribution }}>
