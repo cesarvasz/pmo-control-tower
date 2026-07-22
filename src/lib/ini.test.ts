@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess } from "./ini";
+import { nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess, porDefinirStatus, porDefinirDias, calcIniPMHealth } from "./ini";
 import { today } from "./business";
 import type { IniItem, CalMap, MondayColumnValue, MondayItem } from "@/types";
 
@@ -51,6 +51,48 @@ describe("iniItemStatus", () => {
   });
 });
 
+const ymdFromToday = (n: number): string => {
+  const d = daysFromToday(n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+describe("porDefinirStatus", () => {
+  it("Meet 2 hace más de 1 día → off-track", () => {
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(-2) }))).toBe("off-track");
+    expect(porDefinirDias(iniItem({ meet2: ymdFromToday(-2) }))).toBe(2);
+  });
+  it("Meet 2 hoy o ayer → on-track", () => {
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(0) }))).toBe("on-track");
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(-1) }))).toBe("on-track");
+  });
+  it("Meet 2 futura o sin fecha → on-track", () => {
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(3) }))).toBe("on-track");
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2" }))).toBe("on-track");
+    expect(porDefinirDias(iniItem({ meet2: undefined }))).toBeNull();
+  });
+});
+
+describe("calcIniPMHealth incluye Por Definir (Meeting 2)", () => {
+  it("un Meeting 2 off-track cuenta en total y baja el índice", () => {
+    const items: IniItem[] = [
+      iniItem({ id: "A", estado: "POR_DEFINIR", status: "Meeting 2", meet2: ymdFromToday(-5) }),
+    ];
+    const h = calcIniPMHealth("PM", items, emptyCal);
+    expect(h.total).toBe(1);
+    expect(h.offTrack).toBe(1);
+    expect(h.index).toBe(0);
+  });
+  it("un Meeting 2 on-track cuenta como sano", () => {
+    const items: IniItem[] = [
+      iniItem({ id: "A", estado: "POR_DEFINIR", status: "Meeting 2", meet2: ymdFromToday(0) }),
+    ];
+    const h = calcIniPMHealth("PM", items, emptyCal);
+    expect(h.total).toBe(1);
+    expect(h.onTrack).toBe(1);
+    expect(h.index).toBe(1);
+  });
+});
+
 // ── iniProcess (procesador completo desde items crudos de Monday) ─────────
 // IDs de columna del board de Iniciativas (mismos que INI_COL en ini.ts).
 const INI_COL_ID = {
@@ -77,8 +119,8 @@ describe("iniProcess", () => {
     expect(r.pm).toBe("Luis");
   });
 
-  it("Meeting 2 y status vacío → SKIP", () => {
-    expect(iniProcess([mkIni("B", [col(INI_COL_ID.status, "Meeting 2")])])[0].estado).toBe("SKIP");
+  it("Meeting 2 → POR_DEFINIR; status vacío → SKIP", () => {
+    expect(iniProcess([mkIni("B", [col(INI_COL_ID.status, "Meeting 2")])])[0].estado).toBe("POR_DEFINIR");
     expect(iniProcess([mkIni("C", [])])[0].estado).toBe("SKIP");
   });
 

@@ -14,6 +14,8 @@ import {
   iniItemStatus,
   iniIsParaHoy,
   nextOrLatest,
+  porDefinirDias,
+  porDefinirStatus,
 } from "@/lib/ini";
 import type { CalMap, CalMeeting, IniItem } from "@/types";
 import MultiSelect from "@/components/MultiSelect";
@@ -47,7 +49,7 @@ function IniciativasInner() {
 
   const getFiltered = (p: string[], s: string[], est: string, sa: boolean) =>
     iniData.filter((r) => {
-      if (r.estado === "SKIP" || r.estado === "PLAN_FUTURO") return false;
+      if (r.estado === "SKIP" || r.estado === "PLAN_FUTURO" || r.estado === "POR_DEFINIR") return false;
       if (p.length && !p.includes(r.pm)) return false;
       if (s.length && !s.includes(r.status)) return false;
       if (est) {
@@ -71,6 +73,11 @@ function IniciativasInner() {
   const base = getFiltered(pms, statuses, "", false);
   const planFuturoItems = iniData.filter((r) => {
     if (r.estado !== "PLAN_FUTURO") return false;
+    if (pms.length && !pms.includes(r.pm)) return false;
+    return true;
+  });
+  const porDefinirItems = iniData.filter((r) => {
+    if (r.estado !== "POR_DEFINIR") return false;
     if (pms.length && !pms.includes(r.pm)) return false;
     return true;
   });
@@ -121,13 +128,16 @@ function IniciativasInner() {
       <PMHealth iniData={iniData} calMap={calMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
 
       {/* Secciones activas */}
-      {sections.length === 0 && planFuturoItems.length === 0 ? (
+      {sections.length === 0 && planFuturoItems.length === 0 && porDefinirItems.length === 0 ? (
         <EmptyRow />
       ) : (
         sections.map((s) => (
           <IniSection key={s} status={s} rows={byStatus[s]} calMap={calMap} />
         ))
       )}
+
+      {/* Por Definir (Meeting 2) */}
+      <PorDefinirSection items={porDefinirItems} />
 
       {/* Plan Futuro */}
       <PlanFuturoSection items={planFuturoItems} />
@@ -323,6 +333,56 @@ function pfDateCell(date: Date | null | undefined, t: Date) {
   const d = new Date(date); d.setHours(0, 0, 0, 0);
   const color = d < t ? "var(--bad)" : d.getTime() === t.getTime() ? "var(--warn)" : "var(--ok)";
   return <span style={{ color, fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(d)}</span>;
+}
+
+function porDefinirDiffCell(dias: number | null) {
+  if (dias === null) return <span className="text-[var(--text-disabled)]">—</span>;
+  if (dias === 0) return <span style={{ color: "var(--warn)", fontWeight: 600 }}>Hoy</span>;
+  if (dias < 0) { const n = -dias; return <span style={{ color: "var(--ok)", fontWeight: 600 }}>en {n} día{n !== 1 ? "s" : ""}</span>; }
+  const color = dias > 1 ? "var(--bad)" : "var(--ok)";
+  return <span style={{ color, fontWeight: 600 }}>hace {dias} día{dias !== 1 ? "s" : ""}</span>;
+}
+
+function PorDefinirSection({ items }: { items: IniItem[] }) {
+  if (items.length === 0) return null;
+  const offTrack = items.filter((r) => porDefinirStatus(r) === "off-track").length;
+  const sorted = [...items].sort((a, b) => (porDefinirDias(b) ?? -Infinity) - (porDefinirDias(a) ?? -Infinity));
+  return (
+    <div className="mb-8">
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <h2 className="text-base font-semibold text-[var(--text-primary)]">Por Definir</h2>
+        <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{items.length} items</span>
+        <span className="rounded-full border px-2 py-0.5 text-[0.72rem] text-[var(--text-muted)]" style={{ background: "var(--code-bg)", borderColor: "var(--code-border)" }}>
+          Off track si pasó más de 1 día desde Meet 2
+        </span>
+        {offTrack > 0 && <Pill tone="bad" small>{offTrack} off track</Pill>}
+      </div>
+      <div className="table-wrap">
+        <table className="pmo">
+          <thead>
+            <tr>
+              <th>ID</th><th>Iniciativa</th><th>PM</th><th>Meet 2</th><th>Diferencia</th><th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => {
+              const [ptone, plbl] = HEALTH_PILL[porDefinirStatus(r)];
+              return (
+                <tr key={r.id || r.name}>
+                  <td className="ini-id">{r.id || "—"}</td>
+                  <td className="ini-name">{r.name}</td>
+                  <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                  <td>{mondayDateCell(r.meet2)}</td>
+                  <td>{porDefinirDiffCell(porDefinirDias(r))}</td>
+                  <td><Pill tone={ptone}>{plbl}</Pill></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function PlanFuturoSection({ items }: { items: IniItem[] }) {

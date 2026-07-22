@@ -19,7 +19,6 @@ import type { CalMap, CalMeetingRaw, IniItem, MondayItem } from "@/types";
 // ─────────────────────────────────────────────────────────────────────
 export const INI_LIMITS: Record<string, number> = { New: 5, "Meeting 1": 10 };
 export const INI_APPROVED = new Set(["PM Aprobado", "REQ Aprobado"]);
-export const INI_SKIP = new Set(["Meeting 2"]);
 export const INI_SEC_ORDER = ["New", "Meeting 1", "PM Aprobado", "REQ Aprobado", "Sin Valor Def"];
 export const INI_SEC_LABEL: Record<string, string> = {
   New: "Meeting 1",
@@ -70,7 +69,15 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
           creacion: parseCreation(creRaw), espera: col(INI_COL.espera), meet1, meet2,
         };
       }
-      if (INI_SKIP.has(status) || !status) {
+      // Meeting 2: sección "Por Definir". La salud se mide con la fecha de Meet 2 (ver porDefinirStatus).
+      if (status === "Meeting 2") {
+        return {
+          id: id_ini, name: item.name, grupo, pm, status, benefit,
+          estado: "POR_DEFINIR", dias: null, limite: null, deadline: null,
+          creacion: parseCreation(creRaw), meet1, meet2,
+        };
+      }
+      if (!status) {
         return {
           id: id_ini, name: item.name, grupo, pm, status, benefit,
           estado: "SKIP", dias: null, limite: null, deadline: null, creacion: null,
@@ -163,14 +170,34 @@ export function iniItemStatus(r: IniItem, calMap?: CalMap): HealthStatus {
   return "on-track";
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// POR DEFINIR (status Meeting 2)
+// ─────────────────────────────────────────────────────────────────────
+/** Días de calendario transcurridos desde la fecha de Meet 2 hasta hoy.
+ *  Positivo = ya pasó; 0 = hoy; negativo = aún futura. null si no hay fecha. */
+export function porDefinirDias(r: IniItem): number | null {
+  const m = parseYMD(r.meet2);
+  if (!m) return null;
+  return Math.round((today().getTime() - m.getTime()) / 86_400_000);
+}
+
+/** Salud de una iniciativa "Por Definir": off-track si ya pasó más de 1 día
+ *  desde la fecha de Meet 2; on-track en caso contrario (incluye sin fecha). */
+export function porDefinirStatus(r: IniItem): "on-track" | "off-track" {
+  const d = porDefinirDias(r);
+  return d !== null && d > 1 ? "off-track" : "on-track";
+}
+
 export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap?: CalMap): IniPMHealth {
-  const items = iniData.filter((r) => r.pm === pm && INI_ACTIVE_STS.has(r.status));
+  // Cuentan las iniciativas activas (New / Meeting 1) y las "Por Definir" (Meeting 2).
+  const items = iniData.filter((r) => r.pm === pm && (INI_ACTIVE_STS.has(r.status) || r.estado === "POR_DEFINIR"));
   const total = items.length;
   if (total === 0) return { status: "on-track", index: 1, onTrack: 0, inRisk: 0, offTrack: 0, total: 0 };
 
   let onTrack = 0, inRisk = 0, offTrack = 0;
   items.forEach((r) => {
-    const s = iniItemStatus(r, calMap);
+    // Por Definir usa su propia regla (fecha de Meet 2); el resto, la salud de iniciativa activa.
+    const s = r.estado === "POR_DEFINIR" ? porDefinirStatus(r) : iniItemStatus(r, calMap);
     if (s === "on-track") onTrack++;
     else if (s === "in-risk") inRisk++;
     else offTrack++;
