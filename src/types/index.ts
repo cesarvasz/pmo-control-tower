@@ -58,7 +58,7 @@ export interface ProjItemBaseline {
 // métrica asociada (% de Compromiso de Entregas y % de Reproceso del KPI).
 // "Sin reproceso" es una opción exclusiva del dropdown de Reproceso: significa que
 // la unidad no tuvo reproceso, por lo que NO penaliza (se excusa como cualquier ≠ PM).
-export type DelayResponsible = "VPA" | "CKU" | "PM" | "Sponsor" | "Desarrollador" | "Sin reproceso";
+export type DelayResponsible = "VPA" | "CKU" | "PM" | "Sponsor" | "Desarrollador" | "BRM" | "Sin reproceso";
 export interface DelayAttribution {
   responsible: DelayResponsible;
   by?: string;  // correo del admin que la asignó

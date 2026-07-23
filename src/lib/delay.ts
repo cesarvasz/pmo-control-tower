@@ -13,12 +13,12 @@ export type DelayMap = Record<string, DelayAttribution>;
 
 /** Opciones del dropdown de Entrega/atraso (orden de presentación). */
 export const DELAY_RESPONSIBLES: readonly DelayResponsible[] = [
-  "VPA", "CKU", "PM", "Sponsor", "Desarrollador",
+  "VPA", "CKU", "PM", "Sponsor", "Desarrollador", "BRM",
 ];
 
 /** Opciones del dropdown de Reproceso: incluye "Sin reproceso" (no penaliza). */
 export const REPROCESO_RESPONSIBLES: readonly DelayResponsible[] = [
-  "Sin reproceso", "VPA", "CKU", "PM", "Sponsor", "Desarrollador",
+  "Sin reproceso", "VPA", "CKU", "PM", "Sponsor", "Desarrollador", "BRM",
 ];
 
 // Superset válido (incluye "Sin reproceso"); el dropdown de atraso simplemente no la ofrece.

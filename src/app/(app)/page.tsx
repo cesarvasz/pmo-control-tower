@@ -32,6 +32,16 @@ const pmLabel = (pm: string) => {
   return p ? `${p.prefix} ${p.name}` : pm;
 };
 
+// Formato compacto de dinero para las celdas de métrica de la tarjeta ($1.2M / $980K).
+// El detalle exacto (fmtMoney) sigue disponible en el modal al hacer clic.
+const fmtMoneyShort = (n: number | null | undefined): string => {
+  if (!n) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(abs >= 1e7 ? 0 : 1)}M`;
+  if (abs >= 1e3) return `$${Math.round(n / 1e3)}K`;
+  return `$${Math.round(n)}`;
+};
+
 const INI_HEALTH_CFG = HEALTH_CFG;
 
 // Detección del item "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)" (fase Aprobación).
@@ -457,6 +467,31 @@ function Stat({ n, color, label, showZero }: { n: number; color: string; label: 
   );
 }
 
+// Celda de la fila de métricas del PM (EVM · Beneficio · Calidad · Cumplimiento · NPS).
+// La etiqueta tiene altura mínima fija para que los valores queden alineados aunque
+// el texto ocupe una o dos líneas.
+function MetricCell({ label, value, color, onClick, title, divider }: {
+  label: string; value: string; color: string; onClick?: () => void; title?: string; divider?: boolean;
+}) {
+  const style = divider ? { borderLeft: "1px solid var(--border)" } : undefined;
+  const cls = `flex flex-col items-center px-1.5 py-2.5 text-center ${onClick ? "cursor-pointer transition-colors hover:bg-[var(--bg-hover)]" : ""}`;
+  const inner = (
+    <>
+      <span className="flex min-h-[2rem] items-center text-[0.56rem] font-bold uppercase leading-tight tracking-wide text-[var(--text-muted)]">
+        {label}
+      </span>
+      <span className="mt-0.5 text-[0.95rem] font-extrabold leading-none tabular-nums" style={{ color }}>
+        {value}
+      </span>
+    </>
+  );
+  return onClick ? (
+    <button onClick={onClick} title={title} className={cls} style={style}>{inner}</button>
+  ) : (
+    <div title={title} className={cls} style={style}>{inner}</div>
+  );
+}
+
 const PROJ_HEALTH_COLOR: Record<string, string> = {
   "on-track":  "#10b981",
   "in-risk":   "#f59e0b",
@@ -478,7 +513,7 @@ function PMPortfolioCard({
     pmValueAll, pmValueHard, pmValue, iniHealth, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
-    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct,
+    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, pmKpiBg, hc,
   } = useMemo(() => {
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
@@ -551,7 +586,7 @@ function PMPortfolioCard({
     pmValueAll, pmValueHard, pmValue, iniHealth, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
-    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct,
+    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, pmKpiBg, hc,
   };
   }, [pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso]);
@@ -572,32 +607,30 @@ function PMPortfolioCard({
           >
             KPI {pmKpiPct}
           </button>
-          <button
-            onClick={() => setShowValue(true)}
-            title={`Beneficio HardSaving (Confirmación): ${fmtMoney(pmValue.confirmBenefit)} · clic para ver el detalle (Todo / HardSaving)`}
-            className="flex h-7 items-center gap-1 rounded-lg border px-2 text-[0.75rem] font-bold text-[var(--text-secondary)] transition-colors hover:border-[#0ea5e9] hover:text-[#0ea5e9]"
-            style={{ borderColor: "var(--border)" }}
-          >
-            <span className="text-[0.9rem]">$</span>
-            <span style={{ color: "#10b981" }}>{fmtMoney(pmValue.confirmBenefit)}</span>
-          </button>
-          <span
-            title={`NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""}`}
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold"
-            style={{ color: npsColor, background: npsColor + "22" }}
-          >
-            NPS {pmNps.nps !== null ? pmNps.nps : "s/d"}
-          </span>
-          <span
-            title={`Compromiso de Entregas · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal} (los atrasos cuentan salvo los excusados a un responsable ≠ PM)`}
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold"
-            style={{ color: entColor, background: entColor + "22" }}
-          >
-            Entrega {entPct !== null ? `${entPct}%` : "s/d"}
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}{pmEvmPct !== null ? ` · ${pmEvmPct}%` : ""}</span>
+          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}</span>
         </div>
       </div>
+
+      {/* Fila de métricas (los 5 componentes del KPI): EVM · Beneficio · Calidad · Cumplimiento · NPS */}
+      {(() => {
+        const evmStatus = healthStatusFromIndex(pmEvmRaw);
+        const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
+        const repColor = pmReprocesoPct === null ? "#6b7280" : pmReprocesoPct >= 90 ? "var(--ok)" : pmReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+        const metrics: { label: string; value: string; color: string; onClick?: () => void; title: string }[] = [
+          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · promedio de Iniciativas, REQ y Proyectos" },
+          { label: "Beneficio", value: fmtMoneyShort(pmValue.confirmBenefit), color: "var(--ok)", onClick: () => setShowValue(true), title: `Beneficio HardSaving (Confirmación): ${fmtMoney(pmValue.confirmBenefit)} · clic para ver el detalle` },
+          { label: "Calidad de Entrega", value: pmReprocesoPct !== null ? `${pmReprocesoPct}%` : "—", color: repColor, title: "Calidad de Entrega · % de unidades limpias sin reproceso imputable al PM" },
+          { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "s/d", color: entColor, title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal}` },
+          { label: "NPS", value: pmNps.nps !== null ? String(pmNps.nps) : "s/d", color: npsColor, title: `NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""}` },
+        ];
+        return (
+          <div className="grid grid-cols-5 border-b" style={{ borderColor: "var(--border)" }}>
+            {metrics.map((m, i) => (
+              <MetricCell key={m.label} {...m} divider={i > 0} />
+            ))}
+          </div>
+        );
+      })()}
       <div className="flex">
         <Section
           label="Iniciativas"
