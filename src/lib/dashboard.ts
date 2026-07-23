@@ -184,20 +184,29 @@ export function completedProjectPhases(projs: ProjItem[]): string[] {
   return done;
 }
 
-/** % de unidades "limpias" de reproceso (ideal 100%). Las unidades en scope son
- *  los REQ CERRADOS + las fases de proyecto COMPLETADAS (todos sus items Done).
+export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
+
+/** Desglose de "Calidad de Entregas" (unidades limpias vs. con reproceso). Las unidades
+ *  en scope son los REQ CERRADOS + las fases de proyecto COMPLETADAS (todos sus items Done).
  *  Misma regla que entregas: cada unidad penaliza (cuenta como reproceso) por
  *  defecto —incluso sin responsable asignado— y también si es "PM"; solo se
- *  EXCUSA si se le asignó un responsable distinto de PM (incluida "Sin reproceso").
- *  Devuelve null si no hay unidades en scope (→ componente pendiente). */
-export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): number | null {
+ *  EXCUSA si se le asignó un responsable distinto de PM (incluida "Sin reproceso"). */
+export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
   const units = [
     ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
     ...completedProjectPhases(projs),
   ];
-  if (!units.length) return null;
+  const total = units.length;
   const conReproceso = units.filter((id) => !lateExcused(id, reproceso)).length;
-  return Math.round(((units.length - conReproceso) / units.length) * 100);
+  const limpias = total - conReproceso;
+  const pct = total ? Math.round((limpias / total) * 100) : null;
+  return { total, limpias, conReproceso, pct };
+}
+
+/** % de unidades "limpias" de reproceso (ideal 100%). null si no hay unidades en scope
+ *  (→ componente pendiente). Ver calcReprocesoStats para el desglose completo. */
+export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): number | null {
+  return calcReprocesoStats(reqs, projs, reproceso).pct;
 }
 
 // Métricas de resumen de un PM para el scoreboard (mismas fórmulas que la tarjeta de PM):

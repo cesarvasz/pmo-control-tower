@@ -3,7 +3,7 @@
 // Métrica ponderada general (global y por PM). Cada componente aporta
 // (logro × peso), con logro = min(real / meta, 100%) y piso 0%. La meta es el valor
 // que rinde el 100% del peso (no un tope de la métrica). Los pesos suman 100:
-//   EVM 30 · NPS 10 · Beneficio HardSaving (Confirmado) 25 · Compromiso Entregas 15
+//   EVM 30 · NPS 10 · Beneficio HardSaving (Confirmado) 25 · Cumplimiento de Entrega 15
 //   · Reproceso 20. Metas: EVM 100%, NPS 50, Beneficio $11,000, Entregas 100%, Reproceso 100%.
 //   · EVM: el % rinde directo el peso (90% → 0.9×30). NPS: <0 → 0; 0–50 proporcional;
 //     >50 tope en 50. Beneficio: $11,000 = 100% (tope). Entregas y Reproceso: el % es
@@ -53,7 +53,7 @@ export function computeKpi({ evm, nps, benefit, entregasPct, reprocesoPct = null
     { key: "benefit", label: "Beneficio HardSaving", weight: KPI_W.benefit,
       logro: clamp01(benefit / KPI_META.benefit),
       real: fmtMoney(benefit), meta: fmtMoney(KPI_META.benefit) },
-    { key: "entregas", label: "Compromiso de Entregas", weight: KPI_W.entregas,
+    { key: "entregas", label: "Cumplimiento de Entrega", weight: KPI_W.entregas,
       logro: entregasPct != null ? clamp01(entregasPct / 100 / KPI_META.entregas) : 0,
       real: entregasPct != null ? `${entregasPct}%` : "—", meta: `${Math.round(KPI_META.entregas * 100)}%` },
     // Reproceso: % de REQ cerrados sin reproceso imputable al PM. Sin REQ cerrados → pendiente.

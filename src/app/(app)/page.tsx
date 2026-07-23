@@ -8,7 +8,7 @@ import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
   REQ_PHASE2PLUS, REQ_PASSED_PHASE2, isValueGateSigned,
-  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct,
+  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct, calcReprocesoStats,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
@@ -77,6 +77,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     G, totalCost, totalBenefit, colAprobCost, colAprobBenefit, colConfirmCost, colConfirmBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor,
+    reprocesoStats, teamReprocesoPct, repColor,
   } = useMemo(() => {
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -224,13 +225,20 @@ function ControlTower({ data }: { data: DashboardData }) {
   const vgHoy      = vpaPending.filter((a) => a.estado === "PARA HOY").length;
   const vgAtrasado = vpaPending.filter((a) => a.estado === "ATRASADO").length;
 
-  // ── Compromiso de Entregas ──
+  // ── Cumplimiento de Entrega ──
   // % de entregas a tiempo combinando la columna "Entrega" de REQ (cerrados), items y subitems.
   // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
   const { on: entOn, late: entLate } = countDeliveries(req, proj, delays);
   const entTotal = entOn + entLate;
   const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
+
+  // ── Calidad de Entregas (Reproceso) ──
+  // % de unidades "limpias" (REQ cerrados + fases de proyecto completadas) sin
+  // reproceso imputable al PM. Misma regla de excusa que Cumplimiento de Entrega.
+  const reprocesoStats = calcReprocesoStats(req, proj, reproceso);
+  const teamReprocesoPct = reprocesoStats.pct;
+  const repColor = teamReprocesoPct === null ? "#6b7280" : teamReprocesoPct >= 90 ? "var(--ok)" : teamReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
 
   // ── KPI PMO ──
   // Beneficio HardSaving CONFIRMADO (independiente del toggle "Solo HardSaving" de la
@@ -254,9 +262,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const kpiProjBenefit = [...kpiProjAgg.values()].filter((b) => b.doneAprob && b.doneLaunch).reduce((s, b) => s + b.benefit, 0);
   const kpiBenefitConfirmed = kpiReqBenefit + kpiProjBenefit;
 
-  // Reproceso del equipo: % de unidades limpias (REQ cerrados + fases de proyecto
-  // completadas) sin reproceso imputable al PM (5º componente, peso 20).
-  const teamReprocesoPct = calcReprocesoPct(req, proj, reproceso);
+  // Reproceso del equipo (5º componente del KPI, peso 20) — ver teamReprocesoPct arriba.
   const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefit: kpiBenefitConfirmed, entregasPct: entPct, reprocesoPct: teamReprocesoPct });
   const kpiPct = Math.round(kpi.score);
   const kpiAchievable = kpi.achievable; // 80 hoy (el 5º componente está pendiente)
@@ -268,13 +274,16 @@ function ControlTower({ data }: { data: DashboardData }) {
     G, totalCost, totalBenefit, colAprobCost, colAprobBenefit, colConfirmCost, colConfirmBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor,
+    reprocesoStats, teamReprocesoPct, repColor,
     kpi, kpiPct, kpiAchievable, kpiColor,
   };
   }, [ini, req, proj, projBoards, projItemBaselines, calMap, nps, hardOnly, delays, reproceso]);
 
   return (
     <div>
-      {/* ── Resumen: tarjetas núcleo del equipo (EVM, NPS, Costo&Beneficio, Entregas, VPA Actions) ── */}
+      {/* ── Resumen: tarjetas núcleo del equipo — mismo orden que las tarjetas de PM
+          y la tabla de KPI: EVM, Beneficio, Calidad de Entregas, Cumplimiento de
+          Entrega, NPS. VPA Actions (fuera del KPI) queda al final. ── */}
       <div className="mb-4">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
 
@@ -291,6 +300,63 @@ function ControlTower({ data }: { data: DashboardData }) {
               {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
               {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
               {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
+            </div>
+          </div>
+
+          {/* Costo & Beneficio — REQ + Proyectos */}
+          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "var(--ok)" : "var(--accent)" }}>
+            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
+            <div className="text-[2rem] font-extrabold leading-none" style={{ color: "var(--ok)" }}>{fmtMoney(totalBenefit)}</div>
+            <div className="mt-1 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              Costo <span style={{ color: "var(--info)" }}>{fmtMoney(totalCost)}</span>
+            </div>
+            <div className="mt-auto flex flex-col gap-0.5 pt-3 text-[0.72rem] font-semibold text-[var(--text-muted)]">
+              <span>Aprob. <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobBenefit)}</span></span>
+              <span>Confirm. <span style={{ color: "var(--info)" }}>{fmtMoney(colConfirmCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colConfirmBenefit)}</span></span>
+              <button
+                onClick={() => setHardOnly((v) => !v)}
+                title="Filtrar Costo y Beneficio a solo HardSaving (afecta también el beneficio por PM)"
+                className="mt-1.5 self-center rounded-full border px-3 py-1 text-[0.64rem] font-bold uppercase tracking-wide transition-colors"
+                style={hardOnly
+                  ? { borderColor: "var(--ok)", color: "var(--ok)", background: "var(--ok-bg)" }
+                  : { borderColor: "var(--border)", color: "var(--text-muted)" }}
+              >
+                {hardOnly ? "✓ Solo HardSaving" : "Solo HardSaving"}
+              </button>
+            </div>
+          </div>
+
+          {/* Calidad de Entregas — % de unidades limpias, sin reproceso imputable al PM */}
+          <div
+            title="Un cierre/fase con reproceso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador/BRM, o 'Sin reproceso')."
+            className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: repColor }}
+          >
+            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Calidad de Entregas</div>
+            <div className="text-5xl font-extrabold leading-none" style={{ color: repColor }}>
+              {teamReprocesoPct !== null ? `${teamReprocesoPct}%` : "—"}
+            </div>
+            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: repColor }}>Limpias</div>
+            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              <span style={{ color: "var(--ok)" }}>{reprocesoStats.limpias} limpias</span>
+              <span style={{ color: "var(--bad)" }}>{reprocesoStats.conReproceso} con reproceso</span>
+              <span>{reprocesoStats.total} unidades</span>
+            </div>
+          </div>
+
+          {/* Cumplimiento de Entrega — % a tiempo (REQ + items + subitems) */}
+          <div
+            title="Un atraso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador/BRM). Un atraso imputado a PM sigue contando."
+            className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}
+          >
+            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Cumplimiento de Entrega</div>
+            <div className="text-5xl font-extrabold leading-none" style={{ color: entColor }}>
+              {entPct !== null ? `${entPct}%` : "—"}
+            </div>
+            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: entColor }}>A tiempo</div>
+            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              <span style={{ color: "var(--ok)" }}>{entOn} a tiempo</span>
+              <span style={{ color: "var(--bad)" }}>{entLate} con atraso</span>
+              <span>{entTotal} entregas</span>
             </div>
           </div>
 
@@ -320,46 +386,6 @@ function ControlTower({ data }: { data: DashboardData }) {
               </div>
             );
           })()}
-
-          {/* Costo & Beneficio — REQ + Proyectos */}
-          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "var(--ok)" : "var(--accent)" }}>
-            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
-            <div className="text-[2rem] font-extrabold leading-none" style={{ color: "var(--ok)" }}>{fmtMoney(totalBenefit)}</div>
-            <div className="mt-1 text-[0.78rem] font-semibold text-[var(--text-muted)]">
-              Costo <span style={{ color: "var(--info)" }}>{fmtMoney(totalCost)}</span>
-            </div>
-            <div className="mt-auto flex flex-col gap-0.5 pt-3 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-              <span>Aprob. <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobBenefit)}</span></span>
-              <span>Confirm. <span style={{ color: "var(--info)" }}>{fmtMoney(colConfirmCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colConfirmBenefit)}</span></span>
-              <button
-                onClick={() => setHardOnly((v) => !v)}
-                title="Filtrar Costo y Beneficio a solo HardSaving (afecta también el beneficio por PM)"
-                className="mt-1.5 self-center rounded-full border px-3 py-1 text-[0.64rem] font-bold uppercase tracking-wide transition-colors"
-                style={hardOnly
-                  ? { borderColor: "var(--ok)", color: "var(--ok)", background: "var(--ok-bg)" }
-                  : { borderColor: "var(--border)", color: "var(--text-muted)" }}
-              >
-                {hardOnly ? "✓ Solo HardSaving" : "Solo HardSaving"}
-              </button>
-            </div>
-          </div>
-
-          {/* Compromiso de Entregas — % a tiempo (REQ + items + subitems) */}
-          <div
-            title="Un atraso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador). Un atraso imputado a PM sigue contando."
-            className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}
-          >
-            <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Compromiso de Entregas</div>
-            <div className="text-5xl font-extrabold leading-none" style={{ color: entColor }}>
-              {entPct !== null ? `${entPct}%` : "—"}
-            </div>
-            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: entColor }}>A tiempo</div>
-            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
-              <span style={{ color: "var(--ok)" }}>{entOn} a tiempo</span>
-              <span style={{ color: "var(--bad)" }}>{entLate} con atraso</span>
-              <span>{entTotal} entregas</span>
-            </div>
-          </div>
 
           {/* VPA Actions — subida al bloque de tarjetas de resumen */}
           <div
@@ -525,7 +551,7 @@ function PMPortfolioCard({
   const pmNps = calcNpsFromRecords(npsRecords, pm);
   const npsColor = npsCfg(pmNps.nps)?.color ?? "#6b7280";
 
-  // Compromiso de Entregas del PM: % a tiempo (REQ + items + subitems de sus proyectos).
+  // Cumplimiento de Entrega del PM: % a tiempo (REQ + items + subitems de sus proyectos).
   // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
   const { on: entOn, late: entLate } = countDeliveries(
@@ -741,7 +767,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
             <th className={`${th} text-center w-32`}>EVM<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 30</span></th>
             <th className={`${th} text-center w-32`}>Beneficio<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 25</span></th>
             <th className={`${th} text-center w-32`}>Calidad de Entregas<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 20</span></th>
-            <th className={`${th} text-center w-32`}>Compromiso de Entregas<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 15</span></th>
+            <th className={`${th} text-center w-32`}>Cumplimiento de Entrega<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 15</span></th>
             <th className={`${th} text-center w-32`}>NPS<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 10</span></th>
           </tr>
         </thead>
@@ -798,7 +824,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                   <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</div>
                   {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
                 </td>
-                {/* Compromiso de Entregas — % a tiempo (peso 15) */}
+                {/* Cumplimiento de Entrega — % a tiempo (peso 15) */}
                 <td className={`${td} text-center`}>
                   <div className="tabular-nums font-bold" style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</div>
                   {r.entPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("entregas")} pts</div>}
