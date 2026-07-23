@@ -65,7 +65,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
-  const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tabla"); // vista de Portafolios por PM
+  const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tarjetas"); // vista de Portafolios por PM (default: Tarjetas)
 
   const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
 
@@ -415,10 +415,10 @@ function ControlTower({ data }: { data: DashboardData }) {
             <button
               key={v}
               onClick={() => setPmView(v)}
-              className="rounded-md px-2.5 py-1 text-[0.72rem] font-bold capitalize transition-colors"
+              className="rounded-md px-2.5 py-1 text-[0.72rem] font-bold transition-colors"
               style={pmView === v ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-muted)" }}
             >
-              {v}
+              {v === "tabla" ? "KPI" : "Tarjetas"}
             </button>
           ))}
         </div>
