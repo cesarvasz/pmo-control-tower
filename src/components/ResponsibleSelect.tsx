@@ -3,8 +3,9 @@
 // Dropdown para asignar el responsable de una atribución (kind):
 //   · "delay"     → responsable del atraso de una entrega.
 //   · "reproceso" → responsable de un reproceso.
-// Solo visible/editable para Admin (acción "manage_users"). Actualiza de forma
-// optimista el contexto y persiste vía POST /api/attribution; si falla, resincroniza.
+// Editable solo por Admin (acción "manage_users"); los no-admin ven el responsable
+// asignado como texto de solo lectura. Actualiza de forma optimista el contexto y
+// persiste vía POST /api/attribution; si falla, resincroniza.
 // En ambos casos, solo el responsable "PM" penaliza la métrica asociada.
 
 import { useState } from "react";
@@ -26,7 +27,7 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
   const [saving, setSaving] = useState(false);
 
   // Ambos dropdowns (Entrega/atraso y Reproceso) solo los EDITA un Admin. Los
-  // no-admin no ven el dropdown; para Reproceso sí ven la opción como texto (abajo).
+  // no-admin no ven el dropdown; ven el responsable asignado como texto (abajo).
   const canEdit = hasAction(me?.permissions, "manage_users");
 
   const map = kind === "delay" ? data?.delayAttributions : data?.reprocesoAttributions;
@@ -53,10 +54,9 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
 
   const options = isDelay ? DELAY_RESPONSIBLES : REPROCESO_RESPONSIBLES;
 
-  // No-admin: solo lectura. La columna de Reproceso muestra la opción seleccionada
-  // por el admin como texto; la de Entrega (delay) permanece oculta.
+  // No-admin: solo lectura. Tanto Compromiso de Entregas (delay) como Reproceso
+  // muestran el responsable asignado por el admin como texto (misma lógica y color).
   if (!canEdit) {
-    if (kind !== "reproceso") return null;
     const label = current || (penalizesEmpty ? "Sin asignar" : "—");
     return (
       <span
