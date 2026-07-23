@@ -209,6 +209,76 @@ export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: 
   return calcReprocesoStats(reqs, projs, reproceso).pct;
 }
 
+// ── Filas de auditoría (página Calidad & Cumplimiento) ───────────────────
+// Un mismo itemId se usa para leer/escribir la atribución (delay o reproceso)
+// vía ResponsibleSelect — el mismo esquema de ids que REQ y Proyectos.
+const boardPmMap = (projBoards: ProjBoard[]) => new Map(projBoards.map((b) => [b.id, b.pm]));
+
+export interface EntregaRow {
+  id: string;                        // r.id / p.id / s.id — atribución "delay"
+  source: "REQ" | "Proyecto";
+  name: string;
+  context: string;                   // REQ: grupo. Proyecto: "board · grupo".
+  pm: string;
+  deadline: Date | null;
+  verdict: "on-time" | "late";
+}
+
+/** Filas de "Cumplimiento de Entrega": una por cada REQ, item o subitem de
+ *  Proyecto con veredicto on-time/late (se excluyen los "n/a"/sin evaluar). */
+export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[]): EntregaRow[] {
+  const bpm = boardPmMap(projBoards);
+  const rows: EntregaRow[] = [];
+  for (const r of reqs) {
+    if (r.onTime.verdict !== "on-time" && r.onTime.verdict !== "late") continue;
+    rows.push({ id: r.id, source: "REQ", name: r.name, context: r.grupo, pm: r.pm, deadline: r.deadline, verdict: r.onTime.verdict });
+  }
+  for (const p of projs) {
+    const pm = bpm.get(p.boardId) ?? p.pm;
+    const context = `${p.boardName} · ${p.grupo}`;
+    if (p.entrega === "on-time" || p.entrega === "late") {
+      rows.push({ id: p.id, source: "Proyecto", name: p.name, context, pm, deadline: p.deadline, verdict: p.entrega });
+    }
+    for (const s of p.subitems) {
+      if (s.entrega !== "on-time" && s.entrega !== "late") continue;
+      rows.push({ id: s.id, source: "Proyecto", name: `${p.name} · ${s.name}`, context, pm, deadline: s.deadline, verdict: s.entrega });
+    }
+  }
+  return rows;
+}
+
+export interface ReprocesoRow {
+  id: string;                        // r.id / projPhaseKey(boardId, grupo) — atribución "reproceso"
+  source: "REQ" | "Proyecto";
+  name: string;
+  pm: string;
+  verdict: "clean" | "reproceso";
+}
+
+/** Filas de "Calidad de Entregas": una por cada REQ CERRADO y cada fase de
+ *  Proyecto COMPLETADA (misma unidad de reproceso que calcReprocesoStats). */
+export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap): ReprocesoRow[] {
+  const bpm = boardPmMap(projBoards);
+  const rows: ReprocesoRow[] = [];
+  for (const r of reqs) {
+    if (r.estado !== "CERRADO") continue;
+    rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, verdict: lateExcused(r.id, reproceso) ? "clean" : "reproceso" });
+  }
+  const groups = new Map<string, ProjItem[]>();
+  for (const p of projs) {
+    const key = projPhaseKey(p.boardId, p.grupo);
+    const arr = groups.get(key);
+    if (arr) arr.push(p); else groups.set(key, [p]);
+  }
+  for (const [key, items] of groups) {
+    if (!items.every((it) => it.status === "Done")) continue;
+    const first = items[0];
+    const pm = bpm.get(first.boardId) ?? first.pm;
+    rows.push({ id: key, source: "Proyecto", name: `${first.boardName} · ${first.grupo}`, pm, verdict: lateExcused(key, reproceso) ? "clean" : "reproceso" });
+  }
+  return rows;
+}
+
 // Métricas de resumen de un PM para el scoreboard (mismas fórmulas que la tarjeta de PM):
 // EVM propio, NPS propio, % de entregas, beneficio HardSaving confirmado y KPI ponderado.
 export function calcPmMetrics(

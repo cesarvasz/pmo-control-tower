@@ -335,11 +335,11 @@ function ControlTower({ data }: { data: DashboardData }) {
             <div className="text-5xl font-extrabold leading-none" style={{ color: repColor }}>
               {teamReprocesoPct !== null ? `${teamReprocesoPct}%` : "—"}
             </div>
-            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: repColor }}>Limpias</div>
+            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: repColor }}>Con reproceso</div>
             <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
               <span style={{ color: "var(--ok)" }}>{reprocesoStats.limpias} limpias</span>
               <span style={{ color: "var(--bad)" }}>{reprocesoStats.conReproceso} con reproceso</span>
-              <span>{reprocesoStats.total} unidades</span>
+              <span>{reprocesoStats.total} entregados</span>
             </div>
           </div>
 

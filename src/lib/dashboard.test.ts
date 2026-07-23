@@ -8,6 +8,8 @@ import {
   countDeliveries,
   calcReprocesoPct,
   completedProjectPhases,
+  buildEntregaRows,
+  buildReprocesoRows,
 } from "./dashboard";
 import type { BoardHealthData } from "./proj";
 import type { DelayMap } from "./delay";
@@ -162,6 +164,49 @@ describe("calcReprocesoPct (5º componente del KPI)", () => {
       "b1::Launch": { responsible: "Sin reproceso" },
       "b1::Ops": { responsible: "PM" },
     })).toBe(33);
+  });
+});
+
+describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
+  it("solo incluye REQ/items/subitems con veredicto on-time o late (excluye n/a y null)", () => {
+    const reqs = [
+      req({ id: "r1", name: "R1", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("late") }),
+      req({ id: "r2", name: "R2", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("n/a") }),
+    ];
+    const projs = [
+      proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", name: "Hito", deadline: null, entrega: "on-time",
+        subitems: [sub({ id: "s1", name: "Sub", deadline: null, entrega: "late" }), sub({ id: "s2", name: "Sub2", deadline: null, entrega: null })] }),
+    ];
+    const rows = buildEntregaRows(reqs, projs, [board({ id: "b1", pm: "Luis" })]);
+    expect(rows.map((r) => r.id).sort()).toEqual(["p1", "r1", "s1"]);
+  });
+
+  it("atribuye el PM del board (no el del item) a proyectos e hitos", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "ItemPm", name: "Hito", deadline: null, entrega: "late" })];
+    const rows = buildEntregaRows([], projs, [board({ id: "b1", pm: "BoardPm" })]);
+    expect(rows[0].pm).toBe("BoardPm");
+  });
+});
+
+describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
+  it("incluye REQ CERRADOS y fases completadas, con verdict clean/reproceso según el DelayMap", () => {
+    const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO" })];
+    const projs = [
+      proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }),
+      proj({ id: "p2", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }),
+    ];
+    const rows = buildReprocesoRows(reqs, projs, [board({ id: "b1", pm: "Luis" })], { r1: { responsible: "VPA" } });
+    expect(rows).toHaveLength(2);
+    const req1 = rows.find((r) => r.id === "r1")!;
+    const fase = rows.find((r) => r.id === "b1::Launch")!;
+    expect(req1.verdict).toBe("clean");      // excusado (VPA)
+    expect(fase.verdict).toBe("reproceso");  // sin asignar → penaliza
+    expect(fase.pm).toBe("Luis");            // PM del board, no del item
+  });
+
+  it("una fase incompleta (no todos Done) no genera fila", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Working on it" })];
+    expect(buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], {})).toEqual([]);
   });
 });
 

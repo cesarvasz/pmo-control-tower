@@ -50,6 +50,10 @@ export const PAGES: PageDef[] = [
   { key: "usuarios",    label: "Usuarios",      href: "/usuarios",  icon: "⚙", requiredAction: "manage_users" },
   { key: "roles",       label: "Roles",         href: "/roles",     icon: "🛡", requiredAction: "manage_roles" },
   { key: "grupos",      label: "Grupos",        href: "/grupos",    icon: "🗂", requiredAction: "manage_roles" },
+  // Oculta por ahora: solo Admin (misma acción que Roles/Grupos). Cuando se
+  // quiera abrir a más roles, quitar requiredAction para que sea una página
+  // de contenido normal, asignable desde el editor de Grupos.
+  { key: "calidad-cumplimiento", label: "Calidad & Cumplimiento", href: "/calidad-cumplimiento", icon: "🎯", requiredAction: "manage_roles" },
 ];
 
 // ── Acciones (lo que un rol puede HACER) ───────────────────────────────
