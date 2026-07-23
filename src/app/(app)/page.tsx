@@ -20,7 +20,7 @@ import NpsModal from "@/components/NpsModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
 import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
-import { computeKpi, kpiColorFor, kpiBgFor } from "@/lib/kpi";
+import { computeKpi, kpiColorFor } from "@/lib/kpi";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -514,7 +514,7 @@ function PMPortfolioCard({
     entOn, entLate, entTotal, entPct, entColor,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
-    pmKpi, pmKpiPct, pmKpiColor, pmKpiBg, hc,
+    pmKpi, pmKpiPct, pmKpiColor, hc,
   } = useMemo(() => {
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
@@ -576,7 +576,6 @@ function PMPortfolioCard({
   const pmKpi = computeKpi({ evm: pmEvmRaw, nps: pmNps.nps, benefit: pmValueHard.confirmBenefit, entregasPct: entPct, reprocesoPct: pmReprocesoPct });
   const pmKpiPct = Math.round(pmKpi.score);
   const pmKpiColor = kpiColorFor(pmKpi.ratio);
-  const pmKpiBg = kpiBgFor(pmKpi.ratio);
 
   // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos. El % sigue siendo el promedio.
   const pmHealth: HealthStatus = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
@@ -587,9 +586,12 @@ function PMPortfolioCard({
     entOn, entLate, entTotal, entPct, entColor,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
-    pmKpi, pmKpiPct, pmKpiColor, pmKpiBg, hc,
+    pmKpi, pmKpiPct, pmKpiColor, hc,
   };
   }, [pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso]);
+
+  // Mismo esquema de color del "Player" que la tabla de KPIs (por rango de %).
+  const player = playerPalette(pmKpiPct);
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
@@ -601,11 +603,11 @@ function PMPortfolioCard({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             onClick={() => setShowKpi(true)}
-            title={`KPI del PM: ${pmKpiPct}/100 · clic para ver el detalle`}
+            title={`Player (KPI) del PM: ${pmKpiPct}/100 · clic para ver el detalle`}
             className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.78rem] font-extrabold transition-transform hover:-translate-y-0.5"
-            style={{ color: pmKpiColor, background: pmKpiBg, boxShadow: `inset 0 0 0 1px ${pmKpiColor}` }}
+            style={{ color: player.fg, background: player.bg, boxShadow: "inset 0 0 0 1px rgba(128,128,128,0.35)" }}
           >
-            KPI {pmKpiPct}
+            Player {pmKpiPct}
           </button>
           <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}>{hc.icon} {hc.label}</span>
         </div>
