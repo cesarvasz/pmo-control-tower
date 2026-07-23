@@ -313,12 +313,15 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
       })
       .join("\n");
     const title = `Entrega evaluada: ${ot.deliveryPhase}\n\n${breakdown}`;
-    if (!late) return <Pill tone="ok" small title={title}>✓ A tiempo</Pill>;
-    // Atraso: se muestra siempre como tal; el Admin puede asignar el responsable.
+    // El responsable se muestra SIEMPRE (a tiempo o atrasado): el Admin lo asigna
+    // con el dropdown y los no-admin lo ven como texto. Solo un atraso "penaliza"
+    // el vacío (ámbar "Sin asignar"); a tiempo, vacío se muestra como "—".
     return (
       <div className="flex flex-col items-start gap-0.5">
-        <Pill tone="bad" small title={title}>✕ +{ot.slipDays}d</Pill>
-        <ResponsibleSelect itemId={r.id} kind="delay" />
+        {late
+          ? <Pill tone="bad" small title={title}>✕ +{ot.slipDays}d</Pill>
+          : <Pill tone="ok" small title={title}>✓ A tiempo</Pill>}
+        <ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={late} />
       </div>
     );
   };

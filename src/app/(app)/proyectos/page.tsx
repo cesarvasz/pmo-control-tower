@@ -275,11 +275,15 @@ function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean })
 function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, limit: Date | null, itemId: string) {
   if (!entrega) return <span className="text-[var(--text-disabled)]">—</span>;
   const title = `Real: ${fmtDate(actual)} · Límite: ${fmtDate(limit)}`;
-  if (entrega !== "late") return <Pill tone="ok" small title={title}>✓ A tiempo</Pill>;
+  const late = entrega === "late";
+  // El responsable se muestra SIEMPRE: el Admin lo asigna con el dropdown y los
+  // no-admin lo ven como texto. Solo un atraso "penaliza" el vacío (ámbar).
   return (
     <div className="flex flex-col items-start gap-0.5">
-      <Pill tone="bad" small title={title}>✕ Atraso</Pill>
-      <ResponsibleSelect itemId={itemId} kind="delay" />
+      {late
+        ? <Pill tone="bad" small title={title}>✕ Atraso</Pill>
+        : <Pill tone="ok" small title={title}>✓ A tiempo</Pill>}
+      <ResponsibleSelect itemId={itemId} kind="delay" emptyPenalizes={late} />
     </div>
   );
 }
