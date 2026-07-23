@@ -25,9 +25,9 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
   const { data, setAttribution, refresh } = useData();
   const [saving, setSaving] = useState(false);
 
-  // Ambos dropdowns (Entrega/atraso y Reproceso) solo los ve/edita un Admin.
+  // Ambos dropdowns (Entrega/atraso y Reproceso) solo los EDITA un Admin. Los
+  // no-admin no ven el dropdown; para Reproceso sí ven la opción como texto (abajo).
   const canEdit = hasAction(me?.permissions, "manage_users");
-  if (!canEdit) return null;
 
   const map = kind === "delay" ? data?.delayAttributions : data?.reprocesoAttributions;
   const current = map?.[itemId]?.responsible ?? "";
@@ -52,6 +52,22 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
           : `Sin asignar — no cuenta en el ${metric}`;
 
   const options = isDelay ? DELAY_RESPONSIBLES : REPROCESO_RESPONSIBLES;
+
+  // No-admin: solo lectura. La columna de Reproceso muestra la opción seleccionada
+  // por el admin como texto; la de Entrega (delay) permanece oculta.
+  if (!canEdit) {
+    if (kind !== "reproceso") return null;
+    const label = current || (penalizesEmpty ? "Sin asignar" : "—");
+    return (
+      <span
+        title={title}
+        className="inline-block max-w-[130px] truncate text-[0.62rem] font-semibold"
+        style={{ color: tone ?? "var(--text-muted)" }}
+      >
+        {label}
+      </span>
+    );
+  }
 
   const onChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const responsible = (e.target.value || null) as DelayResponsible | null;
