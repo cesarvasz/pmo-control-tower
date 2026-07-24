@@ -14,30 +14,87 @@ import type {
   CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem,
 } from "@/types";
 
-// Fases REQ de la 2 en adelante (Aprobación → Cierre ROI), para sumar costo/beneficio.
-export const REQ_PHASE2PLUS = new Set(["Aprobación", "Desarrollo", "Operación", "Cierre ROI"]);
-// REQ que ya pasaron la fase 2 → su valor es "Confirmación"; si siguen en fase 2, "Aprobación".
-export const REQ_PASSED_PHASE2 = new Set(["Desarrollo", "Operación", "Cierre ROI"]);
-
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-/** Value Gate (BC) FIRMADO en cualquier fase: cubre el de Aprobación
- *  ("Firmado y aprobado") y el de Launch ("Actualizado y firmado"). */
-export const isValueGateSigned = (name: string) => {
+/** Value Gate (BC) firmado: en Monday el nombre varía por board — "Firmado y aprobado"
+ *  en la fase Aprobación, "Actualizado y firmado" (sin "aprobado") en Launch. Se acepta
+ *  cualquier variante que diga "firmado". */
+const isVgSigned = (name: string) => {
   const n = norm(name);
   return n.includes("value gate") && n.includes("firmado");
 };
 
-// ── Costo/beneficio por PM ───────────────────────────────────────────────
-export interface PmValueItem { name: string; cost: number; benefit: number; confirmed: boolean }
+/** El Business Case (Benefit $ / Cost $) se redacta una sola vez, en el primer ítem
+ *  de la fase Valuación — los steps de aprobación/gates no traen su propio monto. */
+const findBusinessCase = (items: ProjItem[]) =>
+  items.find((it) => norm(it.grupo).includes("valuacion") && norm(it.name).includes("kick off project meeting"));
+
+// ── Costo/beneficio por PM: 3 etapas, evaluación DESCENDENTE (Confirmación > Aprobación > Validación) ──
+export type PmValueStage = "validacion" | "aprobacion" | "confirmacion";
+export interface PmValueItem { name: string; cost: number; benefit: number; stage: PmValueStage }
 export interface PmValue {
   totalCost: number; totalBenefit: number;
-  aprobCost: number; aprobBenefit: number;       // Aprobación: REQ en fase 2 + proyectos con solo gate Aprobación
-  confirmCost: number; confirmBenefit: number;   // Confirmación: REQ que pasó fase 2 + proyectos con gate Launch firmado
+  validacionCost: number; validacionBenefit: number;      // Validación VPA
+  aprobacionCost: number; aprobacionBenefit: number;      // Aprobación VPB
+  confirmacionCost: number; confirmacionBenefit: number;  // Confirmación VPC
   detail: {
     reqs: PmValueItem[];
     projects: PmValueItem[];
   };
+}
+
+/** Etapa de un REQ según su fase (grupo). "Cierre ROI" (en revisión, aún no cerrado)
+ *  cuenta como Aprobación hasta que el REQ efectivamente cierre. null = no cuenta
+ *  (solo "En Espera" queda fuera). */
+export function reqStage(r: { grupo: string }): PmValueStage | null {
+  if (r.grupo === "Cerrados") return "confirmacion";
+  if (r.grupo === "Desarrollo" || r.grupo === "Operación" || r.grupo === "Cierre ROI") return "aprobacion";
+  if (r.grupo === "Valuación" || r.grupo === "Aprobación") return "validacion";
+  return null;
+}
+
+/** Validación VPA (Proyecto): step "VPA valida Business Case (Entregable Business Case
+ *  validado por VPA)" Done, en la fase "Valuación | Formulación del proyecto".
+ *  Beneficio/Costo = los del Business Case (Kick Off Project Meeting). */
+function evalValidacion(items: ProjItem[]): { cost: number; benefit: number } | null {
+  const step = items.find((it) => norm(it.grupo).includes("valuacion") && norm(it.name).includes("vpa valida business case"));
+  if (step?.status !== "Done") return null;
+  const bc = findBusinessCase(items);
+  return { cost: bc?.cost ?? 0, benefit: bc?.benefit ?? 0 };
+}
+
+/** Aprobación VPB (Proyecto): "Plan de beneficios acordados con CFO" Y el Value Gate (BC)
+ *  Done en la fase "Aprobación | Value Gate", Y el Value Gate Done también en la fase
+ *  "Launch | Desarrollo". Beneficio/Costo = los del Business Case (Kick Off Project Meeting). */
+function evalAprobacion(items: ProjItem[]): { cost: number; benefit: number } | null {
+  const cfo = items.find((it) => norm(it.grupo).includes("aprobacion") && norm(it.name).includes("plan de beneficios acordados con cfo"));
+  const vgAprob = items.find((it) => norm(it.grupo).includes("aprobacion") && isVgSigned(it.name));
+  const vgLaunch = items.find((it) => norm(it.grupo).includes("launch") && isVgSigned(it.name));
+  if (cfo?.status !== "Done" || vgAprob?.status !== "Done" || vgLaunch?.status !== "Done") return null;
+  const bc = findBusinessCase(items);
+  return { cost: bc?.cost ?? 0, benefit: bc?.benefit ?? 0 };
+}
+
+/** Confirmación VPC (Proyecto): alguno de los 3 steps "VPA Recopila datos a 30/60/90 días
+ *  (Compara Valor real contra BC)" Done, en la fase "Revisión | Cierre ROI". Si hay varios
+ *  Done, se usa el más reciente (90 > 60 > 30). */
+function evalConfirmacion(items: ProjItem[]): { cost: number; benefit: number } | null {
+  const done = (needle: string) =>
+    items.find((it) => norm(it.grupo).includes("cierre roi") && norm(it.name).includes(needle) && it.status === "Done");
+  const winner = done("recopila datos a 90 dias") ?? done("recopila datos a 60 dias") ?? done("recopila datos a 30 dias");
+  return winner ? { cost: winner.cost, benefit: winner.benefit } : null;
+}
+
+/** Etapa de un proyecto (board): evaluación descendente Confirmación → Aprobación →
+ *  Validación; se toma la primera que cumpla todas sus condiciones. null = ninguna aplica. */
+export function resolveProjStage(items: ProjItem[]): { stage: PmValueStage; cost: number; benefit: number } | null {
+  const c = evalConfirmacion(items);
+  if (c) return { stage: "confirmacion", ...c };
+  const a = evalAprobacion(items);
+  if (a) return { stage: "aprobacion", ...a };
+  const v = evalValidacion(items);
+  if (v) return { stage: "validacion", ...v };
+  return null;
 }
 
 /** Mapa boardId → salud (EV/PV/AC + VEM) de cada board de Proyectos. */
@@ -85,62 +142,47 @@ export function pmWorstStatus(
   return all.includes("off-track") ? "off-track" : all.includes("in-risk") ? "in-risk" : "on-track";
 }
 
-/** Costo/beneficio por PM en dos columnas: Aprobación (en fase 2 / gate Aprobación)
- *  y Confirmación (REQ que pasó fase 2 / proyecto con Value Gate de Launch firmado). */
+/** Costo/beneficio por PM en tres etapas (Validación VPA / Aprobación VPB / Confirmación
+ *  VPC), evaluadas de forma DESCENDENTE por `reqStage`/`resolveProjStage`. */
 export function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[], hardOnly = false): PmValue {
-  const reqItems = req.filter((r) => r.pm === pm && REQ_PHASE2PLUS.has(r.grupo) && (!hardOnly || r.benefitType === "HardSaving"));
   const hardBoardIds = new Set(projBoards.filter((b) => b.benefitType === "HardSaving").map((b) => b.id));
-  const reqCost    = reqItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
-  const reqBenefit = reqItems.reduce((s, r) => s + r.benefit, 0);
-  // REQ que pasaron fase 2 → Confirmación; los que siguen en fase 2 → Aprobación.
-  const reqDetail = reqItems.map((r) => ({
-    name: r.name, cost: r.costRH + r.costSft, benefit: r.benefit,
-    confirmed: REQ_PASSED_PHASE2.has(r.grupo),
+
+  const reqItems = req.filter((r) => r.pm === pm && reqStage(r) != null && (!hardOnly || r.benefitType === "HardSaving"));
+  const reqDetail: PmValueItem[] = reqItems.map((r) => ({
+    name: r.name, cost: r.costRH + r.costSft, benefit: r.benefit, stage: reqStage(r) as PmValueStage,
   }));
-  const reqAprobCost      = reqDetail.filter((r) => !r.confirmed).reduce((s, r) => s + r.cost, 0);
-  const reqAprobBenefit   = reqDetail.filter((r) => !r.confirmed).reduce((s, r) => s + r.benefit, 0);
-  const reqConfirmCost    = reqDetail.filter((r) => r.confirmed).reduce((s, r) => s + r.cost, 0);
-  const reqConfirmBenefit = reqDetail.filter((r) => r.confirmed).reduce((s, r) => s + r.benefit, 0);
 
   const pmBoardIds = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const agg = new Map<string, { name: string; cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
+  const itemsByBoard = new Map<string, { name: string; items: ProjItem[] }>();
   for (const r of proj) {
     if (!pmBoardIds.has(r.boardId)) continue;
     if (hardOnly && !hardBoardIds.has(r.boardId)) continue;
-    let a = agg.get(r.boardId);
-    if (!a) { a = { name: r.boardName, cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; agg.set(r.boardId, a); }
-    a.cost += r.cost;
-    a.benefit += r.benefit;
-    if (r.status === "Done" && isValueGateSigned(r.name)) {
-      const g = norm(r.grupo);
-      if (g.includes("aprobacion")) a.doneAprob = true;
-      if (g.includes("launch")) a.doneLaunch = true;
-    }
+    let a = itemsByBoard.get(r.boardId);
+    if (!a) { a = { name: r.boardName, items: [] }; itemsByBoard.set(r.boardId, a); }
+    a.items.push(r);
   }
-  const boards = [...agg.values()];
-  // Proyectos: aprob-only = solo Value Gate Aprobación; confirmado = también Launch firmado.
-  const aprob = boards.filter((b) => b.doneAprob && !b.doneLaunch);
-  const ambos = boards.filter((b) => b.doneAprob && b.doneLaunch);
-  const aprobCost    = aprob.reduce((s, b) => s + b.cost, 0);
-  const aprobBenefit = aprob.reduce((s, b) => s + b.benefit, 0);
-  const ambosCost    = ambos.reduce((s, b) => s + b.cost, 0);
-  const ambosBenefit = ambos.reduce((s, b) => s + b.benefit, 0);
+  const projDetail: PmValueItem[] = [];
+  for (const { name, items } of itemsByBoard.values()) {
+    const resolved = resolveProjStage(items);
+    if (resolved) projDetail.push({ name, cost: resolved.cost, benefit: resolved.benefit, stage: resolved.stage });
+  }
 
-  const detail = {
-    reqs: reqDetail,
-    projects: boards
-      .filter((b) => b.doneAprob) // solo los que cuentan (aprob-only o confirmados)
-      .map((b) => ({ name: b.name, cost: b.cost, benefit: b.benefit, confirmed: b.doneAprob && b.doneLaunch })),
+  const all = [...reqDetail, ...projDetail];
+  const sumStage = (stage: PmValueStage) => {
+    const items = all.filter((it) => it.stage === stage);
+    return { cost: items.reduce((s, it) => s + it.cost, 0), benefit: items.reduce((s, it) => s + it.benefit, 0) };
   };
+  const validacion = sumStage("validacion");
+  const aprobacion = sumStage("aprobacion");
+  const confirmacion = sumStage("confirmacion");
 
   return {
-    totalCost: reqCost + aprobCost + ambosCost,
-    totalBenefit: reqBenefit + aprobBenefit + ambosBenefit,
-    aprobCost: reqAprobCost + aprobCost,
-    aprobBenefit: reqAprobBenefit + aprobBenefit,
-    confirmCost: reqConfirmCost + ambosCost,
-    confirmBenefit: reqConfirmBenefit + ambosBenefit,
-    detail,
+    totalCost: validacion.cost + aprobacion.cost + confirmacion.cost,
+    totalBenefit: validacion.benefit + aprobacion.benefit + confirmacion.benefit,
+    validacionCost: validacion.cost, validacionBenefit: validacion.benefit,
+    aprobacionCost: aprobacion.cost, aprobacionBenefit: aprobacion.benefit,
+    confirmacionCost: confirmacion.cost, confirmacionBenefit: confirmacion.benefit,
+    detail: { reqs: reqDetail, projects: projDetail },
   };
 }
 
@@ -312,14 +354,19 @@ export function calcPmMetrics(
 
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
-  const benefit = pmValueHard.confirmBenefit;
+  // Beneficio mostrado (scoreboard) = solo Aprobación VPB, igual que la tarjeta de PM.
+  const benefit = pmValueHard.aprobacionBenefit;
 
   const reprocesoPct = calcReprocesoPct(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     reproceso,
   );
-  const kpi = computeKpi({ evm: evmRaw, nps: nps.nps, benefit, entregasPct: entPct, reprocesoPct });
+  const kpi = computeKpi({
+    evm: evmRaw, nps: nps.nps,
+    benefitAprobado: pmValueHard.aprobacionBenefit, benefitConfirmado: pmValueHard.confirmacionBenefit,
+    entregasPct: entPct, reprocesoPct,
+  });
   const health = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
 
   return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, reprocesoPct, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };

@@ -7,7 +7,7 @@ import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
-  REQ_PHASE2PLUS, REQ_PASSED_PHASE2, isValueGateSigned,
+  reqStage, resolveProjStage, type PmValueStage,
   buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct, calcReprocesoStats,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
@@ -17,6 +17,7 @@ import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
+import NpsRangesModal from "@/components/NpsRangesModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
 import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
@@ -74,7 +75,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const {
     boardHealthMap, boardsWithHealth, projBoardsOffTrack, projBoardsInRisk, projBoardsOnTrack,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
-    G, totalCost, totalBenefit, colAprobCost, colAprobBenefit, colConfirmCost, colConfirmBenefit,
+    G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor,
     reprocesoStats, teamReprocesoPct, repColor,
@@ -139,57 +140,41 @@ function ControlTower({ data }: { data: DashboardData }) {
   };
 
   // ── Costos y beneficios totales (REQ + Proyectos) ──
-  // Filtro "Solo HardSaving": limita costo y beneficio a los ítems con Benefit Type = HardSaving.
+  // 3 etapas evaluadas de forma DESCENDENTE (Confirmación VPC > Aprobación VPB >
+  // Validación VPA) por reqStage/resolveProjStage. Filtro "Solo HardSaving": limita a
+  // los ítems/boards con Benefit Type = HardSaving.
   const hardBoardIds = new Set(projBoards.filter((b) => b.benefitType === "HardSaving").map((b) => b.id));
-  // REQ: solo fases 2 o posteriores (Aprobación → Cierre ROI). Se excluye Valuación, Cerrados y En Espera.
-  const reqWithValue = req.filter((r) => REQ_PHASE2PLUS.has(r.grupo) && (!hardOnly || r.benefitType === "HardSaving"));
-  const reqCost     = reqWithValue.reduce((s, r) => s + r.costRH + r.costSft, 0);
-  const reqBenefit  = reqWithValue.reduce((s, r) => s + r.benefit, 0);
-  // REQ que pasaron la fase 2 → Confirmación; los que siguen en fase 2 (Aprobación) → Aprobación.
-  const reqConfirmItems = reqWithValue.filter((r) => REQ_PASSED_PHASE2.has(r.grupo));
-  const reqAprobItems   = reqWithValue.filter((r) => !REQ_PASSED_PHASE2.has(r.grupo));
-  const reqConfirmCost    = reqConfirmItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
-  const reqConfirmBenefit = reqConfirmItems.reduce((s, r) => s + r.benefit, 0);
-  const reqAprobCost      = reqAprobItems.reduce((s, r) => s + r.costRH + r.costSft, 0);
-  const reqAprobBenefit   = reqAprobItems.reduce((s, r) => s + r.benefit, 0);
 
-  // Proyectos: se agrupan por board y se mide si el Value Gate (BC) está Done en Aprobación y/o Launch.
-  const projAgg = new Map<string, { cost: number; benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
+  const reqWithValue = req.filter((r) => reqStage(r) != null && (!hardOnly || r.benefitType === "HardSaving"));
+  const reqDetail = reqWithValue.map((r) => ({ cost: r.costRH + r.costSft, benefit: r.benefit, stage: reqStage(r) as PmValueStage }));
+
+  const projItemsByBoard = new Map<string, ProjItem[]>();
   for (const r of proj) {
     if (hardOnly && !hardBoardIds.has(r.boardId)) continue;
-    let a = projAgg.get(r.boardId);
-    if (!a) { a = { cost: 0, benefit: 0, doneAprob: false, doneLaunch: false }; projAgg.set(r.boardId, a); }
-    a.cost += r.cost;
-    a.benefit += r.benefit;
-    if (r.status === "Done" && isValueGateSigned(r.name)) {
-      const g = norm(r.grupo);
-      if (g.includes("aprobacion")) a.doneAprob = true;
-      if (g.includes("launch")) a.doneLaunch = true;
-    }
+    const arr = projItemsByBoard.get(r.boardId);
+    if (arr) arr.push(r); else projItemsByBoard.set(r.boardId, [r]);
   }
-  const projBoardsAgg = [...projAgg.values()];
-  // Buckets mutuamente excluyentes (sin doble conteo):
-  //  Aprobación = solo Aprobación Done (Launch aún no).  Ambos = Aprobación y Launch Done.
-  const projAprob = projBoardsAgg.filter((b) => b.doneAprob && !b.doneLaunch);
-  const projAmbos = projBoardsAgg.filter((b) => b.doneAprob && b.doneLaunch);
-  const aprobCost    = projAprob.reduce((s, b) => s + b.cost, 0);
-  const aprobBenefit = projAprob.reduce((s, b) => s + b.benefit, 0);
-  const ambosCost    = projAmbos.reduce((s, b) => s + b.cost, 0);
-  const ambosBenefit = projAmbos.reduce((s, b) => s + b.benefit, 0);
-  // Total Proyectos = ambos buckets sumados (Aprobación + Ambos).
-  const projCost    = aprobCost + ambosCost;
-  const projBenefit = aprobBenefit + ambosBenefit;
+  const projDetail: { cost: number; benefit: number; stage: PmValueStage }[] = [];
+  for (const items of projItemsByBoard.values()) {
+    const resolved = resolveProjStage(items);
+    if (resolved) projDetail.push(resolved);
+  }
 
-  const totalCost    = reqCost + projCost;
-  const totalBenefit = reqBenefit + projBenefit;
+  const allValue = [...reqDetail, ...projDetail];
+  const sumStage = (stage: PmValueStage) => {
+    const items = allValue.filter((it) => it.stage === stage);
+    return { cost: items.reduce((s, it) => s + it.cost, 0), benefit: items.reduce((s, it) => s + it.benefit, 0) };
+  };
+  const colValidacion = sumStage("validacion");
+  const colAprobacion = sumStage("aprobacion");
+  const colConfirmacion = sumStage("confirmacion");
+  const colValidacionCost = colValidacion.cost, colValidacionBenefit = colValidacion.benefit;
+  const colAprobacionCost = colAprobacion.cost, colAprobacionBenefit = colAprobacion.benefit;
+  const colConfirmacionCost = colConfirmacion.cost, colConfirmacionBenefit = colConfirmacion.benefit;
 
-  // Columnas combinadas (REQ + Proyectos) para la tarjeta y el pop-up:
-  //  Aprobación   = REQ en fase 2 + proyectos con solo el Value Gate de Aprobación.
-  //  Confirmación = REQ que pasaron fase 2 + proyectos con el Value Gate de Launch firmado.
-  const colAprobCost      = reqAprobCost + aprobCost;
-  const colAprobBenefit   = reqAprobBenefit + aprobBenefit;
-  const colConfirmCost    = reqConfirmCost + ambosCost;
-  const colConfirmBenefit = reqConfirmBenefit + ambosBenefit;
+  // Costo Total = suma de las 3 etapas. El Beneficio grande de la tarjeta usa solo
+  // Aprobación (colAprobacionBenefit) — ver render más abajo.
+  const totalCost = colValidacionCost + colAprobacionCost + colConfirmacionCost;
 
   // ── VPA Actions ──
   // Acciones que debe realizar el VPA, con visibilidad de su estado:
@@ -241,29 +226,29 @@ function ControlTower({ data }: { data: DashboardData }) {
   const repColor = teamReprocesoPct === null ? "#6b7280" : teamReprocesoPct >= 90 ? "var(--ok)" : teamReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
 
   // ── KPI PMO ──
-  // Beneficio HardSaving CONFIRMADO (independiente del toggle "Solo HardSaving" de la
-  // tarjeta): REQ HardSaving que ya pasaron fase 2 + proyectos HardSaving con ambos
-  // Value Gates (Aprobación y Launch) firmados.
-  const kpiReqBenefit = req
-    .filter((r) => REQ_PASSED_PHASE2.has(r.grupo) && r.benefitType === "HardSaving")
-    .reduce((s, r) => s + r.benefit, 0);
-  const kpiProjAgg = new Map<string, { benefit: number; doneAprob: boolean; doneLaunch: boolean }>();
+  // Beneficio HardSaving del KPI: etapas Aprobación VPB y Confirmación VPC por separado
+  // (excluye Validación), independiente del toggle "Solo HardSaving" de la tarjeta
+  // (siempre HardSaving). Ver computeBenefitKpi en lib/kpi.ts para el reparto 70/30.
+  const kpiReqValue = req
+    .filter((r) => r.benefitType === "HardSaving" && reqStage(r) != null)
+    .map((r) => ({ benefit: r.benefit, stage: reqStage(r) as PmValueStage }));
+  const kpiProjItemsByBoard = new Map<string, ProjItem[]>();
   for (const r of proj) {
     if (!hardBoardIds.has(r.boardId)) continue;
-    let a = kpiProjAgg.get(r.boardId);
-    if (!a) { a = { benefit: 0, doneAprob: false, doneLaunch: false }; kpiProjAgg.set(r.boardId, a); }
-    a.benefit += r.benefit;
-    if (r.status === "Done" && isValueGateSigned(r.name)) {
-      const g = norm(r.grupo);
-      if (g.includes("aprobacion")) a.doneAprob = true;
-      if (g.includes("launch")) a.doneLaunch = true;
-    }
+    const arr = kpiProjItemsByBoard.get(r.boardId);
+    if (arr) arr.push(r); else kpiProjItemsByBoard.set(r.boardId, [r]);
   }
-  const kpiProjBenefit = [...kpiProjAgg.values()].filter((b) => b.doneAprob && b.doneLaunch).reduce((s, b) => s + b.benefit, 0);
-  const kpiBenefitConfirmed = kpiReqBenefit + kpiProjBenefit;
+  const kpiProjValue: { benefit: number; stage: PmValueStage }[] = [];
+  for (const items of kpiProjItemsByBoard.values()) {
+    const resolved = resolveProjStage(items);
+    if (resolved) kpiProjValue.push(resolved);
+  }
+  const kpiAllValue = [...kpiReqValue, ...kpiProjValue];
+  const kpiBenefitAprobado = kpiAllValue.filter((it) => it.stage === "aprobacion").reduce((s, it) => s + it.benefit, 0);
+  const kpiBenefitConfirmado = kpiAllValue.filter((it) => it.stage === "confirmacion").reduce((s, it) => s + it.benefit, 0);
 
   // Reproceso del equipo (5º componente del KPI, peso 20) — ver teamReprocesoPct arriba.
-  const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefit: kpiBenefitConfirmed, entregasPct: entPct, reprocesoPct: teamReprocesoPct });
+  const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefitAprobado: kpiBenefitAprobado, benefitConfirmado: kpiBenefitConfirmado, entregasPct: entPct, reprocesoPct: teamReprocesoPct });
   const kpiPct = Math.round(kpi.score);
   const kpiAchievable = kpi.achievable; // 80 hoy (el 5º componente está pendiente)
   const kpiColor = kpiColorFor(kpi.ratio);
@@ -271,7 +256,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   return {
     boardHealthMap, boardsWithHealth, projBoardsOffTrack, projBoardsInRisk, projBoardsOnTrack,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
-    G, totalCost, totalBenefit, colAprobCost, colAprobBenefit, colConfirmCost, colConfirmBenefit,
+    G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor,
     reprocesoStats, teamReprocesoPct, repColor,
@@ -306,13 +291,14 @@ function ControlTower({ data }: { data: DashboardData }) {
           {/* Costo & Beneficio — REQ + Proyectos */}
           <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "var(--ok)" : "var(--accent)" }}>
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
-            <div className="text-[2rem] font-extrabold leading-none" style={{ color: "var(--ok)" }}>{fmtMoney(totalBenefit)}</div>
+            <div className="text-[2rem] font-extrabold leading-none" style={{ color: "var(--ok)" }} title="Beneficio de la etapa Aprobación VPB">{fmtMoney(colAprobacionBenefit)}</div>
             <div className="mt-1 text-[0.78rem] font-semibold text-[var(--text-muted)]">
               Costo <span style={{ color: "var(--info)" }}>{fmtMoney(totalCost)}</span>
             </div>
             <div className="mt-auto flex flex-col gap-0.5 pt-3 text-[0.72rem] font-semibold text-[var(--text-muted)]">
-              <span>Aprob. <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobBenefit)}</span></span>
-              <span>Confirm. <span style={{ color: "var(--info)" }}>{fmtMoney(colConfirmCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colConfirmBenefit)}</span></span>
+              <span>Validación <span style={{ color: "var(--info)" }}>{fmtMoney(colValidacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colValidacionBenefit)}</span></span>
+              <span>Aprobación <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobacionBenefit)}</span></span>
+              <span>Confirmación <span style={{ color: "var(--info)" }}>{fmtMoney(colConfirmacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colConfirmacionBenefit)}</span></span>
               <button
                 onClick={() => setHardOnly((v) => !v)}
                 title="Filtrar Costo y Beneficio a solo HardSaving (afecta también el beneficio por PM)"
@@ -444,7 +430,7 @@ function ControlTower({ data }: { data: DashboardData }) {
               className="rounded-md px-2.5 py-1 text-[0.72rem] font-bold transition-colors"
               style={pmView === v ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-muted)" }}
             >
-              {v === "tabla" ? "KPI" : "Tarjetas"}
+              {v === "tabla" ? "Players" : "Tarjetas"}
             </button>
           ))}
         </div>
@@ -496,8 +482,8 @@ function Stat({ n, color, label, showZero }: { n: number; color: string; label: 
 // Celda de la fila de métricas del PM (EVM · Beneficio · Calidad · Cumplimiento · NPS).
 // La etiqueta tiene altura mínima fija para que los valores queden alineados aunque
 // el texto ocupe una o dos líneas.
-function MetricCell({ label, value, color, onClick, title, divider }: {
-  label: string; value: string; color: string; onClick?: () => void; title?: string; divider?: boolean;
+function MetricCell({ label, value, color, onClick, title, divider, sub }: {
+  label: string; value: string; color: string; onClick?: () => void; title?: string; divider?: boolean; sub?: string;
 }) {
   const style = divider ? { borderLeft: "1px solid var(--border)" } : undefined;
   const cls = `flex flex-col items-center px-1.5 py-2.5 text-center ${onClick ? "cursor-pointer transition-colors hover:bg-[var(--bg-hover)]" : ""}`;
@@ -509,6 +495,11 @@ function MetricCell({ label, value, color, onClick, title, divider }: {
       <span className="mt-0.5 text-[0.95rem] font-extrabold leading-none tabular-nums" style={{ color }}>
         {value}
       </span>
+      {sub && (
+        <span className="mt-0.5 text-[0.56rem] font-bold uppercase leading-tight tracking-wide" style={{ color }}>
+          {sub}
+        </span>
+      )}
     </>
   );
   return onClick ? (
@@ -534,17 +525,17 @@ function PMPortfolioCard({
 }) {
   const [showValue, setShowValue] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
+  const [showNpsRanges, setShowNpsRanges] = useState(false);
 
   const {
-    pmValueAll, pmValueHard, pmValue, iniHealth, pmNps, npsColor,
+    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
   } = useMemo(() => {
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
-  const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
-  const pmValue = pmValueHard; // el badge $ muestra siempre solo HardSaving
+  const pmValueHard = calcPmValue(pm, req, proj, projBoards, true); // el badge $ muestra siempre solo HardSaving
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
   // NPS personal del PM (mismas fórmulas, filtrando por PM).
@@ -599,7 +590,14 @@ function PMPortfolioCard({
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     reproceso,
   );
-  const pmKpi = computeKpi({ evm: pmEvmRaw, nps: pmNps.nps, benefit: pmValueHard.confirmBenefit, entregasPct: entPct, reprocesoPct: pmReprocesoPct });
+  // Beneficio mostrado en la tarjeta = solo Aprobación VPB. El del KPI usa Aprobación y
+  // Confirmación por separado (70/30 contra la meta mensual acumulada — ver lib/kpi.ts).
+  const pmBenefitDisplay = pmValueHard.aprobacionBenefit;
+  const pmKpi = computeKpi({
+    evm: pmEvmRaw, nps: pmNps.nps,
+    benefitAprobado: pmValueHard.aprobacionBenefit, benefitConfirmado: pmValueHard.confirmacionBenefit,
+    entregasPct: entPct, reprocesoPct: pmReprocesoPct,
+  });
   const pmKpiPct = Math.round(pmKpi.score);
   const pmKpiColor = kpiColorFor(pmKpi.ratio);
 
@@ -608,7 +606,7 @@ function PMPortfolioCard({
   const hc = HEALTH_CFG[pmHealth];
 
   return {
-    pmValueAll, pmValueHard, pmValue, iniHealth, pmNps, npsColor,
+    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
@@ -644,12 +642,13 @@ function PMPortfolioCard({
         const evmStatus = healthStatusFromIndex(pmEvmRaw);
         const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
         const repColor = pmReprocesoPct === null ? "#6b7280" : pmReprocesoPct >= 90 ? "var(--ok)" : pmReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
-        const metrics: { label: string; value: string; color: string; onClick?: () => void; title: string }[] = [
+        const npsLabel = npsCfg(pmNps.nps)?.label;
+        const metrics: { label: string; value: string; color: string; onClick?: () => void; title: string; sub?: string }[] = [
           { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · promedio de Iniciativas, REQ y Proyectos" },
-          { label: "Beneficio", value: fmtMoneyShort(pmValue.confirmBenefit), color: "var(--ok)", onClick: () => setShowValue(true), title: `Beneficio HardSaving (Confirmación): ${fmtMoney(pmValue.confirmBenefit)} · clic para ver el detalle` },
+          { label: "Beneficio", value: fmtMoneyShort(pmBenefitDisplay), color: "var(--ok)", onClick: () => setShowValue(true), title: `Beneficio HardSaving (Aprobación VPB): ${fmtMoney(pmBenefitDisplay)} · clic para ver el detalle` },
           { label: "Calidad de Entrega", value: pmReprocesoPct !== null ? `${pmReprocesoPct}%` : "—", color: repColor, title: "Calidad de Entrega · % de unidades limpias sin reproceso imputable al PM" },
           { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "s/d", color: entColor, title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal}` },
-          { label: "NPS", value: pmNps.nps !== null ? String(pmNps.nps) : "s/d", color: npsColor, title: `NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""}` },
+          { label: "NPS", value: pmNps.nps !== null ? String(pmNps.nps) : "s/d", color: npsColor, onClick: () => setShowNpsRanges(true), title: `NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""} · clic para ver cómo se mide`, sub: npsLabel },
         ];
         return (
           <div className="grid grid-cols-5 border-b" style={{ borderColor: "var(--border)" }}>
@@ -721,6 +720,7 @@ function PMPortfolioCard({
       {showKpi && (
         <KpiModal title={`KPI · ${pm}`} pct={pmKpiPct} achievable={pmKpi.achievable} pendingWeight={100 - pmKpi.achievable} color={pmKpiColor} components={pmKpi.components} onClose={() => setShowKpi(false)} />
       )}
+      {showNpsRanges && <NpsRangesModal nps={pmNps.nps} onClose={() => setShowNpsRanges(false)} />}
     </div>
   );
 }

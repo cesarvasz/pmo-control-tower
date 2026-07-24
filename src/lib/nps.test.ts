@@ -42,10 +42,10 @@ describe("calcNps", () => {
 describe("npsCfg", () => {
   it("clasifica por rango", () => {
     expect(npsCfg(null)).toBeNull();
-    expect(npsCfg(75)!.label).toBe("PMO EXCELENTE");
-    expect(npsCfg(60)!.label).toBe("PMO BUENA");
-    expect(npsCfg(40)!.label).toBe("PMO ACEPTABLE");
-    expect(npsCfg(10)!.label).toBe("PMO BÁSICA");
-    expect(npsCfg(-5)!.label).toBe("PMO EN RIESGO");
+    expect(npsCfg(75)!.label).toBe("PMO Estratégica");
+    expect(npsCfg(60)!.label).toBe("PMO Gobernanza");
+    expect(npsCfg(40)!.label).toBe("PMO Táctica");
+    expect(npsCfg(10)!.label).toBe("PMO Soporte");
+    expect(npsCfg(-5)!.label).toBe("PMO Riesgo");
   });
 });

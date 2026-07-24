@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  isValueGateSigned,
+  reqStage,
+  resolveProjStage,
   calcPmValue,
   pmWorstStatus,
   buildBoardHealthMap,
@@ -22,11 +23,93 @@ const sub = (o: Partial<ProjSubitem>): ProjSubitem => o as ProjSubitem;
 const board = (o: Partial<ProjBoard>): ProjBoard => o as ProjBoard;
 const onTime = (verdict: "on-time" | "late" | "n/a"): ReqItem["onTime"] => ({ verdict } as ReqItem["onTime"]);
 
-describe("isValueGateSigned", () => {
-  it("detecta un Value Gate (BC) firmado en cualquier fase", () => {
-    expect(isValueGateSigned("Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)")).toBe(true);
-    expect(isValueGateSigned("Value Gate (BC) Actualizado y firmado")).toBe(true);
-    expect(isValueGateSigned("Otro paso cualquiera")).toBe(false);
+describe("reqStage", () => {
+  it("mapea cada grupo a su etapa; \"Cierre ROI\" cuenta como Aprobación hasta que cierre", () => {
+    expect(reqStage({ grupo: "Valuación" })).toBe("validacion");
+    expect(reqStage({ grupo: "Aprobación" })).toBe("validacion");
+    expect(reqStage({ grupo: "Desarrollo" })).toBe("aprobacion");
+    expect(reqStage({ grupo: "Operación" })).toBe("aprobacion");
+    expect(reqStage({ grupo: "Cierre ROI" })).toBe("aprobacion");
+    expect(reqStage({ grupo: "Cerrados" })).toBe("confirmacion");
+    expect(reqStage({ grupo: "En Espera" })).toBeNull();
+  });
+});
+
+describe("resolveProjStage (evaluación descendente Confirmación > Aprobación > Validación)", () => {
+  // El Business Case (Benefit $ / Cost $) vive en "Kick Off Project Meeting" (fase
+  // Valuación) — Validación y Aprobación toman su monto de ahí, no del step que evalúan.
+  const bc = (cost = 0, benefit = 0): ProjItem =>
+    proj({ grupo: "Valuación | Formulación del proyecto", name: "Kick Off Project Meeting (Entregable Business Case redactado)", status: "Done", cost, benefit });
+  const vg = (grupo: string, status: string, name = "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)"): ProjItem =>
+    proj({ grupo, name, status, cost: 0, benefit: 0 });
+  const cfo = (status: string): ProjItem =>
+    proj({ grupo: "Aprobación | Value Gate", name: "Plan de beneficios acordados con CFO", status, cost: 0, benefit: 0 });
+  const val = (status: string): ProjItem =>
+    proj({ grupo: "Valuación | Formulación del proyecto", name: "VPA valida Business Case (Entregable Business Case validado por VPA)", status, cost: 0, benefit: 0 });
+  const roi = (dias: 30 | 60 | 90, status: string, cost = 0, benefit = 0): ProjItem =>
+    proj({ grupo: "Revisión | Cierre ROI", name: `VPA Recopila datos a ${dias} dias (Compara Valor real contra BC)`, status, cost, benefit });
+
+  it("Validación: step de Valuación Done, monto = Business Case (Kick Off)", () => {
+    const r = resolveProjStage([bc(10, 100), val("Done")]);
+    expect(r).toEqual({ stage: "validacion", cost: 10, benefit: 100 });
+  });
+
+  it("sin nada Done → null", () => {
+    expect(resolveProjStage([bc(10, 100), val("Working on it")])).toBeNull();
+  });
+
+  it("sin Kick Off Project Meeting en el board → monto en 0 (no null)", () => {
+    expect(resolveProjStage([val("Done")])).toEqual({ stage: "validacion", cost: 0, benefit: 0 });
+  });
+
+  it("Aprobación: exige los 3 steps Done (CFO + VG Aprobación + VG Launch); monto = Business Case (Kick Off)", () => {
+    const items = [
+      bc(10, 100),
+      cfo("Done"),
+      vg("Aprobación | Value Gate", "Done"),
+      vg("Launch | Desarrollo", "Done"),
+    ];
+    expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 10, benefit: 100 });
+  });
+
+  it("Aprobación: el Value Gate de Launch acepta \"actualizado y firmado\" (sin \"aprobado\")", () => {
+    const items = [
+      bc(10, 100),
+      cfo("Done"),
+      vg("Aprobación | Value Gate", "Done"),
+      vg("Launch | Desarrollo", "Done", "Value Gate (BC) actualizado y firmado (VPA+Sponsor+PMO Mgr)"),
+    ];
+    expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 10, benefit: 100 });
+  });
+
+  it("Aprobación: si falta uno de los 3 Done, no cuenta (cae a Validación si aplica)", () => {
+    const items = [
+      bc(1, 1),
+      cfo("Done"),
+      vg("Aprobación | Value Gate", "Done"),
+      vg("Launch | Desarrollo", "Working on it"), // Launch aún no
+      val("Done"),
+    ];
+    expect(resolveProjStage(items)).toEqual({ stage: "validacion", cost: 1, benefit: 1 });
+  });
+
+  it("Confirmación: usa el step más reciente Done (90 > 60 > 30)", () => {
+    expect(resolveProjStage([roi(30, "Working on it", 1, 100)])).toBeNull(); // ninguno Done aún
+    expect(resolveProjStage([roi(30, "Done", 1, 100)])).toEqual({ stage: "confirmacion", cost: 1, benefit: 100 });
+    expect(resolveProjStage([roi(30, "Done", 1, 100), roi(60, "Done", 2, 200)])).toEqual({ stage: "confirmacion", cost: 2, benefit: 200 });
+    expect(resolveProjStage([roi(30, "Done", 1, 100), roi(60, "Done", 2, 200), roi(90, "Working on it", 3, 300)]))
+      .toEqual({ stage: "confirmacion", cost: 2, benefit: 200 }); // 90 no Done → se queda en 60
+    expect(resolveProjStage([roi(30, "Done", 1, 100), roi(60, "Done", 2, 200), roi(90, "Done", 3, 300)]))
+      .toEqual({ stage: "confirmacion", cost: 3, benefit: 300 });
+  });
+
+  it("Confirmación gana aunque también se cumplan Aprobación y Validación", () => {
+    const items = [
+      bc(1, 1), val("Done"),
+      cfo("Done"), vg("Aprobación | Value Gate", "Done"), vg("Launch | Desarrollo", "Done"),
+      roi(30, "Done", 5, 5000),
+    ];
+    expect(resolveProjStage(items)).toEqual({ stage: "confirmacion", cost: 5, benefit: 5000 });
   });
 });
 
@@ -34,34 +117,58 @@ describe("calcPmValue", () => {
   const reqs: ReqItem[] = [
     req({ pm: "Luis", grupo: "Desarrollo", benefitType: "HardSaving", costRH: 1000, costSft: 0, benefit: 5000, name: "R1" }),
     req({ pm: "Luis", grupo: "Aprobación", benefitType: "Soft", costRH: 500, costSft: 0, benefit: 2000, name: "R2" }),
+    req({ pm: "Luis", grupo: "Cerrados", benefitType: "HardSaving", costRH: 200, costSft: 0, benefit: 9000, name: "R4" }),
     req({ pm: "Otro", grupo: "Desarrollo", benefitType: "HardSaving", costRH: 999, costSft: 0, benefit: 999, name: "R3" }),
   ];
 
-  it("clasifica REQ en Confirmación (pasó fase 2) vs Aprobación (en fase 2)", () => {
+  it("clasifica REQ por fase: Aprobación (Desarrollo), Validación (Aprobación), Confirmación (Cerrados)", () => {
     const v = calcPmValue("Luis", reqs, [], [], false);
-    expect(v.confirmCost).toBe(1000);
-    expect(v.confirmBenefit).toBe(5000);   // R1 (Desarrollo)
-    expect(v.aprobCost).toBe(500);
-    expect(v.aprobBenefit).toBe(2000);     // R2 (Aprobación)
-    expect(v.totalCost).toBe(1500);
-    expect(v.totalBenefit).toBe(7000);     // excluye a "Otro"
+    expect(v.aprobacionCost).toBe(1000);
+    expect(v.aprobacionBenefit).toBe(5000);       // R1 (Desarrollo)
+    expect(v.validacionCost).toBe(500);
+    expect(v.validacionBenefit).toBe(2000);       // R2 (Aprobación)
+    expect(v.confirmacionCost).toBe(200);
+    expect(v.confirmacionBenefit).toBe(9000);     // R4 (Cerrados)
+    expect(v.totalCost).toBe(1700);
+    expect(v.totalBenefit).toBe(16000);           // excluye a "Otro"
   });
 
   it("hardOnly limita a benefitType HardSaving", () => {
     const v = calcPmValue("Luis", reqs, [], [], true);
-    expect(v.totalBenefit).toBe(5000);     // solo R1
-    expect(v.aprobBenefit).toBe(0);        // R2 (Soft) excluido
+    expect(v.validacionBenefit).toBe(0);          // R2 (Soft) excluido
+    expect(v.totalBenefit).toBe(14000);           // R1 + R4
   });
 
-  it("un proyecto con Value Gate de Aprobación firmado cuenta en el bucket Aprobación", () => {
+  it("REQ en Cierre ROI (sin cerrar) cuenta como Aprobación", () => {
+    const v = calcPmValue("Luis", [req({ pm: "Luis", grupo: "Cierre ROI", benefitType: "HardSaving", costRH: 1, costSft: 0, benefit: 50, name: "R5" })], [], [], false);
+    expect(v.aprobacionBenefit).toBe(50);
+  });
+
+  it("un proyecto solo con Validación Done cuenta en esa etapa, con el monto del Business Case (Kick Off)", () => {
     const projBoards = [board({ id: "b1", pm: "Luis", benefitType: "HardSaving" })];
     const projItems = [
-      proj({ boardId: "b1", boardName: "P1", status: "Done", name: "Value Gate (BC) Firmado y aprobado", grupo: "Aprobación | Value Gate", cost: 300, benefit: 1000 }),
+      proj({ boardId: "b1", boardName: "P1", status: "Done", name: "Kick Off Project Meeting (Entregable Business Case redactado)", grupo: "Valuación | Formulación del proyecto", cost: 300, benefit: 1000 }),
+      proj({ boardId: "b1", boardName: "P1", status: "Done", name: "VPA valida Business Case (Entregable Business Case validado por VPA)", grupo: "Valuación | Formulación del proyecto", cost: 0, benefit: 0 }),
     ];
     const v = calcPmValue("Luis", [], projItems, projBoards, false);
-    expect(v.aprobCost).toBe(300);
-    expect(v.aprobBenefit).toBe(1000);
-    expect(v.confirmBenefit).toBe(0);      // sin Launch firmado
+    expect(v.validacionCost).toBe(300);
+    expect(v.validacionBenefit).toBe(1000);
+    expect(v.aprobacionBenefit).toBe(0);
+    expect(v.confirmacionBenefit).toBe(0);
+  });
+
+  it("un proyecto con dato VPA Recopila (Confirmación) usa el costo/beneficio del step, no la suma del board", () => {
+    const projBoards = [board({ id: "b1", pm: "Luis", benefitType: "HardSaving" })];
+    const projItems = [
+      proj({ boardId: "b1", boardName: "P1", status: "Working on it", name: "Otro paso", grupo: "Launch | Desarrollo", cost: 300, benefit: 1000 }),
+      proj({ boardId: "b1", boardName: "P1", status: "Done", name: "VPA Recopila datos a 30 dias (Compara Valor real contra BC)", grupo: "Revisión | Cierre ROI", cost: 5, benefit: 4000 }),
+    ];
+    const v = calcPmValue("Luis", [], projItems, projBoards, false);
+    expect(v.confirmacionBenefit).toBe(4000);   // benefit del step de 30 días, no la suma del board
+    expect(v.confirmacionCost).toBe(5);         // costo del mismo step, no la suma del board
+    expect(v.validacionBenefit).toBe(0);
+    expect(v.aprobacionBenefit).toBe(0);
+    expect(v.detail.projects[0].stage).toBe("confirmacion");
   });
 });
 
