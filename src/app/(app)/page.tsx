@@ -335,9 +335,9 @@ function ControlTower({ data }: { data: DashboardData }) {
             <div className="text-5xl font-extrabold leading-none" style={{ color: mainRepColor }}>
               {mainReprocesoPct !== null ? `${mainReprocesoPct}%` : "—"}
             </div>
-            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: mainRepColor }}>Con reproceso</div>
-            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
-              <span style={{ color: "var(--ok)" }}>{mainReprocesoStats.limpias} limpias</span>
+            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: mainRepColor }}>de calidad</div>
+            <div className="flex flex-col items-center gap-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              <span style={{ color: "var(--ok)" }}>{mainReprocesoStats.limpias} sin reproceso</span>
               <span style={{ color: "var(--bad)" }}>{mainReprocesoStats.conReproceso} con reproceso</span>
               <span>{mainReprocesoStats.total} entregados</span>
             </div>
@@ -353,7 +353,7 @@ function ControlTower({ data }: { data: DashboardData }) {
               {entPct !== null ? `${entPct}%` : "—"}
             </div>
             <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: entColor }}>A tiempo</div>
-            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+            <div className="flex flex-col items-center gap-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
               <span style={{ color: "var(--ok)" }}>{entOn} a tiempo</span>
               <span style={{ color: "var(--bad)" }}>{entLate} con atraso</span>
               <span>{entTotal} entregas</span>
