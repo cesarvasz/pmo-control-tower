@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@google-cloud/monitoring": "^5.4.0",
     "firebase": "^12.14.0",
     "firebase-admin": "^13.10.0",
     "next": "16.2.7",

@@ -9,7 +9,7 @@ import { calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
 import { computeKpi } from "@/lib/kpi";
-import { lateExcused, type DelayMap } from "@/lib/delay";
+import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
 import type {
   CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem,
 } from "@/types";
@@ -251,6 +251,25 @@ export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: 
   return calcReprocesoStats(reqs, projs, reproceso).pct;
 }
 
+/** Variante "real, sin filtros" de Calidad de Entregas — SOLO para la tarjeta
+ *  principal del Control Tower (no para Players/KPI, que siguen usando
+ *  calcReprocesoStats). Únicamente cuenta unidades que YA tienen un responsable
+ *  seleccionado en el dropdown de Reproceso: "Sin reproceso" → limpia; cualquier
+ *  otra selección (incluido "PM") → con reproceso. Las unidades sin selección se
+ *  ignoran por completo (no cuentan ni como limpias ni como con reproceso). */
+export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
+  const units = [
+    ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
+    ...completedProjectPhases(projs),
+  ];
+  const assigned = units.filter((id) => reproceso[id]?.responsible != null);
+  const total = assigned.length;
+  const limpias = assigned.filter((id) => reproceso[id]?.responsible === "Sin reproceso").length;
+  const conReproceso = total - limpias;
+  const pct = total ? Math.round((limpias / total) * 100) : null;
+  return { total, limpias, conReproceso, pct };
+}
+
 // ── Filas de auditoría (página Calidad & Cumplimiento) ───────────────────
 // Un mismo itemId se usa para leer/escribir la atribución (delay o reproceso)
 // vía ResponsibleSelect — el mismo esquema de ids que REQ y Proyectos.
@@ -317,6 +336,44 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
     const first = items[0];
     const pm = bpm.get(first.boardId) ?? first.pm;
     rows.push({ id: key, source: "Proyecto", name: `${first.boardName} · ${first.grupo}`, pm, verdict: lateExcused(key, reproceso) ? "clean" : "reproceso" });
+  }
+  return rows;
+}
+
+export interface ReprocesoRawRow {
+  id: string;                        // r.id / projPhaseKey(boardId, grupo) — atribución "reproceso"
+  source: "REQ" | "Proyecto";
+  name: string;
+  pm: string;
+  responsible: DelayResponsible;     // opción elegida en el dropdown (incluye "Sin reproceso")
+}
+
+/** Filas RAW de "Calidad de Entregas" — mismo universo que calcReprocesoStatsRaw:
+ *  solo unidades con responsable YA seleccionado en el dropdown de Reproceso, con
+ *  la opción elegida tal cual (incluye "Sin reproceso"). Usada para el detalle de
+ *  la tarjeta principal del Control Tower (desglose por opción + nombre/id). */
+export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap): ReprocesoRawRow[] {
+  const bpm = boardPmMap(projBoards);
+  const rows: ReprocesoRawRow[] = [];
+  for (const r of reqs) {
+    if (r.estado !== "CERRADO") continue;
+    const responsible = reproceso[r.id]?.responsible;
+    if (responsible == null) continue;
+    rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible });
+  }
+  const groups = new Map<string, ProjItem[]>();
+  for (const p of projs) {
+    const key = projPhaseKey(p.boardId, p.grupo);
+    const arr = groups.get(key);
+    if (arr) arr.push(p); else groups.set(key, [p]);
+  }
+  for (const [key, items] of groups) {
+    if (!items.every((it) => it.status === "Done")) continue;
+    const responsible = reproceso[key]?.responsible;
+    if (responsible == null) continue;
+    const first = items[0];
+    const pm = bpm.get(first.boardId) ?? first.pm;
+    rows.push({ id: key, source: "Proyecto", name: `${first.boardName} · ${first.grupo}`, pm, responsible });
   }
   return rows;
 }

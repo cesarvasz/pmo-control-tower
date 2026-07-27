@@ -54,6 +54,8 @@ export const PAGES: PageDef[] = [
   // quiera abrir a más roles, quitar requiredAction para que sea una página
   // de contenido normal, asignable desde el editor de Grupos.
   { key: "calidad-cumplimiento", label: "Calidad & Cumplimiento", href: "/calidad-cumplimiento", icon: "🎯", requiredAction: "manage_roles" },
+  // Solo Admin: consumo diario de Firestore (Cloud Monitoring), no es contenido de negocio.
+  { key: "uso-firebase", label: "Uso de Firebase", href: "/uso-firebase", icon: "🔥", requiredAction: "manage_roles" },
 ];
 
 // ── Acciones (lo que un rol puede HACER) ───────────────────────────────

@@ -8,7 +8,7 @@ import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
   reqStage, resolveProjStage, type PmValueStage,
-  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct, calcReprocesoStats,
+  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
@@ -21,6 +21,7 @@ import NpsRangesModal from "@/components/NpsRangesModal";
 import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
 import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
+import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
 import { computeKpi, kpiColorFor } from "@/lib/kpi";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
@@ -65,6 +66,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const router = useRouter();
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
+  const [showReprocesoDetail, setShowReprocesoDetail] = useState(false);
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tarjetas"); // vista de Portafolios por PM (default: Tarjetas)
 
@@ -78,7 +80,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor,
-    reprocesoStats, teamReprocesoPct, repColor,
+    mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
   } = useMemo(() => {
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -223,7 +225,15 @@ function ControlTower({ data }: { data: DashboardData }) {
   // reproceso imputable al PM. Misma regla de excusa que Cumplimiento de Entrega.
   const reprocesoStats = calcReprocesoStats(req, proj, reproceso);
   const teamReprocesoPct = reprocesoStats.pct;
-  const repColor = teamReprocesoPct === null ? "#6b7280" : teamReprocesoPct >= 90 ? "var(--ok)" : teamReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+
+  // Variante "real, sin filtros" — SOLO para la tarjeta principal del Control Tower
+  // (Players/KPI siguen con la regla de excusa de arriba). Cuenta únicamente las
+  // unidades con selección ya hecha en el dropdown de Reproceso: "Sin reproceso" = 100,
+  // cualquier otra selección = 0; sin selección se ignora.
+  const mainReprocesoStats = calcReprocesoStatsRaw(req, proj, reproceso);
+  const mainReprocesoPct = mainReprocesoStats.pct;
+  const mainRepColor = mainReprocesoPct === null ? "#6b7280" : mainReprocesoPct >= 90 ? "var(--ok)" : mainReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+  const mainReprocesoRows = buildReprocesoRowsRaw(req, proj, projBoards, reproceso);
 
   // ── KPI PMO ──
   // Beneficio HardSaving del KPI: etapas Aprobación VPB y Confirmación VPC por separado
@@ -259,7 +269,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor,
-    reprocesoStats, teamReprocesoPct, repColor,
+    mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
     kpi, kpiPct, kpiAchievable, kpiColor,
   };
   }, [ini, req, proj, projBoards, projItemBaselines, calMap, nps, hardOnly, delays, reproceso]);
@@ -273,7 +283,7 @@ function ControlTower({ data }: { data: DashboardData }) {
         <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
 
           {/* EVM */}
-          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hColor }}>
+          <div className="flex flex-col justify-center rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hColor }}>
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">EVM · PMO</div>
             <div className="text-5xl font-extrabold leading-none" style={{ color: hColor }}>
               {vemPct !== null ? `${vemPct}%` : "—"}
@@ -281,7 +291,7 @@ function ControlTower({ data }: { data: DashboardData }) {
             <div className="mt-2 flex justify-center">
               <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.72rem] font-bold" style={{ color: hColor, background: hBg }}>{hIcon} {hLabel}</span>
             </div>
-            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
               {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
               {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
               {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
@@ -289,13 +299,13 @@ function ControlTower({ data }: { data: DashboardData }) {
           </div>
 
           {/* Costo & Beneficio — REQ + Proyectos */}
-          <div className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "var(--ok)" : "var(--accent)" }}>
+          <div className="flex flex-col justify-center rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: hardOnly ? "var(--ok)" : "var(--accent)" }}>
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Costo &amp; Beneficio</div>
             <div className="text-[2rem] font-extrabold leading-none" style={{ color: "var(--ok)" }} title="Beneficio de la etapa Aprobación VPB">{fmtMoney(colAprobacionBenefit)}</div>
             <div className="mt-1 text-[0.78rem] font-semibold text-[var(--text-muted)]">
               Costo <span style={{ color: "var(--info)" }}>{fmtMoney(totalCost)}</span>
             </div>
-            <div className="mt-auto flex flex-col gap-0.5 pt-3 text-[0.72rem] font-semibold text-[var(--text-muted)]">
+            <div className="flex flex-col gap-0.5 pt-3 text-[0.72rem] font-semibold text-[var(--text-muted)]">
               <span>Validación <span style={{ color: "var(--info)" }}>{fmtMoney(colValidacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colValidacionBenefit)}</span></span>
               <span>Aprobación <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobacionBenefit)}</span></span>
               <span>Confirmación <span style={{ color: "var(--info)" }}>{fmtMoney(colConfirmacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colConfirmacionBenefit)}</span></span>
@@ -312,34 +322,38 @@ function ControlTower({ data }: { data: DashboardData }) {
             </div>
           </div>
 
-          {/* Calidad de Entregas — % de unidades limpias, sin reproceso imputable al PM */}
+          {/* Calidad de Entregas — % REAL sin filtros: solo unidades ya seleccionadas en el
+              dropdown de Reproceso ("Sin reproceso" = limpia, cualquier otra selección =
+              con reproceso; sin selección se ignora). Regla exclusiva de esta tarjeta —
+              Players/KPI siguen con la regla de excusa. */}
           <div
-            title="Un cierre/fase con reproceso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador/BRM, o 'Sin reproceso')."
-            className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: repColor }}
+            onClick={() => setShowReprocesoDetail(true)}
+            title="% real: solo cuenta unidades con selección ya hecha en el dropdown de Reproceso. 'Sin reproceso' = limpia; cualquier otra selección (incluido PM) = con reproceso. Sin selección se ignora. Click para ver detalle."
+            className="flex cursor-pointer flex-col justify-center rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5" style={{ background: "var(--bg-surface)", borderColor: mainRepColor }}
           >
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Calidad de Entregas</div>
-            <div className="text-5xl font-extrabold leading-none" style={{ color: repColor }}>
-              {teamReprocesoPct !== null ? `${teamReprocesoPct}%` : "—"}
+            <div className="text-5xl font-extrabold leading-none" style={{ color: mainRepColor }}>
+              {mainReprocesoPct !== null ? `${mainReprocesoPct}%` : "—"}
             </div>
-            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: repColor }}>Con reproceso</div>
-            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
-              <span style={{ color: "var(--ok)" }}>{reprocesoStats.limpias} limpias</span>
-              <span style={{ color: "var(--bad)" }}>{reprocesoStats.conReproceso} con reproceso</span>
-              <span>{reprocesoStats.total} entregados</span>
+            <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: mainRepColor }}>Con reproceso</div>
+            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+              <span style={{ color: "var(--ok)" }}>{mainReprocesoStats.limpias} limpias</span>
+              <span style={{ color: "var(--bad)" }}>{mainReprocesoStats.conReproceso} con reproceso</span>
+              <span>{mainReprocesoStats.total} entregados</span>
             </div>
           </div>
 
           {/* Cumplimiento de Entrega — % a tiempo (REQ + items + subitems) */}
           <div
             title="Un atraso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador/BRM). Un atraso imputado a PM sigue contando."
-            className="flex flex-col rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}
+            className="flex flex-col justify-center rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}
           >
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Cumplimiento de Entrega</div>
             <div className="text-5xl font-extrabold leading-none" style={{ color: entColor }}>
               {entPct !== null ? `${entPct}%` : "—"}
             </div>
             <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: entColor }}>A tiempo</div>
-            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
               <span style={{ color: "var(--ok)" }}>{entOn} a tiempo</span>
               <span style={{ color: "var(--bad)" }}>{entLate} con atraso</span>
               <span>{entTotal} entregas</span>
@@ -354,7 +368,7 @@ function ControlTower({ data }: { data: DashboardData }) {
               <div
                 onClick={() => setShowNps(true)}
                 title="Ver detalle NPS"
-                className="flex cursor-pointer flex-col rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5"
+                className="flex cursor-pointer flex-col justify-center rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5"
                 style={{ background: "var(--bg-surface)", borderColor: npsColor }}
               >
                 <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">NPS</div>
@@ -364,7 +378,7 @@ function ControlTower({ data }: { data: DashboardData }) {
                 <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide" style={{ color: npsColor }}>
                   {cfg?.label ?? "Sin datos"}
                 </div>
-                <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
                   <span style={{ color: "var(--ok)" }}>{nps.promoters} prom.</span>
                   <span style={{ color: "var(--bad)" }}>{nps.detractors} detr.</span>
                   <span>{nps.total} resp.</span>
@@ -377,13 +391,13 @@ function ControlTower({ data }: { data: DashboardData }) {
           <div
             onClick={() => setShowValueGate(true)}
             title="Ver acciones del VPA"
-            className="flex cursor-pointer flex-col rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5"
+            className="flex cursor-pointer flex-col justify-center rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5"
             style={{ background: "var(--bg-surface)", borderColor: "#8b5cf6" }}
           >
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">VPA Actions</div>
             <div className="text-5xl font-extrabold leading-none" style={{ color: "#8b5cf6" }}>{vpaPending.length}</div>
             <div className="mt-2 text-[0.8rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">Pendientes</div>
-            <div className="mt-auto flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold">
+            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold">
               <span style={{ color: "#10b981" }}>✓ {vgEnTiempo} En Tiempo</span>
               <span style={{ color: "#f59e0b" }}>⚠ {vgHoy} Hoy</span>
               <span style={{ color: "#ef4444" }}>✕ {vgAtrasado} Atrasado</span>
@@ -450,6 +464,7 @@ function ControlTower({ data }: { data: DashboardData }) {
 
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
+      {showReprocesoDetail && <ReprocesoDetailModal rows={mainReprocesoRows} onClose={() => setShowReprocesoDetail(false)} />}
     </div>
   );
 }
