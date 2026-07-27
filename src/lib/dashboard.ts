@@ -308,6 +308,38 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
   return rows;
 }
 
+export interface LateResponsibleRow {
+  id: string;                        // r.id / p.id / s.id — atribución "delay"
+  source: "REQ" | "Proyecto";
+  name: string;
+  pm: string;
+  responsible: DelayResponsible | null; // null = sin asignar
+}
+
+/** Filas de atraso (verdict "late") con su responsable asignado (o null si no
+ *  tiene). Usada para el detalle de "Cumplimiento de Entrega": desglose de qué
+ *  responsable concentra los atrasos + nombre/id de cada uno. Solo "PM" o sin
+ *  asignar penaliza el % (ver lateExcused); el resto excusa el atraso. */
+export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap): LateResponsibleRow[] {
+  const bpm = boardPmMap(projBoards);
+  const rows: LateResponsibleRow[] = [];
+  for (const r of reqs) {
+    if (r.onTime.verdict !== "late") continue;
+    rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible: delays[r.id]?.responsible ?? null });
+  }
+  for (const p of projs) {
+    const pm = bpm.get(p.boardId) ?? p.pm;
+    if (p.entrega === "late") {
+      rows.push({ id: p.id, source: "Proyecto", name: p.name, pm, responsible: delays[p.id]?.responsible ?? null });
+    }
+    for (const s of p.subitems) {
+      if (s.entrega !== "late") continue;
+      rows.push({ id: s.id, source: "Proyecto", name: `${p.name} · ${s.name}`, pm, responsible: delays[s.id]?.responsible ?? null });
+    }
+  }
+  return rows;
+}
+
 export interface ReprocesoRow {
   id: string;                        // r.id / projPhaseKey(boardId, grupo) — atribución "reproceso"
   source: "REQ" | "Proyecto";

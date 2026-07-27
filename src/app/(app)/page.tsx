@@ -8,7 +8,7 @@ import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
   reqStage, resolveProjStage, type PmValueStage,
-  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw,
+  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
@@ -22,6 +22,7 @@ import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
 import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
 import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
+import EntregaDetailModal from "@/components/EntregaDetailModal";
 import { computeKpi, kpiColorFor } from "@/lib/kpi";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
@@ -67,6 +68,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
   const [showReprocesoDetail, setShowReprocesoDetail] = useState(false);
+  const [showEntregaDetail, setShowEntregaDetail] = useState(false);
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tarjetas"); // vista de Portafolios por PM (default: Tarjetas)
 
@@ -79,7 +81,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
     G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
-    entOn, entLate, entTotal, entPct, entColor,
+    entOn, entLate, entTotal, entPct, entColor, entLateRows,
     mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
   } = useMemo(() => {
   const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
@@ -219,6 +221,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const entTotal = entOn + entLate;
   const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
+  const entLateRows = buildLateResponsibleRows(req, proj, projBoards, delays);
 
   // ── Calidad de Entregas (Reproceso) ──
   // % de unidades "limpias" (REQ cerrados + fases de proyecto completadas) sin
@@ -268,7 +271,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
     G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
-    entOn, entLate, entTotal, entPct, entColor,
+    entOn, entLate, entTotal, entPct, entColor, entLateRows,
     mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
     kpi, kpiPct, kpiAchievable, kpiColor,
   };
@@ -345,8 +348,9 @@ function ControlTower({ data }: { data: DashboardData }) {
 
           {/* Cumplimiento de Entrega — % a tiempo (REQ + items + subitems) */}
           <div
-            title="Un atraso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador/BRM). Un atraso imputado a PM sigue contando."
-            className="flex flex-col justify-center rounded-xl border-2 p-5 text-center" style={{ background: "var(--bg-surface)", borderColor: entColor }}
+            onClick={() => setShowEntregaDetail(true)}
+            title="Un atraso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador/BRM). Un atraso imputado a PM sigue contando. Click para ver detalle."
+            className="flex cursor-pointer flex-col justify-center rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5" style={{ background: "var(--bg-surface)", borderColor: entColor }}
           >
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Cumplimiento de Entrega</div>
             <div className="text-5xl font-extrabold leading-none" style={{ color: entColor }}>
@@ -465,6 +469,7 @@ function ControlTower({ data }: { data: DashboardData }) {
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
       {showReprocesoDetail && <ReprocesoDetailModal rows={mainReprocesoRows} onClose={() => setShowReprocesoDetail(false)} />}
+      {showEntregaDetail && <EntregaDetailModal rows={entLateRows} onClose={() => setShowEntregaDetail(false)} />}
     </div>
   );
 }
