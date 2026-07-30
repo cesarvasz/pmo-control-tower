@@ -47,12 +47,13 @@ const fmtMoneyShort = (n: number | null | undefined): string => {
 
 const INI_HEALTH_CFG = HEALTH_CFG;
 
-// Detección del item "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)" (fase Aprobación).
+// Detección del item Value Gate (BC): "Firmado y aprobado (Sponsor+VPA+PMO Mgr)" en la
+// fase Aprobación, o "Actualizado y firmado (Sponsor+VPA+PMO Mgr)" en Launch | Desarrollo.
 // Se usa para las acciones del VPA.
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const isValueGate = (name: string) => {
   const n = norm(name);
-  return n.includes("value gate") && n.includes("firmado") && n.includes("aprobado");
+  return n.includes("value gate") && n.includes("firmado");
 };
 
 export default function ControlTowerPage() {
@@ -183,9 +184,9 @@ function ControlTower({ data }: { data: DashboardData }) {
   // ── VPA Actions ──
   // Acciones que debe realizar el VPA, con visibilidad de su estado:
   //  · Proyectos: steps "VPA valida Business Case…" / "Entregable Business Case
-  //    validado por VPA" (fase 1 y 3), "Plan de beneficios acordados con CFO" y
-  //    "Value Gate (BC) Firmado y aprobado (Sponsor+VPA+PMO Mgr)" (fase 2 y 3),
-  //    en Working on it (o Done, en el detalle).
+  //    validado por VPA" (fase 1 y 3), "Plan de beneficios acordados con CFO" y el
+  //    Value Gate (BC) — "Firmado y aprobado" (Aprobación) o "Actualizado y firmado"
+  //    (Launch | Desarrollo) —, en Working on it (o Done, en el detalle).
   //  · REQ: ítems en fase 2 (grupo Aprobación).
   const isVgStep = (name: string) => {
     const n = norm(name);
