@@ -44,6 +44,43 @@ interface Metrics {
   groupOrder: string[];
   groupMap: Map<string, ProjItem[]>;
   criticalItems: ProjItem[];
+  upcomingActions: UpcomingAction[];
+}
+
+interface UpcomingAction {
+  id: string;
+  kind: "item" | "subitem";
+  name: string;
+  parentName?: string;
+  pmsId?: string;
+  grupo: string;
+  resp: string;
+  deadline: Date;
+}
+
+/** Items/subitems NO completados con deadline dentro de los próximos 7 días (hoy
+ *  incluido). Sirve como "detalle de lo que se hará" en proyectos sin acciones
+ *  críticas (on track / in risk sin atrasos). */
+function computeUpcomingActions(items: ProjItem[]): UpcomingAction[] {
+  const from = new Date();
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setDate(to.getDate() + 7);
+
+  const inWindow = (d: Date | null) => d !== null && d >= from && d <= to;
+
+  const out: UpcomingAction[] = [];
+  for (const r of items) {
+    if (r.status !== "Done" && inWindow(r.deadline)) {
+      out.push({ id: r.id, kind: "item", name: r.name, grupo: r.grupo, resp: r.resp, deadline: r.deadline as Date });
+    }
+    for (const s of r.subitems) {
+      if (s.status !== "Done" && inWindow(s.deadline)) {
+        out.push({ id: s.id, kind: "subitem", name: s.name, parentName: r.name, pmsId: s.pmsId, grupo: r.grupo, resp: s.person, deadline: s.deadline as Date });
+      }
+    }
+  }
+  return out.sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
 }
 
 function phaseStatusOf(gItems: ProjItem[]): PhaseStatus {
@@ -95,7 +132,10 @@ function computeMetrics(items: ProjItem[], spi: number | null, cpi: number | nul
     (r) => isOffTrack(r.status, r.estado) || r.subitems.some((s) => isOffTrack(s.status, s.estado)),
   );
 
-  return { spi, cpi, scope, healthIndex, healthStatus, done, working, future, atrasados, totalCost, totalBenefit, roi, payback, phases, groupOrder, groupMap, criticalItems };
+  // Sin acciones críticas: se muestra en su lugar lo que se hará la próxima semana.
+  const upcomingActions = criticalItems.length === 0 ? computeUpcomingActions(items) : [];
+
+  return { spi, cpi, scope, healthIndex, healthStatus, done, working, future, atrasados, totalCost, totalBenefit, roi, payback, phases, groupOrder, groupMap, criticalItems, upcomingActions };
 }
 
 const HC = {
@@ -385,6 +425,41 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             </div>
           )}
 
+          {/* Próximas Acciones — solo si no hay acciones críticas (proyecto sin atrasos) */}
+          {m.criticalItems.length === 0 && (
+            <div>
+              <SectionLabel>Próximas Acciones · Siguiente Semana</SectionLabel>
+              {m.upcomingActions.length === 0 ? (
+                <div className="rounded-xl border px-4 py-3 text-[0.78rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border)" }}>
+                  Sin acciones programadas para los próximos 7 días.
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
+                  {m.upcomingActions.map((a, i) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center gap-3 px-4 py-2.5"
+                      style={{ borderTop: i > 0 ? "1px solid var(--border)" : undefined, borderLeft: "3px solid #0ea5e9" }}
+                    >
+                      <span style={{ color: "#0ea5e9", fontWeight: 700 }}>📅</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[0.78rem] font-medium text-[var(--text-primary)]">
+                          {a.kind === "subitem" ? `${a.parentName} · ${a.name}` : a.name}
+                        </div>
+                        <div className="truncate text-[0.67rem] text-[var(--text-muted)]">
+                          {a.grupo}{a.resp ? ` · ${a.resp}` : ""}{a.pmsId ? ` · ${a.pmsId}` : ""}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-[0.67rem] font-semibold" style={{ color: "#0ea5e9" }}>
+                        {fmtDate(a.deadline)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
     </Modal>
   );
@@ -538,6 +613,18 @@ function buildPrintHTML(
     })
     .join("");
 
+  const upcomingRows = m.upcomingActions
+    .map(
+      (a) => `
+      <tr>
+        <td style="color:#0ea5e9;font-weight:700;width:18px">📅</td>
+        <td style="font-weight:500">${a.kind === "subitem" ? `${a.parentName} · ${a.name}` : a.name}</td>
+        <td style="color:#6b7280">${a.grupo}${a.resp ? ` · ${a.resp}` : ""}</td>
+        <td style="color:#0ea5e9;white-space:nowrap">${fmtDate(a.deadline)}</td>
+      </tr>`,
+    )
+    .join("");
+
   const groupRows = m.groupOrder
     .map((grupo) => {
       const gItems = m.groupMap.get(grupo)!;
@@ -648,7 +735,14 @@ ${m.criticalItems.length > 0 ? `
 <table>
   <thead><tr><th></th><th>Acción</th><th>Responsable</th><th>Deadline</th></tr></thead>
   <tbody>${criticalRows}</tbody>
-</table>` : ""}
+</table>` : `
+<!-- Próximas Acciones -->
+<h2>Próximas Acciones · Siguiente Semana</h2>
+${m.upcomingActions.length > 0 ? `
+<table>
+  <thead><tr><th></th><th>Acción</th><th>Fase / Responsable</th><th>Deadline</th></tr></thead>
+  <tbody>${upcomingRows}</tbody>
+</table>` : `<div style="color:#9ca3af;font-size:9.5px">Sin acciones programadas para los próximos 7 días.</div>`}`}
 
 <div style="height:1px;background:#f3f4f6;margin:10px 0"></div>
 <div style="font-size:8px;color:#d1d5db;text-align:center">Generado por PMO Dashboard · ${today}</div>

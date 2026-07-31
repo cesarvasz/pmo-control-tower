@@ -36,7 +36,7 @@ interface TopbarProps {
 export default function Topbar({ onMenuClick }: TopbarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const { data, loading, refresh } = useData();
+  const { data } = useData();
   const meta = PAGE_META[pathname] ?? { title: "PMO Dashboard", subtitle: "" };
 
   const [theme, setTheme] = useState<Theme>("dark");
@@ -125,11 +125,11 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
           {THEME_META[theme].icon}
         </button>
         <button
-          onClick={() => refresh()}
-          disabled={loading}
-          className="rounded-md bg-[var(--accent)] px-3.5 py-1.5 text-[0.8rem] text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() => window.location.reload()}
+          title="Recarga la página completa (igual que F5)"
+          className="rounded-md bg-[var(--accent)] px-3.5 py-1.5 text-[0.8rem] text-white transition-colors hover:bg-[var(--accent-hover)]"
         >
-          {loading ? "Actualizando..." : "↻ Actualizar"}
+          ↻ Actualizar
         </button>
         <button
           onClick={() => logout()}
