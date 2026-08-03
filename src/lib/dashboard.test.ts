@@ -7,6 +7,7 @@ import {
   buildBoardHealthMap,
   calcPmMetrics,
   calcEntregaStats,
+  calcEntregaStatsRaw,
   calcReprocesoPct,
   completedProjectPhases,
   buildEntregaRows,
@@ -258,6 +259,31 @@ describe("calcEntregaStats (Cumplimiento de Entrega: REQ + hitos únicos de Proy
       step([sub({ id: "s2", pmsId: "", entrega: "late" })]),
     ];
     expect(calcEntregaStats([], projs, {})).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+  });
+});
+
+describe("calcEntregaStatsRaw (tarjeta principal: todos los atrasados, sin excusar por responsable)", () => {
+  const step = (subitems: ReturnType<typeof sub>[]) => proj({ boardId: "b1", subitems });
+
+  it("un atraso con responsable ≠ PM cuenta igual (no se excusa, a diferencia de calcEntregaStats)", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })];
+    const projs = [
+      step([sub({ id: "s1", pmsId: "H1", entrega: "late" })]),
+    ];
+    // Nota: calcEntregaStatsRaw no recibe delays — no hay forma de excusar nada.
+    expect(calcEntregaStatsRaw(reqs, projs)).toEqual({ total: 3, onTime: 1, late: 2, pct: 33 });
+  });
+
+  it("cada hito sigue pesando 1 unidad (misma agrupación por PMS ID que calcEntregaStats)", () => {
+    const projs = [
+      step([sub({ id: "s1", pmsId: "H1", entrega: "on-time" })]),
+      step([sub({ id: "s2", pmsId: "H1", entrega: "late" })]),
+      step([sub({ id: "s3", pmsId: "H1", entrega: "late" })]),
+    ];
+    // H1: 1 a tiempo de 3 Done → 33%, única unidad en scope.
+    const stats = calcEntregaStatsRaw([], projs);
+    expect(stats.total).toBe(1);
+    expect(stats.pct).toBe(33);
   });
 });
 

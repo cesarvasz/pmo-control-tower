@@ -241,6 +241,38 @@ export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: Del
   return { total, onTime, late, pct };
 }
 
+/** Variante "todos los atrasados" de Cumplimiento de Entrega — SOLO para la
+ *  tarjeta principal del Control Tower (Players/KPI siguen excusando por
+ *  responsable, ver calcEntregaStats). Cuenta TODO atraso (de REQ o de una
+ *  ocurrencia de un hito), sin importar el responsable asignado ni si es "PM". */
+export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[]): EntregaStats {
+  let total = 0;
+  let onTimeSum = 0;
+
+  for (const r of reqs) {
+    const v = r.onTime.verdict;
+    if (v === "on-time") { total++; onTimeSum++; }
+    else if (v === "late") { total++; }
+  }
+
+  for (const occurrences of groupHitos(projs).values()) {
+    let on = 0, late = 0;
+    for (const s of occurrences) {
+      if (s.entrega === "on-time") on++;
+      else if (s.entrega === "late") late++;
+    }
+    const evalTotal = on + late;
+    if (evalTotal === 0) continue;
+    total++;
+    onTimeSum += on / evalTotal;
+  }
+
+  const onTime = Math.round(onTimeSum);
+  const late = total - onTime;
+  const pct = total ? Math.round((onTimeSum / total) * 100) : null;
+  return { total, onTime, late, pct };
+}
+
 // ── Reproceso (componente del KPI, peso 20) ──────────────────────────────
 /** Clave sintética de atribución de una fase (grupo) de un proyecto.
  *  Debe coincidir con la usada en la UI de Proyectos (cabecera de cada fase). */
@@ -386,6 +418,41 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
       else if (s.entrega === "late" && !lateExcused(s.id, delays)) { late++; responsible = delays[s.id]?.responsible ?? null; }
     }
     if (late === 0) continue; // sin ocurrencias atrasadas sin excusar → no aparece en el detalle
+    rows.push({ id: key, source: "Proyecto", name: subs[0].name, pm, responsible, onTime, doneTotal: onTime + late });
+  }
+  return rows;
+}
+
+/** Variante "todos los atrasados" de buildLateResponsibleRows — SOLO para el
+ *  detalle de la tarjeta principal del Control Tower (Players/KPI siguen
+ *  excusando por responsable, ver buildLateResponsibleRows). Lista TODO
+ *  REQ/hito con al menos una ocurrencia atrasada, sin importar el responsable
+ *  asignado (se muestra igual, es solo informativo aquí). */
+export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap): LateResponsibleRow[] {
+  const bpm = boardPmMap(projBoards);
+  const rows: LateResponsibleRow[] = [];
+  for (const r of reqs) {
+    if (r.onTime.verdict !== "late") continue;
+    rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible: delays[r.id]?.responsible ?? null });
+  }
+
+  const hitos = new Map<string, { pm: string; subs: ProjSubitem[] }>();
+  for (const p of projs) {
+    const pm = bpm.get(p.boardId) ?? p.pm;
+    for (const s of p.subitems) {
+      const key = s.pmsId ? `${p.boardId}::${s.pmsId}` : `id::${s.id}`;
+      const g = hitos.get(key);
+      if (g) g.subs.push(s); else hitos.set(key, { pm, subs: [s] });
+    }
+  }
+  for (const [key, { pm, subs }] of hitos) {
+    let onTime = 0, late = 0;
+    let responsible: DelayResponsible | null = null;
+    for (const s of subs) {
+      if (s.entrega === "on-time") onTime++;
+      else if (s.entrega === "late") { late++; responsible = delays[s.id]?.responsible ?? responsible; }
+    }
+    if (late === 0) continue;
     rows.push({ id: key, source: "Proyecto", name: subs[0].name, pm, responsible, onTime, doneTotal: onTime + late });
   }
   return rows;

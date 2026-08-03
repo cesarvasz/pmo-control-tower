@@ -8,7 +8,7 @@ import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
   reqStage, resolveProjStage, type PmValueStage,
-  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows,
+  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
@@ -215,14 +215,15 @@ function ControlTower({ data }: { data: DashboardData }) {
   const vgHoy      = vpaPending.filter((a) => a.estado === "PARA HOY").length;
   const vgAtrasado = vpaPending.filter((a) => a.estado === "ATRASADO").length;
 
-  // ── Cumplimiento de Entrega ──
-  // % de entregas a tiempo: REQ cerrados + hitos ÚNICOS de Proyectos (por PMS ID —
-  // el mismo hito se repite como subitem en varios steps del ciclo de vida; cada
-  // hito pesa 1 unidad, aportando su propio % entre sus ocurrencias ya Done).
-  // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
-  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(req, proj, delays);
+  // ── Cumplimiento de Entrega (tarjeta principal) ──
+  // % REAL sin excusas: REQ cerrados + hitos ÚNICOS de Proyectos (por PMS ID — el
+  // mismo hito se repite como subitem en varios steps del ciclo de vida; cada hito
+  // pesa 1 unidad, aportando su propio % entre sus ocurrencias ya Done). Cuenta TODO
+  // atraso sin importar el responsable asignado. Players/KPI sí excusan por
+  // responsable (ver calcEntregaStats, usada en calcPmMetrics y en la tarjeta de PM).
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStatsRaw(req, proj);
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
-  const entLateRows = buildLateResponsibleRows(req, proj, projBoards, delays);
+  const entLateRows = buildLateResponsibleRowsRaw(req, proj, projBoards, delays);
 
   // ── Calidad de Entregas (Reproceso) ──
   // % de unidades "limpias" (REQ cerrados + fases de proyecto completadas) sin
@@ -347,10 +348,10 @@ function ControlTower({ data }: { data: DashboardData }) {
             </div>
           </div>
 
-          {/* Cumplimiento de Entrega — % a tiempo (REQ + items + subitems) */}
+          {/* Cumplimiento de Entrega — % real: TODO atraso cuenta, sin excusar por responsable */}
           <div
             onClick={() => setShowEntregaDetail(true)}
-            title="Un atraso cuenta en el % (incluso sin responsable asignado); solo se excusa si se asigna a un responsable distinto de PM (VPA/CKU/Sponsor/Desarrollador/BRM). Un atraso imputado a PM sigue contando. Click para ver detalle."
+            title="% real: cuenta TODO REQ/hito atrasado, sin importar el responsable asignado (a diferencia de Players/KPI, que sí excusan por responsable). Click para ver detalle."
             className="flex cursor-pointer flex-col justify-center rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5" style={{ background: "var(--bg-surface)", borderColor: entColor }}
           >
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Cumplimiento de Entrega</div>
@@ -547,10 +548,11 @@ function PMPortfolioCard({
   const [showValue, setShowValue] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showNpsRanges, setShowNpsRanges] = useState(false);
+  const [showEntregaDetail, setShowEntregaDetail] = useState(false);
 
   const {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, pmNps, npsColor,
-    entOn, entLate, entTotal, entPct, entColor,
+    entOn, entLate, entTotal, entPct, entColor, entLateRows,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
@@ -567,12 +569,11 @@ function PMPortfolioCard({
   // (por PMS ID, 1 unidad c/u — ver calcEntregaStats).
   // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(
-    req.filter((r) => r.pm === pm),
-    proj.filter((p) => pmBoardIdSet.has(p.boardId)),
-    delays,
-  );
+  const pmReqFiltered = req.filter((r) => r.pm === pm);
+  const pmProjFiltered = proj.filter((p) => pmBoardIdSet.has(p.boardId));
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(pmReqFiltered, pmProjFiltered, delays);
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
+  const entLateRows = buildLateResponsibleRows(pmReqFiltered, pmProjFiltered, projBoards, delays);
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
@@ -627,7 +628,7 @@ function PMPortfolioCard({
 
   return {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, pmNps, npsColor,
-    entOn, entLate, entTotal, entPct, entColor,
+    entOn, entLate, entTotal, entPct, entColor, entLateRows,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
@@ -667,7 +668,7 @@ function PMPortfolioCard({
           { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · promedio de Iniciativas, REQ y Proyectos" },
           { label: "Beneficio", value: fmtMoneyShort(pmBenefitDisplay), color: "var(--ok)", onClick: () => setShowValue(true), title: `Beneficio HardSaving (Aprobación VPB): ${fmtMoney(pmBenefitDisplay)} · clic para ver el detalle` },
           { label: "Calidad de Entrega", value: pmReprocesoPct !== null ? `${pmReprocesoPct}%` : "—", color: repColor, title: "Calidad de Entrega · % de unidades limpias sin reproceso imputable al PM" },
-          { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "s/d", color: entColor, title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal}` },
+          { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "s/d", color: entColor, onClick: () => setShowEntregaDetail(true), title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal} · clic para ver el detalle` },
           { label: "NPS", value: pmNps.nps !== null ? String(pmNps.nps) : "s/d", color: npsColor, onClick: () => setShowNpsRanges(true), title: `NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""} · clic para ver cómo se mide`, sub: npsLabel },
         ];
         return (
@@ -741,6 +742,7 @@ function PMPortfolioCard({
         <KpiModal title={`KPI · ${pm}`} pct={pmKpiPct} achievable={pmKpi.achievable} pendingWeight={100 - pmKpi.achievable} color={pmKpiColor} components={pmKpi.components} onClose={() => setShowKpi(false)} />
       )}
       {showNpsRanges && <NpsRangesModal nps={pmNps.nps} onClose={() => setShowNpsRanges(false)} />}
+      {showEntregaDetail && <EntregaDetailModal rows={entLateRows} onClose={() => setShowEntregaDetail(false)} />}
     </div>
   );
 }
