@@ -11,7 +11,7 @@ import { calcNpsFromRecords } from "@/lib/nps";
 import { computeKpi } from "@/lib/kpi";
 import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
 import type {
-  CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem,
+  CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ProjSubitem, ReqItem,
 } from "@/types";
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -187,22 +187,58 @@ export function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBo
 }
 
 // ── Compromiso de Entregas ───────────────────────────────────────────────
-/** Cuenta entregas a tiempo y atrasadas (REQ + items + subitems de Proyectos).
- *  Un atraso cuenta como tal por defecto (incluso sin responsable asignado); solo
- *  se EXCUSA (se excluye del cálculo) si se le asignó un responsable distinto de
- *  "PM". Un atraso imputado a PM sigue contando como atraso. */
-export function countDeliveries(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap): { on: number; late: number } {
-  let on = 0, late = 0;
-  const tally = (id: string, verdict: "on-time" | "late" | "n/a" | null) => {
-    if (verdict === "on-time") on++;
-    else if (verdict === "late" && !lateExcused(id, delays)) late++;
-  };
-  for (const r of reqs) tally(r.id, r.onTime.verdict);
+export interface EntregaStats { total: number; onTime: number; late: number; pct: number | null; }
+
+/** Agrupa los subitems (hitos) de Proyectos por board + PMS ID: el mismo hito se
+ *  repite como subitem en varios steps/fases del ciclo de vida (mismo PMS ID en
+ *  cada uno). Sin PMS ID no hay con qué deduplicar: el subitem cuenta como su
+ *  propio hito de una sola ocurrencia. */
+function groupHitos(projs: ProjItem[]): Map<string, ProjSubitem[]> {
+  const map = new Map<string, ProjSubitem[]>();
   for (const p of projs) {
-    tally(p.id, p.entrega);
-    for (const s of p.subitems) tally(s.id, s.entrega);
+    for (const s of p.subitems) {
+      const key = s.pmsId ? `${p.boardId}::${s.pmsId}` : `id::${s.id}`;
+      const arr = map.get(key);
+      if (arr) arr.push(s); else map.set(key, [s]);
+    }
   }
-  return { on, late };
+  return map;
+}
+
+/** Cumplimiento de Entrega: REQ cerrados (1 unidad c/u, on-time o atraso) + hitos
+ *  de Proyectos ÚNICOS por PMS ID (1 unidad c/u — pesan igual sin importar cuántos
+ *  steps recorrió cada uno). El % de un hito es el de sus propias ocurrencias YA
+ *  Done (a tiempo / atrasadas); si aún no tiene ninguna Done evaluable, no cuenta
+ *  todavía. Los steps/items de Proyecto que NO son hitos (sin subitems) ya NO
+ *  cuentan para esta métrica. Un atraso (de REQ o de una ocurrencia del hito) solo
+ *  penaliza si su responsable es "PM"; si se excusa (responsable ≠ PM), esa
+ *  ocurrencia se excluye (no cuenta ni a favor ni en contra). */
+export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap): EntregaStats {
+  let total = 0;
+  let onTimeSum = 0;
+
+  for (const r of reqs) {
+    const v = r.onTime.verdict;
+    if (v === "on-time") { total++; onTimeSum++; }
+    else if (v === "late" && !lateExcused(r.id, delays)) { total++; }
+  }
+
+  for (const occurrences of groupHitos(projs).values()) {
+    let on = 0, late = 0;
+    for (const s of occurrences) {
+      if (s.entrega === "on-time") on++;
+      else if (s.entrega === "late" && !lateExcused(s.id, delays)) late++;
+    }
+    const evalTotal = on + late;
+    if (evalTotal === 0) continue; // sin ocurrencias evaluables aún (nada Done, o todo excusado)
+    total++;
+    onTimeSum += on / evalTotal;
+  }
+
+  const onTime = Math.round(onTimeSum);
+  const late = total - onTime;
+  const pct = total ? Math.round((onTimeSum / total) * 100) : null;
+  return { total, onTime, late, pct };
 }
 
 // ── Reproceso (componente del KPI, peso 20) ──────────────────────────────
@@ -309,17 +345,22 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
 }
 
 export interface LateResponsibleRow {
-  id: string;                        // r.id / p.id / s.id — atribución "delay"
+  id: string;                        // r.id (REQ) / boardId::pmsId (hito de Proyecto)
   source: "REQ" | "Proyecto";
   name: string;
   pm: string;
-  responsible: DelayResponsible | null; // null = sin asignar
+  responsible: DelayResponsible | null; // null = sin asignar (de la ocurrencia atrasada más reciente, si es hito)
+  onTime?: number;                   // hito: ocurrencias a tiempo entre las ya Done
+  doneTotal?: number;                // hito: total de ocurrencias ya Done (on-time + atrasadas sin excusar)
 }
 
-/** Filas de atraso (verdict "late") con su responsable asignado (o null si no
- *  tiene). Usada para el detalle de "Cumplimiento de Entrega": desglose de qué
- *  responsable concentra los atrasos + nombre/id de cada uno. Solo "PM" o sin
- *  asignar penaliza el % (ver lateExcused); el resto excusa el atraso. */
+/** Filas de atraso para el detalle de "Cumplimiento de Entrega": REQ (1 fila c/u,
+ *  igual que antes) + hitos de Proyectos ÚNICOS por PMS ID (1 fila c/u — mismo
+ *  universo/agrupación que calcEntregaStats, no una fila por cada ocurrencia
+ *  repetida). Solo aparecen los hitos con al menos una ocurrencia atrasada SIN
+ *  excusar; el responsable mostrado es el de esa ocurrencia (la más reciente, si
+ *  hay varias). Solo "PM" o sin asignar penaliza el % (ver lateExcused); el resto
+ *  excusa el atraso. */
 export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap): LateResponsibleRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: LateResponsibleRow[] = [];
@@ -327,15 +368,25 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
     if (r.onTime.verdict !== "late") continue;
     rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible: delays[r.id]?.responsible ?? null });
   }
+
+  const hitos = new Map<string, { pm: string; subs: ProjSubitem[] }>();
   for (const p of projs) {
     const pm = bpm.get(p.boardId) ?? p.pm;
-    if (p.entrega === "late") {
-      rows.push({ id: p.id, source: "Proyecto", name: p.name, pm, responsible: delays[p.id]?.responsible ?? null });
-    }
     for (const s of p.subitems) {
-      if (s.entrega !== "late") continue;
-      rows.push({ id: s.id, source: "Proyecto", name: `${p.name} · ${s.name}`, pm, responsible: delays[s.id]?.responsible ?? null });
+      const key = s.pmsId ? `${p.boardId}::${s.pmsId}` : `id::${s.id}`;
+      const g = hitos.get(key);
+      if (g) g.subs.push(s); else hitos.set(key, { pm, subs: [s] });
     }
+  }
+  for (const [key, { pm, subs }] of hitos) {
+    let onTime = 0, late = 0;
+    let responsible: DelayResponsible | null = null;
+    for (const s of subs) {
+      if (s.entrega === "on-time") onTime++;
+      else if (s.entrega === "late" && !lateExcused(s.id, delays)) { late++; responsible = delays[s.id]?.responsible ?? null; }
+    }
+    if (late === 0) continue; // sin ocurrencias atrasadas sin excusar → no aparece en el detalle
+    rows.push({ id: key, source: "Proyecto", name: subs[0].name, pm, responsible, onTime, doneTotal: onTime + late });
   }
   return rows;
 }
@@ -433,13 +484,11 @@ export function calcPmMetrics(
   const nps = calcNpsFromRecords(npsRecords, pm);
 
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const { on: entOn, late: entLate } = countDeliveries(
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     delays,
   );
-  const entTotal = entOn + entLate;
-  const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
 
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);

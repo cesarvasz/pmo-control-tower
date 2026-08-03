@@ -6,7 +6,9 @@ import type { LateResponsibleRow } from "@/lib/dashboard";
 
 /** Pop-up de detalle de "Cumplimiento de Entrega" (tarjeta principal): desglose de qué
  *  responsable concentra los atrasos (conteo + %) y el listado nombre/id de cada uno.
- *  Solo "PM" o sin asignar penaliza el %; el resto excusa el atraso (ver lateExcused). */
+ *  Cada fila de Proyecto es un hito ÚNICO (por PMS ID, no una ocurrencia repetida por
+ *  step) con su propio ratio a tiempo/Done. Solo "PM" o sin asignar penaliza el %; el
+ *  resto excusa el atraso (ver lateExcused). */
 export default function EntregaDetailModal({ rows, onClose }: { rows: LateResponsibleRow[]; onClose: () => void }) {
   const total = rows.length;
 
@@ -83,7 +85,9 @@ export default function EntregaDetailModal({ rows, onClose }: { rows: LateRespon
                       <tr key={r.id} className="border-t" style={{ borderColor: "var(--border)" }}>
                         <td className="px-3 py-1.5 text-[var(--text-primary)]">
                           {r.name}
-                          <span className="ml-1.5 text-[0.64rem] text-[var(--text-muted)]">({r.source})</span>
+                          <span className="ml-1.5 text-[0.64rem] text-[var(--text-muted)]">
+                            ({r.source}{r.doneTotal ? ` · ${r.onTime}/${r.doneTotal} a tiempo` : ""})
+                          </span>
                         </td>
                         <td className="px-3 py-1.5 font-mono text-[0.7rem] text-[var(--text-muted)]">{r.id}</td>
                         <td className="px-3 py-1.5 font-bold" style={{ color }}>{responsible}</td>

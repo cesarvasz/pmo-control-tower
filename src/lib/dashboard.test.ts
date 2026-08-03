@@ -6,7 +6,7 @@ import {
   pmWorstStatus,
   buildBoardHealthMap,
   calcPmMetrics,
-  countDeliveries,
+  calcEntregaStats,
   calcReprocesoPct,
   completedProjectPhases,
   buildEntregaRows,
@@ -196,26 +196,68 @@ describe("pmWorstStatus", () => {
   });
 });
 
-describe("countDeliveries (responsable del atraso)", () => {
-  const p = (id: string, entrega: "on-time" | "late" | null) => proj({ id, boardId: "b1", entrega });
+describe("calcEntregaStats (Cumplimiento de Entrega: REQ + hitos únicos de Proyectos)", () => {
+  const step = (subitems: ReturnType<typeof sub>[]) => proj({ boardId: "b1", subitems });
 
-  it("un atraso sin asignar SÍ cuenta como atraso (penaliza por defecto)", () => {
-    expect(countDeliveries([], [p("1", "on-time"), p("2", "late")], {})).toEqual({ on: 1, late: 1 });
+  it("REQ cerrado cuenta 1 unidad c/u; solo excusa si el responsable es ≠ PM", () => {
+    const reqs = [
+      req({ id: "r1", onTime: onTime("on-time") }),
+      req({ id: "r2", onTime: onTime("late") }),
+      req({ id: "r3", onTime: onTime("late") }),
+    ];
+    const delays: DelayMap = { r3: { responsible: "VPA" } }; // r3 excusado
+    expect(calcEntregaStats(reqs, [], delays)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
   });
 
-  it("PM y sin asignar cuentan; solo un responsable ≠ PM excusa el atraso", () => {
-    const projs = [p("1", "on-time"), p("2", "late"), p("3", "late"), p("4", "late")];
-    const delays: DelayMap = { "2": { responsible: "PM" }, "3": { responsible: "VPA" } };
-    // p2 (PM) cuenta, p3 (VPA) excusado, p4 (sin asignar) cuenta → 2 atrasos, 1 a tiempo.
-    expect(countDeliveries([], projs, delays)).toEqual({ on: 1, late: 2 });
+  it("un item de Proyecto SIN subitems ya no cuenta (solo cuentan los hitos)", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", entrega: "late" })];
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
   });
 
-  it("cuenta REQ y subitems con la misma regla", () => {
-    const reqs = [req({ id: "r1", onTime: onTime("late") })];
-    const projs = [proj({ id: "p1", boardId: "b1", entrega: null, subitems: [sub({ id: "s1", entrega: "late" })] })];
-    const delays: DelayMap = { r1: { responsible: "PM" }, s1: { responsible: "Sponsor" } };
-    // r1 (PM) cuenta; s1 (Sponsor) excusado.
-    expect(countDeliveries(reqs, projs, delays)).toEqual({ on: 0, late: 1 });
+  it("un hito repetido en varios steps (mismo PMS ID) pesa 1 sola unidad, con su propio % entre ocurrencias Done", () => {
+    const projs = [
+      step([sub({ id: "s1", pmsId: "H1", entrega: "on-time" })]),
+      step([sub({ id: "s2", pmsId: "H1", entrega: "on-time" })]),
+      step([sub({ id: "s3", pmsId: "H1", entrega: "late" })]),
+      step([sub({ id: "s4", pmsId: "H1", entrega: "late" })]),
+    ];
+    // 2 a tiempo de 4 Done → 50% para el hito H1, única unidad en scope.
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 1, late: 0, pct: 50 });
+  });
+
+  it("una ocurrencia atrasada y excusada (responsable ≠ PM) no cuenta ni a favor ni en contra del hito", () => {
+    const projs = [
+      step([sub({ id: "s1", pmsId: "H1", entrega: "on-time" })]),
+      step([sub({ id: "s2", pmsId: "H1", entrega: "late" })]), // excusado
+    ];
+    const delays: DelayMap = { s2: { responsible: "Sponsor" } };
+    expect(calcEntregaStats([], projs, delays)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+  });
+
+  it("un hito sin ninguna ocurrencia Done evaluable todavía no cuenta", () => {
+    const projs = [step([sub({ id: "s1", pmsId: "H1", entrega: null })])]; // Working on it / Future Steps
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
+  });
+
+  it("cada hito pesa igual sin importar cuántas ocurrencias (steps) recorrió", () => {
+    // H1: 8 ocurrencias, 4 a tiempo / 4 atrasadas → 50%.
+    const h1steps = Array.from({ length: 8 }, (_, i) =>
+      step([sub({ id: `h1-${i}`, pmsId: "H1", entrega: i < 4 ? "on-time" : "late" })]),
+    );
+    // H2: 1 sola ocurrencia, a tiempo → 100%.
+    const h2step = step([sub({ id: "h2-0", pmsId: "H2", entrega: "on-time" })]);
+    const stats = calcEntregaStats([], [...h1steps, h2step], {});
+    // Promedio simple (50 + 100) / 2 = 75%, NO ponderado por cantidad de ocurrencias.
+    expect(stats.total).toBe(2);
+    expect(stats.pct).toBe(75);
+  });
+
+  it("subitems sin PMS ID no se deduplican entre sí (cada uno es su propio hito)", () => {
+    const projs = [
+      step([sub({ id: "s1", pmsId: "", entrega: "on-time" })]),
+      step([sub({ id: "s2", pmsId: "", entrega: "late" })]),
+    ];
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
   });
 });
 
@@ -331,15 +373,17 @@ describe("calcPmMetrics", () => {
     expect(run({}).kpi.score).toBeLessThan(half.kpi.score);                                          // más reprocesos → menor KPI
   });
 
-  it("un atraso baja el % del PM por defecto; solo se excusa con responsable ≠ PM", () => {
+  it("un atraso baja el % del PM por defecto; solo se excusa con responsable ≠ PM (por hito, no por item)", () => {
     const projBoards = [board({ id: "b1", pm: "Luis" })];
     const projItems = [
-      proj({ boardId: "b1", id: "i1", status: "Done", estado: "EN TIEMPO", entrega: "on-time", name: "x", grupo: "Launch", cost: 0, benefit: 0 }),
-      proj({ boardId: "b1", id: "i2", status: "Done", estado: "ATRASADO", entrega: "late", name: "y", grupo: "Launch", cost: 0, benefit: 0 }),
+      proj({ boardId: "b1", id: "p1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 0, benefit: 0,
+        subitems: [sub({ id: "i1", pmsId: "H1", entrega: "on-time" })] }),
+      proj({ boardId: "b1", id: "p2", status: "Done", estado: "ATRASADO", name: "y", grupo: "Launch", cost: 0, benefit: 0,
+        subitems: [sub({ id: "i2", pmsId: "H2", entrega: "late" })] }),
     ];
     const bhm = buildBoardHealthMap(projItems, projBoards, {});
     const run = (delays: DelayMap) => calcPmMetrics("Luis", [], [], projItems, projBoards, bhm, new Map(), [], delays);
-    expect(run({}).entPct).toBe(50);                                    // sin asignar → atraso cuenta (1 de 2)
+    expect(run({}).entPct).toBe(50);                                    // sin asignar → atraso cuenta (1 de 2 hitos)
     expect(run({ i2: { responsible: "PM" } }).entPct).toBe(50);          // PM → cuenta (1 de 2)
     expect(run({ i2: { responsible: "Sponsor" } }).entPct).toBe(100);    // excusado → excluido
   });
@@ -347,7 +391,8 @@ describe("calcPmMetrics", () => {
   it("compone las métricas del PM (entregas, salud, KPI) de forma coherente", () => {
     const projBoards = [board({ id: "b1", pm: "Luis", benefitType: "HardSaving" })];
     const projItems = [
-      proj({ boardId: "b1", boardName: "P1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 100, benefit: 500, entrega: "on-time" }),
+      proj({ boardId: "b1", boardName: "P1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 100, benefit: 500,
+        subitems: [sub({ id: "s1", pmsId: "H1", entrega: "on-time" })] }),
     ];
     const bhm = buildBoardHealthMap(projItems, projBoards, {});
     const m = calcPmMetrics("Luis", [], [], projItems, projBoards, bhm, new Map(), []);

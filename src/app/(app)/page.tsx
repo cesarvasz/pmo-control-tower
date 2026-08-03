@@ -8,7 +8,7 @@ import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
   reqStage, resolveProjStage, type PmValueStage,
-  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, countDeliveries, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows,
+  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
@@ -216,11 +216,11 @@ function ControlTower({ data }: { data: DashboardData }) {
   const vgAtrasado = vpaPending.filter((a) => a.estado === "ATRASADO").length;
 
   // ── Cumplimiento de Entrega ──
-  // % de entregas a tiempo combinando la columna "Entrega" de REQ (cerrados), items y subitems.
+  // % de entregas a tiempo: REQ cerrados + hitos ÚNICOS de Proyectos (por PMS ID —
+  // el mismo hito se repite como subitem en varios steps del ciclo de vida; cada
+  // hito pesa 1 unidad, aportando su propio % entre sus ocurrencias ya Done).
   // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
-  const { on: entOn, late: entLate } = countDeliveries(req, proj, delays);
-  const entTotal = entOn + entLate;
-  const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(req, proj, delays);
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
   const entLateRows = buildLateResponsibleRows(req, proj, projBoards, delays);
 
@@ -563,16 +563,15 @@ function PMPortfolioCard({
   const pmNps = calcNpsFromRecords(npsRecords, pm);
   const npsColor = npsCfg(pmNps.nps)?.color ?? "#6b7280";
 
-  // Cumplimiento de Entrega del PM: % a tiempo (REQ + items + subitems de sus proyectos).
+  // Cumplimiento de Entrega del PM: REQ cerrados + hitos ÚNICOS de sus proyectos
+  // (por PMS ID, 1 unidad c/u — ver calcEntregaStats).
   // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const { on: entOn, late: entLate } = countDeliveries(
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     delays,
   );
-  const entTotal = entOn + entLate;
-  const entPct = entTotal > 0 ? Math.round((entOn / entTotal) * 100) : null;
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
