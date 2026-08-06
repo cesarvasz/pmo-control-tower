@@ -92,24 +92,7 @@ function segundosDeCelda(v) {
   );
 }
 
-/**
- * Devuelve la hoja CODIFICADA, no las filas crudas:
- *
- *   { epoca, cols, textos, fechas, dicc: {col: [valores únicos]}, filas: [[...]] }
- *
- * Cada fila es un arreglo posicional: primero las columnas de texto libre tal
- * cual, luego un índice al diccionario por cada columna de texto repetido, luego
- * los segundos de cada fecha (null si el hito no ocurrió).
- *
- * Por qué: las 8 columnas de texto repetido tienen 693 valores únicos entre
- * todas, pero se repetían ~59 mil veces cada una. El diccionario más las fechas
- * numéricas bajan el payload de 27.6 MB a 5.0 MB (1.2 MB comprimido) sin perder
- * un solo dato — la app reconstruye las filas idénticas al recibirlas.
- *
- * Esto es SOLO codificación de transporte: aquí no se agrupa, ni se deduplica,
- * ni se calcula nada. Todas las reglas de negocio viven en src/lib/tramites.ts,
- * donde están probadas.
- */
+/** Punto de entrada del WebApp: sirve el caché, sin tocar la hoja. */
 function doGet() {
   var txt = leerCache();
   // Sin caché útil (primera vez, archivo borrado o demasiado viejo) se arma al
@@ -121,7 +104,11 @@ function doGet() {
 
 // ── Caché en Drive ─────────────────────────────────────────────────────────
 
-/** Contenido del caché si existe y está fresco; null si hay que rehacerlo. */
+/**
+ * Contenido del caché si existe, está fresco y NO está truncado; null si hay que
+ * rehacerlo. Lo último importa: un archivo vacío se sirvió una vez como "" y la
+ * app murió con «Unexpected end of JSON input». Mejor regenerar que servir eso.
+ */
 function leerCache() {
   var props = PropertiesService.getScriptProperties();
   var id = props.getProperty(PROP_CACHE_ID);
@@ -130,7 +117,14 @@ function leerCache() {
     var file = DriveApp.getFileById(id);
     var edadMin = (Date.now() - file.getLastUpdated().getTime()) / 60000;
     if (edadMin > CACHE_MAX_MIN) return null;
-    return file.getBlob().getDataAsString();
+
+    var txt = file.getBlob().getDataAsString();
+    // Barato y suficiente: el payload siempre abre con { y cierra con }.
+    if (!txt || txt.charAt(0) !== "{" || txt.charAt(txt.length - 1) !== "}") {
+      Logger.log("caché ilegible (" + txt.length + " bytes) — se regenera");
+      return null;
+    }
+    return txt;
   } catch (e) {
     // Archivo borrado o sin permiso: se limpia la referencia y se rehace.
     props.deleteProperty(PROP_CACHE_ID);
@@ -143,19 +137,77 @@ function regenerarCache() {
   var hoja = leerHoja();
   hoja.generado = new Date().toISOString(); // la app lo muestra como antigüedad
   var txt = JSON.stringify(hoja);
+  guardarCache(txt);
+  return txt;
+}
 
+/**
+ * Escribe el caché y COMPRUEBA lo que quedó guardado.
+ *
+ * Drive aceptó una vez un setContent() de 5 MB y dejó el archivo vacío, sin
+ * lanzar ningún error: el doGet servía "" y la app moría con «Unexpected end of
+ * JSON input». Un guardado que falla en silencio es peor que uno que falla, así
+ * que aquí se relee y se compara; si no coincide, se rehace desde cero y si aun
+ * así no cuadra, se lanza el error en vez de dejar basura servida.
+ */
+function guardarCache(txt) {
+  var props = PropertiesService.getScriptProperties();
+
+  for (var intento = 1; intento <= 2; intento++) {
+    var id = props.getProperty(PROP_CACHE_ID);
+    var file = null;
+    if (id) {
+      try { file = DriveApp.getFileById(id); } catch (e) { file = null; }
+    }
+
+    // Blob explícito: deja la codificación y el mime fuera de dudas.
+    var blob = Utilities.newBlob(txt, "application/json", CACHE_NOMBRE);
+    if (file) {
+      file.setContent(txt);
+    } else {
+      file = DriveApp.createFile(blob);
+      props.setProperty(PROP_CACHE_ID, file.getId());
+    }
+
+    // Releer de verdad, no confiar en el objeto que ya tenemos en memoria.
+    Utilities.sleep(1500); // Drive necesita un momento para consolidar el archivo
+    var guardado = DriveApp.getFileById(file.getId()).getBlob().getDataAsString();
+    if (guardado.length === txt.length) return;
+
+    Logger.log("aviso: el caché quedó en " + guardado.length + " de " + txt.length +
+      " bytes (intento " + intento + "). Se rehace el archivo desde cero.");
+    try { DriveApp.getFileById(file.getId()).setTrashed(true); } catch (e) { /* da igual */ }
+    props.deleteProperty(PROP_CACHE_ID);
+  }
+
+  throw new Error(
+    "No se pudo guardar el caché completo en Drive (" + txt.length + " bytes). " +
+    "Ejecuta diagnosticarCache() para ver el detalle.");
+}
+
+/** Diagnóstico: qué hay realmente en el archivo de caché. */
+function diagnosticarCache() {
   var props = PropertiesService.getScriptProperties();
   var id = props.getProperty(PROP_CACHE_ID);
-  var file = null;
-  if (id) {
-    try { file = DriveApp.getFileById(id); } catch (e) { file = null; }
+  if (!id) { Logger.log("Sin " + PROP_CACHE_ID + " — nunca se creó el caché."); return; }
+
+  var file;
+  try { file = DriveApp.getFileById(id); }
+  catch (e) { Logger.log("El archivo " + id + " no existe o no es accesible: " + e.message); return; }
+
+  var txt = file.getBlob().getDataAsString();
+  Logger.log("archivo: " + file.getName() + " (" + id + ")");
+  Logger.log("tamaño segun Drive: " + file.getSize() + " bytes");
+  Logger.log("tamaño al leerlo:   " + txt.length + " bytes");
+  Logger.log("actualizado: " + file.getLastUpdated());
+  Logger.log("empieza con: " + JSON.stringify(txt.slice(0, 80)));
+  Logger.log("termina con: " + JSON.stringify(txt.slice(-40)));
+  try {
+    var d = JSON.parse(txt);
+    Logger.log("JSON válido ✓ · filas: " + d.filas.length + " · generado: " + d.generado);
+  } catch (e) {
+    Logger.log("JSON INVÁLIDO ✗ — " + e.message);
   }
-  if (file) file.setContent(txt);
-  else {
-    file = DriveApp.createFile(CACHE_NOMBRE, txt, MimeType.PLAIN_TEXT);
-    props.setProperty(PROP_CACHE_ID, file.getId());
-  }
-  return txt;
 }
 
 /**
@@ -170,10 +222,12 @@ function instalarDisparador() {
   ScriptApp.newTrigger("regenerarCache").timeBased().everyMinutes(REFRESCO_MIN).create();
 
   var t0 = Date.now();
-  var txt = regenerarCache();
-  Logger.log("disparador cada " + REFRESCO_MIN + " min · caché de " +
-    (txt.length / 1048576).toFixed(1) + " MB armado en " + ((Date.now() - t0) / 1000).toFixed(1) + " s");
+  var txt = regenerarCache(); // lanza error si el guardado no queda completo
+  Logger.log("disparador cada " + REFRESCO_MIN + " min · caché de " + txt.length.toLocaleString() +
+    " bytes (" + (txt.length / 1048576).toFixed(2) + " MB) armado en " +
+    ((Date.now() - t0) / 1000).toFixed(1) + " s");
   Logger.log("archivo: " + PropertiesService.getScriptProperties().getProperty(PROP_CACHE_ID));
+  Logger.log("verifica con medirDoGet()");
 }
 
 /** Diagnóstico: ¿qué tan rápido responde el doGet ahora? */
@@ -187,10 +241,15 @@ function medirDoGet() {
   }
   var edad = (Date.now() - DriveApp.getFileById(
     PropertiesService.getScriptProperties().getProperty(PROP_CACHE_ID)).getLastUpdated().getTime()) / 60000;
-  Logger.log("caché servido en " + seg.toFixed(2) + " s · " + (txt.length / 1048576).toFixed(1) +
-    " MB · generado hace " + edad.toFixed(0) + " min");
-  var d = JSON.parse(txt);
-  Logger.log("filas: " + d.filas.length + " · generado: " + d.generado);
+  Logger.log("caché servido en " + seg.toFixed(2) + " s · " + txt.length.toLocaleString() +
+    " bytes (" + (txt.length / 1048576).toFixed(2) + " MB) · generado hace " + edad.toFixed(0) + " min");
+  try {
+    var d = JSON.parse(txt);
+    Logger.log("JSON válido ✓ · filas: " + d.filas.length + " · generado: " + d.generado);
+  } catch (e) {
+    // Sin throw: el diagnóstico tiene que reportar el problema, no morirse con él.
+    Logger.log("JSON INVÁLIDO ✗ — " + e.message + ". Ejecuta diagnosticarCache().");
+  }
 }
 
 /** Columnas cuyo valor se repite mucho → van por diccionario. */
@@ -198,6 +257,24 @@ var COLS_TEXTO = ["Proceso", "Cliente", "Usuario", "Analista", "Embarque", "Docu
 /** Columnas de fecha → van como segundos desde EPOCA. */
 var COLS_FECHA = ["Creado", "DPR", "Clasificacion_exacta", "Creacion_Pre_DUCA", "Revision_Analista", "Solicitar_firma_def"];
 
+/**
+ * Devuelve la hoja CODIFICADA, no las filas crudas:
+ *
+ *   { epoca, libres, textos, fechas, dicc: {col: [valores únicos]}, filas: [[...]] }
+ *
+ * Cada fila es un arreglo posicional: primero las columnas de texto libre tal
+ * cual, luego un índice al diccionario por cada columna de texto repetido, luego
+ * los segundos de cada fecha (null si el hito no ocurrió).
+ *
+ * Por qué: las 8 columnas de texto repetido tienen 695 valores únicos entre
+ * todas, pero se repetían ~59 mil veces cada una. El diccionario más las fechas
+ * numéricas bajan el payload de 27.6 MB a 5.0 MB (1.2 MB comprimido) sin perder
+ * un solo dato — la app reconstruye las filas idénticas al recibirlas.
+ *
+ * Esto es SOLO codificación de transporte: aquí no se agrupa, ni se deduplica,
+ * ni se calcula nada. Todas las reglas de negocio viven en src/lib/tramites.ts,
+ * donde están probadas.
+ */
 function leerHoja() {
   var vacio = { epoca: EPOCA, libres: [], textos: [], fechas: [], dicc: {}, filas: [] };
 
