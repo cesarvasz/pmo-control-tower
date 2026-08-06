@@ -31,7 +31,6 @@ export default function CostoTiempo({
 }) {
   const [activa, setActiva] = useState<EtapaKey | null>(null);
   const max = Math.max(1, ...costo.serie.map((p) => p.costo));
-  const maxPersona = Math.max(1, ...costo.personas.map((p) => p.horasReales));
   const pico = costo.serie.reduce((a, b) => (b.costo > a.costo ? b : a), costo.serie[0]);
 
   return (
@@ -162,6 +161,24 @@ export default function CostoTiempo({
               {costo.personas.length} personas · los ejecutores automatizados no cobran, quedan fuera
             </span>
           </div>
+
+          {/* Disponibilidad contra uso, en dinero */}
+          <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { l: "Disponible", v: usd(costo.costoDisponible), s: `${costo.personas.length} × ${horas(costo.ventana.horas)}` },
+              { l: "Usado", v: usd(costo.costo), s: horas(costo.horas) + " de reloj" },
+              { l: "Sin usar", v: usd(costo.costoSinUsar), s: "disponibilidad no ocupada", bad: true },
+              { l: "Utilización", v: `${Math.round(costo.utilizacion * 100)}%`, s: "del total disponible" },
+            ].map((c) => (
+              <div key={c.l} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-hover)" }}>
+                <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{c.l}</div>
+                <div className="tabular-nums text-[1.15rem] font-extrabold leading-tight"
+                  style={{ color: c.bad ? "var(--warn)" : "var(--text-primary)" }}>{c.v}</div>
+                <div className="text-[0.64rem] text-[var(--text-muted)]">{c.s}</div>
+              </div>
+            ))}
+          </div>
+
           <div className="table-wrap">
             <table className="pmo">
               <thead>
@@ -170,35 +187,57 @@ export default function CostoTiempo({
                   <th style={{ textAlign: "center" }}>Expedientes</th>
                   <th style={{ textAlign: "center" }} title="Suma de sus expedientes: cuenta la misma hora una vez por tramite abierto">Suma</th>
                   <th style={{ textAlign: "center" }} title="Union de sus tramos: cada hora cuenta una sola vez">Horas reales</th>
+                  <th style={{ textAlign: "center" }} title="Horas habiles que caben en la ventana del recorte">Disponibles</th>
                   <th style={{ textAlign: "center" }} title="Suma / reales: expedientes que llevaba en paralelo">Traslape</th>
-                  <th style={{ textAlign: "center" }} title="Bloques de trabajo sin huecos">Bloques</th>
-                  <th style={{ textAlign: "center" }}>Costo</th>
-                  <th style={{ minWidth: 120 }}>&nbsp;</th>
+                  <th style={{ textAlign: "center" }} title="Horas habiles de la ventana x tarifa">Costo disponible</th>
+                  <th style={{ textAlign: "center" }}>Costo usado</th>
+                  <th style={{ textAlign: "center" }} title="Diferencia entre lo disponible y lo usado">Sin usar</th>
+                  <th style={{ minWidth: 130 }}>Utilización</th>
                 </tr>
               </thead>
               <tbody>
-                {costo.personas.slice(0, 150).map((p) => (
-                  <tr key={p.clave}>
-                    <td className="truncate" title={p.clave}>{p.label}</td>
-                    <td className="tabular-nums text-center">{p.expedientes.toLocaleString("es-GT")}</td>
-                    <td className="tabular-nums text-center text-[var(--text-muted)]">{horas(p.horasSuma)}</td>
-                    <td className="tabular-nums text-center font-bold">{horas(p.horasReales)}</td>
-                    <td className="tabular-nums text-center" style={{ color: p.traslape > 10 ? "var(--bad)" : p.traslape > 4 ? "var(--warn)" : "var(--ok)" }}>
-                      {p.traslape.toFixed(1)}×
-                    </td>
-                    <td className="tabular-nums text-center text-[var(--text-muted)]">{p.bloques.toLocaleString("es-GT")}</td>
-                    <td className="tabular-nums text-center font-semibold">{usdExacto(p.costo)}</td>
-                    <td>
-                      <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
-                        <div className="h-full rounded-full"
-                          style={{ width: `${(p.horasReales / maxPersona) * 100}%`, background: "var(--accent)" }} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {costo.personas.slice(0, 150).map((p) => {
+                  const col = p.utilizacion >= 0.85 ? "var(--ok)" : p.utilizacion >= 0.5 ? "var(--warn)" : "var(--bad)";
+                  return (
+                    <tr key={p.clave}>
+                      <td className="truncate" title={p.clave}>{p.label}</td>
+                      <td className="tabular-nums text-center">{p.expedientes.toLocaleString("es-GT")}</td>
+                      <td className="tabular-nums text-center text-[var(--text-muted)]">{horas(p.horasSuma)}</td>
+                      <td className="tabular-nums text-center font-bold">{horas(p.horasReales)}</td>
+                      <td className="tabular-nums text-center text-[var(--text-muted)]">{horas(p.horasDisponibles)}</td>
+                      <td className="tabular-nums text-center" style={{ color: p.traslape > 10 ? "var(--bad)" : p.traslape > 4 ? "var(--warn)" : "var(--ok)" }}>
+                        {p.traslape.toFixed(1)}×
+                      </td>
+                      <td className="tabular-nums text-center text-[var(--text-muted)]">{usdExacto(p.costoDisponible)}</td>
+                      <td className="tabular-nums text-center font-semibold">{usdExacto(p.costo)}</td>
+                      <td className="tabular-nums text-center" style={{ color: p.costoSinUsar > 0 ? "var(--warn)" : "var(--text-muted)" }}>
+                        {p.costoSinUsar > 0 ? usdExacto(p.costoSinUsar) : "—"}
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
+                            <div className="h-full rounded-full"
+                              style={{ width: `${Math.min(100, p.utilizacion * 100)}%`, background: col }} />
+                          </div>
+                          <span className="tabular-nums text-[0.72rem] font-bold" style={{ color: col, minWidth: 38, textAlign: "right" }}>
+                            {Math.round(p.utilizacion * 100)}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+
+          <p className="mt-2 text-[0.7rem] text-[var(--text-muted)]">
+            <strong>Disponibles</strong> son las horas hábiles que caben en la ventana del recorte
+            ({new Date(costo.ventana.inicio).toLocaleDateString("es-GT")} –{" "}
+            {new Date(costo.ventana.fin).toLocaleDateString("es-GT")}), iguales para todos. Ojo al
+            leerlo: quien entró tarde o salió antes aparece infrautilizado sin que eso signifique
+            nada — la comparación vale entre personas presentes todo el periodo.
+          </p>
           {costo.personas.length > 150 && (
             <p className="mt-2 text-[0.72rem] text-[var(--text-muted)]">
               Se muestran las 150 con más horas de {costo.personas.length}.

@@ -6,7 +6,7 @@ import {
   contarPersonas, exportarCSV, agruparPor, opcionesDeFiltro,
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
-  unirIntervalos, costoPorPersona,
+  unirIntervalos, costoPorPersona, ventanaDe,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS,
   type Filtros,
 } from "./tramites";
@@ -759,6 +759,68 @@ describe("costoTiempo — horas reales", () => {
     expect(c.traslape).toBe(0);
     expect(c.serie).toEqual([]);
     expect(c.porEtapa.every((e) => e.pct === 0 && e.costo === 0)).toBe(true);
+    expect(c.costoDisponible).toBe(0);
+    expect(c.utilizacion).toBe(0);
+  });
+});
+
+describe("disponibilidad contra uso", () => {
+  it("la ventana son las horas hábiles entre el primer y el último hito", () => {
+    // Creado 08:00 → Firma 13:00 del mismo día = 5 h hábiles.
+    const v = ventanaDe(construirExpedientes([fila({})]));
+    expect(v.horas).toBe(5);
+  });
+
+  it("la ventana no depende de cuántos expedientes haya, sino de su alcance", () => {
+    const v = ventanaDe(construirExpedientes([
+      fila({ c807_file: "A" }),
+      fila({
+        c807_file: "B", Creado: "2026-01-06T08:00:00", DPR: "2026-01-06T09:00:00",
+        Clasificacion_exacta: "2026-01-06T10:00:00", Creacion_Pre_DUCA: "2026-01-06T11:00:00",
+        Revision_Analista: "2026-01-06T12:00:00", Solicitar_firma_def: "2026-01-06T13:00:00",
+      }),
+    ]));
+    // Lunes 08:00 → martes 13:00: 9 h del lunes + 5 h del martes.
+    expect(v.horas).toBe(14);
+  });
+
+  it("quien ocupa toda la ventana no deja nada sin usar", () => {
+    const [p] = costoPorPersona(construirExpedientes([fila({ Usuario: "ANA", Analista: "ANA" })]), 8);
+    expect(p.horasDisponibles).toBe(5);
+    expect(p.horasReales).toBe(5);
+    expect(p.utilizacion).toBe(1);
+    expect(p.costoSinUsar).toBe(0);
+  });
+
+  it("pone precio a la disponibilidad no ocupada", () => {
+    // ANA solo cubre T1-T4 (4 h) de una ventana de 5 h: 1 h sin usar = $8.
+    const [ana] = costoPorPersona(construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]), 8)
+      .filter((p) => p.clave === "ANA");
+    expect(ana.horasDisponibles).toBe(5);
+    expect(ana.horasReales).toBe(4);
+    expect(ana.costoDisponible).toBe(40);
+    expect(ana.costo).toBe(32);
+    expect(ana.costoSinUsar).toBe(8);
+    expect(ana.utilizacion).toBeCloseTo(0.8, 8);
+  });
+
+  it("el total disponible es la plantilla por la ventana", () => {
+    const c = costoTiempo(construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]), 8);
+    expect(c.personas).toHaveLength(2);
+    expect(c.ventana.horas).toBe(5);
+    expect(c.costoDisponible).toBe(2 * 5 * 8);   // 2 personas × 5 h × $8
+    expect(c.costo).toBe(40);                     // ANA 4 h + BETO 1 h
+    expect(c.costoSinUsar).toBe(40);
+    expect(c.utilizacion).toBeCloseTo(0.5, 8);
+  });
+
+  it("el costo sin usar nunca es negativo", () => {
+    const c = costoTiempo(construirExpedientes([
+      fila({ c807_file: "A", Usuario: "ANA", Analista: "ANA" }),
+      fila({ c807_file: "B", Usuario: "ANA", Analista: "ANA" }),
+    ]), 8);
+    expect(c.costoSinUsar).toBeGreaterThanOrEqual(0);
+    expect(c.personas.every((p) => p.costoSinUsar >= 0)).toBe(true);
   });
 });
 

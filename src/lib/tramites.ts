@@ -782,6 +782,37 @@ export interface FilaPersona {
   bloques: number;
   costo: number;
   automatizado: boolean;
+  /** Horas hábiles de la ventana: lo que esa persona pudo haber trabajado. */
+  horasDisponibles: number;
+  /** Lo que cuesta tenerla disponible toda la ventana. */
+  costoDisponible: number;
+  /** horasReales ÷ horasDisponibles. 1 = ocupada de punta a punta. */
+  utilizacion: number;
+  /** Diferencia en dinero entre la disponibilidad y lo usado. */
+  costoSinUsar: number;
+}
+
+/** Ventana del recorte: de la primera actividad medida a la última. */
+export interface Ventana {
+  inicio: number;
+  fin: number;
+  /** Horas hábiles que caben en la ventana — el techo de una persona. */
+  horas: number;
+}
+
+export function ventanaDe(exps: Expediente[]): Ventana {
+  let min = Infinity, max = -Infinity;
+  for (const e of exps) {
+    for (const k of HITOS) {
+      const d = e.hitos[k.key];
+      if (!d) continue;
+      const t = d.getTime();
+      if (t < min) min = t;
+      if (t > max) max = t;
+    }
+  }
+  if (!isFinite(min) || !isFinite(max) || max <= min) return { inicio: 0, fin: 0, horas: 0 };
+  return { inicio: min, fin: max, horas: segundosHabiles(new Date(min), new Date(max)) / 3600 };
 }
 
 /** Intervalos de cada persona, mezclando sus dos roles: es el mismo reloj. */
@@ -804,13 +835,31 @@ function intervalosPorPersona(exps: Expediente[]): Map<string, Intervalo[]> {
   return m;
 }
 
-/** Horas de reloj y costo por persona, con el traslape ya descontado. */
-export function costoPorPersona(exps: Expediente[], tarifa = TARIFA_HORA_DEFECTO): FilaPersona[] {
+/**
+ * Horas de reloj y costo por persona, con el traslape ya descontado.
+ *
+ * Se acompaña de la DISPONIBILIDAD: las horas hábiles que caben en la ventana
+ * del recorte, iguales para todos. La diferencia entre lo disponible y lo usado,
+ * en dinero, es el hueco entre tener a alguien y tenerlo ocupado.
+ *
+ * Ojo al leerlo: la ventana es la misma para todos, así que quien entró tarde o
+ * salió antes aparece infrautilizado sin que eso signifique nada. El dato honesto
+ * es comparativo entre personas presentes todo el periodo, no un juicio individual.
+ */
+export function costoPorPersona(
+  exps: Expediente[],
+  tarifa = TARIFA_HORA_DEFECTO,
+  ventana?: Ventana,
+): FilaPersona[] {
+  const v = ventana ?? ventanaDe(exps);
+  const costoDisponible = v.horas * tarifa;
+
   return [...intervalosPorPersona(exps).entries()]
     .map(([clave, lista]) => {
       const bloques = unirIntervalos(lista);
       const suma = lista.reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0) / 3600;
       const reales = bloques.reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0) / 3600;
+      const costo = reales * tarifa;
       return {
         clave, label: clave,
         expedientes: lista.length,
@@ -818,8 +867,12 @@ export function costoPorPersona(exps: Expediente[], tarifa = TARIFA_HORA_DEFECTO
         horasReales: reales,
         traslape: reales > 0 ? suma / reales : 0,
         bloques: bloques.length,
-        costo: reales * tarifa,
+        costo,
         automatizado: esAutomatizado(clave),
+        horasDisponibles: v.horas,
+        costoDisponible,
+        utilizacion: v.horas > 0 ? reales / v.horas : 0,
+        costoSinUsar: Math.max(0, costoDisponible - costo),
       };
     })
     .sort((a, b) => b.horasReales - a.horasReales);
@@ -874,6 +927,14 @@ export interface Costo {
   personas: FilaPersona[];
   porEtapa: CostoEtapa[];
   serie: PuntoCosto[];
+  /** Ventana del recorte: el techo de horas que cabe en el periodo. */
+  ventana: Ventana;
+  /** Plantilla × horas de la ventana × tarifa: el costo de la disponibilidad. */
+  costoDisponible: number;
+  /** costoDisponible − costo: disponibilidad no ocupada, en dinero. */
+  costoSinUsar: number;
+  /** costo ÷ costoDisponible. */
+  utilizacion: number;
 }
 
 /** Segundos medidos de un expediente, sumando todas las etapas que sí tienen dato. */
@@ -896,11 +957,14 @@ export function costoTiempo(
   porDia = false,
   incluirBots = false,
 ): Costo {
-  const personas = costoPorPersona(exps, tarifa)
+  const ventana = ventanaDe(exps);
+  const personas = costoPorPersona(exps, tarifa, ventana)
     .filter((p) => incluirBots || !p.automatizado);
 
   const horas = personas.reduce((s, p) => s + p.horasReales, 0);
   const horasSuma = personas.reduce((s, p) => s + p.horasSuma, 0);
+  // La disponibilidad total es la de la plantilla que aparece en el recorte.
+  const costoDisponible = personas.length * ventana.horas * tarifa;
 
   // El reparto por etapa se queda en proporciones del tiempo transcurrido —
   // es lo único que puede decir dónde se va el reloj — pero el dinero que
@@ -955,12 +1019,17 @@ export function costoTiempo(
       };
     });
 
+  const costo = horas * tarifa;
   return {
     horas, horasSuma,
     traslape: horas > 0 ? horasSuma / horas : 0,
-    costo: horas * tarifa,
+    costo,
     n: exps.filter((e) => segundosMedidos(e) > 0).length,
     tarifa, personas, porEtapa, serie,
+    ventana,
+    costoDisponible,
+    costoSinUsar: Math.max(0, costoDisponible - costo),
+    utilizacion: costoDisponible > 0 ? costo / costoDisponible : 0,
   };
 }
 
