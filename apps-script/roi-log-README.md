@@ -21,6 +21,8 @@ propio Apps Script, su propia variable de entorno, su propio endpoint.
    - **Quién tiene acceso:** cualquier persona con el enlace.
 5. Copia la **URL de la aplicación web** y pégala en `.env.local` de la app como
    `ROI_WEBAPP_URL=...`.
+6. Ejecuta **`instalarDisparador()`** desde el editor (ver abajo). Sin este paso
+   el reporte falla de forma intermitente.
 
 > Cada vez que redepliegues cambios del `.gs`, usa **Administrar implementaciones
 > → Editar → Nueva versión** para conservar la misma URL.
@@ -58,19 +60,46 @@ Si una columna nueva aparece en la hoja y no está en `COLS_TEXTO` ni en
 app. Si es de fecha o de texto muy repetido, agrégala al arreglo que corresponda
 para que también se comprima.
 
+## El caché en Drive (obligatorio)
+
+**Ejecuta `instalarDisparador()` una vez desde el editor.** Crea un disparador
+que cada 30 minutos deja el JSON armado en un archivo de Drive, y llena el caché
+de inmediato. Pide autorizar el acceso a Drive.
+
+Sin eso, el `doGet` lee las ~892 mil celdas de la hoja en cada petición (~12 s) y
+el 404 de abajo se vuelve frecuente.
+
+- **`medirDoGet()`** — comprueba que el caché existe y cuánto tarda en servirse.
+  Debería ser ~1 s. Si dice «SIN CACHÉ ⚠», falta el disparador.
+- **`regenerarCache()`** — refresca a mano, sin esperar al disparador.
+- El archivo se llama `roi-003-cache.json` y vive en tu Drive. Si lo borras, el
+  script lo vuelve a crear solo.
+- Si el caché supera las 3 horas de antigüedad, el `doGet` lo rehace al vuelo en
+  vez de servir algo viejo.
+
+La app muestra la antigüedad del dato junto al título de la página.
+
 ## El 404 intermitente
 
 El `/exec` no devuelve el contenido: redirige a
 `script.googleusercontent.com/macros/echo?user_content_key=…`, y **ese** endpoint
-devuelve **404 de vez en cuando** aunque el script haya corrido perfecto. Medido
-en agosto 2026 con el payload de 5 MB: 1 de cada 3 peticiones fallaba, las otras
-dos traían los 5 210 078 bytes completos.
+devuelve **404 cada tantas peticiones** aunque el script haya corrido perfecto.
 
-No es el despliegue ni el script — es infraestructura de Google, y aparece más
-con respuestas grandes. `src/lib/roi.ts` reintenta hasta 3 veces con espera
-corta, dentro de un plazo de 38 s para no chocar con el corte de 60 s de Vercel.
+Al medirlo (agosto 2026, payload de 5 MB) apareció una correlación limpia con el
+tiempo de respuesta:
 
-Si el error persiste tras varios reintentos, entonces sí revisa el despliegue.
+| Resultado | Tiempos observados |
+|---|---|
+| Éxito | 10.5 s · 14.2 s |
+| 404 | 21 · 29 · 42 · 43 · 45 · 79 s |
+
+**Cuanto más tarda la ejecución, más probable es el 404.** Por eso el caché en
+Drive no es un lujo: al bajar el `doGet` de ~12 s a ~1 s, ataca la causa.
+
+Como red de seguridad, `src/lib/roi.ts` reintenta hasta 4 veces y **aborta a los
+18 s** en vez de esperar: pasada esa marca la respuesta ya viene mala, y cortar
+para reintentar sale mucho más barato que aguantar 80 s por un error. El
+presupuesto total es de 50 s, por debajo del corte de 60 s de Vercel.
 
 ## El límite de 6 minutos
 

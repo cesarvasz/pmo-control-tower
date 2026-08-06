@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     await requirePage(request.headers.get("authorization"), "roi");
-    const rows = await fetchRoiRows();
-    return NextResponse.json({ rows });
+    const { rows, generado } = await fetchRoiRows();
+    return NextResponse.json({ rows, generado });
   } catch (err) {
     return apiError(err);
   }

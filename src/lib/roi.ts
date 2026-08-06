@@ -64,52 +64,75 @@ function diagnosticarHtml(cuerpo: string): string {
 }
 
 /**
- * Reintentos: el /exec de Apps Script redirige a
- * script.googleusercontent.com/macros/echo, y ESE endpoint devuelve 404 de vez
- * en cuando aunque el script haya corrido bien. Medido: 1 de cada 3 peticiones
- * con el payload de 5 MB. No es el despliegue ni el script, es infraestructura
- * de Google, y el reintento inmediato funciona.
+ * Reintentos con aborto rápido.
  *
- * El presupuesto está acotado porque en Vercel la función se corta a los 60 s y
- * cada intento tarda ~15 s: no se empieza uno nuevo pasado el plazo.
+ * El /exec de Apps Script redirige a script.googleusercontent.com/macros/echo y
+ * ESE endpoint devuelve 404 cada tantas peticiones, aunque el script haya
+ * corrido bien. Al medirlo apareció una separación limpia por tiempo:
+ *
+ *   éxitos → 10.5 s y 14.2 s      fallos → 21, 29, 42, 43, 45 y 79 s
+ *
+ * O sea que una respuesta lenta ya es un 404 en camino. Por eso no se espera a
+ * que conteste: pasado ABORTO_MS se corta y se reintenta, que es mucho más
+ * barato que aguantar 80 s para recibir un error.
+ *
+ * Con el caché en Drive del Apps Script el doGet responde en ~1 s y esto casi
+ * no se activa; queda como red de seguridad.
  */
-const INTENTOS = 3;
-const PLAZO_MS = 38_000;
+const INTENTOS = 4;
+const ABORTO_MS = 18_000; // por encima de esto la respuesta ya no llega buena
+const PLAZO_MS = 50_000;  // presupuesto total: Vercel corta la función a los 60 s
 
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export async function fetchRoiRows(): Promise<RoiRow[]> {
+export interface RoiResultado {
+  rows: RoiRow[];
+  /** Cuándo el Apps Script armó el caché que se sirvió. */
+  generado?: string;
+}
+
+export async function fetchRoiRows(): Promise<RoiResultado> {
   const url = process.env.ROI_WEBAPP_URL;
   if (!url) throw new Error("Falta ROI_WEBAPP_URL en .env.local (ver apps-script/roi-log-README.md)");
 
   const arranque = Date.now();
-  let ultimo = "";
+  let ultimo = "sin respuesta";
 
   for (let intento = 1; intento <= INTENTOS; intento++) {
-    const res = await fetch(url, { redirect: "follow", cache: "no-store" });
+    try {
+      const res = await fetch(url, {
+        redirect: "follow",
+        cache: "no-store",
+        signal: AbortSignal.timeout(ABORTO_MS),
+      });
 
-    if (res.ok) {
-      const texto = await res.text();
-      if (!texto.trimStart().startsWith("<")) return parsear(texto);
-      // HTML con 200: el script falló de verdad (timeout, permisos). No se reintenta.
-      throw new Error(diagnosticarHtml(texto));
+      if (res.ok) {
+        const texto = await res.text();
+        if (!texto.trimStart().startsWith("<")) return parsear(texto);
+        // HTML con 200: el script falló de verdad (timeout, permisos). No se reintenta.
+        throw new Error(diagnosticarHtml(texto));
+      }
+
+      ultimo = `HTTP ${res.status}`;
+      // 404 del endpoint de contenido y 429/5xx son transitorios; el resto no.
+      if (!(res.status === 404 || res.status === 429 || res.status >= 500)) break;
+    } catch (err) {
+      if (err instanceof Error && !/abort|timeout/i.test(err.name + err.message)) throw err;
+      ultimo = `sin respuesta en ${ABORTO_MS / 1000} s`;
     }
 
-    ultimo = `HTTP ${res.status}`;
-    // 404 del endpoint de contenido y 429/5xx son transitorios; el resto no.
-    const transitorio = res.status === 404 || res.status === 429 || res.status >= 500;
-    if (!transitorio || intento === INTENTOS) break;
-    if (Date.now() - arranque > PLAZO_MS) break;
-    await esperar(400 * intento);
+    if (intento === INTENTOS || Date.now() - arranque > PLAZO_MS - ABORTO_MS) break;
+    await esperar(300);
   }
 
   throw new Error(
-    `ROI WebApp: ${ultimo} tras ${INTENTOS} intentos. Es una falla intermitente conocida de Apps ` +
-    `Script al servir respuestas grandes; vuelve a intentar en un momento.`,
+    `ROI WebApp: ${ultimo} tras varios intentos. Es una falla intermitente de Apps Script al servir ` +
+    `respuestas grandes. Si se repite, revisa que el caché esté instalado: ejecuta medirDoGet() en el ` +
+    `editor del script (ver apps-script/roi-log-README.md).`,
   );
 }
 
-function parsear(texto: string): RoiRow[] {
+function parsear(texto: string): RoiResultado {
   let json: RoiPayload & { rows?: RoiRow[] };
   try {
     json = JSON.parse(texto);
@@ -119,9 +142,9 @@ function parsear(texto: string): RoiRow[] {
 
   // `rows` es el formato viejo (filas crudas). Se acepta para que la app siga
   // funcionando si el WebApp aún no se ha redesplegado con el script nuevo.
-  if (Array.isArray(json.rows)) return json.rows;
+  if (Array.isArray(json.rows)) return { rows: json.rows, generado: json.generado };
   if (!Array.isArray(json.filas)) {
     throw new Error("El Apps Script devolvió un payload sin filas. Revisa que ROI_SHEET_ID apunte a la hoja correcta.");
   }
-  return decodificar(json);
+  return { rows: decodificar(json), generado: json.generado };
 }

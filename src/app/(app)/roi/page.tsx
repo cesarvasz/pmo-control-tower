@@ -13,8 +13,18 @@ import { ErrorBox, Loader, SectionHeader } from "@/components/ui";
 import ReporteTramites from "@/components/tramites/ReporteTramites";
 import type { RoiRow } from "@/types";
 
+/** «hace 12 min» — el Apps Script sirve un caché que se refresca cada 30 min. */
+function antiguedad(iso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return "recién actualizado";
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  return h < 24 ? `hace ${h} h` : `hace ${Math.round(h / 24)} d`;
+}
+
 export default function RoiPage() {
   const [rows, setRows] = useState<RoiRow[] | null>(null);
+  const [generado, setGenerado] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,8 +34,9 @@ export default function RoiPage() {
     try {
       const res = await authedFetch("/api/roi");
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-      const data = (await res.json()) as { rows: RoiRow[] };
+      const data = (await res.json()) as { rows: RoiRow[]; generado?: string };
       setRows(data.rows);
+      setGenerado(data.generado);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar la hoja ROI");
     } finally {
@@ -40,6 +51,12 @@ export default function RoiPage() {
   return (
     <div>
       <SectionHeader title="ROI" badge="PM-003">
+        {generado && (
+          <span className="text-[0.72rem] text-[var(--text-muted)]"
+            title={`El Apps Script armó estos datos el ${new Date(generado).toLocaleString("es-GT")}`}>
+            datos {antiguedad(generado)}
+          </span>
+        )}
         <button
           onClick={load}
           disabled={loading}

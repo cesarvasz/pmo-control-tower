@@ -22,11 +22,32 @@
  * d.getFullYear()/getMonth()/... ya devuelven la hora local correcta y se puede
  * armar "yyyy-MM-ddTHH:mm:ss" con getters puros — sin salir de JavaScript.
  * Si cambias la zona del proyecto (Configuración → Zona horaria), esto la sigue
- * automáticamente. Verifica con verificarZonaHoraria() de abajo.
+ * automáticamente. Verifica con verificarFechas() de abajo.
+ *
+ * FIABILIDAD — por qué el doGet sirve un archivo y no lee la hoja
+ * ---------------------------------------------------------------------------
+ * El /exec no entrega el contenido: redirige a script.googleusercontent.com y
+ * ESE endpoint devuelve 404 cada tantas peticiones. Midiéndolo salió una
+ * correlación limpia: las peticiones que responden en ~12 s funcionan y las que
+ * pasan de ~20 s fallan siempre (éxitos a 10.5 y 14.2 s; fallos a 21, 29, 42,
+ * 43, 45 y 79 s). Cuanto más tarda la ejecución, más probable es el 404.
+ *
+ * Leer 59 mil filas × 15 columnas cuesta ~12 s y no se puede acelerar mucho más.
+ * Así que el doGet ya no las lee: un disparador por tiempo deja el JSON armado
+ * en un archivo de Drive y el doGet solo lo devuelve, en ~1 s. Menos tiempo de
+ * ejecución, menos 404 — y de paso deja de importar cuánto crezca la hoja.
+ *
+ * INSTALACIÓN DEL CACHÉ: ejecuta instalarDisparador() una vez desde el editor.
+ * Requiere autorizar el acceso a Drive (el script crea y actualiza un archivo).
  * ---------------------------------------------------------------------------
  */
 
 var SHEET_TAB = "003"; // nombre de la pestaña a leer — actualizar aquí si cambia.
+
+var PROP_CACHE_ID = "ROI_CACHE_FILE_ID";  // lo escribe el script, no lo pongas a mano
+var CACHE_NOMBRE = "roi-003-cache.json";
+var CACHE_MAX_MIN = 180;                  // más viejo que esto, el doGet lo rehace
+var REFRESCO_MIN = 30;                    // cada cuánto corre el disparador
 
 /**
  * Época de referencia para las fechas. Los hitos se mandan como SEGUNDOS desde
@@ -90,9 +111,86 @@ function segundosDeCelda(v) {
  * donde están probadas.
  */
 function doGet() {
-  return ContentService
-    .createTextOutput(JSON.stringify(leerHoja()))
-    .setMimeType(ContentService.MimeType.JSON);
+  var txt = leerCache();
+  // Sin caché útil (primera vez, archivo borrado o demasiado viejo) se arma al
+  // vuelo: la respuesta tarda más y puede toparse con el 404, pero nunca se
+  // devuelve nada vacío.
+  if (txt === null) txt = regenerarCache();
+  return ContentService.createTextOutput(txt).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── Caché en Drive ─────────────────────────────────────────────────────────
+
+/** Contenido del caché si existe y está fresco; null si hay que rehacerlo. */
+function leerCache() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty(PROP_CACHE_ID);
+  if (!id) return null;
+  try {
+    var file = DriveApp.getFileById(id);
+    var edadMin = (Date.now() - file.getLastUpdated().getTime()) / 60000;
+    if (edadMin > CACHE_MAX_MIN) return null;
+    return file.getBlob().getDataAsString();
+  } catch (e) {
+    // Archivo borrado o sin permiso: se limpia la referencia y se rehace.
+    props.deleteProperty(PROP_CACHE_ID);
+    return null;
+  }
+}
+
+/** Lee la hoja, arma el JSON y lo deja en Drive. Lo llama el disparador. */
+function regenerarCache() {
+  var hoja = leerHoja();
+  hoja.generado = new Date().toISOString(); // la app lo muestra como antigüedad
+  var txt = JSON.stringify(hoja);
+
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty(PROP_CACHE_ID);
+  var file = null;
+  if (id) {
+    try { file = DriveApp.getFileById(id); } catch (e) { file = null; }
+  }
+  if (file) file.setContent(txt);
+  else {
+    file = DriveApp.createFile(CACHE_NOMBRE, txt, MimeType.PLAIN_TEXT);
+    props.setProperty(PROP_CACHE_ID, file.getId());
+  }
+  return txt;
+}
+
+/**
+ * Instalación en un clic: crea el disparador por tiempo y llena el caché.
+ * Se puede reejecutar sin miedo — primero borra el disparador anterior.
+ */
+function instalarDisparador() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "regenerarCache") ScriptApp.deleteTrigger(triggers[i]);
+  }
+  ScriptApp.newTrigger("regenerarCache").timeBased().everyMinutes(REFRESCO_MIN).create();
+
+  var t0 = Date.now();
+  var txt = regenerarCache();
+  Logger.log("disparador cada " + REFRESCO_MIN + " min · caché de " +
+    (txt.length / 1048576).toFixed(1) + " MB armado en " + ((Date.now() - t0) / 1000).toFixed(1) + " s");
+  Logger.log("archivo: " + PropertiesService.getScriptProperties().getProperty(PROP_CACHE_ID));
+}
+
+/** Diagnóstico: ¿qué tan rápido responde el doGet ahora? */
+function medirDoGet() {
+  var t0 = Date.now();
+  var txt = leerCache();
+  var seg = (Date.now() - t0) / 1000;
+  if (txt === null) {
+    Logger.log("SIN CACHÉ ⚠ — el doGet tendría que leer la hoja entera. Ejecuta instalarDisparador().");
+    return;
+  }
+  var edad = (Date.now() - DriveApp.getFileById(
+    PropertiesService.getScriptProperties().getProperty(PROP_CACHE_ID)).getLastUpdated().getTime()) / 60000;
+  Logger.log("caché servido en " + seg.toFixed(2) + " s · " + (txt.length / 1048576).toFixed(1) +
+    " MB · generado hace " + edad.toFixed(0) + " min");
+  var d = JSON.parse(txt);
+  Logger.log("filas: " + d.filas.length + " · generado: " + d.generado);
 }
 
 /** Columnas cuyo valor se repite mucho → van por diccionario. */

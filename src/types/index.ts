@@ -76,6 +76,8 @@ export interface RoiRow {
  */
 export interface RoiPayload {
   epoca: number;
+  /** ISO de cuándo el Apps Script armó el caché. Ausente si lo generó al vuelo. */
+  generado?: string;
   libres: string[];
   textos: string[];
   fechas: string[];

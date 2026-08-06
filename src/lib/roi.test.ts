@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { decodificar, fechaDesdeSegundos } from "./roi";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { decodificar, fechaDesdeSegundos, fetchRoiRows } from "./roi";
 import type { RoiPayload } from "@/types";
 
 const EPOCA = Date.UTC(2024, 0, 1);
@@ -31,6 +31,48 @@ describe("fechaDesdeSegundos", () => {
   it("un hito que no ocurrió queda vacío, no en la época", () => {
     // Devolver "2024-01-01T00:00:00" haría creer que el hito sí pasó.
     expect(fechaDesdeSegundos(EPOCA, null)).toBe("");
+  });
+});
+
+describe("fetchRoiRows — reintentos", () => {
+  const original = global.fetch;
+  afterEach(() => { global.fetch = original; vi.restoreAllMocks(); });
+
+  const respuesta = (body: unknown, status = 200) =>
+    ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) }) as Response;
+  const html404 = () =>
+    ({ ok: false, status: 404, text: async () => "<!DOCTYPE html>" }) as Response;
+
+  it("supera un 404 transitorio y devuelve los datos del siguiente intento", async () => {
+    process.env.ROI_WEBAPP_URL = "https://ejemplo/exec";
+    const spy = vi.fn()
+      .mockResolvedValueOnce(html404())
+      .mockResolvedValueOnce(respuesta({ ...payload(), generado: "2026-08-06T09:00:00.000Z" }));
+    global.fetch = spy as unknown as typeof fetch;
+
+    const r = await fetchRoiRows();
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(r.rows).toHaveLength(1);
+    expect(r.generado).toBe("2026-08-06T09:00:00.000Z");
+  });
+
+  it("se rinde tras agotar los intentos y explica qué revisar", async () => {
+    process.env.ROI_WEBAPP_URL = "https://ejemplo/exec";
+    global.fetch = vi.fn().mockResolvedValue(html404()) as unknown as typeof fetch;
+    await expect(fetchRoiRows()).rejects.toThrow(/varios intentos/);
+  });
+
+  it("un error definitivo no se reintenta", async () => {
+    process.env.ROI_WEBAPP_URL = "https://ejemplo/exec";
+    const spy = vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => "" } as Response);
+    global.fetch = spy as unknown as typeof fetch;
+    await expect(fetchRoiRows()).rejects.toThrow(/403/);
+    expect(spy).toHaveBeenCalledTimes(1); // 403 es permisos, insistir no ayuda
+  });
+
+  it("sin la variable de entorno avisa antes de intentar nada", async () => {
+    delete process.env.ROI_WEBAPP_URL;
+    await expect(fetchRoiRows()).rejects.toThrow(/ROI_WEBAPP_URL/);
   });
 });
 
@@ -76,6 +118,11 @@ describe("decodificar", () => {
 
   it("una hoja vacía devuelve lista vacía", () => {
     expect(decodificar(payload({ filas: [] }))).toEqual([]);
+  });
+
+  it("conserva la marca de cuándo se generó el caché", () => {
+    const p = { ...payload(), generado: "2026-08-06T09:00:00.000Z" };
+    expect(decodificar(p)).toHaveLength(1); // el campo extra no estorba
   });
 
   it("es indiferente a la zona horaria de quien decodifica", () => {
