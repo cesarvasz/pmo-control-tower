@@ -47,6 +47,7 @@ export const PAGES: PageDef[] = [
   { key: "costo-un",    label: "Costo $ x Unid Neg", href: "/costo-un", icon: "🏢" },
   { key: "visor",       label: "Visor",         href: "/visor",    icon: "🛃", public: true },
   { key: "encuestas",   label: "Encuestas",     href: "/encuestas", icon: "📋" },
+  { key: "roi",         label: "ROI",           href: "/roi",       icon: "📈" },
   { key: "usuarios",    label: "Usuarios",      href: "/usuarios",  icon: "⚙", requiredAction: "manage_users" },
   { key: "roles",       label: "Roles",         href: "/roles",     icon: "🛡", requiredAction: "manage_roles" },
   { key: "grupos",      label: "Grupos",        href: "/grupos",    icon: "🗂", requiredAction: "manage_roles" },

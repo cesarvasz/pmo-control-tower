@@ -1,0 +1,903 @@
+// src/lib/tramites.ts
+// Dominio del reporte de tiempos de trámites (hoja ROI → expedientes).
+// Módulo PURO (cliente + servidor). Los tiempos salen de lib/horario.ts.
+//
+// Formato del origen: ANCHO — una fila por expediente, con una columna de fecha
+// por hito. Un mismo c807_file puede repetirse cuando alguna dimensión difiere
+// (hoy solo `Proceso`); esas filas se fusionan en un solo expediente que
+// conserva TODOS los valores, para que el filtro lo incluya si alguno coincide.
+//
+// El cálculo por expediente ocurre una sola vez (construirExpedientes); filtrar
+// después solo selecciona subconjuntos.
+
+import { segundosHabiles, SEGUNDOS_SEMANA, fmtHHMMSS } from "@/lib/horario";
+import type { RoiRow } from "@/types";
+
+export const norm = (s: unknown): string =>
+  String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+// ── Hitos ────────────────────────────────────────────────────────────────
+export type HitoKey = "creado" | "dpr" | "clasificacion" | "preduca" | "revision" | "firma";
+
+// En orden de la cadena — así los recorre la tabla de cobertura.
+export const HITOS: { key: HitoKey; label: string; col: keyof RoiRow }[] = [
+  { key: "creado",        label: "Creado",               col: "Creado" },
+  { key: "dpr",           label: "DPR",                  col: "DPR" },
+  { key: "clasificacion", label: "Clasificación exacta", col: "Clasificacion_exacta" },
+  { key: "preduca",       label: "Creación Pre-DUCA",    col: "Creacion_Pre_DUCA" },
+  { key: "revision",      label: "Revisión Analista",    col: "Revision_Analista" },
+  { key: "firma",         label: "Solicitar firma def.", col: "Solicitar_firma_def" },
+];
+
+export const HITO_LABEL: Record<HitoKey, string> =
+  Object.fromEntries(HITOS.map((h) => [h.key, h.label])) as Record<HitoKey, string>;
+
+// ── Etapas (cadena secuencial) ───────────────────────────────────────────
+// La columna Revision_Analista partió la antigua T4 (Pre-DUCA → Firma) en dos
+// tramos, así que la cadena pasó de 4 etapas a 5. La Revisión va DESPUÉS de la
+// Pre-DUCA: así lo confirma el negocio y así lo registran los timestamps
+// (Revisión posterior a Pre-DUCA en el 99.9% de los expedientes).
+export type EtapaKey = "t1" | "t2" | "t3" | "t4" | "t5";
+
+export const ETAPAS: { key: EtapaKey; label: string; corto: string; desde: HitoKey; hasta: HitoKey; color: string }[] = [
+  { key: "t1", label: "Creado → DPR",                   corto: "T1", desde: "creado",        hasta: "dpr",           color: "var(--etapa-1)" },
+  { key: "t2", label: "DPR → Clasificación",            corto: "T2", desde: "dpr",           hasta: "clasificacion", color: "var(--etapa-2)" },
+  { key: "t3", label: "Clasificación → Pre-DUCA",       corto: "T3", desde: "clasificacion", hasta: "preduca",       color: "var(--etapa-3)" },
+  { key: "t4", label: "Pre-DUCA → Revisión",            corto: "T4", desde: "preduca",       hasta: "revision",      color: "var(--etapa-4)" },
+  { key: "t5", label: "Revisión → Solicitar firma",     corto: "T5", desde: "revision",      hasta: "firma",         color: "var(--etapa-5)" },
+];
+
+export const ETAPA_KEYS: EtapaKey[] = ETAPAS.map((e) => e.key);
+
+// ── Ejecutores automatizados ─────────────────────────────────────────────
+// Cuentan en volúmenes pero quedan fuera de cualquier conteo de personal.
+// Heurística por TOKEN (no substring) para no marcar a "BOTELLO" por contener
+// "BOT" ni a "GARCIA" por contener "IA". Lista configurable.
+export const TOKENS_AUTOMATIZADOS = ["OCR", "IA", "BOT", "RPA", "API", "ROBOT", "SISTEMA"];
+export const PREFIJOS_AUTOMATIZADOS = ["AUTOMAT"];
+
+export function esAutomatizado(
+  nombre: string,
+  tokens: string[] = TOKENS_AUTOMATIZADOS,
+  prefijos: string[] = PREFIJOS_AUTOMATIZADOS,
+): boolean {
+  const partes = norm(nombre).toUpperCase().split(/[^A-ZÑ0-9]+/).filter(Boolean);
+  if (partes.some((p) => tokens.includes(p))) return true;
+  return partes.some((p) => prefijos.some((pre) => p.startsWith(pre)));
+}
+
+// ── Mesas ────────────────────────────────────────────────────────────────
+export const SIN_MESA = "(sin mesa)";
+export const SIN_DATO = "(sin dato)";
+
+/** Orden natural: "Mesa 10" después de "Mesa 9". Sin mesa va al final. */
+export function ordenarMesas(mesas: string[]): string[] {
+  return [...mesas].sort((a, b) => {
+    if (a === SIN_MESA) return 1;
+    if (b === SIN_MESA) return -1;
+    const na = a.match(/\d+/), nb = b.match(/\d+/);
+    const ma = /^mesa/i.test(a), mb = /^mesa/i.test(b);
+    if (ma && mb && na && nb) return +na[0] - +nb[0] || a.localeCompare(b, "es");
+    if (ma !== mb) return ma ? -1 : 1;
+    return a.localeCompare(b, "es");
+  });
+}
+
+// ── Parseo ───────────────────────────────────────────────────────────────
+/** "2026-01-05T08:40:26" o "2026-01-05 08:40:26" → Date local. */
+export function parseFecha(s: unknown): Date | null {
+  const raw = String(s ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export const mesDe = (d: Date | null): string =>
+  d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : "";
+
+export const diaDe = (d: Date | null): string =>
+  d ? `${mesDe(d)}-${String(d.getDate()).padStart(2, "0")}` : "";
+
+const MESES_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+export function etiquetaMes(clave: string): string {
+  const [a, m] = clave.split("-");
+  return `${MESES_ES[+m - 1] ?? m} ${a?.slice(2) ?? ""}`;
+}
+export function etiquetaDia(clave: string): string {
+  const [, m, d] = clave.split("-");
+  return `${d} ${MESES_ES[+m - 1] ?? m}`;
+}
+
+// ── Expediente ───────────────────────────────────────────────────────────
+export interface Expediente {
+  file: string;
+  creado: Date | null;
+  mes: string;
+  /** Dimensiones multivaluadas: un c807_file repetido conserva TODOS sus valores. */
+  procesos: string[];
+  clientes: string[];
+  usuarios: string[];
+  analistas: string[];
+  embarques: string[];
+  documentos: string[];
+  mesas: string[];
+  ducafast: boolean;
+  hitos: Partial<Record<HitoKey, Date>>;
+  /** Segundos hábiles por etapa; ausente si falta alguno de sus dos hitos. */
+  etapas: Partial<Record<EtapaKey, number>>;
+  /** Suma de todas las etapas. null si el expediente no recorrió el ciclo completo. */
+  total: number | null;
+}
+
+const add = (set: Set<string>, v: unknown, vacio = SIN_DATO) => {
+  const s = String(v ?? "").trim();
+  set.add(s || vacio);
+};
+
+/**
+ * Agrupa las filas del origen en expedientes y calcula sus tiempos.
+ *
+ * · Un c807_file repetido se fusiona en UN expediente que conserva todos los
+ *   valores de cada dimensión (regla: el filtro lo incluye si alguno coincide).
+ * · Ante fechas distintas para el mismo hito, vale la más TEMPRANA.
+ * · Un expediente sin el hito de una etapa no entra en el cálculo de ESA etapa.
+ * · El Total se calcula POR EXPEDIENTE y solo si recorrió todas las etapas.
+ */
+export function construirExpedientes(rows: RoiRow[]): Expediente[] {
+  const porFile = new Map<string, RoiRow[]>();
+  for (const r of rows) {
+    const f = String(r.c807_file ?? "").trim();
+    if (!f) continue;
+    const arr = porFile.get(f);
+    if (arr) arr.push(r); else porFile.set(f, [r]);
+  }
+
+  const out: Expediente[] = [];
+  for (const [file, filas] of porFile) {
+    const procesos = new Set<string>(), clientes = new Set<string>();
+    const usuarios = new Set<string>(), analistas = new Set<string>();
+    const embarques = new Set<string>(), documentos = new Set<string>();
+    const mesas = new Set<string>();
+    const hitos: Partial<Record<HitoKey, Date>> = {};
+    let ducafast = false;
+
+    for (const r of filas) {
+      add(procesos, r.Proceso); add(clientes, r.Cliente);
+      add(usuarios, r.Usuario); add(analistas, r.Analista);
+      add(embarques, r.Embarque); add(documentos, r.Documento);
+      add(mesas, r.Mesa, SIN_MESA);
+
+      const dc = norm(r.Docalpha);
+      if (dc.includes("ducafast") && !dc.startsWith("no ")) ducafast = true;
+
+      for (const h of HITOS) {
+        const d = parseFecha(r[h.col]);
+        if (!d) continue;
+        const prev = hitos[h.key];
+        if (!prev || d.getTime() < prev.getTime()) hitos[h.key] = d;
+      }
+    }
+
+    const etapas: Partial<Record<EtapaKey, number>> = {};
+    for (const e of ETAPAS) {
+      const a = hitos[e.desde], b = hitos[e.hasta];
+      if (a && b) etapas[e.key] = segundosHabiles(a, b);
+    }
+    const completo = ETAPA_KEYS.every((k) => etapas[k] != null);
+
+    out.push({
+      file,
+      creado: hitos.creado ?? null,
+      mes: mesDe(hitos.creado ?? null),
+      procesos: [...procesos].sort(),
+      clientes: [...clientes].sort(),
+      usuarios: [...usuarios].sort(),
+      analistas: [...analistas].sort(),
+      embarques: [...embarques].sort(),
+      documentos: [...documentos].sort(),
+      mesas: ordenarMesas([...mesas]),
+      ducafast,
+      hitos,
+      etapas,
+      total: completo ? ETAPA_KEYS.reduce((s, k) => s + (etapas[k] as number), 0) : null,
+    });
+  }
+  return out;
+}
+
+// ── Métricas ─────────────────────────────────────────────────────────────
+export type Metrica = "mediana" | "promedio" | "p90";
+
+export const METRICA_LABEL: Record<Metrica, string> = {
+  mediana: "Mediana", promedio: "Promedio", p90: "P90",
+};
+
+export function mediana(v: number[]): number | null {
+  if (!v.length) return null;
+  const s = [...v].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+export function promedio(v: number[]): number | null {
+  if (!v.length) return null;
+  return v.reduce((s, x) => s + x, 0) / v.length;
+}
+
+/** Percentil 90 por nearest-rank. */
+export function percentil90(v: number[]): number | null {
+  if (!v.length) return null;
+  const s = [...v].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.ceil(s.length * 0.9) - 1)];
+}
+
+export function aplicarMetrica(v: number[], m: Metrica): number | null {
+  return m === "mediana" ? mediana(v) : m === "promedio" ? promedio(v) : percentil90(v);
+}
+
+// ── Indicadores ──────────────────────────────────────────────────────────
+export interface Indicador {
+  key: EtapaKey | "total";
+  label: string;
+  corto: string;
+  valor: number | null;
+  n: number;
+  cobertura: number;
+}
+
+export function valoresEtapa(exps: Expediente[], key: EtapaKey | "total"): number[] {
+  const out: number[] = [];
+  for (const e of exps) {
+    const v = key === "total" ? e.total : e.etapas[key];
+    if (v != null) out.push(v);
+  }
+  return out;
+}
+
+export function calcularIndicadores(exps: Expediente[], metrica: Metrica): Indicador[] {
+  const den = exps.length || 1;
+  const filas: Indicador[] = ETAPAS.map((e) => {
+    const v = valoresEtapa(exps, e.key);
+    return { key: e.key, label: e.label, corto: e.corto, valor: aplicarMetrica(v, metrica), n: v.length, cobertura: v.length / den };
+  });
+  const vt = valoresEtapa(exps, "total");
+  filas.push({
+    key: "total", label: "Total · ciclo completo", corto: "Total",
+    valor: aplicarMetrica(vt, metrica), n: vt.length, cobertura: vt.length / den,
+  });
+  return filas;
+}
+
+// ── Composición del ciclo (barra apilada) ────────────────────────────────
+export interface SegmentoCiclo {
+  key: EtapaKey;
+  label: string;
+  corto: string;
+  color: string;
+  /** Cuota real del ciclo, del tiempo AGREGADO de la etapa. Los pct suman 100. */
+  pct: number;
+  /** Tramo del total que representa esta etapa: pct aplicado a `total`.
+   *  Los `aporte` de todos los segmentos suman exactamente `total`. */
+  aporte: number;
+  /** Métrica de la etapa por sí sola (informativo, NO es lo que dibuja la barra). */
+  valor: number | null;
+}
+
+/**
+ * Tramos con nombre propio dentro del ciclo, para marcarlos sobre la barra.
+ * Ducafast va de Creado a Creación Pre-DUCA: es la parte de armar la DUCA.
+ */
+export const GRUPOS_ETAPAS: { key: string; label: string; etapas: EtapaKey[] }[] = [
+  { key: "ducafast", label: "Ducafast", etapas: ["t1", "t2", "t3"] },
+];
+
+export interface GrupoCiclo {
+  key: string;
+  label: string;
+  etapas: EtapaKey[];
+  /** Posición del tramo sobre la barra, en % del ancho total. */
+  desdePct: number;
+  anchoPct: number;
+  /** Cuota del ciclo y tramo de tiempo — misma base que los segmentos, así cuadran. */
+  pct: number;
+  aporte: number;
+  /**
+   * Métrica REAL del tramo por expediente (mediana de T1+T2+T3, no suma de
+   * medianas). Es la respuesta a «cuánto tarda Ducafast», y no coincide con
+   * `aporte` por la misma razón de siempre: la mediana de una suma no es la
+   * suma de las medianas.
+   */
+  valor: number | null;
+}
+
+export interface Composicion {
+  /** Expedientes con el ciclo completo — única base donde la composición cuadra. */
+  n: number;
+  cobertura: number;
+  /** Métrica del Total calculada POR EXPEDIENTE: el número grande de la barra. */
+  total: number | null;
+  segmentos: SegmentoCiclo[];
+  /** Tramos con nombre (Ducafast) para anotarlos sobre la barra. */
+  grupos: GrupoCiclo[];
+}
+
+/**
+ * Descompone el ciclo en la cuota de cada etapa, para la barra apilada.
+ *
+ * Dos decisiones que evitan que la barra mienta:
+ *
+ * 1. Se calcula SOLO sobre los expedientes que recorrieron TODAS las etapas. Si
+ *    cada etapa se midiera sobre su propio subconjunto, las cuotas no sumarían 100.
+ *
+ * 2. Las proporciones salen del tiempo AGREGADO de cada etapa, no de aplicar la
+ *    métrica a cada una por separado. Con las medianas reales, la suma de los
+ *    segmentos daba 01:10 contra un ciclo real de 03:02 (la regla #3 otra vez):
+ *    dibujar eso daría una barra que no representa el total que la encabeza.
+ *    Con el agregado, `aporte` reparte el total exacto entre las etapas.
+ */
+export function composicionCiclo(exps: Expediente[], metrica: Metrica): Composicion {
+  const completos = exps.filter((e) => e.total != null);
+  const den = exps.length || 1;
+  const total = aplicarMetrica(completos.map((e) => e.total as number), metrica);
+
+  // Tiempo agregado por etapa sobre la base común → cuotas que suman 100.
+  const sumas = ETAPAS.map((e) => completos.reduce((s, x) => s + (x.etapas[e.key] as number), 0));
+  const sumaTotal = sumas.reduce((s, x) => s + x, 0);
+
+  const segmentos: SegmentoCiclo[] = ETAPAS.map((e, i) => {
+    const pct = sumaTotal > 0 ? (sumas[i] / sumaTotal) * 100 : 0;
+    return {
+      key: e.key, label: e.label, corto: e.corto, color: e.color,
+      pct,
+      aporte: total != null ? (pct / 100) * total : 0,
+      valor: aplicarMetrica(completos.map((x) => x.etapas[e.key] as number), metrica),
+    };
+  });
+
+  // Tramos con nombre: se posicionan sumando las cuotas de sus etapas.
+  const grupos: GrupoCiclo[] = GRUPOS_ETAPAS.map((g) => {
+    const idx = g.etapas.map((k) => ETAPA_KEYS.indexOf(k)).filter((i) => i >= 0).sort((a, b) => a - b);
+    const desdePct = segmentos.slice(0, idx[0] ?? 0).reduce((s, x) => s + x.pct, 0);
+    const propios = idx.map((i) => segmentos[i]);
+    const pct = propios.reduce((s, x) => s + x.pct, 0);
+    return {
+      key: g.key, label: g.label, etapas: g.etapas,
+      desdePct, anchoPct: pct, pct,
+      aporte: propios.reduce((s, x) => s + x.aporte, 0),
+      valor: aplicarMetrica(
+        completos.map((e) => g.etapas.reduce((s, k) => s + (e.etapas[k] as number), 0)),
+        metrica,
+      ),
+    };
+  });
+
+  return { n: completos.length, cobertura: completos.length / den, total, segmentos, grupos };
+}
+
+// ── Filtros ──────────────────────────────────────────────────────────────
+export interface Filtros {
+  meses: string[];
+  usuarios: string[];
+  analistas: string[];
+  clientes: string[];
+  mesas: string[];
+  procesos: string[];
+  documentos: string[];
+  embarques: string[];
+  ducafast: "todos" | "si" | "no";
+  metrica: Metrica;
+}
+
+export const FILTROS_VACIOS: Filtros = {
+  meses: [], usuarios: [], analistas: [], clientes: [], mesas: [],
+  procesos: [], documentos: [], embarques: [], ducafast: "todos", metrica: "mediana",
+};
+
+export const hayFiltros = (f: Filtros): boolean =>
+  f.meses.length > 0 || f.usuarios.length > 0 || f.analistas.length > 0 ||
+  f.clientes.length > 0 || f.mesas.length > 0 || f.procesos.length > 0 ||
+  f.documentos.length > 0 || f.embarques.length > 0 || f.ducafast !== "todos";
+
+/** Un expediente pasa si ALGUNO de sus valores coincide (dimensiones multivaluadas). */
+const coincide = (valores: string[], sel: Set<string>) => sel.size === 0 || valores.some((v) => sel.has(v));
+
+export function filtrarExpedientes(exps: Expediente[], f: Filtros): Expediente[] {
+  const meses = new Set(f.meses), usuarios = new Set(f.usuarios), analistas = new Set(f.analistas);
+  const clientes = new Set(f.clientes), mesas = new Set(f.mesas), procesos = new Set(f.procesos);
+  const documentos = new Set(f.documentos), embarques = new Set(f.embarques);
+
+  return exps.filter((e) => {
+    if (meses.size && !meses.has(e.mes)) return false;
+    if (f.ducafast === "si" && !e.ducafast) return false;
+    if (f.ducafast === "no" && e.ducafast) return false;
+    return coincide(e.usuarios, usuarios) && coincide(e.analistas, analistas)
+      && coincide(e.clientes, clientes) && coincide(e.mesas, mesas)
+      && coincide(e.procesos, procesos) && coincide(e.documentos, documentos)
+      && coincide(e.embarques, embarques);
+  });
+}
+
+// ── Agregación por dimensión ─────────────────────────────────────────────
+export interface FilaAgregada {
+  clave: string;
+  label: string;
+  volumen: number;
+  tiempos: Record<EtapaKey | "total", number | null>;
+  personas: number;
+  automatizados: number;
+  /** Solo en tablas de persona: expedientes que hizo de punta a punta. */
+  cicloCompleto?: number;
+}
+
+function tiemposDe(exps: Expediente[], metrica: Metrica): Record<EtapaKey | "total", number | null> {
+  const out = {} as Record<EtapaKey | "total", number | null>;
+  for (const k of ETAPA_KEYS) out[k] = aplicarMetrica(valoresEtapa(exps, k), metrica);
+  out.total = aplicarMetrica(valoresEtapa(exps, "total"), metrica);
+  return out;
+}
+
+/** Agrupa por una dimensión multivaluada: el expediente cuenta en cada grupo. */
+export function agruparPor(
+  exps: Expediente[],
+  claves: (e: Expediente) => string[],
+  metrica: Metrica,
+  personasDe: (e: Expediente) => string[] = (e) => e.analistas,
+): FilaAgregada[] {
+  const grupos = new Map<string, Expediente[]>();
+  for (const e of exps) {
+    for (const c of claves(e)) {
+      const arr = grupos.get(c);
+      if (arr) arr.push(e); else grupos.set(c, [e]);
+    }
+  }
+  return [...grupos.entries()].map(([clave, lista]) => {
+    const humanos = new Set<string>(), bots = new Set<string>();
+    for (const e of lista) {
+      for (const p of personasDe(e)) {
+        if (p === SIN_DATO) continue;
+        (esAutomatizado(p) ? bots : humanos).add(p);
+      }
+    }
+    return {
+      clave, label: clave, volumen: lista.length,
+      tiempos: tiemposDe(lista, metrica),
+      personas: humanos.size, automatizados: bots.size,
+    };
+  }).sort((a, b) => b.volumen - a.volumen || a.label.localeCompare(b.label, "es"));
+}
+
+// ── Atribución de tiempo a las personas ──────────────────────────────────
+// Regla de negocio: el trámite se reparte en dos tramos con dueños distintos.
+//
+//   · El USUARIO responde por lo que pasa hasta la Revisión (T1–T4).
+//   · El ANALISTA responde solo por la revisión, de Revisión a Solicitar firma (T5).
+//   · Si el Usuario y el Analista son la MISMA persona, esa persona hizo el
+//     trámite de punta a punta y carga el ciclo completo.
+//
+// Sin esto, ambas dimensiones cargaban el ciclo entero y un analista que solo
+// revisa aparecía con cientos de horas: casi todas eran espera anterior a que
+// él tocara el expediente.
+//
+// Los datos respaldan el reparto: de los 11,366 expedientes sin Usuario,
+// NINGUNO tiene las etapas T1–T4 completas; de los 715 sin Analista, ninguno
+// tiene T5. O sea que la regla no deja tiempo medido sin dueño.
+
+/** Etapas hasta la Revisión del analista — responsabilidad del Usuario. */
+export const ETAPAS_PREVIAS: EtapaKey[] = ["t1", "t2", "t3", "t4"];
+/** Revisión → Solicitar firma — responsabilidad del Analista. */
+export const ETAPAS_REVISION: EtapaKey[] = ["t5"];
+
+export type Rol = "usuario" | "analista";
+
+export const personasDelRol = (e: Expediente, rol: Rol): string[] =>
+  rol === "usuario" ? e.usuarios : e.analistas;
+
+const NORM_SIN_DATO = norm(SIN_DATO);
+const reales = (v: string[]) => v.map(norm).filter((x) => x !== NORM_SIN_DATO);
+
+/**
+ * ¿Usuario y Analista son la misma persona?
+ *
+ * Se compara normalizado (sin acentos ni mayúsculas) por seguridad, aunque en el
+ * origen actual no hay variantes de escritura: los 171 nombres tienen una sola
+ * forma cruda cada uno. Un expediente sin Usuario o sin Analista no es "mismo".
+ */
+export function mismaPersona(e: Expediente): boolean {
+  const us = reales(e.usuarios), as = reales(e.analistas);
+  if (!us.length || !as.length) return false;
+  return us.length === as.length && us.every((u) => as.includes(u));
+}
+
+/** Etapas que carga una persona en este expediente, según su rol. */
+export function etapasAtribuidas(e: Expediente, rol: Rol): EtapaKey[] {
+  if (mismaPersona(e)) return ETAPA_KEYS;
+  return rol === "usuario" ? ETAPAS_PREVIAS : ETAPAS_REVISION;
+}
+
+/** Tiempo que carga una persona en este expediente. null si le falta una etapa suya. */
+export function tiempoAtribuido(e: Expediente, rol: Rol): number | null {
+  let s = 0;
+  for (const k of etapasAtribuidas(e, rol)) {
+    const v = e.etapas[k];
+    if (v == null) return null;
+    s += v;
+  }
+  return s;
+}
+
+/**
+ * Agrupa por persona atribuyendo solo el tiempo del que esa persona responde.
+ *
+ * Las etapas fuera de su alcance quedan en null (la tabla las muestra como «—»),
+ * no en cero: no es que tardara nada, es que ese tramo no era suyo.
+ */
+export function agruparPorPersona(exps: Expediente[], rol: Rol, metrica: Metrica): FilaAgregada[] {
+  const grupos = new Map<string, Expediente[]>();
+  for (const e of exps) {
+    for (const p of personasDelRol(e, rol)) {
+      const arr = grupos.get(p);
+      if (arr) arr.push(e); else grupos.set(p, [e]);
+    }
+  }
+
+  return [...grupos.entries()].map(([clave, lista]) => {
+    const tiempos = {} as Record<EtapaKey | "total", number | null>;
+    for (const k of ETAPA_KEYS) {
+      const v: number[] = [];
+      for (const e of lista) {
+        if (!etapasAtribuidas(e, rol).includes(k)) continue; // no es suya
+        const s = e.etapas[k];
+        if (s != null) v.push(s);
+      }
+      tiempos[k] = aplicarMetrica(v, metrica);
+    }
+    const totales: number[] = [];
+    for (const e of lista) {
+      const t = tiempoAtribuido(e, rol);
+      if (t != null) totales.push(t);
+    }
+    tiempos.total = aplicarMetrica(totales, metrica);
+
+    // Cuántos de sus expedientes hizo de punta a punta.
+    const cicloCompleto = lista.filter((e) => mismaPersona(e)).length;
+
+    return {
+      clave, label: clave, volumen: lista.length, tiempos,
+      personas: esAutomatizado(clave) || clave === SIN_DATO ? 0 : 1,
+      automatizados: esAutomatizado(clave) ? 1 : 0,
+      cicloCompleto,
+    };
+  }).sort((a, b) => b.volumen - a.volumen || a.label.localeCompare(b.label, "es"));
+}
+
+// ── Cobertura por hito ───────────────────────────────────────────────────
+export interface FilaHito {
+  key: HitoKey;
+  label: string;
+  expedientes: number;
+  cobertura: number;
+}
+
+/** Cuántos expedientes alcanzaron cada hito. Sustituye a «Por acción»: el
+ *  formato ancho ya no trae quién ejecutó cada uno. */
+export function coberturaHitos(exps: Expediente[]): FilaHito[] {
+  const den = exps.length || 1;
+  return HITOS.map(({ key, label }) => {
+    const n = exps.reduce((s, e) => s + (e.hitos[key] ? 1 : 0), 0);
+    return { key, label, expedientes: n, cobertura: n / den };
+  });
+}
+
+// ── Series de tiempo ─────────────────────────────────────────────────────
+export interface PuntoSerie {
+  clave: string;
+  label: string;
+  volumen: number;
+  valores: Record<EtapaKey | "total", number | null>;
+}
+
+export function serieTemporal(exps: Expediente[], metrica: Metrica, porDia: boolean): PuntoSerie[] {
+  const grupos = new Map<string, Expediente[]>();
+  for (const e of exps) {
+    const k = porDia ? diaDe(e.creado) : e.mes;
+    if (!k) continue;
+    const arr = grupos.get(k);
+    if (arr) arr.push(e); else grupos.set(k, [e]);
+  }
+  return [...grupos.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([clave, lista]) => ({
+      clave,
+      label: porDia ? etiquetaDia(clave) : etiquetaMes(clave),
+      volumen: lista.length,
+      valores: tiemposDe(lista, metrica),
+    }));
+}
+
+// ── Carga y capacidad ────────────────────────────────────────────────────
+// Las etapas miden TIEMPO TRANSCURRIDO, no horas trabajadas (ver aviso en la UI).
+export const HORAS_SEMANA_PERSONA = 44;
+
+export interface FilaCarga {
+  clave: string;
+  label: string;
+  volumen: number;
+  /** Plantilla REAL del periodo: personas distintas que aparecen en sus expedientes. */
+  usuarios: number;
+  analistas: number;
+  /** Unión de ambas: una persona que hace los dos papeles cuenta una sola vez. */
+  personas: number;
+  /** Personas que en ese periodo actuaron como Usuario y como Analista. */
+  ambos: number;
+  /** Ejecutores automatizados del periodo — cuentan trámites, no plantilla. */
+  automatizados: number;
+  demandaHoras: number;
+  demandaAjustada: number;
+  capacidadHoras: number;
+  horasPorPersona: number;
+  expedientesPorPersona: number;
+  personasNecesarias: number;
+  difPersonas: number;
+  difHoras: number;
+  /** demandaAjustada ÷ capacidadHoras. >1 significa más reloj que jornada. */
+  utilizacion: number;
+  excede: boolean;
+}
+
+/**
+ * Carga contra la plantilla REAL de cada periodo.
+ *
+ * La plantilla no se estima: se cuenta. Son las personas distintas (Usuario o
+ * Analista, sin duplicar a quien hace ambos papeles) que aparecen en los
+ * expedientes de ese periodo. Los ejecutores automatizados se reportan aparte,
+ * porque tramitan pero no consumen jornada.
+ *
+ * La demanda usa TODO el tiempo medido, no solo los ciclos completos: cada hora
+ * medida ocupó el calendario aunque al trámite le falte un hito.
+ *
+ * `utilizacion` por encima de 1 no es sobrecarga: es la prueba de que estas
+ * horas son de reloj y no de trabajo. Con la plantilla real, los meses van de
+ * 2× a 7× — ese múltiplo es justamente cuántos expedientes lleva en paralelo
+ * una persona, y es lo que el control de `simultaneos` permite corregir.
+ */
+export function cargaYCapacidad(
+  exps: Expediente[], simultaneos: number, porDia = false,
+): FilaCarga[] {
+  const div = Math.max(1, simultaneos);
+  const grupos = new Map<string, Expediente[]>();
+  for (const e of exps) {
+    const k = porDia ? diaDe(e.creado) : e.mes;
+    if (!k) continue;
+    const arr = grupos.get(k);
+    if (arr) arr.push(e); else grupos.set(k, [e]);
+  }
+
+  return [...grupos.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([clave, lista]) => {
+      const us = new Set<string>(), an = new Set<string>(), bots = new Set<string>();
+      for (const e of lista) {
+        for (const p of e.usuarios) {
+          if (p === SIN_DATO) continue;
+          (esAutomatizado(p) ? bots : us).add(p);
+        }
+        for (const p of e.analistas) {
+          if (p === SIN_DATO) continue;
+          (esAutomatizado(p) ? bots : an).add(p);
+        }
+      }
+      const personas = new Set([...us, ...an]).size;
+      const ambos = [...us].filter((x) => an.has(x)).length;
+
+      const demandaHoras = lista.reduce((s, e) => s + segundosMedidos(e), 0) / 3600;
+      const demandaAjustada = demandaHoras / div;
+      const semanas = porDia ? 1 / 5 : 52 / 12;
+      const horasPorPersona = HORAS_SEMANA_PERSONA * semanas;
+      const capacidadHoras = personas * horasPorPersona;
+      const personasNecesarias = demandaAjustada / horasPorPersona;
+
+      return {
+        clave, label: porDia ? etiquetaDia(clave) : etiquetaMes(clave),
+        volumen: lista.length,
+        usuarios: us.size, analistas: an.size, personas, ambos, automatizados: bots.size,
+        demandaHoras, demandaAjustada, capacidadHoras,
+        horasPorPersona: personas > 0 ? demandaAjustada / personas : 0,
+        expedientesPorPersona: personas > 0 ? lista.length / personas : 0,
+        personasNecesarias,
+        difPersonas: personasNecesarias - personas,
+        difHoras: demandaAjustada - capacidadHoras,
+        utilizacion: capacidadHoras > 0 ? demandaAjustada / capacidadHoras : 0,
+        excede: capacidadHoras > 0 && demandaAjustada > capacidadHoras,
+      };
+    });
+}
+
+// ── Costo del tiempo ─────────────────────────────────────────────────────
+// Traduce a dinero el tiempo medido, a una tarifa por hora.
+//
+// LO QUE ESTE NÚMERO ES Y LO QUE NO ES
+// Las etapas miden tiempo TRANSCURRIDO entre dos hitos, no horas trabajadas.
+// El costo crudo (simultaneos = 1) responde a «cuánto vale el tiempo que estos
+// trámites ocupan en el calendario», no a «cuánto se pagó en sueldos»: la mayor
+// parte de T1 es expediente esperando en cola, no alguien trabajándolo.
+//
+// La escala lo deja claro: el tiempo medido equivale a ~262 personas a tiempo
+// completo durante el periodo, cuando en el origen hay 120 personas distintas.
+// Por eso `simultaneos` divide la demanda igual que en cargaYCapacidad: es el
+// número de expedientes que una persona lleva a la vez, y con él el costo se
+// acerca a horas de trabajo reales.
+
+export const TARIFA_HORA_DEFECTO = 8; // USD
+
+export interface PuntoCosto {
+  clave: string;
+  label: string;
+  volumen: number;
+  horas: number;
+  costo: number;
+}
+
+export interface CostoEtapa {
+  key: EtapaKey;
+  label: string;
+  corto: string;
+  color: string;
+  horas: number;
+  costo: number;
+  pct: number;
+}
+
+export interface Costo {
+  horas: number;
+  costo: number;
+  /** Expedientes con al menos una etapa medida — la base del cálculo. */
+  n: number;
+  tarifa: number;
+  simultaneos: number;
+  porEtapa: CostoEtapa[];
+  serie: PuntoCosto[];
+}
+
+/** Segundos medidos de un expediente, sumando todas las etapas que sí tienen dato. */
+export function segundosMedidos(e: Expediente): number {
+  let s = 0;
+  for (const k of ETAPA_KEYS) s += e.etapas[k] ?? 0;
+  return s;
+}
+
+/**
+ * Costo del tiempo medido, por etapa y por periodo.
+ *
+ * Cuenta TODAS las etapas con dato, no solo los expedientes de ciclo completo:
+ * cada hora medida ocupó el calendario, aunque al trámite le falte un hito. Con
+ * solo los ciclos completos el total baja a unas dos terceras partes.
+ */
+export function costoTiempo(
+  exps: Expediente[],
+  tarifa = TARIFA_HORA_DEFECTO,
+  simultaneos = 1,
+  porDia = false,
+): Costo {
+  const div = Math.max(1, simultaneos);
+  const aHoras = (seg: number) => seg / 3600 / div;
+
+  const porEtapa: CostoEtapa[] = ETAPAS.map((e) => {
+    const horas = aHoras(exps.reduce((s, x) => s + (x.etapas[e.key] ?? 0), 0));
+    return { key: e.key, label: e.label, corto: e.corto, color: e.color, horas, costo: horas * tarifa, pct: 0 };
+  });
+  const horas = porEtapa.reduce((s, e) => s + e.horas, 0);
+  for (const e of porEtapa) e.pct = horas > 0 ? (e.horas / horas) * 100 : 0;
+
+  const grupos = new Map<string, Expediente[]>();
+  for (const e of exps) {
+    const k = porDia ? diaDe(e.creado) : e.mes;
+    if (!k) continue;
+    const arr = grupos.get(k);
+    if (arr) arr.push(e); else grupos.set(k, [e]);
+  }
+  const serie: PuntoCosto[] = [...grupos.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([clave, lista]) => {
+      const h = aHoras(lista.reduce((s, e) => s + segundosMedidos(e), 0));
+      return {
+        clave,
+        label: porDia ? etiquetaDia(clave) : etiquetaMes(clave),
+        volumen: lista.length,
+        horas: h,
+        costo: h * tarifa,
+      };
+    });
+
+  return {
+    horas, costo: horas * tarifa,
+    n: exps.filter((e) => segundosMedidos(e) > 0).length,
+    tarifa, simultaneos: div, porEtapa, serie,
+  };
+}
+
+/** Personas (no automatizadas) distintas en un recorte, por dimensión. */
+export function contarPersonas(exps: Expediente[], de: (e: Expediente) => string[] = (e) => e.analistas): number {
+  const s = new Set<string>();
+  for (const e of exps) for (const p of de(e)) if (p !== SIN_DATO && !esAutomatizado(p)) s.add(p);
+  return s.size;
+}
+
+// ── Opciones de filtro ───────────────────────────────────────────────────
+export interface Opcion { value: string; label: string; count: number; automatizado?: boolean }
+
+export interface OpcionesFiltro {
+  meses: Opcion[]; usuarios: Opcion[]; analistas: Opcion[]; clientes: Opcion[];
+  mesas: Opcion[]; procesos: Opcion[]; documentos: Opcion[]; embarques: Opcion[];
+}
+
+function contar(exps: Expediente[], get: (e: Expediente) => string[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const e of exps) for (const v of get(e)) if (v) m.set(v, (m.get(v) ?? 0) + 1);
+  return m;
+}
+
+const porVolumen = (m: Map<string, number>, marcarBots = false): Opcion[] =>
+  [...m.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"))
+    .map(([value, count]) => ({
+      value, label: value, count,
+      ...(marcarBots ? { automatizado: esAutomatizado(value) } : {}),
+    }));
+
+export function opcionesDeFiltro(exps: Expediente[]): OpcionesFiltro {
+  const mesas = contar(exps, (e) => e.mesas);
+  return {
+    meses: [...contar(exps, (e) => [e.mes]).entries()]
+      .filter(([v]) => v)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([value, count]) => ({ value, label: etiquetaMes(value), count })),
+    usuarios: porVolumen(contar(exps, (e) => e.usuarios), true),
+    analistas: porVolumen(contar(exps, (e) => e.analistas), true),
+    clientes: porVolumen(contar(exps, (e) => e.clientes)),
+    mesas: ordenarMesas([...mesas.keys()]).map((value) => ({ value, label: value, count: mesas.get(value) ?? 0 })),
+    procesos: porVolumen(contar(exps, (e) => e.procesos)),
+    documentos: porVolumen(contar(exps, (e) => e.documentos)),
+    embarques: porVolumen(contar(exps, (e) => e.embarques)),
+  };
+}
+
+// ── Exportación CSV ──────────────────────────────────────────────────────
+const csvCampo = (v: unknown): string => {
+  const s = String(v ?? "");
+  return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+const iso = (d: Date | null | undefined) =>
+  d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}` : "";
+
+/** CSV del recorte filtrado: tiempos en hh:mm:ss y también en segundos. */
+export function exportarCSV(exps: Expediente[]): string {
+  const cab = [
+    "c807_file", "Creado", "Mes", "Proceso", "Cliente", "Usuario", "Analista",
+    "Embarque", "Documento", "Mesa", "Ducafast",
+    ...HITOS.filter((h) => h.key !== "creado").map((h) => h.label),
+    ...ETAPAS.flatMap((e) => [e.corto, `${e.corto}_seg`]),
+    "Total", "Total_seg",
+  ];
+  const lineas = [cab.join(",")];
+  for (const e of exps) {
+    const fila: unknown[] = [
+      e.file, iso(e.creado), e.mes,
+      e.procesos.join(" | "), e.clientes.join(" | "), e.usuarios.join(" | "),
+      e.analistas.join(" | "), e.embarques.join(" | "), e.documentos.join(" | "),
+      e.mesas.join(" | "), e.ducafast ? "Ducafast" : "No Ducafast",
+      ...HITOS.filter((h) => h.key !== "creado").map((h) => iso(e.hitos[h.key])),
+    ];
+    for (const et of ETAPAS) {
+      const v = e.etapas[et.key];
+      fila.push(v == null ? "" : fmtHHMMSS(v), v ?? "");
+    }
+    fila.push(e.total == null ? "" : fmtHHMMSS(e.total), e.total ?? "");
+    lineas.push(fila.map(csvCampo).join(","));
+  }
+  return lineas.join("\n");
+}
+
+export { SEGUNDOS_SEMANA };

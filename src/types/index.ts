@@ -39,6 +39,50 @@ export interface CalMeetingRaw {
 /** Fila cruda de la hoja de Google (encabezados dinámicos → claves). */
 export type SheetRow = Record<string, string | number>;
 
+/** Fila de la hoja "ROI" (Google Sheets, pestaña "003") — un expediente C807 por
+ *  fila, en formato ANCHO: cada hito del trámite es una columna con su fecha.
+ *  Fuente independiente del resto del dashboard (ver apps-script/roi-log.gs).
+ *  Claves = nombres exactos de columna en la hoja.
+ *
+ *  Nota: un mismo c807_file puede repetirse en varias filas cuando alguna
+ *  dimensión difiere (hoy solo `Proceso`: Aduana / Importación). */
+export interface RoiRow {
+  c807_file: string;
+  Proceso: string;
+  Cliente: string;
+  Usuario: string;
+  Analista: string;
+  Embarque: string;
+  Documento: string;
+  Mesa: string;
+  Docalpha: string;
+  // Hitos (fechas). Vacío = el expediente no alcanzó ese hito.
+  Creado: string;
+  DPR: string;
+  Clasificacion_exacta: string;
+  Creacion_Pre_DUCA: string;
+  Revision_Analista: string;
+  Solicitar_firma_def: string;
+}
+
+/**
+ * Hoja ROI tal como la manda el Apps Script: codificada, no en filas crudas.
+ * Los textos que se repiten van por diccionario y las fechas como segundos desde
+ * `epoca` — 27.6 MB pasan a 5.0 MB. `src/lib/roi.ts` la decodifica a `RoiRow[]`.
+ *
+ * Cada fila es posicional: primero las columnas `libres` (texto tal cual), luego
+ * un índice de `dicc` por cada columna de `textos`, luego los segundos de cada
+ * columna de `fechas` (null si el hito no ocurrió).
+ */
+export interface RoiPayload {
+  epoca: number;
+  libres: string[];
+  textos: string[];
+  fechas: string[];
+  dicc: Record<string, string[]>;
+  filas: (string | number | null)[][];
+}
+
 /** Costo planificado de un REQ guardado en Firestore (baseline para EV/CPI). */
 export interface ReqBaseline {
   costRH: number;

@@ -295,6 +295,21 @@ table.pmo.grouped tbody tr:hover td { background: var(--bg-hover); }
 :root[data-theme="c807"] .viz,
 :root[data-theme="rose"] .viz { --series-req: #2a78d6; --series-hito: #1baf7a; }
 
+/* ── CHART SERIES (Tiempos de trámites — etapas del ciclo) ──────────────
+   Los 5 slots de la MISMA paleta categórica validada que .viz-resp, en el orden
+   de la cadena: T1=azul · T2=aqua · T3=naranja · T4=violeta · T5=magenta. No son
+   colores nuevos: son los mismos hexes ya usados en el resto de la app. */
+.viz-etapas {
+  --etapa-1: #3987e5; --etapa-2: #199e70; --etapa-3: #d95926; --etapa-4: #9085e9;
+  --etapa-5: #d55181;
+}
+:root[data-theme="light"] .viz-etapas,
+:root[data-theme="c807"] .viz-etapas,
+:root[data-theme="rose"] .viz-etapas {
+  --etapa-1: #2a78d6; --etapa-2: #1baf7a; --etapa-3: #eb6834; --etapa-4: #4a3aa7;
+  --etapa-5: #e87ba4;
+}
+
 /* ── CHART SERIES (Calidad & Cumplimiento — responsables) — colores validados
    (dataviz). Orden fijo: VPA=azul · Desarrollador=naranja · CKU=aqua · PM=rojo ·
    Sponsor=violeta · BRM=magenta · Sin reproceso=verde. "Sin asignar" usa gris neutro
