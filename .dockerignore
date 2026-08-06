@@ -1,0 +1,33 @@
+# Nunca enviar al contexto de build: pesan, o contienen secretos, o traen
+# binarios compilados para el SO del desarrollador (Windows) que romperían
+# la imagen Linux.
+
+node_modules
+.next
+out
+build
+
+# Secretos — las NEXT_PUBLIC_* entran por --build-arg, no por archivo.
+.env
+.env.*
+!.env.example
+
+.git
+.github
+.gitignore
+.vscode
+.idea
+
+# Artefactos locales
+tsconfig.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+*.pem
+coverage
+.DS_Store
+Thumbs.db
+
+# No participan en el runtime del servidor
+apps-script
+*.md
+!README.md

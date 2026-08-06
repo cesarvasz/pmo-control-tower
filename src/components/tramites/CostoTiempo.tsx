@@ -69,16 +69,58 @@ export default function CostoTiempo({
 
         <div className="ml-auto text-right">
           <div className="text-[0.66rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Costo del periodo filtrado
+            Costo total del periodo filtrado
           </div>
           <div className="tabular-nums text-[2rem] font-extrabold leading-none text-[var(--card-value-total)]">
-            {usd(costo.costo)}
+            {usd(costo.costoTotal)}
           </div>
           <div className="mt-0.5 text-[0.72rem] text-[var(--text-muted)]">
-            {usdExacto(costo.costo)} · {horas(costo.horas)} reales · {costo.n.toLocaleString("es-GT")} expedientes
+            {usdExacto(costo.costo)} de horas + {usdExacto(costo.licencias.costo)} de licencias
           </div>
         </div>
       </div>
+
+      {/* Las dos mitades del costo, que son cosas distintas */}
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border p-3" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+          <div className="text-[0.64rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Horas de personas</div>
+          <div className="tabular-nums text-[1.5rem] font-extrabold leading-tight text-[var(--text-primary)]">{usd(costo.costo)}</div>
+          <div className="text-[0.68rem] text-[var(--text-muted)]">
+            {horas(costo.horas)} de reloj × ${costo.tarifa}/h
+          </div>
+        </div>
+        <div className="rounded-xl border p-3" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+          <div className="text-[0.64rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Licencias de digitalización</div>
+          <div className="tabular-nums text-[1.5rem] font-extrabold leading-tight text-[var(--text-primary)]">
+            {usdExacto(costo.licencias.costo)}
+          </div>
+          <div className="text-[0.68rem] text-[var(--text-muted)]">
+            {costo.licencias.total.toLocaleString("es-GT")} licencias
+            {costo.licencias.precioUnitario > 0 && <> · ${costo.licencias.precioUnitario.toFixed(2)} c/u</>}
+          </div>
+        </div>
+        <div className="rounded-xl border p-3" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+          <div className="text-[0.64rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Expedientes con licencia</div>
+          <div className="tabular-nums text-[1.5rem] font-extrabold leading-tight text-[var(--text-primary)]">
+            {costo.licencias.expedientes.toLocaleString("es-GT")}
+          </div>
+          <div className="text-[0.68rem] text-[var(--text-muted)]">
+            {(costo.licencias.cobertura * 100).toFixed(1)}% del recorte ·{" "}
+            {costo.licencias.porExpediente.toFixed(1)} licencias c/u
+          </div>
+        </div>
+      </div>
+
+      {costo.licencias.cobertura > 0 && costo.licencias.cobertura < 0.5 && (
+        <p className="mb-4 rounded-lg border-l-[3px] px-3.5 py-2 text-[0.74rem]"
+          style={{ borderColor: "var(--warn)", background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
+          Solo el <strong>{(costo.licencias.cobertura * 100).toFixed(1)}%</strong> de los expedientes
+          del recorte trae dato de licencias ({costo.licencias.expedientes.toLocaleString("es-GT")} de{" "}
+          {(costo.licencias.expedientes / costo.licencias.cobertura).toFixed(0).toLocaleString()}). El
+          costo de licencias solo cubre esos; el resto no tiene el dato en la hoja, que no es lo mismo
+          que haber costado cero.
+        </p>
+      )}
 
       {/* Línea de tiempo */}
       {costo.serie.length === 0 ? (

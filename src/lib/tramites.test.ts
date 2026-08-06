@@ -6,7 +6,7 @@ import {
   contarPersonas, exportarCSV, agruparPor, opcionesDeFiltro,
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
-  unirIntervalos, costoPorPersona, ventanaDe,
+  unirIntervalos, costoPorPersona, ventanaDe, contarLicencias,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS,
   type Filtros,
 } from "./tramites";
@@ -761,6 +761,76 @@ describe("costoTiempo — horas reales", () => {
     expect(c.porEtapa.every((e) => e.pct === 0 && e.costo === 0)).toBe(true);
     expect(c.costoDisponible).toBe(0);
     expect(c.utilizacion).toBe(0);
+  });
+});
+
+describe("licencias de digitalización", () => {
+  const conLic = (o: Partial<RoiRow> = {}) =>
+    fila({ Licencias: "2", Costo: "2.2", "Documents Count": "3", "Pages Count": "5", ...o });
+
+  it("lee los números de la hoja", () => {
+    const [e] = construirExpedientes([conLic({})]);
+    expect(e.licencias).toBe(2);
+    expect(e.costoLicencias).toBeCloseTo(2.2, 8);
+    expect(e.docs).toBe(3);
+    expect(e.paginas).toBe(5);
+  });
+
+  it("un expediente sin dato queda en cero, no en NaN", () => {
+    const [e] = construirExpedientes([fila({ Licencias: "", Costo: "" })]);
+    expect(e.licencias).toBe(0);
+    expect(e.costoLicencias).toBe(0);
+  });
+
+  it("las filas repetidas NO suman: el valor se toma una vez", () => {
+    // Caso real: 3,109 expedientes duplicados, todos con el mismo valor en sus
+    // filas. Sumarlas inventaría licencias que no existen.
+    const exps = construirExpedientes([
+      conLic({ c807_file: "DUP", Proceso: "Aduana" }),
+      conLic({ c807_file: "DUP", Proceso: "Importación" }),
+    ]);
+    expect(exps).toHaveLength(1);
+    expect(exps[0].licencias).toBe(2); // no 4
+    expect(exps[0].costoLicencias).toBeCloseTo(2.2, 8);
+  });
+
+  it("suma el total del recorte y reporta la cobertura", () => {
+    const l = contarLicencias(construirExpedientes([
+      conLic({ c807_file: "A" }),
+      conLic({ c807_file: "B", Licencias: "4", Costo: "4.4" }),
+      fila({ c807_file: "C", Licencias: "", Costo: "" }), // sin dato
+    ]));
+    expect(l.total).toBe(6);
+    expect(l.costo).toBeCloseTo(6.6, 8);
+    expect(l.expedientes).toBe(2);
+    expect(l.cobertura).toBeCloseTo(2 / 3, 8);
+    expect(l.precioUnitario).toBeCloseTo(1.1, 8);
+    expect(l.porExpediente).toBe(3);
+  });
+
+  it("sin licencias no divide por cero", () => {
+    const l = contarLicencias(construirExpedientes([fila({ Licencias: "", Costo: "" })]));
+    expect(l.precioUnitario).toBe(0);
+    expect(l.porExpediente).toBe(0);
+    expect(l.cobertura).toBe(0);
+  });
+
+  it("el costo total suma las horas y las licencias", () => {
+    // Un expediente de 5 h a $8 = $40, más 2 licencias de $2.20.
+    const c = costoTiempo(construirExpedientes([conLic({ Usuario: "ANA", Analista: "ANA" })]), 8);
+    expect(c.costo).toBe(40);
+    expect(c.licencias.costo).toBeCloseTo(2.2, 8);
+    expect(c.costoTotal).toBeCloseTo(42.2, 8);
+  });
+
+  it("las licencias responden a los filtros igual que todo lo demás", () => {
+    const exps = construirExpedientes([
+      conLic({ c807_file: "A", Mesa: "Mesa 1" }),
+      conLic({ c807_file: "B", Mesa: "Mesa 2", Licencias: "10", Costo: "11" }),
+    ]);
+    const soloMesa1 = filtrarExpedientes(exps, { ...FILTROS_VACIOS, mesas: ["Mesa 1"] });
+    expect(contarLicencias(soloMesa1).total).toBe(2);
+    expect(contarLicencias(exps).total).toBe(12);
   });
 });
 

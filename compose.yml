@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────
+# PMO Dashboard — despliegue en servidor propio.
+#
+#   1. cp .env.example .env      y rellenar los valores
+#   2. docker compose build      (o docker compose pull si usas registry)
+#   3. docker compose up -d
+#
+# Compose lee ./.env automáticamente para resolver los ${...} de abajo.
+# Las variables marcadas con :? abortan el comando si faltan, en vez de
+# levantar un contenedor a medio configurar.
+# ─────────────────────────────────────────────────────────────────────────
+
+name: pmo-dashboard
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_VERSION: "22"
+        # Se incrustan en el bundle del cliente durante el build: cambiarlas
+        # exige reconstruir la imagen, no basta con reiniciar el contenedor.
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:?falta en .env}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:?falta en .env}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:?falta en .env}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:?falta en .env}
+        NEXT_PUBLIC_ALLOWED_DOMAIN: ${NEXT_PUBLIC_ALLOWED_DOMAIN:-c807.com}
+
+    image: pmo-dashboard:${APP_VERSION:-latest}
+    container_name: pmo-dashboard
+    restart: unless-stopped
+
+    # PID 1 que reenvía señales y cosecha zombies (tini, incluido en Docker).
+    init: true
+
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      TZ: ${TZ:-America/Guatemala}
+
+      # ── Secretos: solo servidor, nunca llegan al cliente ──────────────
+      MONDAY_API_KEY: ${MONDAY_API_KEY:?falta en .env}
+      FIREBASE_ADMIN_CLIENT_EMAIL: ${FIREBASE_ADMIN_CLIENT_EMAIL:?falta en .env}
+      # Debe conservar los \n literales; el código los convierte en saltos.
+      FIREBASE_ADMIN_PRIVATE_KEY: ${FIREBASE_ADMIN_PRIVATE_KEY:?falta en .env}
+
+      # ── WebApps de Apps Script (opcionales) ───────────────────────────
+      CALENDAR_WEBAPP_URL: ${CALENDAR_WEBAPP_URL:-}
+      REMINDERS_WEBAPP_URL: ${REMINDERS_WEBAPP_URL:-}
+      ROI_WEBAPP_URL: ${ROI_WEBAPP_URL:-}
+
+      # ── IDs de Monday (no son secretos) ───────────────────────────────
+      MONDAY_INI_BOARD_ID: ${MONDAY_INI_BOARD_ID:-18412996100}
+      MONDAY_REQ_BOARD_ID: ${MONDAY_REQ_BOARD_ID:-18413204916}
+      MONDAY_PROJ_FOLDER_ID: ${MONDAY_PROJ_FOLDER_ID:-18108861}
+      MONDAY_EST_BOARD_ID: ${MONDAY_EST_BOARD_ID:-18291587533}
+      MONDAY_RH_BOARD_ID: ${MONDAY_RH_BOARD_ID:-}
+
+    # Solo accesible desde el propio host: el proxy inverso hace de puerta.
+    # Si el proxy corre como servicio de este compose, borra este bloque y
+    # deja que se comuniquen por la red interna.
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    # La app es stateless (todos los Route Handlers son force-dynamic y no
+    # escribe en disco): no lleva volúmenes y escala por réplicas.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1536M
+        reservations:
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+    # Endurecimiento adicional. Descomentar tras confirmar que el contenedor
+    # arranca bien; Next escribe en .next/cache aunque aquí no haya ISR.
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
+    #   - /app/.next/cache
+
+# ─────────────────────────────────────────────────────────────────────────
+# Proxy inverso con TLS automático (opcional).
+#
+#   docker compose --profile proxy up -d
+#
+# Requiere los puertos 80 y 443 libres, un registro DNS apuntando al
+# servidor y este Caddyfile junto al compose:
+#
+#   pmo.tudominio.com {
+#       encode zstd gzip
+#       reverse_proxy app:3000
+#   }
+#
+# Si activas esto, quita el bloque "ports" del servicio app.
+# ─────────────────────────────────────────────────────────────────────────
+#
+#  caddy:
+#    image: caddy:2-alpine
+#    container_name: pmo-caddy
+#    restart: unless-stopped
+#    profiles: [proxy]
+#    depends_on:
+#      app:
+#        condition: service_healthy
+#    ports:
+#      - "80:80"
+#      - "443:443"
+#    volumes:
+#      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+#      - caddy_data:/data
+#      - caddy_config:/config
+#
+# volumes:
+#   caddy_data:
+#   caddy_config:

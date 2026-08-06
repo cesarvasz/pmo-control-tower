@@ -63,6 +63,12 @@ export interface RoiRow {
   Creacion_Pre_DUCA: string;
   Revision_Analista: string;
   Solicitar_firma_def: string;
+  // Digitalización. Vienen como número en la hoja; el decodificador los pasa a
+  // texto y lib/tramites.ts los convierte de vuelta.
+  "Documents Count": string;
+  "Pages Count": string;
+  Licencias: string;
+  Costo: string;
 }
 
 /**

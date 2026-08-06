@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // Misma razón, para el output file tracing: sin esto el build anida la
+  // salida en .next/standalone/pmo-app/ y se rompen los COPY del Dockerfile.
+  outputFileTracingRoot: __dirname,
+  // Empaqueta en .next/standalone solo los archivos que el servidor necesita,
+  // incluido un subconjunto de node_modules. Requerido por el Dockerfile.
+  output: "standalone",
   // firebase-admin usa require() dinámicos y deps nativas: no debe empaquetarse,
   // se carga como módulo externo de Node en el servidor.
   serverExternalPackages: ["firebase-admin"],

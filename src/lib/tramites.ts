@@ -125,6 +125,17 @@ export interface Expediente {
   mesas: string[];
   ducafast: boolean;
   hitos: Partial<Record<HitoKey, Date>>;
+  /**
+   * Digitalización, tal como viene de la hoja. Se toma UNA vez por expediente,
+   * no se suma entre sus filas: un c807_file repetido trae el mismo valor en
+   * todas (verificado sobre los 3,109 duplicados reales, cero discrepancias),
+   * así que sumarlas contaría licencias que no existen.
+   */
+  docs: number;
+  paginas: number;
+  licencias: number;
+  /** Costo de las licencias, de la hoja. Es independiente del costo por horas. */
+  costoLicencias: number;
   /** Segundos hábiles por etapa; ausente si falta alguno de sus dos hitos. */
   etapas: Partial<Record<EtapaKey, number>>;
   /** Suma de todas las etapas. null si el expediente no recorrió el ciclo completo. */
@@ -134,6 +145,12 @@ export interface Expediente {
 const add = (set: Set<string>, v: unknown, vacio = SIN_DATO) => {
   const s = String(v ?? "").trim();
   set.add(s || vacio);
+};
+
+/** Número de la hoja; 0 si viene vacío o no numérico. */
+const num = (v: unknown): number => {
+  const n = Number(String(v ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
 };
 
 /**
@@ -162,8 +179,17 @@ export function construirExpedientes(rows: RoiRow[]): Expediente[] {
     const mesas = new Set<string>();
     const hitos: Partial<Record<HitoKey, Date>> = {};
     let ducafast = false;
+    let docs = 0, paginas = 0, licencias = 0, costoLicencias = 0;
 
     for (const r of filas) {
+      // Máximo, no suma: las filas repetidas traen el mismo valor y sumarlas
+      // inventaría licencias. El máximo además es idempotente si algún día
+      // difirieran.
+      docs = Math.max(docs, num(r["Documents Count"]));
+      paginas = Math.max(paginas, num(r["Pages Count"]));
+      licencias = Math.max(licencias, num(r.Licencias));
+      costoLicencias = Math.max(costoLicencias, num(r.Costo));
+
       add(procesos, r.Proceso); add(clientes, r.Cliente);
       add(usuarios, r.Usuario); add(analistas, r.Analista);
       add(embarques, r.Embarque); add(documentos, r.Documento);
@@ -200,6 +226,7 @@ export function construirExpedientes(rows: RoiRow[]): Expediente[] {
       mesas: ordenarMesas([...mesas]),
       ducafast,
       hitos,
+      docs, paginas, licencias, costoLicencias,
       etapas,
       total: completo ? ETAPA_KEYS.reduce((s, k) => s + (etapas[k] as number), 0) : null,
     });
@@ -895,6 +922,46 @@ export function costoPorPersona(
 
 export const TARIFA_HORA_DEFECTO = 8; // USD
 
+// ── Licencias de digitalización ──────────────────────────────────────────
+// Costo que NO sale del reloj: viene ya calculado en la hoja, por expediente.
+// Se suma aparte del costo por horas y luego se juntan, porque son cosas
+// distintas — una es tiempo de personas, la otra es consumo de licencias.
+
+export interface Licencias {
+  /** Licencias usadas en el recorte. */
+  total: number;
+  /** Costo que trae la hoja para esas licencias. */
+  costo: number;
+  /** Expedientes que consumieron al menos una. */
+  expedientes: number;
+  /** Cobertura: expedientes con licencia sobre el total del recorte. */
+  cobertura: number;
+  /** costo ÷ total. En los datos actuales sale exacto a 1.10 USD. */
+  precioUnitario: number;
+  /** Promedio de licencias entre los expedientes que sí usaron. */
+  porExpediente: number;
+  docs: number;
+  paginas: number;
+}
+
+export function contarLicencias(exps: Expediente[]): Licencias {
+  let total = 0, costo = 0, expedientes = 0, docs = 0, paginas = 0;
+  for (const e of exps) {
+    total += e.licencias;
+    costo += e.costoLicencias;
+    docs += e.docs;
+    paginas += e.paginas;
+    if (e.licencias > 0) expedientes++;
+  }
+  return {
+    total, costo, expedientes,
+    cobertura: exps.length > 0 ? expedientes / exps.length : 0,
+    precioUnitario: total > 0 ? costo / total : 0,
+    porExpediente: expedientes > 0 ? total / expedientes : 0,
+    docs, paginas,
+  };
+}
+
 export interface PuntoCosto {
   clave: string;
   label: string;
@@ -929,6 +996,10 @@ export interface Costo {
   serie: PuntoCosto[];
   /** Ventana del recorte: el techo de horas que cabe en el periodo. */
   ventana: Ventana;
+  /** Digitalización, de la hoja — no del reloj. */
+  licencias: Licencias;
+  /** costo (horas) + licencias.costo: lo que suma todo el recorte. */
+  costoTotal: number;
   /** Plantilla × horas de la ventana × tarifa: el costo de la disponibilidad. */
   costoDisponible: number;
   /** costoDisponible − costo: disponibilidad no ocupada, en dinero. */
@@ -1020,6 +1091,7 @@ export function costoTiempo(
     });
 
   const costo = horas * tarifa;
+  const licencias = contarLicencias(exps);
   return {
     horas, horasSuma,
     traslape: horas > 0 ? horasSuma / horas : 0,
@@ -1030,6 +1102,8 @@ export function costoTiempo(
     costoDisponible,
     costoSinUsar: Math.max(0, costoDisponible - costo),
     utilizacion: costoDisponible > 0 ? costo / costoDisponible : 0,
+    licencias,
+    costoTotal: costo + licencias.costo,
   };
 }
 
