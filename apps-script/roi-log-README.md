@@ -93,8 +93,18 @@ tiempo de respuesta:
 | Éxito | 10.5 s · 14.2 s |
 | 404 | 21 · 29 · 42 · 43 · 45 · 79 s |
 
-**Cuanto más tarda la ejecución, más probable es el 404.** Por eso el caché en
-Drive no es un lujo: al bajar el `doGet` de ~12 s a ~1 s, ataca la causa.
+**Cuanto más tarda la respuesta, más probable es el 404.** De ahí las dos
+medidas, que atacan las dos mitades del tiempo:
+
+| | Antes | Después | Éxito medido |
+|---|---|---|---|
+| Ejecución (leer la hoja) | ~12 s | **0.86 s** — caché en Drive | 25% → 60% |
+| Transferencia (mover el payload) | 4.97 MB | **1.63 MB** — gzip + base64 | 60% → ? |
+
+El payload viaja como `{gz: base64(gzip(json))}` — envuelto en JSON para que el
+`doGet` siga sirviendo JSON válido y la comprobación de integridad del caché
+siga valiendo. `src/lib/roi.ts` lo descomprime y acepta también la forma sin
+comprimir, por compatibilidad.
 
 Como red de seguridad, `src/lib/roi.ts` reintenta hasta 4 veces y **aborta a los
 18 s** en vez de esperar: pasada esa marca la respuesta ya viene mala, y cortar

@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { decodificar, fechaDesdeSegundos, fetchRoiRows } from "./roi";
 import type { RoiPayload } from "@/types";
@@ -31,6 +32,41 @@ describe("fechaDesdeSegundos", () => {
   it("un hito que no ocurrió queda vacío, no en la época", () => {
     // Devolver "2024-01-01T00:00:00" haría creer que el hito sí pasó.
     expect(fechaDesdeSegundos(EPOCA, null)).toBe("");
+  });
+});
+
+describe("payload comprimido", () => {
+  const original = global.fetch;
+  afterEach(() => { global.fetch = original; vi.restoreAllMocks(); });
+
+  it("descomprime el sobre {gz} que manda el Apps Script", async () => {
+    const plano = JSON.stringify({ ...payload(), generado: "2026-08-06T14:38:18.469Z" });
+    const sobre = JSON.stringify({
+      gz: gzipSync(Buffer.from(plano, "utf8")).toString("base64"),
+      generado: "2026-08-06T14:38:18.469Z",
+    });
+    process.env.ROI_WEBAPP_URL = "https://ejemplo/exec";
+    global.fetch = vi.fn().mockResolvedValue(
+      { ok: true, status: 200, text: async () => sobre } as Response) as unknown as typeof fetch;
+
+    const r = await fetchRoiRows();
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0].Cliente).toBe("CLIENTE A");
+    expect(r.generado).toBe("2026-08-06T14:38:18.469Z");
+  });
+
+  it("sigue aceptando el payload sin comprimir", async () => {
+    process.env.ROI_WEBAPP_URL = "https://ejemplo/exec";
+    global.fetch = vi.fn().mockResolvedValue(
+      { ok: true, status: 200, text: async () => JSON.stringify(payload()) } as Response) as unknown as typeof fetch;
+    expect((await fetchRoiRows()).rows).toHaveLength(1);
+  });
+
+  it("un gz corrupto avisa qué hacer, no revienta con un error críptico", async () => {
+    process.env.ROI_WEBAPP_URL = "https://ejemplo/exec";
+    global.fetch = vi.fn().mockResolvedValue(
+      { ok: true, status: 200, text: async () => JSON.stringify({ gz: "no-es-gzip" }) } as Response) as unknown as typeof fetch;
+    await expect(fetchRoiRows()).rejects.toThrow(/descomprimir/);
   });
 });
 

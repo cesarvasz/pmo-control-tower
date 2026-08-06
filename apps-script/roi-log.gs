@@ -132,11 +132,28 @@ function leerCache() {
   }
 }
 
-/** Lee la hoja, arma el JSON y lo deja en Drive. Lo llama el disparador. */
+/**
+ * Lee la hoja, arma el JSON COMPRIMIDO y lo deja en Drive. Lo llama el disparador.
+ *
+ * Por qué comprimido: con el caché el doGet ya responde en menos de 1 s, pero
+ * mover 5 MB por la redirección de script.googleusercontent.com seguía fallando
+ * 4 de cada 10 veces. Gzip + base64 lo baja a 1.63 MB (67% menos) y el envío se
+ * vuelve mucho más corto, que es lo que correlaciona con el 404.
+ *
+ * Se envuelve en JSON ({gz, generado}) en vez de mandar el base64 pelado: así el
+ * doGet sigue sirviendo JSON válido y la comprobación de integridad del caché
+ * (abre con { y cierra con }) sigue valiendo.
+ */
 function regenerarCache() {
   var hoja = leerHoja();
   hoja.generado = new Date().toISOString(); // la app lo muestra como antigüedad
-  var txt = JSON.stringify(hoja);
+  var json = JSON.stringify(hoja);
+
+  var gz = Utilities.gzip(Utilities.newBlob(json, "application/json"));
+  var txt = JSON.stringify({ gz: Utilities.base64Encode(gz.getBytes()), generado: hoja.generado });
+
+  Logger.log("payload: " + json.length.toLocaleString() + " → " + txt.length.toLocaleString() +
+    " bytes (" + (100 - (txt.length / json.length) * 100).toFixed(0) + "% menos)");
   guardarCache(txt);
   return txt;
 }
@@ -204,7 +221,15 @@ function diagnosticarCache() {
   Logger.log("termina con: " + JSON.stringify(txt.slice(-40)));
   try {
     var d = JSON.parse(txt);
-    Logger.log("JSON válido ✓ · filas: " + d.filas.length + " · generado: " + d.generado);
+    if (d.gz) {
+      var json = Utilities.newBlob(Utilities.base64Decode(d.gz), "application/x-gzip", "c.gz");
+      var plano = Utilities.ungzip(json).getDataAsString();
+      var real = JSON.parse(plano);
+      Logger.log("JSON válido ✓ comprimido · " + plano.length.toLocaleString() + " bytes al descomprimir · filas: " +
+        real.filas.length + " · generado: " + d.generado);
+    } else {
+      Logger.log("JSON válido ✓ sin comprimir · filas: " + d.filas.length + " · generado: " + d.generado);
+    }
   } catch (e) {
     Logger.log("JSON INVÁLIDO ✗ — " + e.message);
   }
@@ -245,7 +270,14 @@ function medirDoGet() {
     " bytes (" + (txt.length / 1048576).toFixed(2) + " MB) · generado hace " + edad.toFixed(0) + " min");
   try {
     var d = JSON.parse(txt);
-    Logger.log("JSON válido ✓ · filas: " + d.filas.length + " · generado: " + d.generado);
+    if (d.gz) {
+      var plano = Utilities.ungzip(
+        Utilities.newBlob(Utilities.base64Decode(d.gz), "application/x-gzip", "c.gz")).getDataAsString();
+      Logger.log("JSON válido ✓ comprimido · filas: " + JSON.parse(plano).filas.length +
+        " · generado: " + d.generado);
+    } else {
+      Logger.log("JSON válido ✓ · filas: " + d.filas.length + " · generado: " + d.generado);
+    }
   } catch (e) {
     // Sin throw: el diagnóstico tiene que reportar el problema, no morirse con él.
     Logger.log("JSON INVÁLIDO ✗ — " + e.message + ". Ejecuta diagnosticarCache().");

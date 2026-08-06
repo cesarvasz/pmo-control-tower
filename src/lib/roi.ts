@@ -7,6 +7,7 @@
 // 27.6 MB de filas crudas bajan a 5.0 MB sin perder un dato. Aquí se decodifica
 // a los mismos RoiRow de siempre, así que nada río abajo se entera del cambio.
 
+import { gunzipSync } from "node:zlib";
 import type { RoiRow, RoiPayload } from "@/types";
 
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -132,7 +133,32 @@ export async function fetchRoiRows(): Promise<RoiResultado> {
   );
 }
 
-function parsear(texto: string): RoiResultado {
+/**
+ * El Apps Script manda el payload comprimido: {gz: base64(gzip(json))}.
+ *
+ * Mover los 5 MB sin comprimir por la redirección de Google fallaba 4 de cada
+ * 10 veces; a 1.63 MB el envío es mucho más corto, que es lo que correlaciona
+ * con el 404. Se acepta también la forma sin comprimir por compatibilidad.
+ */
+function descomprimir(texto: string): string {
+  let sobre: { gz?: string };
+  try {
+    sobre = JSON.parse(texto);
+  } catch {
+    throw new Error("El Apps Script devolvió una respuesta que no es JSON válido.");
+  }
+  if (typeof sobre.gz !== "string") return texto;
+
+  try {
+    return gunzipSync(Buffer.from(sobre.gz, "base64")).toString("utf8");
+  } catch {
+    throw new Error("No se pudo descomprimir el payload del Apps Script. Regenera el caché con regenerarCache().");
+  }
+}
+
+function parsear(recibido: string): RoiResultado {
+  const texto = descomprimir(recibido);
+
   let json: RoiPayload & { rows?: RoiRow[] };
   try {
     json = JSON.parse(texto);
