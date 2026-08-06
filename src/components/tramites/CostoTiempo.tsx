@@ -21,30 +21,29 @@ const usdExacto = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const horas = (n: number) => `${Math.round(n).toLocaleString("es-GT")} h`;
 
 export default function CostoTiempo({
-  costo, tarifa, onTarifa, simultaneos, onSimultaneos, porDia, onSeleccionarPeriodo,
+  costo, tarifa, onTarifa, porDia, onSeleccionarPeriodo,
 }: {
   costo: Costo;
   tarifa: number;
   onTarifa: (v: number) => void;
-  simultaneos: number;
-  onSimultaneos: (v: number) => void;
   porDia: boolean;
   onSeleccionarPeriodo: (clave: string) => void;
 }) {
   const [activa, setActiva] = useState<EtapaKey | null>(null);
   const max = Math.max(1, ...costo.serie.map((p) => p.costo));
+  const maxPersona = Math.max(1, ...costo.personas.map((p) => p.horasReales));
   const pico = costo.serie.reduce((a, b) => (b.costo > a.costo ? b : a), costo.serie[0]);
 
   return (
     <div className="viz-etapas">
-      {/* Aviso: qué mide y qué no mide este número */}
+      {/* Qué se está contando y por qué no es la suma de los expedientes */}
       <div className="mb-4 rounded-lg border-l-[3px] px-3.5 py-2.5 text-[0.76rem] leading-relaxed"
-        style={{ borderColor: "var(--warn)", background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-        <strong>Es el costo del tiempo transcurrido, no de horas trabajadas.</strong>{" "}
-        Las etapas miden el reloj entre dos hitos, y buena parte de eso es expediente esperando en
-        cola. Con <em>simultáneos = 1</em> el total responde a «cuánto vale el calendario que ocupan
-        estos trámites». Súbelo a cuántos expedientes lleva de verdad una persona a la vez para
-        acercarte a horas de trabajo.
+        style={{ borderColor: "var(--ok)", background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
+        <strong>Se cobran horas de reloj, no la suma de los expedientes.</strong>{" "}
+        Quien lleva varios trámites a la vez no trabaja la suma de todos: el reloj corre una sola
+        vez. Por eso los tramos de cada persona se <em>unen</em> antes de contar, y cada hora se
+        paga una vez aunque hubiera {costo.traslape.toFixed(1)} expedientes abiertos en ella.
+        Sumando por expediente saldrían {horas(costo.horasSuma)} — {costo.traslape.toFixed(1)}× de más.
       </div>
 
       {/* Controles */}
@@ -61,24 +60,13 @@ export default function CostoTiempo({
           />
         </label>
 
-        <label className="block">
-          <span className="mb-1 block text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
-            Expedientes simultáneos por persona
-          </span>
-          <span className="flex items-center gap-2.5">
-            <input
-              type="range" min={1} max={40} step={1} value={simultaneos}
-              onChange={(e) => onSimultaneos(Number(e.target.value))}
-              style={{ width: 170, accentColor: "var(--accent)" }}
-            />
-            <input
-              type="number" min={1} max={200} value={simultaneos}
-              onChange={(e) => onSimultaneos(Math.max(1, Number(e.target.value) || 1))}
-              className="w-20 rounded-lg border px-2 py-1.5 text-sm outline-none"
-              style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-            />
-          </span>
-        </label>
+        <div>
+          <div className="text-[0.66rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Traslape medido</div>
+          <div className="tabular-nums text-[1.4rem] font-extrabold leading-tight text-[var(--text-primary)]">
+            {costo.traslape.toFixed(1)}×
+          </div>
+          <div className="text-[0.68rem] text-[var(--text-muted)]">expedientes en paralelo</div>
+        </div>
 
         <div className="ml-auto text-right">
           <div className="text-[0.66rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
@@ -88,7 +76,7 @@ export default function CostoTiempo({
             {usd(costo.costo)}
           </div>
           <div className="mt-0.5 text-[0.72rem] text-[var(--text-muted)]">
-            {usdExacto(costo.costo)} · {horas(costo.horas)} · {costo.n.toLocaleString("es-GT")} expedientes
+            {usdExacto(costo.costo)} · {horas(costo.horas)} reales · {costo.n.toLocaleString("es-GT")} expedientes
           </div>
         </div>
       </div>
@@ -164,6 +152,60 @@ export default function CostoTiempo({
           );
         })}
       </div>
+
+      {/* Horas reales por persona */}
+      {costo.personas.length > 0 && (
+        <div className="mt-6">
+          <div className="mb-2 flex flex-wrap items-baseline gap-2">
+            <h4 className="text-[0.86rem] font-bold text-[var(--text-primary)]">Horas reales por persona</h4>
+            <span className="text-[0.72rem] text-[var(--text-muted)]">
+              {costo.personas.length} personas · los ejecutores automatizados no cobran, quedan fuera
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table className="pmo">
+              <thead>
+                <tr>
+                  <th>Persona</th>
+                  <th style={{ textAlign: "center" }}>Expedientes</th>
+                  <th style={{ textAlign: "center" }} title="Suma de sus expedientes: cuenta la misma hora una vez por tramite abierto">Suma</th>
+                  <th style={{ textAlign: "center" }} title="Union de sus tramos: cada hora cuenta una sola vez">Horas reales</th>
+                  <th style={{ textAlign: "center" }} title="Suma / reales: expedientes que llevaba en paralelo">Traslape</th>
+                  <th style={{ textAlign: "center" }} title="Bloques de trabajo sin huecos">Bloques</th>
+                  <th style={{ textAlign: "center" }}>Costo</th>
+                  <th style={{ minWidth: 120 }}>&nbsp;</th>
+                </tr>
+              </thead>
+              <tbody>
+                {costo.personas.slice(0, 150).map((p) => (
+                  <tr key={p.clave}>
+                    <td className="truncate" title={p.clave}>{p.label}</td>
+                    <td className="tabular-nums text-center">{p.expedientes.toLocaleString("es-GT")}</td>
+                    <td className="tabular-nums text-center text-[var(--text-muted)]">{horas(p.horasSuma)}</td>
+                    <td className="tabular-nums text-center font-bold">{horas(p.horasReales)}</td>
+                    <td className="tabular-nums text-center" style={{ color: p.traslape > 10 ? "var(--bad)" : p.traslape > 4 ? "var(--warn)" : "var(--ok)" }}>
+                      {p.traslape.toFixed(1)}×
+                    </td>
+                    <td className="tabular-nums text-center text-[var(--text-muted)]">{p.bloques.toLocaleString("es-GT")}</td>
+                    <td className="tabular-nums text-center font-semibold">{usdExacto(p.costo)}</td>
+                    <td>
+                      <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
+                        <div className="h-full rounded-full"
+                          style={{ width: `${(p.horasReales / maxPersona) * 100}%`, background: "var(--accent)" }} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {costo.personas.length > 150 && (
+            <p className="mt-2 text-[0.72rem] text-[var(--text-muted)]">
+              Se muestran las 150 con más horas de {costo.personas.length}.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

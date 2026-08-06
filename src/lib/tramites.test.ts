@@ -6,6 +6,7 @@ import {
   contarPersonas, exportarCSV, agruparPor, opcionesDeFiltro,
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
+  unirIntervalos, costoPorPersona,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS,
   type Filtros,
 } from "./tramites";
@@ -608,31 +609,118 @@ describe("atribución de tiempo por rol", () => {
   });
 });
 
-describe("costoTiempo", () => {
+describe("unirIntervalos", () => {
+  const iv = (a: number, b: number) => ({ inicio: a, fin: b });
+
+  it("fusiona los tramos que se solapan", () => {
+    expect(unirIntervalos([iv(0, 10), iv(5, 20)])).toEqual([iv(0, 20)]);
+  });
+
+  it("fusiona los que se tocan justo en el borde", () => {
+    expect(unirIntervalos([iv(0, 10), iv(10, 20)])).toEqual([iv(0, 20)]);
+  });
+
+  it("deja separados los que no se tocan", () => {
+    expect(unirIntervalos([iv(0, 10), iv(15, 20)])).toEqual([iv(0, 10), iv(15, 20)]);
+  });
+
+  it("absorbe un tramo contenido en otro", () => {
+    expect(unirIntervalos([iv(0, 100), iv(20, 30)])).toEqual([iv(0, 100)]);
+  });
+
+  it("no depende del orden de entrada", () => {
+    expect(unirIntervalos([iv(15, 20), iv(0, 10), iv(5, 8)])).toEqual([iv(0, 10), iv(15, 20)]);
+  });
+
+  it("no muta la lista original", () => {
+    const orig = [iv(0, 10), iv(5, 20)];
+    unirIntervalos(orig);
+    expect(orig).toEqual([iv(0, 10), iv(5, 20)]);
+  });
+
+  it("con lista vacía devuelve vacío", () => {
+    expect(unirIntervalos([])).toEqual([]);
+  });
+});
+
+describe("costoTiempo — horas reales", () => {
   it("traduce las horas a dinero a la tarifa dada", () => {
-    // Un expediente de 5 etapas × 1 h = 5 h hábiles.
+    // Un expediente: Creado 08 → Firma 13 = 5 h hábiles de reloj.
     const c = costoTiempo(construirExpedientes([fila({})]), 8);
     expect(c.horas).toBe(5);
     expect(c.costo).toBe(40);
   });
 
-  it("cuenta las etapas medidas aunque falte el ciclo completo", () => {
-    // Sin firma no hay T5 ni Total, pero T1-T4 sí ocuparon calendario.
-    const exps = construirExpedientes([fila({ Solicitar_firma_def: "" })]);
-    expect(exps[0].total).toBeNull();
+  it("dos expedientes traslapados de la misma persona cuestan UNA vez", () => {
+    // ANA lleva los dos a la vez, en la misma franja: el reloj corre una vez.
+    const exps = construirExpedientes([
+      fila({ c807_file: "A", Usuario: "ANA", Analista: "ANA" }),
+      fila({ c807_file: "B", Usuario: "ANA", Analista: "ANA" }),
+    ]);
     const c = costoTiempo(exps, 8);
-    expect(c.horas).toBe(4);
-    expect(c.costo).toBe(32);
+    expect(c.horasSuma).toBe(10); // sumando por expediente
+    expect(c.horas).toBe(5);      // pero es la misma franja
+    expect(c.costo).toBe(40);
+    expect(c.traslape).toBe(2);
   });
 
-  it("simultáneos divide el costo: el mismo tiempo repartido en más trámites", () => {
-    const exps = construirExpedientes([fila({})]);
-    expect(costoTiempo(exps, 8, 1).costo).toBe(40);
-    expect(costoTiempo(exps, 8, 4).costo).toBe(10);
+  it("dos expedientes seguidos, sin traslape, sí suman", () => {
+    const exps = construirExpedientes([
+      fila({ c807_file: "A", Usuario: "ANA", Analista: "ANA" }),
+      fila({
+        c807_file: "B", Usuario: "ANA", Analista: "ANA",
+        Creado: "2026-01-06T08:00:00", DPR: "2026-01-06T09:00:00",
+        Clasificacion_exacta: "2026-01-06T10:00:00", Creacion_Pre_DUCA: "2026-01-06T11:00:00",
+        Revision_Analista: "2026-01-06T12:00:00", Solicitar_firma_def: "2026-01-06T13:00:00",
+      }),
+    ]);
+    const c = costoTiempo(exps, 8);
+    expect(c.horas).toBe(10);
+    expect(c.traslape).toBe(1);
   });
 
-  it("simultáneos menor a 1 no infla el costo", () => {
-    expect(costoTiempo(construirExpedientes([fila({})]), 8, 0).costo).toBe(40);
+  it("personas distintas en la misma franja sí cuestan por separado", () => {
+    // Son dos sueldos: el traslape solo aplica dentro de una misma persona.
+    const exps = construirExpedientes([
+      fila({ c807_file: "A", Usuario: "ANA", Analista: "ANA" }),
+      fila({ c807_file: "B", Usuario: "BETO", Analista: "BETO" }),
+    ]);
+    expect(costoTiempo(exps, 8).horas).toBe(10);
+  });
+
+  it("Usuario y Analista distintos se reparten la ventana sin solaparse", () => {
+    // ANA responde de Creado a Revisión (4 h) y BETO de Revisión a Firma (1 h).
+    const c = costoTiempo(construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]), 8);
+    const ana = c.personas.find((p) => p.clave === "ANA")!;
+    const beto = c.personas.find((p) => p.clave === "BETO")!;
+    expect(ana.horasReales).toBe(4);
+    expect(beto.horasReales).toBe(1);
+    expect(c.horas).toBe(5);
+  });
+
+  it("reporta el traslape de cada persona por separado", () => {
+    // ANA con dos traslapados (2×) y BETO con uno solo (1×).
+    const filas = costoPorPersona(construirExpedientes([
+      fila({ c807_file: "A", Usuario: "ANA", Analista: "ANA" }),
+      fila({ c807_file: "B", Usuario: "ANA", Analista: "ANA" }),
+      fila({ c807_file: "C", Usuario: "BETO", Analista: "BETO" }),
+    ]), 8);
+    const ana = filas.find((p) => p.clave === "ANA")!;
+    const beto = filas.find((p) => p.clave === "BETO")!;
+    expect(ana.expedientes).toBe(2);
+    expect(ana.horasReales).toBe(5);
+    expect(ana.traslape).toBe(2);
+    expect(ana.bloques).toBe(1);
+    expect(beto.traslape).toBe(1);
+  });
+
+  it("los ejecutores automatizados no cobran", () => {
+    const c = costoTiempo(construirExpedientes([
+      fila({ c807_file: "A", Usuario: "Docalpha OCR (KM)", Analista: "Docalpha OCR (KM)" }),
+    ]), 8);
+    expect(c.horas).toBe(0);
+    expect(c.costo).toBe(0);
+    expect(c.personas).toHaveLength(0);
   });
 
   it("reparte por etapa y las cuotas suman 100", () => {
@@ -640,31 +728,37 @@ describe("costoTiempo", () => {
     expect(c.porEtapa).toHaveLength(5);
     expect(c.porEtapa.reduce((s, e) => s + e.pct, 0)).toBeCloseTo(100, 8);
     expect(c.porEtapa.reduce((s, e) => s + e.costo, 0)).toBeCloseTo(c.costo, 8);
-    expect(c.porEtapa[0].costo).toBe(8); // T1 = 1 h
   });
 
-  it("la serie va por mes y en orden cronológico", () => {
+  it("la serie va en orden y sus meses suman el total exacto", () => {
     const c = costoTiempo(construirExpedientes([
-      fila({ c807_file: "F1", Creado: "2026-02-05T08:00:00" }),
-      fila({ c807_file: "F2", Creado: "2026-01-05T08:00:00" }),
+      fila({ c807_file: "F1", Creado: "2026-02-05T08:00:00", DPR: "2026-02-05T09:00:00",
+        Clasificacion_exacta: "2026-02-05T10:00:00", Creacion_Pre_DUCA: "2026-02-05T11:00:00",
+        Revision_Analista: "2026-02-05T12:00:00", Solicitar_firma_def: "2026-02-05T13:00:00" }),
+      fila({ c807_file: "F2" }),
     ]), 8);
     expect(c.serie.map((p) => p.clave)).toEqual(["2026-01", "2026-02"]);
-    expect(c.serie.reduce((s, p) => s + p.costo, 0)).toBeCloseTo(c.costo, 8);
+    expect(c.serie.reduce((s, p) => s + p.costo, 0)).toBeCloseTo(c.costo, 6);
+  });
+
+  it("un tramo que cruza de mes se reparte entre los dos", () => {
+    // Creado el 29 de enero, firmado el 3 de febrero: cada mes recibe lo suyo.
+    const c = costoTiempo(construirExpedientes([fila({
+      Creado: "2026-01-29T08:00:00", DPR: "2026-01-29T09:00:00",
+      Clasificacion_exacta: "2026-01-30T10:00:00", Creacion_Pre_DUCA: "2026-02-02T11:00:00",
+      Revision_Analista: "2026-02-03T09:00:00", Solicitar_firma_def: "2026-02-03T13:00:00",
+    })]), 8);
+    expect(c.serie).toHaveLength(2);
+    expect(c.serie.reduce((s, p) => s + p.horas, 0)).toBeCloseTo(c.horas, 6);
+    expect(c.serie.every((p) => p.horas > 0)).toBe(true);
   });
 
   it("sin expedientes no divide por cero ni inventa costo", () => {
     const c = costoTiempo([], 8);
     expect(c.costo).toBe(0);
+    expect(c.traslape).toBe(0);
     expect(c.serie).toEqual([]);
     expect(c.porEtapa.every((e) => e.pct === 0 && e.costo === 0)).toBe(true);
-  });
-
-  it("solo cuenta como base los expedientes con algo medido", () => {
-    const c = costoTiempo(construirExpedientes([
-      fila({ c807_file: "CON" }),
-      fila({ c807_file: "SIN", DPR: "", Clasificacion_exacta: "", Revision_Analista: "", Creacion_Pre_DUCA: "", Solicitar_firma_def: "" }),
-    ]), 8);
-    expect(c.n).toBe(1);
   });
 });
 

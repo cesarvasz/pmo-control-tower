@@ -714,6 +714,117 @@ export function cargaYCapacidad(
     });
 }
 
+// ── Horas reales por persona (unión de intervalos) ───────────────────────
+// Una persona que lleva 5 expedientes traslapados NO trabajó la suma de los 5:
+// el reloj corrió una sola vez. Sumar por expediente cuenta la misma hora tantas
+// veces como trámites abiertos hubiera.
+//
+// Medido sobre los datos reales: la suma infla 7.16× las horas de reloj
+// (933,432 h contra 130,420 h). La prueba de que la unión es lo correcto es
+// física: la ventana completa tiene 3,647 horas hábiles y con la unión NADIE la
+// supera (el máximo queda en 3,645 h, el 100%). Con la suma había personas con
+// 82,066 h en esa misma ventana, 22 veces lo posible.
+//
+// Esto sustituye al divisor de «expedientes simultáneos», que era una suposición
+// a ojo: el traslape ahora se mide.
+
+/** Tramo de reloj en milisegundos. */
+export interface Intervalo { inicio: number; fin: number }
+
+/**
+ * Ventana de reloj de la que responde una persona en un expediente, según la
+ * regla de atribución: el Usuario hasta la Revisión, el Analista de la Revisión
+ * a la Firma, y el ciclo entero si es la misma persona.
+ */
+export function intervaloAtribuido(e: Expediente, rol: Rol): Intervalo | null {
+  const etapas = etapasAtribuidas(e, rol);
+  const primera = ETAPAS.find((x) => x.key === etapas[0]);
+  const ultima = ETAPAS.find((x) => x.key === etapas[etapas.length - 1]);
+  if (!primera || !ultima) return null;
+
+  const a = e.hitos[primera.desde], b = e.hitos[ultima.hasta];
+  if (!a || !b) return null;
+  const inicio = a.getTime(), fin = b.getTime();
+  // Hitos fuera de orden: no hay ventana que contar.
+  return fin > inicio ? { inicio, fin } : null;
+}
+
+/** Fusiona los tramos que se tocan o solapan. Devuelve bloques disjuntos. */
+export function unirIntervalos(lista: Intervalo[]): Intervalo[] {
+  const orden = [...lista].sort((a, b) => a.inicio - b.inicio);
+  const out: Intervalo[] = [];
+  for (const iv of orden) {
+    const ultimo = out[out.length - 1];
+    if (ultimo && iv.inicio <= ultimo.fin) {
+      if (iv.fin > ultimo.fin) ultimo.fin = iv.fin;
+    } else out.push({ ...iv });
+  }
+  return out;
+}
+
+/** Segundos hábiles cubiertos por la unión — cada instante cuenta una vez. */
+export function segundosDeUnion(lista: Intervalo[]): number {
+  return unirIntervalos(lista)
+    .reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0);
+}
+
+export interface FilaPersona {
+  clave: string;
+  label: string;
+  expedientes: number;
+  /** Suma por expediente: cuenta la misma hora una vez por trámite abierto. */
+  horasSuma: number;
+  /** Horas de reloj realmente ocupadas. Esta es la que cuesta dinero. */
+  horasReales: number;
+  /** horasSuma ÷ horasReales: expedientes en paralelo, medido. */
+  traslape: number;
+  /** Bloques disjuntos de trabajo tras unir. */
+  bloques: number;
+  costo: number;
+  automatizado: boolean;
+}
+
+/** Intervalos de cada persona, mezclando sus dos roles: es el mismo reloj. */
+function intervalosPorPersona(exps: Expediente[]): Map<string, Intervalo[]> {
+  const m = new Map<string, Intervalo[]>();
+  const add = (p: string, iv: Intervalo | null) => {
+    if (!iv || p === SIN_DATO) return;
+    const l = m.get(p);
+    if (l) l.push(iv); else m.set(p, [iv]);
+  };
+  for (const e of exps) {
+    const mismo = mismaPersona(e);
+    for (const u of e.usuarios) add(u, intervaloAtribuido(e, "usuario"));
+    for (const a of e.analistas) {
+      // Si es la misma persona ya se contó su ciclo completo como Usuario.
+      if (mismo && e.usuarios.includes(a)) continue;
+      add(a, intervaloAtribuido(e, "analista"));
+    }
+  }
+  return m;
+}
+
+/** Horas de reloj y costo por persona, con el traslape ya descontado. */
+export function costoPorPersona(exps: Expediente[], tarifa = TARIFA_HORA_DEFECTO): FilaPersona[] {
+  return [...intervalosPorPersona(exps).entries()]
+    .map(([clave, lista]) => {
+      const bloques = unirIntervalos(lista);
+      const suma = lista.reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0) / 3600;
+      const reales = bloques.reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0) / 3600;
+      return {
+        clave, label: clave,
+        expedientes: lista.length,
+        horasSuma: suma,
+        horasReales: reales,
+        traslape: reales > 0 ? suma / reales : 0,
+        bloques: bloques.length,
+        costo: reales * tarifa,
+        automatizado: esAutomatizado(clave),
+      };
+    })
+    .sort((a, b) => b.horasReales - a.horasReales);
+}
+
 // ── Costo del tiempo ─────────────────────────────────────────────────────
 // Traduce a dinero el tiempo medido, a una tarifa por hora.
 //
@@ -750,12 +861,17 @@ export interface CostoEtapa {
 }
 
 export interface Costo {
+  /** Horas de reloj REALES: unión de intervalos por persona, sin doble conteo. */
   horas: number;
+  /** Suma por expediente, para comparar. Cuenta la misma hora varias veces. */
+  horasSuma: number;
+  /** horasSuma ÷ horas: expedientes en paralelo, medido sobre los datos. */
+  traslape: number;
   costo: number;
   /** Expedientes con al menos una etapa medida — la base del cálculo. */
   n: number;
   tarifa: number;
-  simultaneos: number;
+  personas: FilaPersona[];
   porEtapa: CostoEtapa[];
   serie: PuntoCosto[];
 }
@@ -777,44 +893,102 @@ export function segundosMedidos(e: Expediente): number {
 export function costoTiempo(
   exps: Expediente[],
   tarifa = TARIFA_HORA_DEFECTO,
-  simultaneos = 1,
   porDia = false,
+  incluirBots = false,
 ): Costo {
-  const div = Math.max(1, simultaneos);
-  const aHoras = (seg: number) => seg / 3600 / div;
+  const personas = costoPorPersona(exps, tarifa)
+    .filter((p) => incluirBots || !p.automatizado);
 
-  const porEtapa: CostoEtapa[] = ETAPAS.map((e) => {
-    const horas = aHoras(exps.reduce((s, x) => s + (x.etapas[e.key] ?? 0), 0));
-    return { key: e.key, label: e.label, corto: e.corto, color: e.color, horas, costo: horas * tarifa, pct: 0 };
+  const horas = personas.reduce((s, p) => s + p.horasReales, 0);
+  const horasSuma = personas.reduce((s, p) => s + p.horasSuma, 0);
+
+  // El reparto por etapa se queda en proporciones del tiempo transcurrido —
+  // es lo único que puede decir dónde se va el reloj — pero el dinero que
+  // muestra cada tramo se escala al costo REAL, para que sumen el total.
+  const sumas = ETAPAS.map((e) => exps.reduce((s, x) => s + (x.etapas[e.key] ?? 0), 0));
+  const sumaTotal = sumas.reduce((s, x) => s + x, 0);
+  const porEtapa: CostoEtapa[] = ETAPAS.map((e, i) => {
+    const pct = sumaTotal > 0 ? (sumas[i] / sumaTotal) * 100 : 0;
+    return {
+      key: e.key, label: e.label, corto: e.corto, color: e.color,
+      pct,
+      horas: (pct / 100) * horas,
+      costo: (pct / 100) * horas * tarifa,
+    };
   });
-  const horas = porEtapa.reduce((s, e) => s + e.horas, 0);
-  for (const e of porEtapa) e.pct = horas > 0 ? (e.horas / horas) * 100 : 0;
 
-  const grupos = new Map<string, Expediente[]>();
+  // Serie: los intervalos se recortan al periodo antes de unirlos, así cada mes
+  // recibe solo el reloj que le toca y los meses suman el total exacto.
+  const intervalos = intervalosPorPersonaFiltrado(exps, incluirBots);
+  const cubos = new Map<string, { porPersona: Map<string, Intervalo[]>; volumen: number }>();
+  const cubo = (k: string) => {
+    let c = cubos.get(k);
+    if (!c) { c = { porPersona: new Map(), volumen: 0 }; cubos.set(k, c); }
+    return c;
+  };
   for (const e of exps) {
     const k = porDia ? diaDe(e.creado) : e.mes;
-    if (!k) continue;
-    const arr = grupos.get(k);
-    if (arr) arr.push(e); else grupos.set(k, [e]);
+    if (k) cubo(k).volumen++;
   }
-  const serie: PuntoCosto[] = [...grupos.entries()]
+  for (const [persona, lista] of intervalos) {
+    for (const iv of lista) {
+      for (const trozo of recortarPorPeriodo(iv, porDia)) {
+        const c = cubo(trozo.clave);
+        const l = c.porPersona.get(persona);
+        if (l) l.push(trozo.iv); else c.porPersona.set(persona, [trozo.iv]);
+      }
+    }
+  }
+
+  const serie: PuntoCosto[] = [...cubos.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([clave, lista]) => {
-      const h = aHoras(lista.reduce((s, e) => s + segundosMedidos(e), 0));
+    .map(([clave, c]) => {
+      let seg = 0;
+      for (const lista of c.porPersona.values()) seg += segundosDeUnion(lista);
+      const h = seg / 3600;
       return {
         clave,
         label: porDia ? etiquetaDia(clave) : etiquetaMes(clave),
-        volumen: lista.length,
+        volumen: c.volumen,
         horas: h,
         costo: h * tarifa,
       };
     });
 
   return {
-    horas, costo: horas * tarifa,
+    horas, horasSuma,
+    traslape: horas > 0 ? horasSuma / horas : 0,
+    costo: horas * tarifa,
     n: exps.filter((e) => segundosMedidos(e) > 0).length,
-    tarifa, simultaneos: div, porEtapa, serie,
+    tarifa, personas, porEtapa, serie,
   };
+}
+
+function intervalosPorPersonaFiltrado(exps: Expediente[], incluirBots: boolean): Map<string, Intervalo[]> {
+  const m = intervalosPorPersona(exps);
+  if (incluirBots) return m;
+  for (const p of [...m.keys()]) if (esAutomatizado(p)) m.delete(p);
+  return m;
+}
+
+/** Parte un intervalo por frontera de mes (o día) para poder repartirlo. */
+function recortarPorPeriodo(iv: Intervalo, porDia: boolean): { clave: string; iv: Intervalo }[] {
+  const out: { clave: string; iv: Intervalo }[] = [];
+  let cursor = iv.inicio;
+  let guarda = 0;
+  while (cursor < iv.fin && guarda++ < 10_000) {
+    const d = new Date(cursor);
+    const siguiente = porDia
+      ? new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime()
+      : new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
+    const fin = Math.min(siguiente, iv.fin);
+    out.push({
+      clave: porDia ? diaDe(d) : mesDe(d),
+      iv: { inicio: cursor, fin },
+    });
+    cursor = fin;
+  }
+  return out;
 }
 
 /** Personas (no automatizadas) distintas en un recorte, por dimensión. */

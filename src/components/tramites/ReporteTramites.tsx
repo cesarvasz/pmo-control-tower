@@ -100,7 +100,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const porAnalista = useMemo(() => agruparPorPersona(exps, "analista", f.metrica), [exps, f.metrica]);
   const carga = useMemo(() => cargaYCapacidad(exps, simultaneos, porDia), [exps, simultaneos, porDia]);
   // Costo: cuelga del mismo recorte, así que la línea de tiempo responde a los filtros.
-  const costo = useMemo(() => costoTiempo(exps, tarifa, simultaneos, porDia), [exps, tarifa, simultaneos, porDia]);
+  const costo = useMemo(() => costoTiempo(exps, tarifa, porDia), [exps, tarifa, porDia]);
   // Plantilla del recorte: Usuario o Analista, sin duplicar a quien hace ambos.
   const personasFiltro = useMemo(
     () => contarPersonas(exps, (e) => [...e.usuarios, ...e.analistas]), [exps]);
@@ -220,7 +220,6 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       <Bloque titulo="Costo del tiempo" badge={`$${tarifa}/h`}>
         <CostoTiempo
           costo={costo} tarifa={tarifa} onTarifa={setTarifa}
-          simultaneos={simultaneos} onSimultaneos={setSimultaneos}
           porDia={porDia}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
         />
