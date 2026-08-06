@@ -65,24 +65,26 @@ function diagnosticarHtml(cuerpo: string): string {
 }
 
 /**
- * Reintentos con aborto rápido.
+ * Reintentos con aborto.
  *
  * El /exec de Apps Script redirige a script.googleusercontent.com/macros/echo y
- * ESE endpoint devuelve 404 cada tantas peticiones, aunque el script haya
- * corrido bien. Al medirlo apareció una separación limpia por tiempo:
+ * ESE endpoint devuelve 404 cada tantas peticiones. Los fallos correlacionan con
+ * respuestas lentas, así que cortar y reintentar sale más barato que esperar.
  *
- *   éxitos → 10.5 s y 14.2 s      fallos → 21, 29, 42, 43, 45 y 79 s
+ * CALIBRACIÓN — el umbral depende del tamaño del payload y ya cambió una vez:
  *
- * O sea que una respuesta lenta ya es un 404 en camino. Por eso no se espera a
- * que conteste: pasado ABORTO_MS se corta y se reintenta, que es mucho más
- * barato que aguantar 80 s para recibir un error.
+ *   · Sin comprimir (4.97 MB): éxitos a 10-14 s, fallos a 21-79 s. Umbral 18 s.
+ *   · Comprimido (1.63 MB): 10/10 peticiones buenas, la mayoría en 3-4 s pero
+ *     con cola hasta 24.8 s. Con 18 s se abortaban respuestas que iban a salir
+ *     bien — el umbral viejo se volvió contraproducente.
  *
- * Con el caché en Drive del Apps Script el doGet responde en ~1 s y esto casi
- * no se activa; queda como red de seguridad.
+ * De ahí los 26 s actuales: cubren la cola observada y aún dejan sitio para un
+ * segundo intento dentro del corte de 60 s de Vercel. Si el payload vuelve a
+ * cambiar de tamaño, esto se recalibra midiendo, no a ojo.
  */
-const INTENTOS = 4;
-const ABORTO_MS = 18_000; // por encima de esto la respuesta ya no llega buena
-const PLAZO_MS = 50_000;  // presupuesto total: Vercel corta la función a los 60 s
+const INTENTOS = 2;
+const ABORTO_MS = 26_000; // cubre la cola de respuestas buenas (máx. observado 24.8 s)
+const PLAZO_MS = 54_000;  // presupuesto total: Vercel corta la función a los 60 s
 
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
