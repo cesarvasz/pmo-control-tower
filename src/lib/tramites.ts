@@ -403,6 +403,139 @@ export function composicionCiclo(exps: Expediente[], metrica: Metrica): Composic
   return { n: completos.length, cobertura: completos.length / den, total, segmentos, grupos };
 }
 
+// ── Costo unitario, plantilla necesaria y proyección ─────────────────────
+
+/** Objetivo de ocupación para dimensionar la plantilla. */
+export const UTILIZACION_OBJETIVO = 0.95;
+
+export interface PuntoProyectado extends PuntoCosto {
+  /** Estimado en vez de medido. */
+  estimado: boolean;
+  /** El mes en curso, completado a partir de lo que lleva transcurrido. */
+  parcial: boolean;
+  costoPorExpediente: number;
+}
+
+export interface Unitario {
+  /** Expedientes trabajados: los que tienen algo medido. */
+  expedientes: number;
+  costoOperativo: number;
+  costoLicencias: number;
+  costoTotal: number;
+  /** Lo que cuesta un expediente, todo incluido. */
+  porExpediente: number;
+  operativoPorExpediente: number;
+  licenciasPorExpediente: number;
+  /** Horas de reloj por expediente. */
+  horasPorExpediente: number;
+  /** Personas que harían el mismo trabajo ocupadas al UTILIZACION_OBJETIVO. */
+  personasNecesarias: number;
+  /** Plantilla que aparece hoy en el recorte. */
+  personasActuales: number;
+  /** Horas que daría una persona al objetivo, en la ventana. */
+  horasPorPersonaObjetivo: number;
+}
+
+export function costoUnitario(c: Costo): Unitario {
+  const expedientes = c.n;
+  const horasPorPersonaObjetivo = c.ventana.horas * UTILIZACION_OBJETIVO;
+  return {
+    expedientes,
+    costoOperativo: c.costo,
+    costoLicencias: c.licencias.costo,
+    costoTotal: c.costoTotal,
+    porExpediente: expedientes > 0 ? c.costoTotal / expedientes : 0,
+    operativoPorExpediente: expedientes > 0 ? c.costo / expedientes : 0,
+    licenciasPorExpediente: expedientes > 0 ? c.licencias.costo / expedientes : 0,
+    horasPorExpediente: expedientes > 0 ? c.horas / expedientes : 0,
+    personasNecesarias: horasPorPersonaObjetivo > 0 ? c.horas / horasPorPersonaObjetivo : 0,
+    personasActuales: c.personas.length,
+    horasPorPersonaObjetivo,
+  };
+}
+
+/** Horas hábiles de un mes completo, para saber cuánto lleva transcurrido. */
+function horasDelMes(anio: number, mes: number): number {
+  const ini = new Date(anio, mes, 1);
+  const fin = new Date(anio, mes + 1, 1);
+  return segundosHabiles(ini, fin) / 3600;
+}
+
+/**
+ * Completa el mes en curso y proyecta los que faltan del año.
+ *
+ * Método, a propósito simple y explicable: se promedian los últimos `mesesBase`
+ * meses COMPLETOS y ese promedio se repite hacia adelante. El mes en curso no
+ * entra en la base — está a medias — y se completa por regla de tres sobre las
+ * horas hábiles que lleva transcurridas.
+ *
+ * No se extrapola tendencia: con 20 meses de historia y una caída fuerte de
+ * tiempos, una recta daría números que se sienten precisos y no lo son. Un
+ * promedio reciente es más honesto y se entiende sin explicación.
+ */
+export function proyectarAnio(
+  serie: PuntoCosto[],
+  referencia: Date,
+  mesesBase = 3,
+): PuntoProyectado[] {
+  const conCosto = (p: PuntoCosto, estimado: boolean, parcial: boolean): PuntoProyectado => ({
+    ...p, estimado, parcial,
+    costoPorExpediente: p.volumen > 0 ? p.costo / p.volumen : 0,
+  });
+
+  if (serie.length === 0) return [];
+
+  const anio = referencia.getFullYear();
+  const mesActual = `${anio}-${String(referencia.getMonth() + 1).padStart(2, "0")}`;
+
+  // Lo medido, marcando como parcial el mes al que pertenece la referencia.
+  const out: PuntoProyectado[] = serie.map((p) => conCosto(p, false, p.clave === mesActual));
+
+  // Base: los últimos meses completos. Se calcula ANTES de tocar el parcial,
+  // para que el mes a medias no se contamine a sí mismo.
+  const base = out.filter((p) => !p.parcial).slice(-mesesBase);
+  if (base.length === 0) return out;
+  const prom = (f: (p: PuntoProyectado) => number) => base.reduce((s, p) => s + f(p), 0) / base.length;
+  const vol = prom((p) => p.volumen), hrs = prom((p) => p.horas), cst = prom((p) => p.costo);
+  const costoPorExpBase = vol > 0 ? cst / vol : 0;
+  const horasPorExpBase = vol > 0 ? hrs / vol : 0;
+
+  // El mes en curso se completa por lo que lleva transcurrido.
+  //
+  // El VOLUMEN se escala por el tiempo corrido — los expedientes se crean a un
+  // ritmo parejo. El COSTO no: los expedientes recién creados todavía no
+  // terminan su ciclo, así que su tiempo medido está truncado y escalarlo solo
+  // multiplicaría el sesgo (agosto salía a $8 por expediente contra $12 de
+  // julio, no por mejorar sino por estar a medias). Se estima con el costo
+  // unitario de los meses completos, que sí tienen el ciclo cerrado.
+  const idx = out.findIndex((p) => p.clave === mesActual);
+  if (idx >= 0) {
+    const total = horasDelMes(anio, referencia.getMonth());
+    const corridas = segundosHabiles(new Date(anio, referencia.getMonth(), 1), referencia) / 3600;
+    const factor = corridas > 0 ? total / corridas : 1;
+    if (factor > 1) {
+      const p = out[idx];
+      const volumen = Math.round(p.volumen * factor);
+      out[idx] = conCosto(
+        { ...p, volumen, horas: volumen * horasPorExpBase, costo: volumen * costoPorExpBase },
+        true, true,
+      );
+    }
+  }
+
+  // Los meses que faltan del año de la referencia.
+  for (let m = referencia.getMonth() + 1; m < 12; m++) {
+    const clave = `${anio}-${String(m + 1).padStart(2, "0")}`;
+    if (out.some((p) => p.clave === clave)) continue;
+    out.push(conCosto(
+      { clave, label: etiquetaMes(clave), volumen: Math.round(vol), horas: hrs, costo: cst },
+      true, false,
+    ));
+  }
+
+  return out.sort((a, b) => a.clave.localeCompare(b.clave));
+}
+
 // ── Filtros ──────────────────────────────────────────────────────────────
 export interface Filtros {
   meses: string[];

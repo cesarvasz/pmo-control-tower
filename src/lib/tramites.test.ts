@@ -6,7 +6,7 @@ import {
   contarPersonas, exportarCSV, agruparPor, opcionesDeFiltro,
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
-  unirIntervalos, costoPorPersona, ventanaDe, contarLicencias,
+  unirIntervalos, costoPorPersona, ventanaDe, contarLicencias, costoUnitario, proyectarAnio,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS,
   type Filtros,
 } from "./tramites";
@@ -831,6 +831,99 @@ describe("licencias de digitalización", () => {
     const soloMesa1 = filtrarExpedientes(exps, { ...FILTROS_VACIOS, mesas: ["Mesa 1"] });
     expect(contarLicencias(soloMesa1).total).toBe(2);
     expect(contarLicencias(exps).total).toBe(12);
+  });
+});
+
+describe("costoUnitario y proyección", () => {
+  const conLic = (o: Partial<RoiRow> = {}) => fila({ Licencias: "2", Costo: "2.2", ...o });
+
+  it("reparte el costo total entre los expedientes trabajados", () => {
+    // Un expediente: 5 h × $8 = $40 de horas + $2.20 de licencias.
+    const u = costoUnitario(costoTiempo(construirExpedientes([conLic({ Usuario: "ANA", Analista: "ANA" })]), 8));
+    expect(u.expedientes).toBe(1);
+    expect(u.operativoPorExpediente).toBe(40);
+    expect(u.licenciasPorExpediente).toBeCloseTo(2.2, 8);
+    expect(u.porExpediente).toBeCloseTo(42.2, 8);
+    expect(u.horasPorExpediente).toBe(5);
+  });
+
+  it("calcula la plantilla necesaria al 95% de ocupación", () => {
+    const c = costoTiempo(construirExpedientes([fila({ Usuario: "ANA", Analista: "ANA" })]), 8);
+    const u = costoUnitario(c);
+    // 5 h de reloj sobre una ventana de 5 h al 95% → algo más de una persona.
+    expect(u.horasPorPersonaObjetivo).toBeCloseTo(5 * 0.95, 8);
+    expect(u.personasNecesarias).toBeCloseTo(5 / (5 * 0.95), 8);
+    expect(u.personasActuales).toBe(1);
+  });
+
+  it("sin expedientes no divide por cero", () => {
+    const u = costoUnitario(costoTiempo([], 8));
+    expect(u.porExpediente).toBe(0);
+    expect(u.personasNecesarias).toBe(0);
+  });
+
+  it("proyecta los meses que faltan del año con el promedio reciente", () => {
+    const serie = [
+      { clave: "2026-01", label: "ene 26", volumen: 100, horas: 50, costo: 400 },
+      { clave: "2026-02", label: "feb 26", volumen: 100, horas: 50, costo: 400 },
+      { clave: "2026-03", label: "mar 26", volumen: 100, horas: 50, costo: 400 },
+    ];
+    // Referencia: 31 de marzo a las 18:00 → marzo ya está completo.
+    const p = proyectarAnio(serie, new Date(2026, 2, 31, 18, 0, 0));
+    expect(p).toHaveLength(12);
+    expect(p.filter((x) => x.estimado)).toHaveLength(9); // abril a diciembre
+    const abril = p.find((x) => x.clave === "2026-04")!;
+    expect(abril.estimado).toBe(true);
+    expect(abril.costo).toBe(400);
+    expect(abril.volumen).toBe(100);
+  });
+
+  it("completa el mes en curso en vez de dejarlo a medias", () => {
+    const serie = [
+      { clave: "2026-01", label: "ene 26", volumen: 100, horas: 50, costo: 400 },
+      { clave: "2026-02", label: "feb 26", volumen: 50, horas: 5, costo: 40 }, // a medias
+    ];
+    const p = proyectarAnio(serie, new Date(2026, 1, 10, 13, 0, 0), 1);
+    const feb = p.find((x) => x.clave === "2026-02")!;
+    expect(feb.parcial).toBe(true);
+    expect(feb.estimado).toBe(true);
+    expect(feb.volumen).toBeGreaterThan(50); // el ritmo de creación se escala
+  });
+
+  it("el costo del mes en curso NO arrastra el sesgo de los ciclos sin cerrar", () => {
+    // Enero completo: 100 expedientes a $4 c/u. Febrero lleva 50 creados pero
+    // solo $40 medidos ($0.80 c/u) porque acaban de empezar. Escalar ese costo
+    // multiplicaría el sesgo; hay que usar el unitario de los meses cerrados.
+    const serie = [
+      { clave: "2026-01", label: "ene 26", volumen: 100, horas: 50, costo: 400 },
+      { clave: "2026-02", label: "feb 26", volumen: 50, horas: 5, costo: 40 },
+    ];
+    const feb = proyectarAnio(serie, new Date(2026, 1, 10, 13, 0, 0), 1)
+      .find((x) => x.clave === "2026-02")!;
+    expect(feb.costoPorExpediente).toBeCloseTo(4, 8); // el de enero, no $0.80
+    expect(feb.costo).toBeCloseTo(feb.volumen * 4, 6);
+  });
+
+  it("el mes parcial no contamina la base de la proyección", () => {
+    // Enero y febrero completos a 400; marzo va a medias con 40.
+    const serie = [
+      { clave: "2026-01", label: "ene 26", volumen: 100, horas: 50, costo: 400 },
+      { clave: "2026-02", label: "feb 26", volumen: 100, horas: 50, costo: 400 },
+      { clave: "2026-03", label: "mar 26", volumen: 10, horas: 5, costo: 40 },
+    ];
+    const p = proyectarAnio(serie, new Date(2026, 2, 5, 13, 0, 0), 2);
+    // Abril sale de enero y febrero, no del marzo incompleto.
+    expect(p.find((x) => x.clave === "2026-04")!.costo).toBe(400);
+  });
+
+  it("reporta el costo por expediente de cada mes", () => {
+    const serie = [{ clave: "2026-01", label: "ene 26", volumen: 100, horas: 50, costo: 400 }];
+    const p = proyectarAnio(serie, new Date(2026, 0, 31, 18, 0, 0));
+    expect(p[0].costoPorExpediente).toBe(4);
+  });
+
+  it("una serie vacía no proyecta nada", () => {
+    expect(proyectarAnio([], new Date(2026, 5, 1))).toEqual([]);
   });
 });
 

@@ -19,11 +19,12 @@ import TramitesSeries from "@/components/tramites/TramitesSeries";
 import TramitesCarga from "@/components/tramites/TramitesCarga";
 import { TablaDimension, TablaHitos } from "@/components/tramites/TramitesTablas";
 import CostoTiempo from "@/components/tramites/CostoTiempo";
+import CostoUnitario from "@/components/tramites/CostoUnitario";
 import { fmtHHMMSS, enDiasHabiles } from "@/lib/horario";
 import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
   calcularIndicadores, composicionCiclo, serieTemporal, agruparPor, agruparPorPersona, coberturaHitos,
-  costoTiempo, TARIFA_HORA_DEFECTO,
+  costoTiempo, costoUnitario, proyectarAnio, TARIFA_HORA_DEFECTO,
   cargaYCapacidad, contarPersonas, exportarCSV,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
   type EtapaKey, type Filtros, type Metrica,
@@ -101,6 +102,13 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const carga = useMemo(() => cargaYCapacidad(exps, simultaneos, porDia), [exps, simultaneos, porDia]);
   // Costo: cuelga del mismo recorte, así que la línea de tiempo responde a los filtros.
   const costo = useMemo(() => costoTiempo(exps, tarifa, porDia), [exps, tarifa, porDia]);
+  const unitario = useMemo(() => costoUnitario(costo), [costo]);
+  // La proyección arranca de la última actividad medida, no de la fecha del
+  // navegador: si los datos van atrasados, proyectar desde "hoy" mentiría.
+  const proyeccion = useMemo(
+    () => (porDia || costo.ventana.fin === 0 ? [] : proyectarAnio(costo.serie, new Date(costo.ventana.fin))),
+    [costo.serie, costo.ventana.fin, porDia],
+  );
   // Plantilla del recorte: Usuario o Analista, sin duplicar a quien hace ambos.
   const personasFiltro = useMemo(
     () => contarPersonas(exps, (e) => [...e.usuarios, ...e.analistas]), [exps]);
@@ -215,6 +223,14 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
         fin de semana no cuentan). Cadena: {ETAPAS.map((e) => `${e.corto} ${e.label}`).join(" · ")}. El Total se
         calcula por expediente y solo incluye los que recorrieron las {ETAPAS.length} etapas — por eso su cobertura es menor.
       </p>
+
+      {/* ── Costo por expediente (acordeón) ── */}
+      <div className="mt-5">
+        <CostoUnitario
+          costo={costo} unitario={unitario} proyeccion={proyeccion}
+          onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
+        />
+      </div>
 
       {/* ── Costo del tiempo ── */}
       <Bloque titulo="Costo del tiempo" badge={`$${tarifa}/h`}>
