@@ -7,7 +7,7 @@ import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
-  reqStage, resolveProjStage, type PmValueStage,
+  reqStageAmounts, projStageAmounts, sumStageAmounts, type StageAmounts,
   buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
@@ -150,8 +150,10 @@ function ControlTower({ data }: { data: DashboardData }) {
   // los ítems/boards con Benefit Type = HardSaving.
   const hardBoardIds = new Set(projBoards.filter((b) => b.benefitType === "HardSaving").map((b) => b.id));
 
-  const reqWithValue = req.filter((r) => reqStage(r) != null && (!hardOnly || r.benefitType === "HardSaving"));
-  const reqDetail = reqWithValue.map((r) => ({ cost: r.costRH + r.costSft, benefit: r.benefit, stage: reqStage(r) as PmValueStage }));
+  const reqStages = req
+    .filter((r) => !hardOnly || r.benefitType === "HardSaving")
+    .map(reqStageAmounts)
+    .filter((s): s is StageAmounts => s != null);
 
   const projItemsByBoard = new Map<string, ProjItem[]>();
   for (const r of proj) {
@@ -159,27 +161,18 @@ function ControlTower({ data }: { data: DashboardData }) {
     const arr = projItemsByBoard.get(r.boardId);
     if (arr) arr.push(r); else projItemsByBoard.set(r.boardId, [r]);
   }
-  const projDetail: { cost: number; benefit: number; stage: PmValueStage }[] = [];
-  for (const items of projItemsByBoard.values()) {
-    const resolved = resolveProjStage(items);
-    if (resolved) projDetail.push(resolved);
-  }
+  const projStages = [...projItemsByBoard.values()]
+    .map(projStageAmounts)
+    .filter((s): s is StageAmounts => s != null);
 
-  const allValue = [...reqDetail, ...projDetail];
-  const sumStage = (stage: PmValueStage) => {
-    const items = allValue.filter((it) => it.stage === stage);
-    return { cost: items.reduce((s, it) => s + it.cost, 0), benefit: items.reduce((s, it) => s + it.benefit, 0) };
-  };
-  const colValidacion = sumStage("validacion");
-  const colAprobacion = sumStage("aprobacion");
-  const colConfirmacion = sumStage("confirmacion");
-  const colValidacionCost = colValidacion.cost, colValidacionBenefit = colValidacion.benefit;
-  const colAprobacionCost = colAprobacion.cost, colAprobacionBenefit = colAprobacion.benefit;
-  const colConfirmacionCost = colConfirmacion.cost, colConfirmacionBenefit = colConfirmacion.benefit;
-
-  // Costo Total = suma de las 3 etapas. El Beneficio grande de la tarjeta usa solo
-  // Aprobación (colAprobacionBenefit) — ver render más abajo.
-  const totalCost = colValidacionCost + colAprobacionCost + colConfirmacionCost;
+  // Etapas ACUMULATIVAS: Aprobación incluye a los confirmados (a su valor aprobado /
+  // Business Case); Confirmación es el subconjunto ya medido. Total = Validación +
+  // Aprobación (Confirmación no se re-suma). El Beneficio grande usa Aprobación.
+  const colAgg = sumStageAmounts([...reqStages, ...projStages]);
+  const colValidacionCost = colAgg.validacion.cost, colValidacionBenefit = colAgg.validacion.benefit;
+  const colAprobacionCost = colAgg.aprobacion.cost, colAprobacionBenefit = colAgg.aprobacion.benefit;
+  const colConfirmacionCost = colAgg.confirmacion.cost, colConfirmacionBenefit = colAgg.confirmacion.benefit;
+  const totalCost = colAgg.totalCost;
 
   // ── VPA Actions ──
   // Acciones que debe realizar el VPA, con visibilidad de su estado:
@@ -244,23 +237,23 @@ function ControlTower({ data }: { data: DashboardData }) {
   // Beneficio HardSaving del KPI: etapas Aprobación VPB y Confirmación VPC por separado
   // (excluye Validación), independiente del toggle "Solo HardSaving" de la tarjeta
   // (siempre HardSaving). Ver computeBenefitKpi en lib/kpi.ts para el reparto 70/30.
-  const kpiReqValue = req
-    .filter((r) => r.benefitType === "HardSaving" && reqStage(r) != null)
-    .map((r) => ({ benefit: r.benefit, stage: reqStage(r) as PmValueStage }));
+  const kpiReqStages = req
+    .filter((r) => r.benefitType === "HardSaving")
+    .map(reqStageAmounts)
+    .filter((s): s is StageAmounts => s != null);
   const kpiProjItemsByBoard = new Map<string, ProjItem[]>();
   for (const r of proj) {
     if (!hardBoardIds.has(r.boardId)) continue;
     const arr = kpiProjItemsByBoard.get(r.boardId);
     if (arr) arr.push(r); else kpiProjItemsByBoard.set(r.boardId, [r]);
   }
-  const kpiProjValue: { benefit: number; stage: PmValueStage }[] = [];
-  for (const items of kpiProjItemsByBoard.values()) {
-    const resolved = resolveProjStage(items);
-    if (resolved) kpiProjValue.push(resolved);
-  }
-  const kpiAllValue = [...kpiReqValue, ...kpiProjValue];
-  const kpiBenefitAprobado = kpiAllValue.filter((it) => it.stage === "aprobacion").reduce((s, it) => s + it.benefit, 0);
-  const kpiBenefitConfirmado = kpiAllValue.filter((it) => it.stage === "confirmacion").reduce((s, it) => s + it.benefit, 0);
+  const kpiProjStages = [...kpiProjItemsByBoard.values()]
+    .map(projStageAmounts)
+    .filter((s): s is StageAmounts => s != null);
+  // Acumulativo: Aprobación incluye a los confirmados (a su valor aprobado / BC).
+  const kpiAgg = sumStageAmounts([...kpiReqStages, ...kpiProjStages]);
+  const kpiBenefitAprobado = kpiAgg.aprobacion.benefit;
+  const kpiBenefitConfirmado = kpiAgg.confirmacion.benefit;
 
   // Reproceso del equipo (5º componente del KPI, peso 20) — ver teamReprocesoPct arriba.
   const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefitAprobado: kpiBenefitAprobado, benefitConfirmado: kpiBenefitConfirmado, entregasPct: entPct, reprocesoPct: teamReprocesoPct });

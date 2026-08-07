@@ -31,7 +31,15 @@ const findBusinessCase = (items: ProjItem[]) =>
 
 // ── Costo/beneficio por PM: 3 etapas, evaluación DESCENDENTE (Confirmación > Aprobación > Validación) ──
 export type PmValueStage = "validacion" | "aprobacion" | "confirmacion";
-export interface PmValueItem { name: string; cost: number; benefit: number; stage: PmValueStage }
+/** Etapas ACUMULATIVAS de un ítem: Confirmación ⊆ Aprobación. Un confirmado sigue
+ *  contando en Aprobación (a su valor aprobado = Business Case), y Confirmación es el
+ *  subconjunto ya medido (valor real). Validación = ítems que aún no llegan a Aprobación. */
+export interface StageAmounts {
+  validacion?: { cost: number; benefit: number };
+  aprobacion?: { cost: number; benefit: number };
+  confirmacion?: { cost: number; benefit: number };
+}
+export interface PmValueItem { name: string; stages: StageAmounts }
 export interface PmValue {
   totalCost: number; totalBenefit: number;
   validacionCost: number; validacionBenefit: number;      // Validación VPA
@@ -75,14 +83,21 @@ function evalAprobacion(items: ProjItem[]): { cost: number; benefit: number } | 
   return { cost: bc?.cost ?? 0, benefit: bc?.benefit ?? 0 };
 }
 
-/** Confirmación VPC (Proyecto): alguno de los 3 steps "VPA Recopila datos a 30/60/90 días
- *  (Compara Valor real contra BC)" Done, en la fase "Revisión | Cierre ROI". Si hay varios
- *  Done, se usa el más reciente (90 > 60 > 30). */
+/** Confirmación VPC (Proyecto): los 3 steps "VPA Recopila datos a 30/60/90 días
+ *  (Compara Valor real contra BC)", en la fase "Revisión | Cierre ROI". Cascada:
+ *  si un step está en "Working on it" (medición en curso) se usa ESE beneficio;
+ *  si ya no hay ninguno en curso (todos los que existen están Done) se usa el más
+ *  reciente (90 > 60 > 30). null si no hay ningún step en Working on it ni Done. */
 function evalConfirmacion(items: ProjItem[]): { cost: number; benefit: number } | null {
-  const done = (needle: string) =>
-    items.find((it) => norm(it.grupo).includes("cierre roi") && norm(it.name).includes(needle) && it.status === "Done");
-  const winner = done("recopila datos a 90 dias") ?? done("recopila datos a 60 dias") ?? done("recopila datos a 30 dias");
-  return winner ? { cost: winner.cost, benefit: winner.benefit } : null;
+  const step = (needle: string) =>
+    items.find((it) => norm(it.grupo).includes("cierre roi") && norm(it.name).includes(needle));
+  const d30 = step("recopila datos a 30 dias");
+  const d60 = step("recopila datos a 60 dias");
+  const d90 = step("recopila datos a 90 dias");
+  const wip = [d30, d60, d90].find((s) => s?.status === "Working on it");   // en curso → ese
+  if (wip) return { cost: wip.cost, benefit: wip.benefit };
+  const done = [d90, d60, d30].find((s) => s?.status === "Done");           // todos Done → el más reciente
+  return done ? { cost: done.cost, benefit: done.benefit } : null;
 }
 
 /** Etapa de un proyecto (board): evaluación descendente Confirmación → Aprobación →
@@ -95,6 +110,46 @@ export function resolveProjStage(items: ProjItem[]): { stage: PmValueStage; cost
   const v = evalValidacion(items);
   if (v) return { stage: "validacion", ...v };
   return null;
+}
+
+/** Montos por etapa ACUMULATIVA de un REQ. Su Benefit $ es el mismo en toda etapa
+ *  alcanzada, así que un REQ Cerrado (Confirmación) aporta el mismo monto también a
+ *  Aprobación. null si el REQ no cuenta (solo "En Espera" queda fuera). */
+export function reqStageAmounts(r: ReqItem): StageAmounts | null {
+  const st = reqStage(r);
+  if (!st) return null;
+  const amt = { cost: r.costRH + r.costSft, benefit: r.benefit };
+  if (st === "validacion") return { validacion: amt };
+  if (st === "aprobacion") return { aprobacion: amt };
+  return { aprobacion: amt, confirmacion: amt }; // confirmado ⇒ también aprobado
+}
+
+/** Montos por etapa ACUMULATIVA de un proyecto (board). Confirmado ⇒ Aprobación al
+ *  monto del Business Case (Kick Off) + Confirmación al valor real medido (step VPA
+ *  Recopila). null si no alcanza ninguna etapa. */
+export function projStageAmounts(items: ProjItem[]): StageAmounts | null {
+  const resolved = resolveProjStage(items);
+  if (!resolved) return null;
+  const amt = { cost: resolved.cost, benefit: resolved.benefit };
+  if (resolved.stage === "validacion") return { validacion: amt };
+  if (resolved.stage === "aprobacion") return { aprobacion: amt };
+  const bc = findBusinessCase(items);
+  return { aprobacion: bc ? { cost: bc.cost, benefit: bc.benefit } : amt, confirmacion: amt };
+}
+
+/** Suma acumulativa de una lista de StageAmounts. Total = Validación + Aprobación
+ *  (Confirmación es subconjunto de Aprobación → NO se vuelve a sumar en el total). */
+export function sumStageAmounts(list: StageAmounts[]) {
+  const acc = (k: keyof StageAmounts) => list.reduce(
+    (s, x) => ({ cost: s.cost + (x[k]?.cost ?? 0), benefit: s.benefit + (x[k]?.benefit ?? 0) }),
+    { cost: 0, benefit: 0 },
+  );
+  const validacion = acc("validacion"), aprobacion = acc("aprobacion"), confirmacion = acc("confirmacion");
+  return {
+    validacion, aprobacion, confirmacion,
+    totalCost: validacion.cost + aprobacion.cost,
+    totalBenefit: validacion.benefit + aprobacion.benefit,
+  };
 }
 
 /** Mapa boardId → salud (EV/PV/AC + VEM) de cada board de Proyectos. */
@@ -147,10 +202,13 @@ export function pmWorstStatus(
 export function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[], hardOnly = false): PmValue {
   const hardBoardIds = new Set(projBoards.filter((b) => b.benefitType === "HardSaving").map((b) => b.id));
 
-  const reqItems = req.filter((r) => r.pm === pm && reqStage(r) != null && (!hardOnly || r.benefitType === "HardSaving"));
-  const reqDetail: PmValueItem[] = reqItems.map((r) => ({
-    name: r.name, cost: r.costRH + r.costSft, benefit: r.benefit, stage: reqStage(r) as PmValueStage,
-  }));
+  const reqDetail: PmValueItem[] = [];
+  for (const r of req) {
+    if (r.pm !== pm) continue;
+    if (hardOnly && r.benefitType !== "HardSaving") continue;
+    const stages = reqStageAmounts(r);
+    if (stages) reqDetail.push({ name: r.name, stages });
+  }
 
   const pmBoardIds = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
   const itemsByBoard = new Map<string, { name: string; items: ProjItem[] }>();
@@ -163,25 +221,16 @@ export function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBo
   }
   const projDetail: PmValueItem[] = [];
   for (const { name, items } of itemsByBoard.values()) {
-    const resolved = resolveProjStage(items);
-    if (resolved) projDetail.push({ name, cost: resolved.cost, benefit: resolved.benefit, stage: resolved.stage });
+    const stages = projStageAmounts(items);
+    if (stages) projDetail.push({ name, stages });
   }
 
-  const all = [...reqDetail, ...projDetail];
-  const sumStage = (stage: PmValueStage) => {
-    const items = all.filter((it) => it.stage === stage);
-    return { cost: items.reduce((s, it) => s + it.cost, 0), benefit: items.reduce((s, it) => s + it.benefit, 0) };
-  };
-  const validacion = sumStage("validacion");
-  const aprobacion = sumStage("aprobacion");
-  const confirmacion = sumStage("confirmacion");
-
+  const agg = sumStageAmounts([...reqDetail, ...projDetail].map((it) => it.stages));
   return {
-    totalCost: validacion.cost + aprobacion.cost + confirmacion.cost,
-    totalBenefit: validacion.benefit + aprobacion.benefit + confirmacion.benefit,
-    validacionCost: validacion.cost, validacionBenefit: validacion.benefit,
-    aprobacionCost: aprobacion.cost, aprobacionBenefit: aprobacion.benefit,
-    confirmacionCost: confirmacion.cost, confirmacionBenefit: confirmacion.benefit,
+    totalCost: agg.totalCost, totalBenefit: agg.totalBenefit,
+    validacionCost: agg.validacion.cost, validacionBenefit: agg.validacion.benefit,
+    aprobacionCost: agg.aprobacion.cost, aprobacionBenefit: agg.aprobacion.benefit,
+    confirmacionCost: agg.confirmacion.cost, confirmacionBenefit: agg.confirmacion.benefit,
     detail: { reqs: reqDetail, projects: projDetail },
   };
 }

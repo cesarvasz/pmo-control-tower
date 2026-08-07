@@ -94,14 +94,19 @@ describe("resolveProjStage (evaluación descendente Confirmación > Aprobación 
     expect(resolveProjStage(items)).toEqual({ stage: "validacion", cost: 1, benefit: 1 });
   });
 
-  it("Confirmación: usa el step más reciente Done (90 > 60 > 30)", () => {
-    expect(resolveProjStage([roi(30, "Working on it", 1, 100)])).toBeNull(); // ninguno Done aún
+  it("Confirmación: el step en Working on it manda; si todos están Done, el más reciente (90>60>30)", () => {
+    // Un step en curso → se usa ESE (aunque aún no haya ninguno Done).
+    expect(resolveProjStage([roi(30, "Working on it", 1, 100)])).toEqual({ stage: "confirmacion", cost: 1, benefit: 100 });
     expect(resolveProjStage([roi(30, "Done", 1, 100)])).toEqual({ stage: "confirmacion", cost: 1, benefit: 100 });
     expect(resolveProjStage([roi(30, "Done", 1, 100), roi(60, "Done", 2, 200)])).toEqual({ stage: "confirmacion", cost: 2, benefit: 200 });
+    // 30 y 60 Done, 90 en curso → gana el que está en Working on it (90).
     expect(resolveProjStage([roi(30, "Done", 1, 100), roi(60, "Done", 2, 200), roi(90, "Working on it", 3, 300)]))
-      .toEqual({ stage: "confirmacion", cost: 2, benefit: 200 }); // 90 no Done → se queda en 60
+      .toEqual({ stage: "confirmacion", cost: 3, benefit: 300 });
+    // Todos Done → el más reciente (90).
     expect(resolveProjStage([roi(30, "Done", 1, 100), roi(60, "Done", 2, 200), roi(90, "Done", 3, 300)]))
       .toEqual({ stage: "confirmacion", cost: 3, benefit: 300 });
+    // Existe pero no iniciado (ni WIP ni Done) → no califica como Confirmación.
+    expect(resolveProjStage([roi(30, "Not Started", 1, 100)])).toBeNull();
   });
 
   it("Confirmación gana aunque también se cumplan Aprobación y Validación", () => {
@@ -122,16 +127,16 @@ describe("calcPmValue", () => {
     req({ pm: "Otro", grupo: "Desarrollo", benefitType: "HardSaving", costRH: 999, costSft: 0, benefit: 999, name: "R3" }),
   ];
 
-  it("clasifica REQ por fase: Aprobación (Desarrollo), Validación (Aprobación), Confirmación (Cerrados)", () => {
+  it("acumulativo: un REQ Confirmado (Cerrados) también suma en Aprobación", () => {
     const v = calcPmValue("Luis", reqs, [], [], false);
-    expect(v.aprobacionCost).toBe(1000);
-    expect(v.aprobacionBenefit).toBe(5000);       // R1 (Desarrollo)
     expect(v.validacionCost).toBe(500);
     expect(v.validacionBenefit).toBe(2000);       // R2 (Aprobación)
+    expect(v.aprobacionCost).toBe(1200);          // R1 (Desarrollo) + R4 (Cerrados)
+    expect(v.aprobacionBenefit).toBe(14000);      // 5000 + 9000 (confirmado incluido)
     expect(v.confirmacionCost).toBe(200);
-    expect(v.confirmacionBenefit).toBe(9000);     // R4 (Cerrados)
+    expect(v.confirmacionBenefit).toBe(9000);     // R4 (Cerrados) — subconjunto de Aprobación
     expect(v.totalCost).toBe(1700);
-    expect(v.totalBenefit).toBe(16000);           // excluye a "Otro"
+    expect(v.totalBenefit).toBe(16000);           // Validación + Aprobación; excluye a "Otro"
   });
 
   it("hardOnly limita a benefitType HardSaving", () => {
@@ -168,8 +173,21 @@ describe("calcPmValue", () => {
     expect(v.confirmacionBenefit).toBe(4000);   // benefit del step de 30 días, no la suma del board
     expect(v.confirmacionCost).toBe(5);         // costo del mismo step, no la suma del board
     expect(v.validacionBenefit).toBe(0);
-    expect(v.aprobacionBenefit).toBe(0);
-    expect(v.detail.projects[0].stage).toBe("confirmacion");
+    expect(v.aprobacionBenefit).toBe(4000);     // confirmado ⇒ también aprobado (sin BC en el board → mismo monto)
+    expect(v.detail.projects[0].stages.confirmacion).toEqual({ cost: 5, benefit: 4000 });
+    expect(v.detail.projects[0].stages.aprobacion).toEqual({ cost: 5, benefit: 4000 });
+  });
+
+  it("proyecto confirmado CON Business Case: Aprobación usa el BC; Confirmación el valor medido", () => {
+    const projBoards = [board({ id: "b1", pm: "Luis", benefitType: "HardSaving" })];
+    const projItems = [
+      proj({ boardId: "b1", boardName: "P1", status: "Done", name: "Kick Off Project Meeting (Entregable Business Case redactado)", grupo: "Valuación | Formulación del proyecto", cost: 10, benefit: 1000 }),
+      proj({ boardId: "b1", boardName: "P1", status: "Done", name: "VPA Recopila datos a 30 dias (Compara Valor real contra BC)", grupo: "Revisión | Cierre ROI", cost: 5, benefit: 1200 }),
+    ];
+    const v = calcPmValue("Luis", [], projItems, projBoards, false);
+    expect(v.aprobacionBenefit).toBe(1000);     // Business Case (valor aprobado)
+    expect(v.confirmacionBenefit).toBe(1200);   // valor real medido
+    expect(v.totalBenefit).toBe(1000);          // Validación(0) + Aprobación(1000); Confirmación no re-suma
   });
 });
 

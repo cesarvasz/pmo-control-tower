@@ -140,10 +140,10 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                   Costo / Beneficio
                 </div>
                 <Row label="Validación VPA" c={value.validacionCost} b={value.validacionBenefit} />
-                <Row label="Aprobación VPB" c={value.aprobacionCost} b={value.aprobacionBenefit} />
-                <Row label="Confirmación VPC" c={value.confirmacionCost} b={value.confirmacionBenefit} />
+                <Row label="Aprobación VPB (incluye Confirmación)" c={value.aprobacionCost} b={value.aprobacionBenefit} />
+                <Row label="Confirmación VPC (subconjunto de Aprobación)" c={value.confirmacionCost} b={value.confirmacionBenefit} />
                 <div className="h-px" style={{ background: "var(--border)" }} />
-                <Row label="Total" c={value.totalCost} b={value.totalBenefit} strong />
+                <Row label="Total (Validación + Aprobación)" c={value.totalCost} b={value.totalBenefit} strong />
               </div>
 
               {/* Cómo pesa el Beneficio en el KPI (peso 25, siempre HardSaving) */}
@@ -177,11 +177,12 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
           ) : (
             <>
               <div className="text-[0.7rem] text-[var(--text-muted)]">
-                Cada ítem muestra <span style={{ color: BEN }}>Beneficio</span> / <span style={{ color: COST }}>Costo</span> en su etapa,
-                evaluada de forma descendente (Confirmación → Aprobación → Validación; se toma la primera que cumpla).
+                Etapas <b>acumulativas</b>: un ítem <b>Confirmado sigue contando en Aprobación</b> (a su valor aprobado /
+                Business Case), y Confirmación es el subconjunto ya medido (valor real). Cada ítem muestra{" "}
+                <span style={{ color: BEN }}>Beneficio</span> / <span style={{ color: COST }}>Costo</span> en cada etapa alcanzada.
                 <b> Validación VPA</b>: REQ en Valuación/Aprobación o proyecto con &quot;VPA valida Business Case&quot; Done.
-                <b> Aprobación VPB</b>: REQ en Desarrollo/Operación/Cierre ROI o proyecto con &quot;Plan de beneficios CFO&quot; + Value Gate Aprobación + Value Gate Launch, los 3 Done.
-                <b> Confirmación VPC</b>: REQ Cerrado o proyecto con el step &quot;VPA Recopila datos a 30/60/90 días&quot; más reciente Done.
+                <b> Aprobación VPB</b>: REQ en Desarrollo/Operación/Cierre ROI/Cerrado o proyecto con &quot;Plan de beneficios CFO&quot; + Value Gate Aprobación + Value Gate Launch (los 3 Done).
+                <b> Confirmación VPC</b>: REQ Cerrado o proyecto con el step &quot;VPA Recopila datos a 30/60/90 días&quot; en curso (o el más reciente Done).
               </div>
 
               {!hasDetail ? (
@@ -208,9 +209,9 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                           <td className="px-3 py-2">
                             <Tag kind={it.kind} /> <span className="text-[var(--text-primary)]">{it.name}</span>
                           </td>
-                          <td className="px-3 py-2">{it.stage === "validacion" ? <CB c={it.cost} b={it.benefit} /> : <div className="text-right"><Dash /></div>}</td>
-                          <td className="px-3 py-2">{it.stage === "aprobacion" ? <CB c={it.cost} b={it.benefit} /> : <div className="text-right"><Dash /></div>}</td>
-                          <td className="px-3 py-2">{it.stage === "confirmacion" ? <CB c={it.cost} b={it.benefit} /> : <div className="text-right"><Dash /></div>}</td>
+                          <td className="px-3 py-2">{it.stages.validacion ? <CB c={it.stages.validacion.cost} b={it.stages.validacion.benefit} /> : <div className="text-right"><Dash /></div>}</td>
+                          <td className="px-3 py-2">{it.stages.aprobacion ? <CB c={it.stages.aprobacion.cost} b={it.stages.aprobacion.benefit} /> : <div className="text-right"><Dash /></div>}</td>
+                          <td className="px-3 py-2">{it.stages.confirmacion ? <CB c={it.stages.confirmacion.cost} b={it.stages.confirmacion.benefit} /> : <div className="text-right"><Dash /></div>}</td>
                         </tr>
                       ))}
                     </tbody>
