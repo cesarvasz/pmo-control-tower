@@ -20,11 +20,12 @@ import TramitesCarga from "@/components/tramites/TramitesCarga";
 import { TablaDimension, TablaHitos } from "@/components/tramites/TramitesTablas";
 import CostoTiempo from "@/components/tramites/CostoTiempo";
 import CostoUnitario from "@/components/tramites/CostoUnitario";
+import Informe from "@/components/tramites/Informe";
 import { fmtHHMMSS, enDiasHabiles } from "@/lib/horario";
 import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
   calcularIndicadores, composicionCiclo, serieTemporal, agruparPor, agruparPorPersona, coberturaHitos,
-  costoTiempo, costoUnitario, proyectarAnio, TARIFA_HORA_DEFECTO,
+  costoTiempo, costoUnitario, proyectarAnio, TARIFA_HORA_DEFECTO, ALCANCE_UNITARIO,
   cargaYCapacidad, contarPersonas, exportarCSV,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
   type EtapaKey, type Filtros, type Metrica,
@@ -79,6 +80,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
   const [simultaneos, setSimultaneos] = useState(1);
   const [tarifa, setTarifa] = useState(TARIFA_HORA_DEFECTO);
+  const [informe, setInforme] = useState(false);
 
   const todos = useMemo(() => construirExpedientes(rows), [rows]);
   const opciones = useMemo(() => opcionesDeFiltro(todos), [todos]);
@@ -102,12 +104,19 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const carga = useMemo(() => cargaYCapacidad(exps, simultaneos, porDia), [exps, simultaneos, porDia]);
   // Costo: cuelga del mismo recorte, así que la línea de tiempo responde a los filtros.
   const costo = useMemo(() => costoTiempo(exps, tarifa, porDia), [exps, tarifa, porDia]);
-  const unitario = useMemo(() => costoUnitario(costo), [costo]);
+  // El costo por expediente se mide SOLO sobre Ducafast (T1–T3). Es un segundo
+  // pase completo sobre el mismo recorte, no un recorte del anterior: las horas
+  // reales salen de unir intervalos, y unir T1–T3 no se deduce de unir T1–T5.
+  const costoUnit = useMemo(
+    () => costoTiempo(exps, tarifa, porDia, false, ALCANCE_UNITARIO), [exps, tarifa, porDia]);
+  const unitario = useMemo(() => costoUnitario(costoUnit), [costoUnit]);
   // La proyección arranca de la última actividad medida, no de la fecha del
   // navegador: si los datos van atrasados, proyectar desde "hoy" mentiría.
   const proyeccion = useMemo(
-    () => (porDia || costo.ventana.fin === 0 ? [] : proyectarAnio(costo.serie, new Date(costo.ventana.fin))),
-    [costo.serie, costo.ventana.fin, porDia],
+    () => (porDia || costoUnit.ventana.fin === 0
+      ? []
+      : proyectarAnio(costoUnit.serie, new Date(costoUnit.ventana.fin))),
+    [costoUnit.serie, costoUnit.ventana.fin, porDia],
   );
   // Plantilla del recorte: Usuario o Analista, sin duplicar a quien hace ambos.
   const personasFiltro = useMemo(
@@ -136,12 +145,22 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
     />
   );
 
+  // El informe sustituye al tablero en lugar de abrirse encima: se presenta a
+  // dirección y va sobre TODOS los expedientes del año, no sobre el recorte.
+  if (informe) return <Informe exps={todos} onCerrar={() => setInforme(false)} />;
+
   return (
     <div>
       <SectionHeader
         title="Tiempos de trámites"
         badge={`${exps.length.toLocaleString("es-GT")} de ${todos.length.toLocaleString("es-GT")} expedientes`}
-      />
+      >
+        <button onClick={() => setInforme(true)}
+          className="ml-auto rounded-lg border px-3.5 py-1.5 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
+          style={{ borderColor: "var(--accent)", color: "var(--accent-light)" }}>
+          📄 Informe
+        </button>
+      </SectionHeader>
 
       {/* ── Filtros ── */}
       <div className="mb-5 flex flex-wrap items-end gap-3">
@@ -227,7 +246,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       {/* ── Costo por expediente (acordeón) ── */}
       <div className="mt-5">
         <CostoUnitario
-          costo={costo} unitario={unitario} proyeccion={proyeccion}
+          costo={costoUnit} unitario={unitario} proyeccion={proyeccion}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
         />
       </div>

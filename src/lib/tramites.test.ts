@@ -7,7 +7,8 @@ import {
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
   unirIntervalos, costoPorPersona, ventanaDe, contarLicencias, costoUnitario, proyectarAnio,
-  SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS,
+  etiquetaAlcance, recorridoAlcance, hitosDelAlcance,
+  SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS, ALCANCE_UNITARIO,
   type Filtros,
 } from "./tramites";
 import { segundosHabiles } from "./horario";
@@ -924,6 +925,136 @@ describe("costoUnitario y proyección", () => {
 
   it("una serie vacía no proyecta nada", () => {
     expect(proyectarAnio([], new Date(2026, 5, 1))).toEqual([]);
+  });
+});
+
+// El acordeón del costo unitario mide SOLO Ducafast (T1–T3). El resto del
+// reporte sigue con las 5 etapas, así que lo que se prueba aquí es que el
+// alcance recorte de verdad y que el camino por defecto no cambie.
+describe("alcance de etapas", () => {
+  it("ALCANCE_UNITARIO es el tramo Ducafast", () => {
+    expect(ALCANCE_UNITARIO).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("etiqueta y recorrido describen el tramo", () => {
+    expect(etiquetaAlcance(ALCANCE_UNITARIO)).toBe("T1–T3");
+    expect(recorridoAlcance(ALCANCE_UNITARIO)).toBe("Creado → Creación Pre-DUCA");
+    expect(etiquetaAlcance(["t2"])).toBe("T2");
+    // Con el ciclo entero no hay nada que aclarar: la etiqueta va vacía.
+    expect(etiquetaAlcance(ETAPA_KEYS)).toBe("");
+  });
+
+  it("los hitos del alcance son los extremos de sus tramos", () => {
+    expect(hitosDelAlcance(ALCANCE_UNITARIO).sort())
+      .toEqual(["clasificacion", "creado", "dpr", "preduca"]);
+  });
+
+  it("recorta las etapas atribuidas a cada rol", () => {
+    const e = construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })])[0];
+    expect(etapasAtribuidas(e, "usuario", ALCANCE_UNITARIO)).toEqual(["t1", "t2", "t3"]);
+    // El analista solo carga T5, que queda fuera: no le toca nada.
+    expect(etapasAtribuidas(e, "analista", ALCANCE_UNITARIO)).toEqual([]);
+  });
+
+  it("el ciclo completo de quien hace ambos roles también se recorta", () => {
+    const e = construirExpedientes([fila({ Usuario: "ANA", Analista: "ANA" })])[0];
+    expect(etapasAtribuidas(e, "usuario")).toEqual(ETAPA_KEYS);
+    expect(etapasAtribuidas(e, "usuario", ALCANCE_UNITARIO)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("la ventana se mide entre los hitos del alcance", () => {
+    // Creado 08:00 → Pre-DUCA 11:00 = 3 h, contra las 5 h del ciclo entero.
+    expect(ventanaDe(construirExpedientes([fila({})]), ALCANCE_UNITARIO).horas).toBe(3);
+    expect(ventanaDe(construirExpedientes([fila({})])).horas).toBe(5);
+  });
+
+  it("solo cobra quien participa en el tramo", () => {
+    const exps = construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]);
+    const c = costoTiempo(exps, 8, false, false, ALCANCE_UNITARIO);
+    // ANA: Creado → Pre-DUCA = 3 h. BETO solo tenía T5, así que desaparece.
+    expect(c.personas.map((p) => p.clave)).toEqual(["ANA"]);
+    expect(c.horas).toBe(3);
+    expect(c.costo).toBe(24);
+    // El ciclo entero sí incluye a BETO y su hora.
+    expect(costoTiempo(exps, 8).horas).toBe(5);
+  });
+
+  it("el reparto por etapa se limita al alcance y sigue sumando 100", () => {
+    const c = costoTiempo(construirExpedientes([fila({})]), 8, false, false, ALCANCE_UNITARIO);
+    expect(c.alcance).toEqual(ALCANCE_UNITARIO);
+    expect(c.porEtapa.map((e) => e.key)).toEqual(["t1", "t2", "t3"]);
+    expect(c.porEtapa.reduce((s, e) => s + e.pct, 0)).toBeCloseTo(100, 8);
+    expect(c.porEtapa.reduce((s, e) => s + e.horas, 0)).toBeCloseTo(c.horas, 8);
+  });
+
+  it("no cuenta expedientes cuyo tiempo medido cae fuera del tramo", () => {
+    // Solo tiene Pre-DUCA → Revisión → Firma: nada de Ducafast que medir.
+    const exps = construirExpedientes([fila({
+      Creado: "", DPR: "", Clasificacion_exacta: "",
+    })]);
+    expect(costoTiempo(exps, 8).n).toBe(1);
+    expect(costoTiempo(exps, 8, false, false, ALCANCE_UNITARIO).n).toBe(0);
+  });
+
+  it("el traslape se une dentro del tramo, no se suma", () => {
+    // Dos expedientes de ANA en la misma franja: 3 h reales, no 6.
+    const c = costoTiempo(construirExpedientes([
+      fila({ c807_file: "A", Usuario: "ANA", Analista: "ANA" }),
+      fila({ c807_file: "B", Usuario: "ANA", Analista: "ANA" }),
+    ]), 8, false, false, ALCANCE_UNITARIO);
+    expect(c.horas).toBe(3);
+    expect(c.horasSuma).toBe(6);
+    expect(c.traslape).toBe(2);
+  });
+
+  it("las licencias del unitario salen de la misma base que el denominador", () => {
+    const exps = construirExpedientes([
+      // Completo: entra en las dos bases.
+      fila({ c807_file: "A", Licencias: "2", Costo: "2.2" }),
+      // Sin Ducafast: solo aporta licencias a la base del ciclo completo.
+      fila({ c807_file: "B", Licencias: "5", Costo: "5.5", Creado: "", DPR: "", Clasificacion_exacta: "" }),
+    ]);
+    const duca = costoTiempo(exps, 8, false, false, ALCANCE_UNITARIO);
+    // El recorte entero sigue reportando las 7 licencias…
+    expect(duca.licencias.total).toBe(7);
+    // …pero el unitario solo reparte las 2 del expediente que sí midió T1–T3.
+    expect(duca.licenciasBase.total).toBe(2);
+    expect(duca.n).toBe(1);
+    expect(costoUnitario(duca).licenciasPorExpediente).toBeCloseTo(2.2, 8);
+  });
+
+  it("el costo unitario del tramo divide entre los expedientes del tramo", () => {
+    const exps = construirExpedientes([fila({ Usuario: "ANA", Analista: "ANA", Licencias: "2", Costo: "2.2" })]);
+    const u = costoUnitario(costoTiempo(exps, 8, false, false, ALCANCE_UNITARIO));
+    expect(u.expedientes).toBe(1);
+    expect(u.horasPorExpediente).toBe(3);
+    expect(u.operativoPorExpediente).toBe(24);
+    // Las licencias no salen del reloj: no dependen del tramo.
+    expect(u.licenciasPorExpediente).toBeCloseTo(2.2, 8);
+    expect(u.porExpediente).toBeCloseTo(26.2, 8);
+  });
+
+  it("el volumen de la serie cuenta solo lo que entró en el costo", () => {
+    const exps = construirExpedientes([
+      fila({ c807_file: "A" }),
+      // Creado el mismo mes (así entra en el cubo) pero sin ningún tramo de
+      // Ducafast medido: le faltan DPR y Clasificación, así que T1–T3 se caen.
+      fila({ c807_file: "B", DPR: "", Clasificacion_exacta: "" }),
+    ]);
+    expect(costoTiempo(exps, 8).serie[0].volumen).toBe(2);
+    const duca = costoTiempo(exps, 8, false, false, ALCANCE_UNITARIO).serie;
+    expect(duca[0].volumen).toBe(1);
+    // 3 h × $8 entre 1 expediente, no entre 2.
+    expect(duca[0].costo / duca[0].volumen).toBe(24);
+  });
+
+  it("sin alcance explícito nada cambia", () => {
+    const exps = construirExpedientes([fila({})]);
+    const a = costoTiempo(exps, 8);
+    const b = costoTiempo(exps, 8, false, false, ETAPA_KEYS);
+    expect(a.horas).toBe(b.horas);
+    expect(a.n).toBe(b.n);
+    expect(a.alcance).toEqual(ETAPA_KEYS);
   });
 });
 

@@ -3,12 +3,16 @@
 // Acordeón: cuánto cuesta un expediente, con qué plantilla se haría el mismo
 // trabajo al 95% de ocupación, y cómo se ve el resto del año.
 //
+// A DIFERENCIA del resto del reporte, mide solo el tramo Ducafast (T1–T3): el
+// `costo` que recibe viene calculado con ese alcance. Por eso sus números no
+// cuadran con los del bloque «Costo del tiempo», que sí abarca las 5 etapas.
+//
 // Todo cuelga del recorte ya filtrado, así que se recalcula solo al mover
 // cualquier filtro — el acordeón no guarda copia de nada.
 
 import { useState } from "react";
 import type { Costo, Unitario, PuntoProyectado } from "@/lib/tramites";
-import { UTILIZACION_OBJETIVO } from "@/lib/tramites";
+import { UTILIZACION_OBJETIVO, etiquetaAlcance, recorridoAlcance } from "@/lib/tramites";
 
 const usd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)} M`
@@ -31,6 +35,8 @@ export default function CostoUnitario({
   const maxCosto = Math.max(1, ...proyeccion.map((p) => p.costo));
   const estimados = proyeccion.filter((p) => p.estimado);
   const dif = unitario.personasActuales - unitario.personasNecesarias;
+  const tramo = etiquetaAlcance(costo.alcance);
+  const recorrido = recorridoAlcance(costo.alcance);
 
   return (
     <div className="rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
@@ -42,6 +48,12 @@ export default function CostoUnitario({
       >
         <span className="text-[0.8rem] transition-transform" style={{ transform: abierto ? "rotate(90deg)" : undefined }}>▶</span>
         <span className="text-[0.9rem] font-bold text-[var(--text-primary)]">Costo por expediente</span>
+        {tramo && (
+          <span className="rounded-md px-2 py-0.5 text-[0.68rem] font-bold uppercase tracking-wider"
+            style={{ background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
+            solo {tramo} · Ducafast
+          </span>
+        )}
         <span className="tabular-nums rounded-md px-2 py-0.5 text-[0.82rem] font-extrabold"
           style={{ background: "var(--bg-accent-soft)", color: "var(--accent-light)" }}>
           {usdExacto(unitario.porExpediente)}
@@ -57,13 +69,23 @@ export default function CostoUnitario({
 
       {abierto && (
         <div className="border-t px-4 py-4" style={{ borderColor: "var(--border)" }}>
+          {tramo && (
+            <p className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-relaxed"
+              style={{ background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
+              Este bloque mide <strong>solo {tramo}</strong> ({recorrido}) — el tramo Ducafast. La
+              revisión del analista y la firma quedan fuera, así que estas cifras son más bajas que
+              las del bloque «Costo del tiempo», que sí abarca el ciclo completo. La plantilla que
+              se cuenta abajo es la que participa en ese tramo, no toda la del recorte.
+            </p>
+          )}
+
           {/* Desglose del costo unitario */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { l: "Por expediente", v: usdExacto(unitario.porExpediente), s: "todo incluido", fuerte: true },
-              { l: "Operativo", v: usdExacto(unitario.operativoPorExpediente), s: `${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa}` },
-              { l: "Licencias", v: usdExacto(unitario.licenciasPorExpediente), s: `${costo.licencias.total.toLocaleString("es-GT")} licencias` },
-              { l: "Expedientes", v: num(unitario.expedientes), s: "con tiempo medido" },
+              { l: "Operativo", v: usdExacto(unitario.operativoPorExpediente), s: `${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa}${tramo ? ` · ${tramo}` : ""}` },
+              { l: "Licencias", v: usdExacto(unitario.licenciasPorExpediente), s: `${costo.licenciasBase.total.toLocaleString("es-GT")} licencias` },
+              { l: "Expedientes", v: num(unitario.expedientes), s: tramo ? `con ${tramo} medido` : "con tiempo medido" },
             ].map((c) => (
               <div key={c.l} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-hover)" }}>
                 <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{c.l}</div>
@@ -84,7 +106,8 @@ export default function CostoUnitario({
                 {num(unitario.personasNecesarias)}
               </span>
               <span className="text-[0.76rem] text-[var(--text-muted)]">
-                personas, contra {num(unitario.personasActuales)} que aparecen hoy
+                personas, contra {num(unitario.personasActuales)} que hoy participan
+                {tramo ? ` en ${tramo}` : ""}
               </span>
               {dif > 0.5 && (
                 <span className="rounded-md px-2 py-0.5 text-[0.74rem] font-bold"
@@ -106,7 +129,7 @@ export default function CostoUnitario({
               </span>
             </div>
             <p className="mt-2 text-[0.7rem] leading-relaxed text-[var(--text-muted)]">
-              {num(costo.horas)} h de reloj ÷ ({num(costo.ventana.horas)} h hábiles ×{" "}
+              {num(costo.horas)} h de reloj{tramo ? ` en ${tramo}` : ""} ÷ ({num(costo.ventana.horas)} h hábiles ×{" "}
               {Math.round(UTILIZACION_OBJETIVO * 100)}%) = {unitario.personasNecesarias.toFixed(1)} personas.
               Es una cuenta de capacidad: supone que el trabajo puede repartirse libremente en el
               tiempo, cosa que en la práctica no siempre pasa — los picos existen. Léelo como el
@@ -118,7 +141,9 @@ export default function CostoUnitario({
           {proyeccion.length > 0 && (
             <div className="mt-4">
               <div className="mb-2 flex flex-wrap items-baseline gap-2">
-                <span className="text-[0.8rem] font-bold text-[var(--text-primary)]">Costo por mes</span>
+                <span className="text-[0.8rem] font-bold text-[var(--text-primary)]">
+                  Costo por mes{tramo ? ` · ${tramo}` : ""}
+                </span>
                 <span className="text-[0.7rem] text-[var(--text-muted)]">
                   barra sólida = medido · rayada = estimado
                   {estimados.length > 0 && ` (${estimados.length} ${estimados.length === 1 ? "mes" : "meses"})`}

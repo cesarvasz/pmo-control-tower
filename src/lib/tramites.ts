@@ -408,6 +408,30 @@ export function composicionCiclo(exps: Expediente[], metrica: Metrica): Composic
 /** Objetivo de ocupación para dimensionar la plantilla. */
 export const UTILIZACION_OBJETIVO = 0.95;
 
+/**
+ * Tramo del ciclo con el que se calcula el costo por expediente: Ducafast, de
+ * Creado a Creación Pre-DUCA. Es la parte que la operación efectivamente
+ * trabaja; la revisión del analista y la firma van después y no entran aquí.
+ *
+ * Solo lo usa el acordeón del costo unitario. El resto del reporte —el costo
+ * del tiempo, la tabla por persona, la barra del ciclo— sigue con las 5 etapas.
+ */
+export const ALCANCE_UNITARIO: EtapaKey[] = GRUPOS_ETAPAS[0].etapas;
+
+/** Etiqueta corta de un alcance: «T1–T3» o «T2». Vacío si son todas. */
+export function etiquetaAlcance(alcance: EtapaKey[]): string {
+  const cortos = ETAPAS.filter((e) => alcance.includes(e.key)).map((e) => e.corto);
+  if (cortos.length === 0 || cortos.length === ETAPAS.length) return "";
+  return cortos.length === 1 ? cortos[0] : `${cortos[0]}–${cortos[cortos.length - 1]}`;
+}
+
+/** Recorrido del alcance en hitos: «Creado → Creación Pre-DUCA». */
+export function recorridoAlcance(alcance: EtapaKey[]): string {
+  const dentro = ETAPAS.filter((e) => alcance.includes(e.key));
+  if (dentro.length === 0) return "";
+  return `${HITO_LABEL[dentro[0].desde]} → ${HITO_LABEL[dentro[dentro.length - 1].hasta]}`;
+}
+
 export interface PuntoProyectado extends PuntoCosto {
   /** Estimado en vez de medido. */
   estimado: boolean;
@@ -420,7 +444,9 @@ export interface Unitario {
   /** Expedientes trabajados: los que tienen algo medido. */
   expedientes: number;
   costoOperativo: number;
+  /** Licencias de los `expedientes` medidos, no de todo el recorte. */
   costoLicencias: number;
+  /** costoOperativo + costoLicencias, ambos sobre la misma base. */
   costoTotal: number;
   /** Lo que cuesta un expediente, todo incluido. */
   porExpediente: number;
@@ -439,14 +465,17 @@ export interface Unitario {
 export function costoUnitario(c: Costo): Unitario {
   const expedientes = c.n;
   const horasPorPersonaObjetivo = c.ventana.horas * UTILIZACION_OBJETIVO;
+  // Licencias de la MISMA base que el denominador — ver Costo.licenciasBase.
+  const licencias = c.licenciasBase.costo;
+  const costoTotal = c.costo + licencias;
   return {
     expedientes,
     costoOperativo: c.costo,
-    costoLicencias: c.licencias.costo,
-    costoTotal: c.costoTotal,
-    porExpediente: expedientes > 0 ? c.costoTotal / expedientes : 0,
+    costoLicencias: licencias,
+    costoTotal,
+    porExpediente: expedientes > 0 ? costoTotal / expedientes : 0,
     operativoPorExpediente: expedientes > 0 ? c.costo / expedientes : 0,
-    licenciasPorExpediente: expedientes > 0 ? c.licencias.costo / expedientes : 0,
+    licenciasPorExpediente: expedientes > 0 ? licencias / expedientes : 0,
     horasPorExpediente: expedientes > 0 ? c.horas / expedientes : 0,
     personasNecesarias: horasPorPersonaObjetivo > 0 ? c.horas / horasPorPersonaObjetivo : 0,
     personasActuales: c.personas.length,
@@ -670,10 +699,17 @@ export function mismaPersona(e: Expediente): boolean {
   return us.length === as.length && us.every((u) => as.includes(u));
 }
 
-/** Etapas que carga una persona en este expediente, según su rol. */
-export function etapasAtribuidas(e: Expediente, rol: Rol): EtapaKey[] {
-  if (mismaPersona(e)) return ETAPA_KEYS;
-  return rol === "usuario" ? ETAPAS_PREVIAS : ETAPAS_REVISION;
+/**
+ * Etapas que carga una persona en este expediente, según su rol.
+ *
+ * `alcance` recorta el tramo del ciclo que se está midiendo. Con el alcance
+ * completo (el de siempre) no cambia nada; con uno parcial —Ducafast, por
+ * ejemplo— quien no toca ninguna de esas etapas se queda sin nada que cargar,
+ * que es justo lo que debe pasar.
+ */
+export function etapasAtribuidas(e: Expediente, rol: Rol, alcance: EtapaKey[] = ETAPA_KEYS): EtapaKey[] {
+  const propias = mismaPersona(e) ? ETAPA_KEYS : rol === "usuario" ? ETAPAS_PREVIAS : ETAPAS_REVISION;
+  return alcance === ETAPA_KEYS ? propias : propias.filter((k) => alcance.includes(k));
 }
 
 /** Tiempo que carga una persona en este expediente. null si le falta una etapa suya. */
@@ -896,8 +932,10 @@ export interface Intervalo { inicio: number; fin: number }
  * regla de atribución: el Usuario hasta la Revisión, el Analista de la Revisión
  * a la Firma, y el ciclo entero si es la misma persona.
  */
-export function intervaloAtribuido(e: Expediente, rol: Rol): Intervalo | null {
-  const etapas = etapasAtribuidas(e, rol);
+export function intervaloAtribuido(e: Expediente, rol: Rol, alcance: EtapaKey[] = ETAPA_KEYS): Intervalo | null {
+  // Va del arranque de la primera etapa al cierre de la última: presupone que
+  // el alcance es un tramo contiguo de la cadena (lo son ETAPA_KEYS y Ducafast).
+  const etapas = etapasAtribuidas(e, rol, alcance);
   const primera = ETAPAS.find((x) => x.key === etapas[0]);
   const ultima = ETAPAS.find((x) => x.key === etapas[etapas.length - 1]);
   if (!primera || !ultima) return null;
@@ -960,11 +998,19 @@ export interface Ventana {
   horas: number;
 }
 
-export function ventanaDe(exps: Expediente[]): Ventana {
+/** Hitos que delimitan un alcance de etapas: los extremos de cada tramo. */
+export function hitosDelAlcance(alcance: EtapaKey[]): HitoKey[] {
+  const s = new Set<HitoKey>();
+  for (const e of ETAPAS) if (alcance.includes(e.key)) { s.add(e.desde); s.add(e.hasta); }
+  return [...s];
+}
+
+export function ventanaDe(exps: Expediente[], alcance: EtapaKey[] = ETAPA_KEYS): Ventana {
+  const claves = hitosDelAlcance(alcance);
   let min = Infinity, max = -Infinity;
   for (const e of exps) {
-    for (const k of HITOS) {
-      const d = e.hitos[k.key];
+    for (const k of claves) {
+      const d = e.hitos[k];
       if (!d) continue;
       const t = d.getTime();
       if (t < min) min = t;
@@ -976,7 +1022,7 @@ export function ventanaDe(exps: Expediente[]): Ventana {
 }
 
 /** Intervalos de cada persona, mezclando sus dos roles: es el mismo reloj. */
-function intervalosPorPersona(exps: Expediente[]): Map<string, Intervalo[]> {
+function intervalosPorPersona(exps: Expediente[], alcance: EtapaKey[] = ETAPA_KEYS): Map<string, Intervalo[]> {
   const m = new Map<string, Intervalo[]>();
   const add = (p: string, iv: Intervalo | null) => {
     if (!iv || p === SIN_DATO) return;
@@ -985,11 +1031,11 @@ function intervalosPorPersona(exps: Expediente[]): Map<string, Intervalo[]> {
   };
   for (const e of exps) {
     const mismo = mismaPersona(e);
-    for (const u of e.usuarios) add(u, intervaloAtribuido(e, "usuario"));
+    for (const u of e.usuarios) add(u, intervaloAtribuido(e, "usuario", alcance));
     for (const a of e.analistas) {
       // Si es la misma persona ya se contó su ciclo completo como Usuario.
       if (mismo && e.usuarios.includes(a)) continue;
-      add(a, intervaloAtribuido(e, "analista"));
+      add(a, intervaloAtribuido(e, "analista", alcance));
     }
   }
   return m;
@@ -1010,11 +1056,12 @@ export function costoPorPersona(
   exps: Expediente[],
   tarifa = TARIFA_HORA_DEFECTO,
   ventana?: Ventana,
+  alcance: EtapaKey[] = ETAPA_KEYS,
 ): FilaPersona[] {
-  const v = ventana ?? ventanaDe(exps);
+  const v = ventana ?? ventanaDe(exps, alcance);
   const costoDisponible = v.horas * tarifa;
 
-  return [...intervalosPorPersona(exps).entries()]
+  return [...intervalosPorPersona(exps, alcance).entries()]
     .map(([clave, lista]) => {
       const bloques = unirIntervalos(lista);
       const suma = lista.reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0) / 3600;
@@ -1121,16 +1168,26 @@ export interface Costo {
   /** horasSuma ÷ horas: expedientes en paralelo, medido sobre los datos. */
   traslape: number;
   costo: number;
-  /** Expedientes con al menos una etapa medida — la base del cálculo. */
+  /** Expedientes con al menos una etapa del alcance medida — la base del cálculo. */
   n: number;
   tarifa: number;
+  /** Tramo del ciclo que se midió. Completo salvo que se pida otra cosa. */
+  alcance: EtapaKey[];
   personas: FilaPersona[];
   porEtapa: CostoEtapa[];
   serie: PuntoCosto[];
   /** Ventana del recorte: el techo de horas que cabe en el periodo. */
   ventana: Ventana;
-  /** Digitalización, de la hoja — no del reloj. */
+  /** Digitalización, de la hoja — no del reloj. Todo el recorte. */
   licencias: Licencias;
+  /**
+   * Las mismas licencias, pero solo de los `n` expedientes con tiempo medido.
+   *
+   * Existe para que el costo por expediente no mezcle bases: dividir las
+   * licencias de TODO el recorte entre los expedientes que sí pudimos medir
+   * inflaba el unitario (con alcance T1–T3, $0.32 contra $0.30 reales).
+   */
+  licenciasBase: Licencias;
   /** costo (horas) + licencias.costo: lo que suma todo el recorte. */
   costoTotal: number;
   /** Plantilla × horas de la ventana × tarifa: el costo de la disponibilidad. */
@@ -1141,10 +1198,10 @@ export interface Costo {
   utilizacion: number;
 }
 
-/** Segundos medidos de un expediente, sumando todas las etapas que sí tienen dato. */
-export function segundosMedidos(e: Expediente): number {
+/** Segundos medidos de un expediente, sumando las etapas del alcance que sí tienen dato. */
+export function segundosMedidos(e: Expediente, alcance: EtapaKey[] = ETAPA_KEYS): number {
   let s = 0;
-  for (const k of ETAPA_KEYS) s += e.etapas[k] ?? 0;
+  for (const k of alcance) s += e.etapas[k] ?? 0;
   return s;
 }
 
@@ -1160,9 +1217,10 @@ export function costoTiempo(
   tarifa = TARIFA_HORA_DEFECTO,
   porDia = false,
   incluirBots = false,
+  alcance: EtapaKey[] = ETAPA_KEYS,
 ): Costo {
-  const ventana = ventanaDe(exps);
-  const personas = costoPorPersona(exps, tarifa, ventana)
+  const ventana = ventanaDe(exps, alcance);
+  const personas = costoPorPersona(exps, tarifa, ventana, alcance)
     .filter((p) => incluirBots || !p.automatizado);
 
   const horas = personas.reduce((s, p) => s + p.horasReales, 0);
@@ -1173,9 +1231,10 @@ export function costoTiempo(
   // El reparto por etapa se queda en proporciones del tiempo transcurrido —
   // es lo único que puede decir dónde se va el reloj — pero el dinero que
   // muestra cada tramo se escala al costo REAL, para que sumen el total.
-  const sumas = ETAPAS.map((e) => exps.reduce((s, x) => s + (x.etapas[e.key] ?? 0), 0));
+  const etapas = ETAPAS.filter((e) => alcance.includes(e.key));
+  const sumas = etapas.map((e) => exps.reduce((s, x) => s + (x.etapas[e.key] ?? 0), 0));
   const sumaTotal = sumas.reduce((s, x) => s + x, 0);
-  const porEtapa: CostoEtapa[] = ETAPAS.map((e, i) => {
+  const porEtapa: CostoEtapa[] = etapas.map((e, i) => {
     const pct = sumaTotal > 0 ? (sumas[i] / sumaTotal) * 100 : 0;
     return {
       key: e.key, label: e.label, corto: e.corto, color: e.color,
@@ -1187,14 +1246,19 @@ export function costoTiempo(
 
   // Serie: los intervalos se recortan al periodo antes de unirlos, así cada mes
   // recibe solo el reloj que le toca y los meses suman el total exacto.
-  const intervalos = intervalosPorPersonaFiltrado(exps, incluirBots);
+  const intervalos = intervalosPorPersonaFiltrado(exps, incluirBots, alcance);
   const cubos = new Map<string, { porPersona: Map<string, Intervalo[]>; volumen: number }>();
   const cubo = (k: string) => {
     let c = cubos.get(k);
     if (!c) { c = { porPersona: new Map(), volumen: 0 }; cubos.set(k, c); }
     return c;
   };
+  // El volumen cuenta solo los expedientes cuyo tiempo entró en el numerador:
+  // si el costo del mes es el del alcance, dividirlo entre TODOS los creados
+  // ese mes abarataría la barra (con T1–T3 julio pasaba de $11.86 a $9.49) y
+  // no cuadraría con la cabecera al hacer clic en ese mismo mes.
   for (const e of exps) {
+    if (segundosMedidos(e, alcance) <= 0) continue;
     const k = porDia ? diaDe(e.creado) : e.mes;
     if (k) cubo(k).volumen++;
   }
@@ -1225,23 +1289,27 @@ export function costoTiempo(
 
   const costo = horas * tarifa;
   const licencias = contarLicencias(exps);
+  const base = exps.filter((e) => segundosMedidos(e, alcance) > 0);
   return {
     horas, horasSuma,
     traslape: horas > 0 ? horasSuma / horas : 0,
     costo,
-    n: exps.filter((e) => segundosMedidos(e) > 0).length,
-    tarifa, personas, porEtapa, serie,
+    n: base.length,
+    tarifa, alcance, personas, porEtapa, serie,
     ventana,
     costoDisponible,
     costoSinUsar: Math.max(0, costoDisponible - costo),
     utilizacion: costoDisponible > 0 ? costo / costoDisponible : 0,
     licencias,
+    licenciasBase: contarLicencias(base),
     costoTotal: costo + licencias.costo,
   };
 }
 
-function intervalosPorPersonaFiltrado(exps: Expediente[], incluirBots: boolean): Map<string, Intervalo[]> {
-  const m = intervalosPorPersona(exps);
+function intervalosPorPersonaFiltrado(
+  exps: Expediente[], incluirBots: boolean, alcance: EtapaKey[] = ETAPA_KEYS,
+): Map<string, Intervalo[]> {
+  const m = intervalosPorPersona(exps, alcance);
   if (incluirBots) return m;
   for (const p of [...m.keys()]) if (esAutomatizado(p)) m.delete(p);
   return m;
