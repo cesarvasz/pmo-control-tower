@@ -395,31 +395,38 @@ const boardPmMap = (projBoards: ProjBoard[]) => new Map(projBoards.map((b) => [b
 export interface EntregaRow {
   id: string;                        // r.id / p.id / s.id — atribución "delay"
   source: "REQ" | "Proyecto";
-  name: string;
+  tipo: "PM" | "PML";                // Proyecto → "PM"; REQ → "PML"
+  name: string;                      // nombre completo (retrocompat / búsqueda)
   context: string;                   // REQ: grupo. Proyecto: "board · grupo".
+  fase: string;                      // REQ/Proyecto: grupo (fase)
+  stepPadre: string;                 // item padre de un subitem de proyecto; "" si no aplica
+  hito: string;                      // nombre del hito / step / REQ
   pm: string;
   deadline: Date | null;
   verdict: "on-time" | "late";
 }
 
-/** Filas de "Cumplimiento de Entrega": una por cada REQ, item o subitem de
- *  Proyecto con veredicto on-time/late (se excluyen los "n/a"/sin evaluar). */
+/** Filas de "Cumplimiento de Entrega": una por cada REQ y cada SUBITEM (hito) de
+ *  Proyecto con veredicto on-time/late (se excluyen los "n/a"/sin evaluar). Mismo
+ *  universo e IDs que puntúa el KPI (calcEntregaStats: REQ por r.id + subitems por
+ *  s.id, agrupados por PMS ID solo para el denominador). Los ITEMS padre de Proyecto
+ *  NO se incluyen: el KPI de Entrega solo puntúa REQ + hitos, nunca el item padre,
+ *  así que una fila de item sería "fantasma" (asignarle responsable no afecta nada).
+ *  El tipo distingue Proyecto ("PM") de REQ ("PML"); para los subitems, el step
+ *  padre es el item del proyecto y el hito es el subitem. */
 export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[]): EntregaRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: EntregaRow[] = [];
   for (const r of reqs) {
     if (r.onTime.verdict !== "on-time" && r.onTime.verdict !== "late") continue;
-    rows.push({ id: r.id, source: "REQ", name: r.name, context: r.grupo, pm: r.pm, deadline: r.deadline, verdict: r.onTime.verdict });
+    rows.push({ id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo, fase: r.grupo, stepPadre: "", hito: r.name, pm: r.pm, deadline: r.deadline, verdict: r.onTime.verdict });
   }
   for (const p of projs) {
     const pm = bpm.get(p.boardId) ?? p.pm;
     const context = `${p.boardName} · ${p.grupo}`;
-    if (p.entrega === "on-time" || p.entrega === "late") {
-      rows.push({ id: p.id, source: "Proyecto", name: p.name, context, pm, deadline: p.deadline, verdict: p.entrega });
-    }
     for (const s of p.subitems) {
       if (s.entrega !== "on-time" && s.entrega !== "late") continue;
-      rows.push({ id: s.id, source: "Proyecto", name: `${p.name} · ${s.name}`, context, pm, deadline: s.deadline, verdict: s.entrega });
+      rows.push({ id: s.id, source: "Proyecto", tipo: "PM", name: `${p.name} · ${s.name}`, context, fase: p.grupo, stepPadre: p.name, hito: s.name, pm, deadline: s.deadline, verdict: s.entrega });
     }
   }
   return rows;

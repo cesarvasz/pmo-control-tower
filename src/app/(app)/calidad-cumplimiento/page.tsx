@@ -90,8 +90,9 @@ function ResponsibleBars({ counts, total }: { counts: Record<string, number>; to
 }
 
 // ── Filtros compartidos por ambas pestañas ─────────────────────────────────
-function useRowFilters<T extends { pm: string }>(rows: T[]) {
+function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" }>(rows: T[]) {
   const [pms, setPms] = useState<string[]>([]);
+  const [tipos, setTipos] = useState<string[]>([]);
   const [resps, setResps] = useState<string[]>([]);
   const [soloProblema, setSoloProblema] = useState(true);
 
@@ -100,12 +101,22 @@ function useRowFilters<T extends { pm: string }>(rows: T[]) {
     value: pm, label: pm, count: rows.filter((r) => r.pm === pm).length,
   }));
 
-  const byPm = useMemo(() => rows.filter((r) => pms.length === 0 || pms.includes(r.pm)), [rows, pms]);
+  const allTipos = useMemo(() => [...new Set(rows.map((r) => r.tipo).filter(Boolean) as string[])].sort(), [rows]);
+  const tipoOpts: MSOption[] = allTipos.map((t) => ({
+    value: t, label: t, count: rows.filter((r) => r.tipo === t).length,
+  }));
 
-  const anyFilter = pms.length > 0 || resps.length > 0 || !soloProblema;
-  const reset = () => { setPms([]); setResps([]); setSoloProblema(true); };
+  const byPm = useMemo(
+    () => rows.filter((r) =>
+      (pms.length === 0 || pms.includes(r.pm)) &&
+      (tipos.length === 0 || (r.tipo != null && tipos.includes(r.tipo)))),
+    [rows, pms, tipos],
+  );
 
-  return { pms, setPms, pmOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset };
+  const anyFilter = pms.length > 0 || tipos.length > 0 || resps.length > 0 || !soloProblema;
+  const reset = () => { setPms([]); setTipos([]); setResps([]); setSoloProblema(true); };
+
+  return { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset };
 }
 
 // ── Cumplimiento de Entrega ─────────────────────────────────────────────
@@ -113,7 +124,7 @@ function EntregaTab({ req, proj, projBoards, delays }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap;
 }) {
   const rows = useMemo(() => buildEntregaRows(req, proj, projBoards), [req, proj, projBoards]);
-  const { pms, setPms, pmOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
 
   const late = byPm.filter((r) => r.verdict === "late");
   const onTimeCount = byPm.length - late.length;
@@ -148,6 +159,7 @@ function EntregaTab({ req, proj, projBoards, delays }: {
 
       {/* Filtros */}
       <div className="mb-4 flex flex-wrap items-end gap-3.5">
+        <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
         <MultiSelect label="PM" options={pmOpts} selected={pms} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
         <MultiSelect label="Responsable" options={respOpts} selected={resps} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
         <button
@@ -168,16 +180,19 @@ function EntregaTab({ req, proj, projBoards, delays }: {
           <table className="pmo">
             <thead>
               <tr>
-                <th>Fuente</th><th>Nombre</th><th>PM</th><th>Fase / Contexto</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>Fase</th><th>Step padre</th><th>Hito</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
               {tableRows.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{r.source}</td>
-                  <td className="ini-name">{r.name}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
+                  </td>
+                  <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                  <td style={{ color: "var(--text-secondary)" }}>{r.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                  <td className="ini-name">{r.hito}</td>
                   <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                  <td style={{ color: "var(--text-secondary)" }}>{r.context}</td>
                   <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{fmtDate(r.deadline)}</td>
                   <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
                   <td><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>

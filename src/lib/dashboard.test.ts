@@ -361,7 +361,7 @@ describe("calcReprocesoPct (5º componente del KPI)", () => {
 });
 
 describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
-  it("solo incluye REQ/items/subitems con veredicto on-time o late (excluye n/a y null)", () => {
+  it("solo incluye REQ y SUBITEMS con veredicto on-time o late (excluye n/a, null y el ITEM padre)", () => {
     const reqs = [
       req({ id: "r1", name: "R1", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("late") }),
       req({ id: "r2", name: "R2", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("n/a") }),
@@ -371,13 +371,16 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
         subitems: [sub({ id: "s1", name: "Sub", deadline: null, entrega: "late" }), sub({ id: "s2", name: "Sub2", deadline: null, entrega: null })] }),
     ];
     const rows = buildEntregaRows(reqs, projs, [board({ id: "b1", pm: "Luis" })]);
-    expect(rows.map((r) => r.id).sort()).toEqual(["p1", "r1", "s1"]);
+    // El ITEM padre p1 (aunque tenga entrega on-time) NO cuenta en el KPI de Entrega → no aparece.
+    expect(rows.map((r) => r.id).sort()).toEqual(["r1", "s1"]);
   });
 
-  it("atribuye el PM del board (no el del item) a proyectos e hitos", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "ItemPm", name: "Hito", deadline: null, entrega: "late" })];
+  it("desglosa tipo/fase/step padre/hito y atribuye el PM del board (no el del item) a los hitos", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "ItemPm", name: "Step A", deadline: null, entrega: "late",
+      subitems: [sub({ id: "s1", name: "Hito 1", deadline: null, entrega: "late" })] })];
     const rows = buildEntregaRows([], projs, [board({ id: "b1", pm: "BoardPm" })]);
-    expect(rows[0].pm).toBe("BoardPm");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: "s1", tipo: "PM", fase: "Launch", stepPadre: "Step A", hito: "Hito 1", pm: "BoardPm" });
   });
 });
 
