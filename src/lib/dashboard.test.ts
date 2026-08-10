@@ -382,6 +382,19 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: "s1", tipo: "PM", fase: "Launch", stepPadre: "Step A", hito: "Hito 1", pm: "BoardPm" });
   });
+
+  it("separa el código y el nombre del proyecto desde el nombre del board", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "PM-003 | DUCAfast 2.0 GT", grupo: "Launch", name: "Step A", deadline: null, entrega: "late",
+      subitems: [sub({ id: "s1", name: "Hito 1", deadline: null, entrega: "late" })] })];
+    const rows = buildEntregaRows([], projs, [board({ id: "b1", pm: "BoardPm" })]);
+    expect(rows[0]).toMatchObject({ projCode: "PM-003", projName: "DUCAfast 2.0 GT" });
+  });
+
+  it("los REQ no cuelgan de un proyecto: projCode y projName vacíos", () => {
+    const reqs = [req({ id: "r1", name: "R1", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("late") })];
+    const rows = buildEntregaRows(reqs, [], []);
+    expect(rows[0]).toMatchObject({ tipo: "PML", projCode: "", projName: "" });
+  });
 });
 
 describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {

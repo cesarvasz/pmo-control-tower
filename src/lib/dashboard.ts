@@ -5,7 +5,7 @@
 
 import { calcIniPMHealth } from "@/lib/ini";
 import { healthStatusFromIndex, type HealthStatus } from "@/lib/health";
-import { calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib/proj";
+import { calcBoardMetrics, deriveBoardHealth, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
 import { computeKpi } from "@/lib/kpi";
@@ -398,6 +398,8 @@ export interface EntregaRow {
   tipo: "PM" | "PML";                // Proyecto → "PM"; REQ → "PML"
   name: string;                      // nombre completo (retrocompat / búsqueda)
   context: string;                   // REQ: grupo. Proyecto: "board · grupo".
+  projCode: string;                  // "PM-003" del board; "" en REQ (no cuelgan de un proyecto)
+  projName: string;                  // "DUCAfast 2.0 GT"; "" en REQ
   fase: string;                      // REQ/Proyecto: grupo (fase)
   stepPadre: string;                 // item padre de un subitem de proyecto; "" si no aplica
   hito: string;                      // nombre del hito / step / REQ
@@ -419,14 +421,15 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
   const rows: EntregaRow[] = [];
   for (const r of reqs) {
     if (r.onTime.verdict !== "on-time" && r.onTime.verdict !== "late") continue;
-    rows.push({ id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo, fase: r.grupo, stepPadre: "", hito: r.name, pm: r.pm, deadline: r.deadline, verdict: r.onTime.verdict });
+    rows.push({ id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo, projCode: "", projName: "", fase: r.grupo, stepPadre: "", hito: r.name, pm: r.pm, deadline: r.deadline, verdict: r.onTime.verdict });
   }
   for (const p of projs) {
     const pm = bpm.get(p.boardId) ?? p.pm;
     const context = `${p.boardName} · ${p.grupo}`;
+    const { code: projCode, name: projName } = splitBoardName(p.boardName);
     for (const s of p.subitems) {
       if (s.entrega !== "on-time" && s.entrega !== "late") continue;
-      rows.push({ id: s.id, source: "Proyecto", tipo: "PM", name: `${p.name} · ${s.name}`, context, fase: p.grupo, stepPadre: p.name, hito: s.name, pm, deadline: s.deadline, verdict: s.entrega });
+      rows.push({ id: s.id, source: "Proyecto", tipo: "PM", name: `${p.name} · ${s.name}`, context, projCode, projName, fase: p.grupo, stepPadre: p.name, hito: s.name, pm, deadline: s.deadline, verdict: s.entrega });
     }
   }
   return rows;

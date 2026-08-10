@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess } from "./proj";
+import { calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName } from "./proj";
 import { today } from "./business";
 import type { MondayColumnValue, MondayItem, MondaySubitem } from "@/types";
 
@@ -8,6 +8,22 @@ const daysFromToday = (n: number): Date => {
   d.setDate(d.getDate() + n);
   return d;
 };
+
+describe("splitBoardName", () => {
+  it("separa el código del nombre", () => {
+    expect(splitBoardName("PM-003 | DUCAfast 2.0 GT")).toEqual({ code: "PM-003", name: "DUCAfast 2.0 GT" });
+  });
+  it("tolera el espaciado irregular de Monday", () => {
+    expect(splitBoardName("PM-001 |  Tablero Junta Directiva")).toEqual({ code: "PM-001", name: "Tablero Junta Directiva" });
+  });
+  it("conserva emojis y separadores dentro del nombre", () => {
+    expect(splitBoardName("PM-011 | ROAD 🚛")).toEqual({ code: "PM-011", name: "ROAD 🚛" });
+    expect(splitBoardName("PM-012 | A | B")).toEqual({ code: "PM-012", name: "A | B" });
+  });
+  it("sin '|' devuelve code vacío y el nombre completo", () => {
+    expect(splitBoardName("Board suelto")).toEqual({ code: "", name: "Board suelto" });
+  });
+});
 
 describe("deriveBoardHealth", () => {
   it("normaliza scope 0–100 a fracción y deriva estado", () => {

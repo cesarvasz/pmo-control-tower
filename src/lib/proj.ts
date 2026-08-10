@@ -158,11 +158,17 @@ function buildEmailNameMap(hrItems: MondayItem[]): Map<string, string> {
 
 /** Normaliza un nombre para el match Iniciativa ↔ Proyecto (sin acentos, minúsculas). */
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
-/** Quita el prefijo "PM-XXX | " del nombre de un board de proyecto. */
-const stripPmPrefix = (boardName: string) => {
+/** Separa el nombre de un board de proyecto en su código y su nombre:
+ *  "PM-003 | DUCAfast 2.0 GT" → { code: "PM-003", name: "DUCAfast 2.0 GT" }.
+ *  Sin "|" (boards que no siguen la convención) devuelve code vacío. */
+export function splitBoardName(boardName: string): { code: string; name: string } {
   const i = boardName.indexOf("|");
-  return (i >= 0 ? boardName.slice(i + 1) : boardName).trim();
-};
+  if (i < 0) return { code: "", name: boardName.trim() };
+  return { code: boardName.slice(0, i).trim(), name: boardName.slice(i + 1).trim() };
+}
+
+/** Quita el prefijo "PM-XXX | " del nombre de un board de proyecto. */
+const stripPmPrefix = (boardName: string) => splitBoardName(boardName).name;
 
 /** Datos que se traen de la Iniciativa para enriquecer el Proyecto del mismo nombre. */
 type IniLookupVal = { estrategia: string; sponsor: string; cku: string; benefitType: string };

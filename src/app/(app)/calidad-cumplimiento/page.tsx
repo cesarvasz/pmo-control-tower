@@ -180,7 +180,7 @@ function EntregaTab({ req, proj, projBoards, delays }: {
           <table className="pmo">
             <thead>
               <tr>
-                <th>Tipo</th><th>Fase</th><th>Step padre</th><th>Hito</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>Proyecto</th><th>Fase</th><th>Step padre</th><th>Hito</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
@@ -188,6 +188,17 @@ function EntregaTab({ req, proj, projBoards, delays }: {
                 <tr key={r.id}>
                   <td style={{ whiteSpace: "nowrap" }}>
                     <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
+                  </td>
+                  {/* Los REQ (PML) no cuelgan de un proyecto: proyecto vacío → "—". */}
+                  <td>
+                    {r.projName ? (
+                      <div className="leading-tight">
+                        {r.projCode && <div className="ini-id">{r.projCode}</div>}
+                        <div style={{ color: "var(--text-secondary)" }}>{r.projName}</div>
+                      </div>
+                    ) : (
+                      <span className="text-[var(--text-disabled)]">—</span>
+                    )}
                   </td>
                   <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
                   <td style={{ color: "var(--text-secondary)" }}>{r.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
