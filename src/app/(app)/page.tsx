@@ -177,15 +177,21 @@ function ControlTower({ data }: { data: DashboardData }) {
   // ── VPA Actions ──
   // Acciones que debe realizar el VPA, con visibilidad de su estado:
   //  · Proyectos: steps "VPA valida Business Case…" / "Entregable Business Case
-  //    validado por VPA" (fase 1 y 3), "Plan de beneficios acordados con CFO" y el
+  //    validado por VPA" (fase 1 y 3), "Plan de beneficios acordados con CFO", el
   //    Value Gate (BC) — "Firmado y aprobado" (Aprobación) o "Actualizado y firmado"
-  //    (Launch | Desarrollo) —, en Working on it (o Done, en el detalle).
-  //  · REQ: ítems en fase 2 (grupo Aprobación).
+  //    (Launch | Desarrollo) —, los 3 "VPA Recopila datos a 30/60/90 días (Compara
+  //    Valor real contra BC)" (Cierre ROI) y el "Informe ejecutivo de valor al
+  //    sponsor", en Working on it (o Done, en el detalle).
+  //  · REQ: ítems en fase 2 (Aprobación) y fase 6 (Revisión ROI / "Cierre ROI").
   const isVgStep = (name: string) => {
     const n = norm(name);
     return n.includes("vpa valida business case")
       || n.includes("business case validado por vpa")
       || n.includes("plan de beneficios acordados con cfo")
+      || n.includes("recopila datos a 30 dias")
+      || n.includes("recopila datos a 60 dias")
+      || n.includes("recopila datos a 90 dias")
+      || n.includes("informe ejecutivo de valor al sponsor")
       || isValueGate(name);
   };
   const vpaProj: VpaAction[] = proj
@@ -195,11 +201,16 @@ function ControlTower({ data }: { data: DashboardData }) {
       subtitle: `${r.name} · ${r.grupo}`, estado: r.estado, deadline: r.deadline,
       done: r.status === "Done",
     }));
+  // REQ: fase 2 (Aprobación) y fase 6 (Revisión ROI — grupo normalizado "Cierre ROI").
+  const REQ_VPA_FASE: Record<string, string> = {
+    "Aprobación": "REQ · Aprobación (fase 2)",
+    "Cierre ROI": "REQ · Revisión ROI (fase 6)",
+  };
   const vpaReq: VpaAction[] = req
-    .filter((r) => r.grupo === "Aprobación")
+    .filter((r) => r.grupo in REQ_VPA_FASE)
     .map((r) => ({
       id: `req-${r.id}`, source: "REQ", title: r.name,
-      subtitle: "REQ · Aprobación (fase 2)", estado: r.estado, deadline: r.deadline,
+      subtitle: REQ_VPA_FASE[r.grupo], estado: r.estado, deadline: r.deadline,
       done: false,
     }));
   const vpaActions = [...vpaProj, ...vpaReq];
