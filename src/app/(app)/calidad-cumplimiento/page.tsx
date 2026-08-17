@@ -234,7 +234,7 @@ function EntregaTab({ req, proj, projBoards, delays }: {
             <thead>
               <tr>
                 <th style={{ width: 28 }}></th>
-                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>Plazo (PML)</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
@@ -255,7 +255,7 @@ function EntregaTab({ req, proj, projBoards, delays }: {
                       <td style={{ whiteSpace: "nowrap" }}>
                         <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
                       </td>
-                      {/* Los REQ (PML) no cuelgan de un proyecto: proyecto vacío → "—". */}
+                      {/* Los REQ (PML) no cuelgan de un proyecto: proyecto vacío → muestra ID + nombre. */}
                       <td>
                         {r.projName ? (
                           <div className="leading-tight">
@@ -263,7 +263,10 @@ function EntregaTab({ req, proj, projBoards, delays }: {
                             <div style={{ color: "var(--text-secondary)" }}>{r.projName}</div>
                           </div>
                         ) : (
-                          <span className="ini-name">{r.name}</span>
+                          <div className="leading-tight">
+                            <div className="ini-id">{r.id}</div>
+                            <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
+                          </div>
                         )}
                       </td>
                       <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
@@ -271,7 +274,9 @@ function EntregaTab({ req, proj, projBoards, delays }: {
                         {r.source === "Proyecto" ? `${r.totalAtrasados} / ${r.totalEvaluados}` : <span className="text-[var(--text-disabled)]">—</span>}
                       </td>
                       <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{r.deadline ? fmtDate(r.deadline) : <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>
+                        {r.source === "REQ" ? (r.deadline ? fmtDate(r.deadline) : <span className="text-[var(--text-disabled)]">—</span>) : <span className="text-[var(--text-disabled)]">—</span>}
+                      </td>
                       <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
                       <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
                     </tr>
