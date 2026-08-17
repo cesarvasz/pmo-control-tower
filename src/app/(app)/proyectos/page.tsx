@@ -495,6 +495,10 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                 // Fase completada = todos sus items en "Done" (análogo a REQ cerrado). Solo entonces
                 // el reproceso cuenta en la métrica; en las demás el dropdown es informativo.
                 const faseDone = allGItems.every((r) => r.status === "Done");
+                // Cumplimiento de Entrega mide progresivo (no espera a que la fase cierre):
+                // basta un step o hito YA evaluado y atrasado para que la fase entera cuente
+                // "con atraso" — un solo responsable decide la excusa de todos a la vez.
+                const gAtrasada = allGItems.some((r) => r.entrega === "late" || r.subitems.some((s) => s.entrega === "late"));
                 return (
                   <React.Fragment key={grupo}>
                     {/* ── Group header row ── */}
@@ -511,10 +515,16 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                           <span className="text-[0.72rem] font-bold uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>
                             {grupo || "Sin grupo"}
                           </span>
-                          {/* Reproceso de la fase — cuenta en la métrica solo si la fase está completada */}
-                          <div className="ml-auto flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                            <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Reproceso</span>
-                            <ResponsibleSelect itemId={projPhaseKey(board.id, grupo)} kind="reproceso" emptyPenalizes={faseDone} />
+                          {/* Atraso y Reproceso de la fase — un responsable para toda la fase en cada métrica */}
+                          <div className="ml-auto flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Atraso</span>
+                              <ResponsibleSelect itemId={projPhaseKey(board.id, grupo)} kind="delay" emptyPenalizes={gAtrasada} />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Reproceso</span>
+                              <ResponsibleSelect itemId={projPhaseKey(board.id, grupo)} kind="reproceso" emptyPenalizes={faseDone} />
+                            </div>
                           </div>
                           <span
                             className="h-2.5 w-2.5 flex-shrink-0 rounded-full"

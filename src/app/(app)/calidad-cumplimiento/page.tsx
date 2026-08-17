@@ -9,7 +9,7 @@
 // asignado, para medir patrones y poder asignar responsables desde aquí mismo
 // (reutiliza ResponsibleSelect — misma atribución que REQ/Proyectos).
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { fmtDate } from "@/lib/business";
 import { buildEntregaRows, buildReprocesoRows } from "@/lib/dashboard";
@@ -120,11 +120,48 @@ function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" }>(rows: T[])
 }
 
 // ── Cumplimiento de Entrega ─────────────────────────────────────────────
+// Desde este cambio la unidad es la FASE de Proyecto (board+grupo), no el hito
+// individual: un solo responsable por fase, y el acordeón de abajo muestra
+// SOLO los steps/hitos que salieron atrasados dentro de esa fase (solo lectura,
+// no se asigna responsable ahí — ver buildEntregaRows en lib/dashboard.ts).
+function FaseAtrasadaAccordion({ items }: { items: { kind: "step" | "hito"; name: string; stepPadre: string; deadline: Date | null }[] }) {
+  return (
+    <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+      <table className="w-full text-left text-[0.76rem]">
+        <thead>
+          <tr style={{ background: "var(--bg-hover)" }}>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Tipo</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Nombre</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Step padre</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((it, i) => (
+            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+              <td className="px-3 py-1.5"><Pill tone="bad" small>{it.kind === "step" ? "Step" : "Hito"}</Pill></td>
+              <td className="px-3 py-1.5 text-[var(--text-primary)]">{it.name}</td>
+              <td className="px-3 py-1.5 text-[var(--text-secondary)]">{it.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(it.deadline)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function EntregaTab({ req, proj, projBoards, delays }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap;
 }) {
   const rows = useMemo(() => buildEntregaRows(req, proj, projBoards), [req, proj, projBoards]);
   const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const toggleAbierta = (id: string) => setAbiertas((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const late = byPm.filter((r) => r.verdict === "late");
   const onTimeCount = byPm.length - late.length;
@@ -180,35 +217,59 @@ function EntregaTab({ req, proj, projBoards, delays }: {
           <table className="pmo">
             <thead>
               <tr>
-                <th>Tipo</th><th>Proyecto</th><th>Fase</th><th>Step padre</th><th>Hito</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
+                <th style={{ width: 28 }}></th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
-                  </td>
-                  {/* Los REQ (PML) no cuelgan de un proyecto: proyecto vacío → "—". */}
-                  <td>
-                    {r.projName ? (
-                      <div className="leading-tight">
-                        {r.projCode && <div className="ini-id">{r.projCode}</div>}
-                        <div style={{ color: "var(--text-secondary)" }}>{r.projName}</div>
-                      </div>
-                    ) : (
-                      <span className="text-[var(--text-disabled)]">—</span>
+              {tableRows.map((r) => {
+                const expandible = r.source === "Proyecto" && r.totalAtrasados > 0;
+                const abierta = expandible && abiertas.has(r.id);
+                return (
+                  <Fragment key={r.id}>
+                    <tr className={expandible ? "cursor-pointer" : undefined} onClick={() => expandible && toggleAbierta(r.id)}>
+                      <td>
+                        {expandible && (
+                          <span
+                            className="inline-block text-[0.6rem] text-[var(--accent)]"
+                            style={{ transition: "transform 0.15s", transform: abierta ? "rotate(90deg)" : undefined }}
+                          >▶</span>
+                        )}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
+                      </td>
+                      {/* Los REQ (PML) no cuelgan de un proyecto: proyecto vacío → "—". */}
+                      <td>
+                        {r.projName ? (
+                          <div className="leading-tight">
+                            {r.projCode && <div className="ini-id">{r.projCode}</div>}
+                            <div style={{ color: "var(--text-secondary)" }}>{r.projName}</div>
+                          </div>
+                        ) : (
+                          <span className="ini-name">{r.name}</span>
+                        )}
+                      </td>
+                      <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td className="tabular-nums" style={{ color: r.totalAtrasados > 0 ? "var(--bad)" : "var(--text-secondary)" }}>
+                        {r.source === "Proyecto" ? `${r.totalAtrasados} / ${r.totalEvaluados}` : <span className="text-[var(--text-disabled)]">—</span>}
+                      </td>
+                      <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{r.deadline ? fmtDate(r.deadline) : <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
+                      <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
+                    </tr>
+                    {abierta && (
+                      <tr>
+                        <td></td>
+                        <td colSpan={8} className="pb-3">
+                          <FaseAtrasadaAccordion items={r.itemsAtrasados} />
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                  <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                  <td style={{ color: "var(--text-secondary)" }}>{r.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                  <td className="ini-name">{r.hito}</td>
-                  <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                  <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{fmtDate(r.deadline)}</td>
-                  <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
-                  <td><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
-                </tr>
-              ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

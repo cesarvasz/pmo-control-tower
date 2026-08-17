@@ -146,6 +146,15 @@ function leerCache() {
  */
 function regenerarCache() {
   var hoja = leerHoja();
+
+  // Un caché vacío por error de configuración pisa uno bueno y deja la app sin
+  // datos, pasando todas las comprobaciones de integridad (el JSON vacío es
+  // válido). Cuando no encontramos ni la hoja ni la pestaña se aborta y se
+  // conserva el caché anterior; una pestaña realmente sin filas sí se guarda.
+  if (hoja.aviso && !hoja.filas.length && /ROI_SHEET_ID|no existe la pestaña/.test(hoja.aviso)) {
+    throw new Error("ROI: no se regeneró el caché (se conserva el anterior) — " + hoja.aviso);
+  }
+
   hoja.generado = new Date().toISOString(); // la app lo muestra como antigüedad
   var json = JSON.stringify(hoja);
 
@@ -308,17 +317,31 @@ var COLS_FECHA = ["Creado", "DPR", "Clasificacion_exacta", "Creacion_Pre_DUCA", 
  * donde están probadas.
  */
 function leerHoja() {
-  var vacio = { epoca: EPOCA, libres: [], textos: [], fechas: [], dicc: {}, filas: [] };
+  // Un vacío silencioso es indistinguible de una hoja legítimamente vacía: la app
+  // muestra "sin datos" y no hay forma de saber si es que se renombró la pestaña.
+  // Cada salida temprana deja dicho POR QUÉ, en el registro y en `aviso`.
+  function vacio(motivo) {
+    Logger.log("leerHoja: SIN DATOS — " + motivo);
+    return { epoca: EPOCA, libres: [], textos: [], fechas: [], dicc: {}, filas: [], aviso: motivo };
+  }
 
   var id = PropertiesService.getScriptProperties().getProperty("ROI_SHEET_ID");
-  if (!id) return vacio;
+  if (!id) return vacio("falta la Script Property ROI_SHEET_ID");
 
-  var sh = SpreadsheetApp.openById(id).getSheetByName(SHEET_TAB);
-  if (!sh) return vacio;
+  var ss = SpreadsheetApp.openById(id);
+  var sh = ss.getSheetByName(SHEET_TAB);
+  if (!sh) {
+    return vacio('no existe la pestaña "' + SHEET_TAB + '" en "' + ss.getName() +
+      '". Pestañas disponibles: ' + nombresDePestanas_(ss).join(" · ") +
+      '. Si la renombraste, actualiza SHEET_TAB arriba.');
+  }
 
   var last = sh.getLastRow();
   var ancho = sh.getLastColumn();
-  if (last < 2 || ancho < 1) return vacio;
+  if (last < 2 || ancho < 1) {
+    return vacio('la pestaña "' + SHEET_TAB + '" no tiene filas de datos ' +
+      '(última fila ' + last + ', última columna ' + ancho + ')');
+  }
 
   // Dos únicas llamadas al servicio de hojas: encabezados y bloque de datos.
   var headers = sh.getRange(1, 1, 1, ancho).getValues()[0];
@@ -374,6 +397,57 @@ function leerHoja() {
   }
 
   return { epoca: EPOCA, libres: libres, textos: textos, fechas: fechas, dicc: dicc, filas: filas };
+}
+
+/** Nombres de todas las pestañas de un spreadsheet. */
+function nombresDePestanas_(ss) {
+  var hojas = ss.getSheets();
+  var out = [];
+  for (var i = 0; i < hojas.length; i++) out.push('"' + hojas[i].getName() + '"');
+  return out;
+}
+
+/**
+ * Diagnóstico — ejecútalo desde el editor y mira el registro.
+ * Responde "¿por qué la app no muestra datos?": si el ROI_SHEET_ID está puesto,
+ * a qué hoja apunta, qué pestañas tiene, si existe la que buscamos (SHEET_TAB)
+ * y cuántas filas trae. Es de SOLO LECTURA: no toca el caché.
+ */
+function diagnosticarHoja() {
+  var id = PropertiesService.getScriptProperties().getProperty("ROI_SHEET_ID");
+  Logger.log("SHEET_TAB configurado : " + SHEET_TAB);
+  Logger.log("ROI_SHEET_ID          : " + (id || "✗ NO CONFIGURADO"));
+  if (!id) { Logger.log("→ Ponlo en Configuración (⚙️) → Propiedades del script."); return; }
+
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(id);
+  } catch (e) {
+    Logger.log("✗ No se pudo abrir esa hoja: " + e.message);
+    Logger.log("→ El ID es incorrecto o la cuenta del script no tiene acceso.");
+    return;
+  }
+
+  Logger.log("Hoja                  : " + ss.getName());
+  Logger.log("Pestañas              : " + nombresDePestanas_(ss).join(" · "));
+
+  var sh = ss.getSheetByName(SHEET_TAB);
+  if (!sh) {
+    Logger.log('✗ NO existe la pestaña "' + SHEET_TAB + '".');
+    Logger.log("→ Esta es la causa: renombra la pestaña, o actualiza SHEET_TAB arriba del script.");
+    return;
+  }
+
+  var last = sh.getLastRow(), ancho = sh.getLastColumn();
+  Logger.log('Pestaña "' + SHEET_TAB + '"      : ✓ existe · ' + last + " filas × " + ancho + " columnas");
+  if (last < 2 || ancho < 1) {
+    Logger.log("✗ Sin filas de datos (se necesita al menos la fila 1 de encabezados + 1 fila).");
+    return;
+  }
+  Logger.log("Encabezados (fila 1)  : " + sh.getRange(1, 1, 1, ancho).getValues()[0].join(" | "));
+  Logger.log("Filas de datos        : " + (last - 1));
+  Logger.log("✓ La hoja se lee bien. Si la app sigue vacía, el caché está viejo:");
+  Logger.log("  ejecuta regenerarCache() y luego medirDoGet().");
 }
 
 /**

@@ -11,7 +11,7 @@ import { calcNpsFromRecords } from "@/lib/nps";
 import { computeKpi } from "@/lib/kpi";
 import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
 import type {
-  CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ProjSubitem, ReqItem,
+  CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem,
 } from "@/types";
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -238,87 +238,109 @@ export function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBo
 // ── Compromiso de Entregas ───────────────────────────────────────────────
 export interface EntregaStats { total: number; onTime: number; late: number; pct: number | null; }
 
-/** Agrupa los subitems (hitos) de Proyectos por board + PMS ID: el mismo hito se
- *  repite como subitem en varios steps/fases del ciclo de vida (mismo PMS ID en
- *  cada uno). Sin PMS ID no hay con qué deduplicar: el subitem cuenta como su
- *  propio hito de una sola ocurrencia. */
-function groupHitos(projs: ProjItem[]): Map<string, ProjSubitem[]> {
-  const map = new Map<string, ProjSubitem[]>();
+/** Un step (item padre) o hito (subitem) de Proyecto YA evaluado (Done), con su
+ *  propio veredicto — la unidad mínima que compone una fase. */
+export interface FaseEntregaItem {
+  id: string;
+  kind: "step" | "hito";
+  name: string;
+  /** Nombre del item padre si es un hito; "" si es un step. */
+  stepPadre: string;
+  deadline: Date | null;
+  verdict: "on-time" | "late";
+}
+
+interface FaseEntregaGroup {
+  key: string;                 // projPhaseKey(boardId, grupo) — misma clave que Reproceso
+  boardId: string;
+  boardName: string;
+  fase: string;                // grupo
+  pm: string;
+  /** Solo steps/hitos YA evaluados (Done); los pendientes no entran aún. */
+  items: FaseEntregaItem[];
+}
+
+/** Agrupa steps (ProjItem) + hitos (ProjSubitem) de Proyectos por FASE (board +
+ *  grupo) — la unidad de "Cumplimiento de Entrega" desde este cambio: antes se
+ *  media por hito único (PMS ID), ahora se responde UN responsable por fase y se
+ *  mide el total de fases con/sin atraso. Solo entran los steps/hitos que ya
+ *  tienen veredicto (Done); los pendientes no cuentan todavía (medición
+ *  progresiva, no espera a que la fase entera cierre — a diferencia de Reproceso). */
+function groupFaseEntrega(projs: ProjItem[]): Map<string, FaseEntregaGroup> {
+  const map = new Map<string, FaseEntregaGroup>();
+  const grupoDe = (p: ProjItem) => {
+    const key = projPhaseKey(p.boardId, p.grupo);
+    let g = map.get(key);
+    if (!g) { g = { key, boardId: p.boardId, boardName: p.boardName, fase: p.grupo, pm: p.pm, items: [] }; map.set(key, g); }
+    return g;
+  };
   for (const p of projs) {
+    const g = grupoDe(p);
+    if (p.entrega === "on-time" || p.entrega === "late") {
+      g.items.push({ id: p.id, kind: "step", name: p.name, stepPadre: "", deadline: p.deadline, verdict: p.entrega });
+    }
     for (const s of p.subitems) {
-      const key = s.pmsId ? `${p.boardId}::${s.pmsId}` : `id::${s.id}`;
-      const arr = map.get(key);
-      if (arr) arr.push(s); else map.set(key, [s]);
+      if (s.entrega === "on-time" || s.entrega === "late") {
+        g.items.push({ id: s.id, kind: "hito", name: s.name, stepPadre: p.name, deadline: s.deadline, verdict: s.entrega });
+      }
     }
   }
   return map;
 }
 
-/** Cumplimiento de Entrega: REQ cerrados (1 unidad c/u, on-time o atraso) + hitos
- *  de Proyectos ÚNICOS por PMS ID (1 unidad c/u — pesan igual sin importar cuántos
- *  steps recorrió cada uno). El % de un hito es el de sus propias ocurrencias YA
- *  Done (a tiempo / atrasadas); si aún no tiene ninguna Done evaluable, no cuenta
- *  todavía. Los steps/items de Proyecto que NO son hitos (sin subitems) ya NO
- *  cuentan para esta métrica. Un atraso (de REQ o de una ocurrencia del hito) solo
- *  penaliza si su responsable es "PM"; si se excusa (responsable ≠ PM), esa
- *  ocurrencia se excluye (no cuenta ni a favor ni en contra). */
+/** ¿Tiene la fase algún step/hito atrasado SIN excusar? Es la pregunta binaria que
+ *  decide si la fase entera cuenta como "con atraso" — un solo responsable por
+ *  fase decide la excusa de todos sus atrasos a la vez. */
+const faseTieneAtrasoSinExcusar = (g: FaseEntregaGroup, delays: DelayMap): boolean =>
+  g.items.some((it) => it.verdict === "late") && !lateExcused(g.key, delays);
+
+/** Cumplimiento de Entrega: REQ cerrados (1 unidad c/u) + FASES de Proyecto (1
+ *  unidad c/u — board+grupo, no por hito individual). Cada fase es binaria: "sin
+ *  atraso" si ninguno de sus steps/hitos YA evaluados quedó atrasado sin excusar;
+ *  "con atraso" si tiene al menos uno. Se responde UN responsable por fase (no por
+ *  step/hito); si se excusa (responsable ≠ PM), toda la fase deja de penalizar.
+ *  Una fase sin nada evaluado todavía no entra en el recorte (medición progresiva). */
 export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap): EntregaStats {
-  let total = 0;
-  let onTimeSum = 0;
+  let total = 0, onTime = 0;
 
   for (const r of reqs) {
     const v = r.onTime.verdict;
-    if (v === "on-time") { total++; onTimeSum++; }
+    if (v === "on-time") { total++; onTime++; }
     else if (v === "late" && !lateExcused(r.id, delays)) { total++; }
   }
 
-  for (const occurrences of groupHitos(projs).values()) {
-    let on = 0, late = 0;
-    for (const s of occurrences) {
-      if (s.entrega === "on-time") on++;
-      else if (s.entrega === "late" && !lateExcused(s.id, delays)) late++;
-    }
-    const evalTotal = on + late;
-    if (evalTotal === 0) continue; // sin ocurrencias evaluables aún (nada Done, o todo excusado)
+  for (const g of groupFaseEntrega(projs).values()) {
+    if (g.items.length === 0) continue; // nada evaluado aún en esta fase
     total++;
-    onTimeSum += on / evalTotal;
+    if (!faseTieneAtrasoSinExcusar(g, delays)) onTime++;
   }
 
-  const onTime = Math.round(onTimeSum);
   const late = total - onTime;
-  const pct = total ? Math.round((onTimeSum / total) * 100) : null;
+  const pct = total ? Math.round((onTime / total) * 100) : null;
   return { total, onTime, late, pct };
 }
 
 /** Variante "todos los atrasados" de Cumplimiento de Entrega — SOLO para la
  *  tarjeta principal del Control Tower (Players/KPI siguen excusando por
- *  responsable, ver calcEntregaStats). Cuenta TODO atraso (de REQ o de una
- *  ocurrencia de un hito), sin importar el responsable asignado ni si es "PM". */
+ *  responsable, ver calcEntregaStats). Una fase con al menos un atraso cuenta
+ *  como "con atraso" sin importar el responsable asignado ni si es "PM". */
 export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[]): EntregaStats {
-  let total = 0;
-  let onTimeSum = 0;
+  let total = 0, onTime = 0;
 
   for (const r of reqs) {
     const v = r.onTime.verdict;
-    if (v === "on-time") { total++; onTimeSum++; }
+    if (v === "on-time") { total++; onTime++; }
     else if (v === "late") { total++; }
   }
 
-  for (const occurrences of groupHitos(projs).values()) {
-    let on = 0, late = 0;
-    for (const s of occurrences) {
-      if (s.entrega === "on-time") on++;
-      else if (s.entrega === "late") late++;
-    }
-    const evalTotal = on + late;
-    if (evalTotal === 0) continue;
+  for (const g of groupFaseEntrega(projs).values()) {
+    if (g.items.length === 0) continue;
     total++;
-    onTimeSum += on / evalTotal;
+    if (!g.items.some((it) => it.verdict === "late")) onTime++;
   }
 
-  const onTime = Math.round(onTimeSum);
   const late = total - onTime;
-  const pct = total ? Math.round((onTimeSum / total) * 100) : null;
+  const pct = total ? Math.round((onTime / total) * 100) : null;
   return { total, onTime, late, pct };
 }
 
@@ -393,65 +415,73 @@ export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproc
 const boardPmMap = (projBoards: ProjBoard[]) => new Map(projBoards.map((b) => [b.id, b.pm]));
 
 export interface EntregaRow {
-  id: string;                        // r.id / p.id / s.id — atribución "delay"
+  id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto) — atribución "delay"
   source: "REQ" | "Proyecto";
   tipo: "PM" | "PML";                // Proyecto → "PM"; REQ → "PML"
-  name: string;                      // nombre completo (retrocompat / búsqueda)
+  name: string;                      // REQ: r.name. Proyecto: "<projName> · <fase>"
   context: string;                   // REQ: grupo. Proyecto: "board · grupo".
   projCode: string;                  // "PM-003" del board; "" en REQ (no cuelgan de un proyecto)
   projName: string;                  // "DUCAfast 2.0 GT"; "" en REQ
   fase: string;                      // REQ/Proyecto: grupo (fase)
-  stepPadre: string;                 // item padre de un subitem de proyecto; "" si no aplica
-  hito: string;                      // nombre del hito / step / REQ
   pm: string;
-  deadline: Date | null;
-  verdict: "on-time" | "late";
+  deadline: Date | null;             // REQ: su deadline. Proyecto: null (una fase no tiene una sola fecha).
+  verdict: "on-time" | "late";       // Proyecto: "late" si ≥1 step/hito de la fase quedó atrasado.
+  /** Solo Proyecto: steps/hitos de la fase con veredicto "late" — para el acordeón de detalle. */
+  itemsAtrasados: FaseEntregaItem[];
+  /** Solo Proyecto: steps/hitos de la fase YA evaluados (Done). */
+  totalEvaluados: number;
+  /** Solo Proyecto: cuántos de los evaluados están atrasados. */
+  totalAtrasados: number;
 }
 
-/** Filas de "Cumplimiento de Entrega": una por cada REQ y cada SUBITEM (hito) de
- *  Proyecto con veredicto on-time/late (se excluyen los "n/a"/sin evaluar). Mismo
- *  universo e IDs que puntúa el KPI (calcEntregaStats: REQ por r.id + subitems por
- *  s.id, agrupados por PMS ID solo para el denominador). Los ITEMS padre de Proyecto
- *  NO se incluyen: el KPI de Entrega solo puntúa REQ + hitos, nunca el item padre,
- *  así que una fila de item sería "fantasma" (asignarle responsable no afecta nada).
- *  El tipo distingue Proyecto ("PM") de REQ ("PML"); para los subitems, el step
- *  padre es el item del proyecto y el hito es el subitem. */
+/** Filas de "Cumplimiento de Entrega": una por cada REQ + una por cada FASE de
+ *  Proyecto con al menos un step/hito YA evaluado (mismo universo/agrupación que
+ *  calcEntregaStats: REQ por r.id, fases por projPhaseKey). El responsable se
+ *  asigna a la FASE completa, no a cada step/hito — el detalle de cuáles quedaron
+ *  atrasados va en `itemsAtrasados`, solo informativo. El tipo distingue
+ *  Proyecto ("PM") de REQ ("PML"). */
 export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[]): EntregaRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: EntregaRow[] = [];
   for (const r of reqs) {
     if (r.onTime.verdict !== "on-time" && r.onTime.verdict !== "late") continue;
-    rows.push({ id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo, projCode: "", projName: "", fase: r.grupo, stepPadre: "", hito: r.name, pm: r.pm, deadline: r.deadline, verdict: r.onTime.verdict });
+    rows.push({
+      id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo,
+      projCode: "", projName: "", fase: r.grupo, pm: r.pm, deadline: r.deadline,
+      verdict: r.onTime.verdict, itemsAtrasados: [], totalEvaluados: 0, totalAtrasados: 0,
+    });
   }
-  for (const p of projs) {
-    const pm = bpm.get(p.boardId) ?? p.pm;
-    const context = `${p.boardName} · ${p.grupo}`;
-    const { code: projCode, name: projName } = splitBoardName(p.boardName);
-    for (const s of p.subitems) {
-      if (s.entrega !== "on-time" && s.entrega !== "late") continue;
-      rows.push({ id: s.id, source: "Proyecto", tipo: "PM", name: `${p.name} · ${s.name}`, context, projCode, projName, fase: p.grupo, stepPadre: p.name, hito: s.name, pm, deadline: s.deadline, verdict: s.entrega });
-    }
+  for (const g of groupFaseEntrega(projs).values()) {
+    if (g.items.length === 0) continue;
+    const pm = bpm.get(g.boardId) ?? g.pm;
+    const { code: projCode, name: projName } = splitBoardName(g.boardName);
+    const itemsAtrasados = g.items.filter((it) => it.verdict === "late");
+    rows.push({
+      id: g.key, source: "Proyecto", tipo: "PM", name: `${projName} · ${g.fase}`,
+      context: `${g.boardName} · ${g.fase}`, projCode, projName, fase: g.fase, pm, deadline: null,
+      verdict: itemsAtrasados.length > 0 ? "late" : "on-time",
+      itemsAtrasados, totalEvaluados: g.items.length, totalAtrasados: itemsAtrasados.length,
+    });
   }
   return rows;
 }
 
 export interface LateResponsibleRow {
-  id: string;                        // r.id (REQ) / boardId::pmsId (hito de Proyecto)
+  id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto)
   source: "REQ" | "Proyecto";
   name: string;
   pm: string;
-  responsible: DelayResponsible | null; // null = sin asignar (de la ocurrencia atrasada más reciente, si es hito)
-  onTime?: number;                   // hito: ocurrencias a tiempo entre las ya Done
-  doneTotal?: number;                // hito: total de ocurrencias ya Done (on-time + atrasadas sin excusar)
+  responsible: DelayResponsible | null; // null = sin asignar
+  onTime?: number;                   // fase: steps/hitos a tiempo entre los ya evaluados
+  doneTotal?: number;                // fase: total de steps/hitos ya evaluados (Done)
 }
 
-/** Filas de atraso para el detalle de "Cumplimiento de Entrega": REQ (1 fila c/u,
- *  igual que antes) + hitos de Proyectos ÚNICOS por PMS ID (1 fila c/u — mismo
- *  universo/agrupación que calcEntregaStats, no una fila por cada ocurrencia
- *  repetida). Solo aparecen los hitos con al menos una ocurrencia atrasada SIN
- *  excusar; el responsable mostrado es el de esa ocurrencia (la más reciente, si
- *  hay varias). Solo "PM" o sin asignar penaliza el % (ver lateExcused); el resto
- *  excusa el atraso. */
+/** Filas de atraso para el detalle de "Cumplimiento de Entrega": REQ (1 fila c/u)
+ *  + FASES de Proyecto (1 fila c/u — mismo universo/agrupación que calcEntregaStats).
+ *  Solo aparecen las fases con al menos un step/hito atrasado SIN excusar; el
+ *  responsable mostrado es el de la fase completa (un solo responsable decide la
+ *  excusa de todos sus atrasos). Solo "PM" o sin asignar penaliza el % (ver
+ *  lateExcused); el resto excusa el atraso. */
 export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap): LateResponsibleRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: LateResponsibleRow[] = [];
@@ -460,33 +490,25 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
     rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible: delays[r.id]?.responsible ?? null });
   }
 
-  const hitos = new Map<string, { pm: string; subs: ProjSubitem[] }>();
-  for (const p of projs) {
-    const pm = bpm.get(p.boardId) ?? p.pm;
-    for (const s of p.subitems) {
-      const key = s.pmsId ? `${p.boardId}::${s.pmsId}` : `id::${s.id}`;
-      const g = hitos.get(key);
-      if (g) g.subs.push(s); else hitos.set(key, { pm, subs: [s] });
-    }
-  }
-  for (const [key, { pm, subs }] of hitos) {
-    let onTime = 0, late = 0;
-    let responsible: DelayResponsible | null = null;
-    for (const s of subs) {
-      if (s.entrega === "on-time") onTime++;
-      else if (s.entrega === "late" && !lateExcused(s.id, delays)) { late++; responsible = delays[s.id]?.responsible ?? null; }
-    }
-    if (late === 0) continue; // sin ocurrencias atrasadas sin excusar → no aparece en el detalle
-    rows.push({ id: key, source: "Proyecto", name: subs[0].name, pm, responsible, onTime, doneTotal: onTime + late });
+  for (const g of groupFaseEntrega(projs).values()) {
+    if (g.items.length === 0) continue;
+    if (!faseTieneAtrasoSinExcusar(g, delays)) continue; // sin atraso sin excusar → no aparece en el detalle
+    const pm = bpm.get(g.boardId) ?? g.pm;
+    const { name: projName } = splitBoardName(g.boardName);
+    const onTime = g.items.filter((it) => it.verdict === "on-time").length;
+    rows.push({
+      id: g.key, source: "Proyecto", name: `${projName} · ${g.fase}`, pm,
+      responsible: delays[g.key]?.responsible ?? null, onTime, doneTotal: g.items.length,
+    });
   }
   return rows;
 }
 
 /** Variante "todos los atrasados" de buildLateResponsibleRows — SOLO para el
  *  detalle de la tarjeta principal del Control Tower (Players/KPI siguen
- *  excusando por responsable, ver buildLateResponsibleRows). Lista TODO
- *  REQ/hito con al menos una ocurrencia atrasada, sin importar el responsable
- *  asignado (se muestra igual, es solo informativo aquí). */
+ *  excusando por responsable, ver buildLateResponsibleRows). Lista TODA fase con
+ *  al menos un atraso, sin importar el responsable asignado (se muestra igual,
+ *  es solo informativo aquí). */
 export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap): LateResponsibleRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: LateResponsibleRow[] = [];
@@ -495,24 +517,16 @@ export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], 
     rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible: delays[r.id]?.responsible ?? null });
   }
 
-  const hitos = new Map<string, { pm: string; subs: ProjSubitem[] }>();
-  for (const p of projs) {
-    const pm = bpm.get(p.boardId) ?? p.pm;
-    for (const s of p.subitems) {
-      const key = s.pmsId ? `${p.boardId}::${s.pmsId}` : `id::${s.id}`;
-      const g = hitos.get(key);
-      if (g) g.subs.push(s); else hitos.set(key, { pm, subs: [s] });
-    }
-  }
-  for (const [key, { pm, subs }] of hitos) {
-    let onTime = 0, late = 0;
-    let responsible: DelayResponsible | null = null;
-    for (const s of subs) {
-      if (s.entrega === "on-time") onTime++;
-      else if (s.entrega === "late") { late++; responsible = delays[s.id]?.responsible ?? responsible; }
-    }
-    if (late === 0) continue;
-    rows.push({ id: key, source: "Proyecto", name: subs[0].name, pm, responsible, onTime, doneTotal: onTime + late });
+  for (const g of groupFaseEntrega(projs).values()) {
+    if (g.items.length === 0) continue;
+    if (!g.items.some((it) => it.verdict === "late")) continue;
+    const pm = bpm.get(g.boardId) ?? g.pm;
+    const { name: projName } = splitBoardName(g.boardName);
+    const onTime = g.items.filter((it) => it.verdict === "on-time").length;
+    rows.push({
+      id: g.key, source: "Proyecto", name: `${projName} · ${g.fase}`, pm,
+      responsible: delays[g.key]?.responsible ?? null, onTime, doneTotal: g.items.length,
+    });
   }
   return rows;
 }

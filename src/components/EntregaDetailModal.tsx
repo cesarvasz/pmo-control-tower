@@ -6,9 +6,9 @@ import type { LateResponsibleRow } from "@/lib/dashboard";
 
 /** Pop-up de detalle de "Cumplimiento de Entrega" (tarjeta principal): desglose de qué
  *  responsable concentra los atrasos (conteo + %) y el listado nombre/id de cada uno.
- *  Cada fila de Proyecto es un hito ÚNICO (por PMS ID, no una ocurrencia repetida por
- *  step) con su propio ratio a tiempo/Done. Solo "PM" o sin asignar penaliza el %; el
- *  resto excusa el atraso (ver lateExcused). */
+ *  Cada fila de Proyecto es una FASE (board+grupo, un solo responsable para todos sus
+ *  atrasos) con su propio ratio a tiempo/evaluado. Solo "PM" o sin asignar penaliza el
+ *  %; el resto excusa el atraso (ver lateExcused). */
 export default function EntregaDetailModal({ rows, onClose }: { rows: LateResponsibleRow[]; onClose: () => void }) {
   const total = rows.length;
 

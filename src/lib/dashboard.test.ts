@@ -11,6 +11,8 @@ import {
   calcReprocesoPct,
   completedProjectPhases,
   buildEntregaRows,
+  buildLateResponsibleRows,
+  buildLateResponsibleRowsRaw,
   buildReprocesoRows,
 } from "./dashboard";
 import type { BoardHealthData } from "./proj";
@@ -215,8 +217,9 @@ describe("pmWorstStatus", () => {
   });
 });
 
-describe("calcEntregaStats (Cumplimiento de Entrega: REQ + hitos únicos de Proyectos)", () => {
-  const step = (subitems: ReturnType<typeof sub>[]) => proj({ boardId: "b1", subitems });
+describe("calcEntregaStats (Cumplimiento de Entrega: REQ + FASES de Proyecto)", () => {
+  // Fase por defecto: board b1, grupo "Fase 1".
+  const step = (o: Partial<ReturnType<typeof proj>>) => proj({ boardId: "b1", grupo: "Fase 1", ...o });
 
   it("REQ cerrado cuenta 1 unidad c/u; solo excusa si el responsable es ≠ PM", () => {
     const reqs = [
@@ -228,80 +231,81 @@ describe("calcEntregaStats (Cumplimiento de Entrega: REQ + hitos únicos de Proy
     expect(calcEntregaStats(reqs, [], delays)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
   });
 
-  it("un item de Proyecto SIN subitems ya no cuenta (solo cuentan los hitos)", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", entrega: "late" })];
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
+  it("un item de Proyecto SIN subitems SÍ cuenta ahora (steps y hitos comparten la misma fase)", () => {
+    const projs = [step({ id: "p1", entrega: "late" })];
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 0, late: 1, pct: 0 });
   });
 
-  it("un hito repetido en varios steps (mismo PMS ID) pesa 1 sola unidad, con su propio % entre ocurrencias Done", () => {
+  it("una fase con 8 de 10 items a tiempo cuenta como UNA unidad 'con atraso' (binario, no fraccional)", () => {
     const projs = [
-      step([sub({ id: "s1", pmsId: "H1", entrega: "on-time" })]),
-      step([sub({ id: "s2", pmsId: "H1", entrega: "on-time" })]),
-      step([sub({ id: "s3", pmsId: "H1", entrega: "late" })]),
-      step([sub({ id: "s4", pmsId: "H1", entrega: "late" })]),
+      step({ id: "p1", entrega: "on-time" }),
+      step({ id: "p2", entrega: "late" }, ),
+      step({
+        id: "p3", entrega: "on-time",
+        subitems: Array.from({ length: 8 }, (_, i) => sub({ id: `s${i}`, entrega: i < 6 ? "on-time" : "late" })),
+      }),
     ];
-    // 2 a tiempo de 4 Done → 50% para el hito H1, única unidad en scope.
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 1, late: 0, pct: 50 });
+    // 10 items evaluados en la fase (2 steps + 8 hitos), 8 a tiempo / 2 atrasados → 1 sola fase, "con atraso".
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 0, late: 1, pct: 0 });
   });
 
-  it("una ocurrencia atrasada y excusada (responsable ≠ PM) no cuenta ni a favor ni en contra del hito", () => {
+  it("una fase sin ningún atraso cuenta como 'sin atraso' aunque tenga muchos items evaluados", () => {
     const projs = [
-      step([sub({ id: "s1", pmsId: "H1", entrega: "on-time" })]),
-      step([sub({ id: "s2", pmsId: "H1", entrega: "late" })]), // excusado
+      step({ id: "p1", entrega: "on-time", subitems: [sub({ id: "s1", entrega: "on-time" }), sub({ id: "s2", entrega: "on-time" })] }),
+      step({ id: "p2", entrega: "on-time" }),
     ];
-    const delays: DelayMap = { s2: { responsible: "Sponsor" } };
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+  });
+
+  it("excusar la FASE (no un item) libera TODOS sus atrasos a la vez", () => {
+    const projs = [
+      step({ id: "p1", entrega: "late", subitems: [sub({ id: "s1", entrega: "late" }), sub({ id: "s2", entrega: "on-time" })] }),
+    ];
+    const delays: DelayMap = { "b1::Fase 1": { responsible: "Sponsor" } }; // excusa la fase entera
     expect(calcEntregaStats([], projs, delays)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
   });
 
-  it("un hito sin ninguna ocurrencia Done evaluable todavía no cuenta", () => {
-    const projs = [step([sub({ id: "s1", pmsId: "H1", entrega: null })])]; // Working on it / Future Steps
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
-  });
-
-  it("cada hito pesa igual sin importar cuántas ocurrencias (steps) recorrió", () => {
-    // H1: 8 ocurrencias, 4 a tiempo / 4 atrasadas → 50%.
-    const h1steps = Array.from({ length: 8 }, (_, i) =>
-      step([sub({ id: `h1-${i}`, pmsId: "H1", entrega: i < 4 ? "on-time" : "late" })]),
-    );
-    // H2: 1 sola ocurrencia, a tiempo → 100%.
-    const h2step = step([sub({ id: "h2-0", pmsId: "H2", entrega: "on-time" })]);
-    const stats = calcEntregaStats([], [...h1steps, h2step], {});
-    // Promedio simple (50 + 100) / 2 = 75%, NO ponderado por cantidad de ocurrencias.
-    expect(stats.total).toBe(2);
-    expect(stats.pct).toBe(75);
-  });
-
-  it("subitems sin PMS ID no se deduplican entre sí (cada uno es su propio hito)", () => {
+  it("dos fases del mismo board son unidades independientes", () => {
     const projs = [
-      step([sub({ id: "s1", pmsId: "", entrega: "on-time" })]),
-      step([sub({ id: "s2", pmsId: "", entrega: "late" })]),
+      step({ id: "p1", entrega: "late" }),                                   // Fase 1 → con atraso
+      proj({ id: "p2", boardId: "b1", grupo: "Fase 2", entrega: "on-time" }), // Fase 2 → sin atraso
     ];
     expect(calcEntregaStats([], projs, {})).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
   });
+
+  it("el mismo nombre de fase en boards distintos NO se mezcla (la clave incluye el board)", () => {
+    const projs = [
+      step({ id: "p1", boardId: "b1", entrega: "late" }),
+      step({ id: "p2", boardId: "b2", entrega: "on-time" }),
+    ];
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+  });
+
+  it("una fase sin nada evaluado todavía (todo pendiente) no cuenta — medición progresiva", () => {
+    const projs = [step({ id: "p1", entrega: null, subitems: [sub({ id: "s1", entrega: null })] })];
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
+  });
 });
 
-describe("calcEntregaStatsRaw (tarjeta principal: todos los atrasados, sin excusar por responsable)", () => {
-  const step = (subitems: ReturnType<typeof sub>[]) => proj({ boardId: "b1", subitems });
+describe("calcEntregaStatsRaw (tarjeta principal: todas las fases con atraso, sin excusar por responsable)", () => {
+  const step = (o: Partial<ReturnType<typeof proj>>) => proj({ boardId: "b1", grupo: "Fase 1", ...o });
 
   it("un atraso con responsable ≠ PM cuenta igual (no se excusa, a diferencia de calcEntregaStats)", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })];
-    const projs = [
-      step([sub({ id: "s1", pmsId: "H1", entrega: "late" })]),
-    ];
+    const projs = [step({ id: "p1", entrega: "late" })];
     // Nota: calcEntregaStatsRaw no recibe delays — no hay forma de excusar nada.
     expect(calcEntregaStatsRaw(reqs, projs)).toEqual({ total: 3, onTime: 1, late: 2, pct: 33 });
   });
 
-  it("cada hito sigue pesando 1 unidad (misma agrupación por PMS ID que calcEntregaStats)", () => {
+  it("una fase sigue pesando 1 unidad sin importar cuántos steps/hitos atrasados tenga", () => {
     const projs = [
-      step([sub({ id: "s1", pmsId: "H1", entrega: "on-time" })]),
-      step([sub({ id: "s2", pmsId: "H1", entrega: "late" })]),
-      step([sub({ id: "s3", pmsId: "H1", entrega: "late" })]),
+      step({
+        id: "p1", entrega: "late",
+        subitems: [sub({ id: "s1", entrega: "on-time" }), sub({ id: "s2", entrega: "late" })],
+      }),
     ];
-    // H1: 1 a tiempo de 3 Done → 33%, única unidad en scope.
     const stats = calcEntregaStatsRaw([], projs);
-    expect(stats.total).toBe(1);
-    expect(stats.pct).toBe(33);
+    expect(stats).toEqual({ total: 1, onTime: 0, late: 1, pct: 0 });
   });
 });
 
@@ -361,7 +365,7 @@ describe("calcReprocesoPct (5º componente del KPI)", () => {
 });
 
 describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
-  it("solo incluye REQ y SUBITEMS con veredicto on-time o late (excluye n/a, null y el ITEM padre)", () => {
+  it("una fila por REQ y una por FASE de Proyecto con algo evaluado (excluye n/a y fases sin nada Done)", () => {
     const reqs = [
       req({ id: "r1", name: "R1", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("late") }),
       req({ id: "r2", name: "R2", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("n/a") }),
@@ -369,23 +373,31 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
     const projs = [
       proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", name: "Hito", deadline: null, entrega: "on-time",
         subitems: [sub({ id: "s1", name: "Sub", deadline: null, entrega: "late" }), sub({ id: "s2", name: "Sub2", deadline: null, entrega: null })] }),
+      proj({ id: "p2", boardId: "b1", boardName: "P1", grupo: "Sin evaluar", pm: "Otro", name: "Pendiente", deadline: null, entrega: null }),
     ];
     const rows = buildEntregaRows(reqs, projs, [board({ id: "b1", pm: "Luis" })]);
-    // El ITEM padre p1 (aunque tenga entrega on-time) NO cuenta en el KPI de Entrega → no aparece.
-    expect(rows.map((r) => r.id).sort()).toEqual(["r1", "s1"]);
+    // La fase "Sin evaluar" no tiene nada Done todavía → no aparece.
+    expect(rows.map((r) => r.id).sort()).toEqual(["b1::Launch", "r1"]);
   });
 
-  it("desglosa tipo/fase/step padre/hito y atribuye el PM del board (no el del item) a los hitos", () => {
+  it("agrupa steps + hitos de la fase; itemsAtrasados trae SOLO los atrasados y atribuye el PM del board", () => {
     const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "ItemPm", name: "Step A", deadline: null, entrega: "late",
-      subitems: [sub({ id: "s1", name: "Hito 1", deadline: null, entrega: "late" })] })];
+      subitems: [
+        sub({ id: "s1", name: "Hito 1", deadline: null, entrega: "late" }),
+        sub({ id: "s2", name: "Hito 2", deadline: null, entrega: "on-time" }),
+      ] })];
     const rows = buildEntregaRows([], projs, [board({ id: "b1", pm: "BoardPm" })]);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: "s1", tipo: "PM", fase: "Launch", stepPadre: "Step A", hito: "Hito 1", pm: "BoardPm" });
+    expect(rows[0]).toMatchObject({
+      id: "b1::Launch", tipo: "PM", fase: "Launch", pm: "BoardPm", verdict: "late",
+      totalEvaluados: 3, totalAtrasados: 2,
+    });
+    expect(rows[0].itemsAtrasados.map((it) => it.name).sort()).toEqual(["Hito 1", "Step A"]);
+    expect(rows[0].itemsAtrasados.find((it) => it.kind === "hito")).toMatchObject({ name: "Hito 1", stepPadre: "Step A" });
   });
 
   it("separa el código y el nombre del proyecto desde el nombre del board", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", boardName: "PM-003 | DUCAfast 2.0 GT", grupo: "Launch", name: "Step A", deadline: null, entrega: "late",
-      subitems: [sub({ id: "s1", name: "Hito 1", deadline: null, entrega: "late" })] })];
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "PM-003 | DUCAfast 2.0 GT", grupo: "Launch", name: "Step A", deadline: null, entrega: "late" })];
     const rows = buildEntregaRows([], projs, [board({ id: "b1", pm: "BoardPm" })]);
     expect(rows[0]).toMatchObject({ projCode: "PM-003", projName: "DUCAfast 2.0 GT" });
   });
@@ -394,6 +406,30 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
     const reqs = [req({ id: "r1", name: "R1", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("late") })];
     const rows = buildEntregaRows(reqs, [], []);
     expect(rows[0]).toMatchObject({ tipo: "PML", projCode: "", projName: "" });
+  });
+});
+
+describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la tarjeta principal)", () => {
+  const step = (o: Partial<ReturnType<typeof proj>>) => proj({ boardId: "b1", boardName: "P1", grupo: "Launch", ...o });
+
+  it("una fase con atraso sin excusar aparece; el responsable es el de la FASE, no el de un item", () => {
+    const projs = [step({ id: "p1", entrega: "late", subitems: [sub({ id: "s1", entrega: "on-time" })] })];
+    const delays: DelayMap = { s1: { responsible: "VPA" } }; // asignado al item, NO a la fase → no excusa
+    const rows = buildLateResponsibleRows([], projs, [board({ id: "b1", pm: "BoardPm" })], delays);
+    expect(rows).toEqual([{ id: "b1::Launch", source: "Proyecto", name: "P1 · Launch", pm: "BoardPm", responsible: null, onTime: 1, doneTotal: 2 }]);
+  });
+
+  it("excusar la fase (clave projPhaseKey) hace que deje de aparecer, aunque tenga atrasos", () => {
+    const projs = [step({ id: "p1", entrega: "late" })];
+    const delays: DelayMap = { "b1::Launch": { responsible: "Sponsor" } };
+    expect(buildLateResponsibleRows([], projs, [board({ id: "b1", pm: "BoardPm" })], delays)).toEqual([]);
+  });
+
+  it("Raw: una fase con atraso aparece aunque esté excusada — solo informativo", () => {
+    const projs = [step({ id: "p1", entrega: "late" })];
+    const delays: DelayMap = { "b1::Launch": { responsible: "Sponsor" } };
+    const rows = buildLateResponsibleRowsRaw([], projs, [board({ id: "b1", pm: "BoardPm" })], delays);
+    expect(rows).toEqual([{ id: "b1::Launch", source: "Proyecto", name: "P1 · Launch", pm: "BoardPm", responsible: "Sponsor", onTime: 0, doneTotal: 1 }]);
   });
 });
 
@@ -433,8 +469,10 @@ describe("calcPmMetrics", () => {
     expect(run({}).kpi.score).toBeLessThan(half.kpi.score);                                          // más reprocesos → menor KPI
   });
 
-  it("un atraso baja el % del PM por defecto; solo se excusa con responsable ≠ PM (por hito, no por item)", () => {
+  it("un atraso baja el % del PM por defecto; solo se excusa asignando la FASE completa, no un item suelto", () => {
     const projBoards = [board({ id: "b1", pm: "Luis" })];
+    // p1 y p2 comparten fase (b1::Launch): un atraso en cualquiera de sus hitos
+    // basta para que la fase entera cuente "con atraso" (binario, por fase).
     const projItems = [
       proj({ boardId: "b1", id: "p1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 0, benefit: 0,
         subitems: [sub({ id: "i1", pmsId: "H1", entrega: "on-time" })] }),
@@ -443,9 +481,10 @@ describe("calcPmMetrics", () => {
     ];
     const bhm = buildBoardHealthMap(projItems, projBoards, {});
     const run = (delays: DelayMap) => calcPmMetrics("Luis", [], [], projItems, projBoards, bhm, new Map(), [], delays);
-    expect(run({}).entPct).toBe(50);                                    // sin asignar → atraso cuenta (1 de 2 hitos)
-    expect(run({ i2: { responsible: "PM" } }).entPct).toBe(50);          // PM → cuenta (1 de 2)
-    expect(run({ i2: { responsible: "Sponsor" } }).entPct).toBe(100);    // excusado → excluido
+    expect(run({}).entPct).toBe(0);                                              // sin asignar → la fase cuenta con atraso
+    expect(run({ "b1::Launch": { responsible: "PM" } }).entPct).toBe(0);         // PM → sigue contando
+    expect(run({ i2: { responsible: "Sponsor" } }).entPct).toBe(0);              // asignado al ITEM, no a la fase → no excusa
+    expect(run({ "b1::Launch": { responsible: "Sponsor" } }).entPct).toBe(100);  // excusa la FASE → libera el atraso
   });
 
   it("compone las métricas del PM (entregas, salud, KPI) de forma coherente", () => {
