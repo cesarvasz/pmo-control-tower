@@ -396,6 +396,15 @@ export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproc
 // vía ResponsibleSelect — el mismo esquema de ids que REQ y Proyectos.
 const boardPmMap = (projBoards: ProjBoard[]) => new Map(projBoards.map((b) => [b.id, b.pm]));
 
+/** Interfaz para desglose de fases del REQ en el acordeón. */
+export interface ReqPhaseDetail {
+  name: string;          // Valuación | Aprobación | Desarrollo | Operación | Cierre ROI
+  target: Date | null;   // deadline planeado de la fase
+  actual: Date | null;   // fecha real de cierre
+  late: boolean;         // si la fase se atrasó
+  slipDays: number;      // días hábiles de atraso
+}
+
 export interface EntregaRow {
   id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto) — atribución "delay"
   source: "REQ" | "Proyecto";
@@ -408,12 +417,8 @@ export interface EntregaRow {
   pm: string;
   deadline: Date | null;             // REQ: su deadline. Proyecto: null (una fase no tiene una sola fecha).
   verdict: "on-time" | "late";       // Proyecto: "late" si ≥1 step/hito de la fase quedó atrasado.
-  /** Solo REQ: fecha planeada de entrega (deadline del REQ). */
-  plannedDeadline?: Date | null;
-  /** Solo REQ: fecha real de entrega (del onTime.phases, última fase completada). */
-  actualDeliveryDate?: Date | null;
-  /** Solo REQ: veredicto de cumplimiento (on-time/late/n/a). */
-  deliveryStatus?: "on-time" | "late" | "n/a" | null;
+  /** Solo REQ: desglose de deadlines por fase (para acordeón). */
+  phaseDetails?: ReqPhaseDetail[];
   /** Solo Proyecto: steps/hitos de la fase con veredicto "late" — para el acordeón de detalle. */
   itemsAtrasados: FaseEntregaItem[];
   /** Solo Proyecto: steps/hitos de la fase YA evaluados (Done). */
@@ -433,17 +438,11 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
   const rows: EntregaRow[] = [];
   for (const r of reqs) {
     if (r.onTime.verdict !== "on-time" && r.onTime.verdict !== "late") continue;
-    // Buscar la fecha real de entrega (última fase con fecha actual).
-    const lastPhaseWithActual = r.onTime.phases
-      .slice()
-      .reverse()
-      .find((p) => p.actual !== null);
     rows.push({
       id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo,
       projCode: "", projName: "", fase: r.grupo, pm: r.pm, deadline: r.deadline,
-      verdict: r.onTime.verdict, plannedDeadline: r.deadline,
-      actualDeliveryDate: lastPhaseWithActual?.actual ?? null,
-      deliveryStatus: r.onTime.verdict, itemsAtrasados: [], totalEvaluados: 0, totalAtrasados: 0,
+      verdict: r.onTime.verdict, phaseDetails: r.onTime.phases,
+      itemsAtrasados: [], totalEvaluados: 0, totalAtrasados: 0,
     });
   }
   for (const g of groupFaseEntrega(projs).values()) {
@@ -538,12 +537,8 @@ export interface ReprocesoRow {
   pm: string;
   deadline: Date | null;             // REQ: su deadline. Proyecto: null
   verdict: "clean" | "reproceso";
-  /** Solo REQ: fecha planeada de entrega (deadline del REQ). */
-  plannedDeadline?: Date | null;
-  /** Solo REQ: fecha real de entrega (del onTime.phases, última fase completada). */
-  actualDeliveryDate?: Date | null;
-  /** Solo REQ: veredicto de cumplimiento (on-time/late/n/a). */
-  deliveryStatus?: "on-time" | "late" | "n/a" | null;
+  /** Solo REQ: desglose de deadlines por fase (para acordeón). */
+  phaseDetails?: ReqPhaseDetail[];
   /** Solo Proyecto: steps/hitos de la fase Done (informativo en acordeón). */
   itemsDone: FaseReprocesoItem[];
   /** Solo Proyecto: total de steps/hitos Done en la fase. */
@@ -600,17 +595,11 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
   const rows: ReprocesoRow[] = [];
   for (const r of reqs) {
     if (r.estado !== "CERRADO") continue;
-    // Buscar la fecha real de entrega (última fase con fecha actual).
-    const lastPhaseWithActual = r.onTime.phases
-      .slice()
-      .reverse()
-      .find((p) => p.actual !== null);
     rows.push({
       id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo,
       projCode: "", projName: "", fase: r.grupo, pm: r.pm, deadline: r.deadline,
-      verdict: lateExcused(r.id, reproceso) ? "clean" : "reproceso", plannedDeadline: r.deadline,
-      actualDeliveryDate: lastPhaseWithActual?.actual ?? null,
-      deliveryStatus: r.onTime.verdict, itemsDone: [], totalDone: 0,
+      verdict: lateExcused(r.id, reproceso) ? "clean" : "reproceso", phaseDetails: r.onTime.phases,
+      itemsDone: [], totalDone: 0,
     });
   }
   for (const g of groupFaseReproceso(projs).values()) {

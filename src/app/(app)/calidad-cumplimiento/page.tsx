@@ -162,6 +162,37 @@ function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML"; id?: string;
 // individual: un solo responsable por fase, y el acordeón de abajo muestra
 // SOLO los steps/hitos que salieron atrasados dentro de esa fase (solo lectura,
 // no se asigna responsable ahí — ver buildEntregaRows en lib/dashboard.ts).
+function ReqPhaseAccordion({ phases }: { phases: { name: string; target: Date | null; actual: Date | null; late: boolean; slipDays: number }[] }) {
+  return (
+    <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+      <table className="w-full text-left text-[0.76rem]">
+        <thead>
+          <tr style={{ background: "var(--bg-hover)" }}>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Fase</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline planeado</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Fecha real</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Estado</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Atraso</th>
+          </tr>
+        </thead>
+        <tbody>
+          {phases.map((phase, i) => (
+            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+              <td className="px-3 py-1.5 text-[var(--text-primary)]">{phase.name}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{phase.target ? fmtDate(phase.target) : <span className="text-[var(--text-disabled)]">—</span>}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{phase.actual ? fmtDate(phase.actual) : <span className="text-[var(--text-disabled)]">—</span>}</td>
+              <td className="px-3 py-1.5">
+                {phase.late ? <Pill tone="bad" small>✕ Atrasado</Pill> : <Pill tone="ok" small>✓ A tiempo</Pill>}
+              </td>
+              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)] tabular-nums">{phase.late && phase.slipDays > 0 ? `${phase.slipDays}d` : <span className="text-[var(--text-disabled)]">—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function FaseAtrasadaAccordion({ items }: { items: { kind: "step" | "hito"; name: string; stepPadre: string; deadline: Date | null }[] }) {
   return (
     <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
@@ -258,12 +289,13 @@ function EntregaTab({ req, proj, projBoards, delays }: {
             <thead>
               <tr>
                 <th style={{ width: 28 }}></th>
-                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>PML deadline</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
               {tableRows.map((r) => {
-                const expandible = r.source === "Proyecto" && r.totalAtrasados > 0;
+                const hasLatePhasesReq = r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late);
+                const expandible = (r.source === "Proyecto" && r.totalAtrasados > 0) || hasLatePhasesReq;
                 const abierta = expandible && abiertas.has(r.id);
                 return (
                   <Fragment key={r.id}>
@@ -298,46 +330,18 @@ function EntregaTab({ req, proj, projBoards, delays }: {
                         {r.source === "Proyecto" ? `${r.totalAtrasados} / ${r.totalEvaluados}` : <span className="text-[var(--text-disabled)]">—</span>}
                       </td>
                       <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {r.source === "REQ" ? (
-                          <div style={{ fontSize: "0.82rem", lineHeight: 1.4, color: "var(--text-secondary)" }}>
-                            {r.plannedDeadline && (
-                              <div>
-                                <span style={{ fontWeight: 500 }}>Plan:</span> {fmtDate(r.plannedDeadline)}
-                              </div>
-                            )}
-                            {r.actualDeliveryDate && (
-                              <div>
-                                <span style={{ fontWeight: 500 }}>Real:</span> {fmtDate(r.actualDeliveryDate)}
-                              </div>
-                            )}
-                            {r.deliveryStatus && (
-                              <div style={{ marginTop: "0.25rem" }}>
-                                <span style={{
-                                  fontSize: "0.75rem",
-                                  padding: "0.125rem 0.375rem",
-                                  borderRadius: "0.25rem",
-                                  background: r.deliveryStatus === "on-time" ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                                  color: r.deliveryStatus === "on-time" ? "var(--ok)" : "var(--bad)"
-                                }}>
-                                  {r.deliveryStatus}
-                                </span>
-                              </div>
-                            )}
-                            {!r.plannedDeadline && <span className="text-[var(--text-disabled)]">—</span>}
-                          </div>
-                        ) : (
-                          <span className="text-[var(--text-disabled)]">—</span>
-                        )}
-                      </td>
                       <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
                       <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
                     </tr>
                     {abierta && (
                       <tr>
                         <td></td>
-                        <td colSpan={8} className="pb-3">
-                          <FaseAtrasadaAccordion items={r.itemsAtrasados} />
+                        <td colSpan={7} className="pb-3">
+                          {r.source === "REQ" && r.phaseDetails ? (
+                            <ReqPhaseAccordion phases={r.phaseDetails} />
+                          ) : (
+                            <FaseAtrasadaAccordion items={r.itemsAtrasados} />
+                          )}
                         </td>
                       </tr>
                     )}
@@ -422,12 +426,13 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
             <thead>
               <tr>
                 <th style={{ width: 28 }}></th>
-                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Items Done</th><th>PM</th><th>PML deadline</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Items Done</th><th>PM</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
               {tableRows.map((r) => {
-                const expandible = r.source === "Proyecto" && r.totalDone > 0;
+                const hasLatePhaseReq = r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late);
+                const expandible = (r.source === "Proyecto" && r.totalDone > 0) || hasLatePhaseReq;
                 const abierta = expandible && abiertas.has(r.id);
                 return (
                   <Fragment key={r.id}>
@@ -461,46 +466,18 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
                         {r.source === "Proyecto" ? r.totalDone : <span className="text-[var(--text-disabled)]">—</span>}
                       </td>
                       <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {r.source === "REQ" ? (
-                          <div style={{ fontSize: "0.82rem", lineHeight: 1.4, color: "var(--text-secondary)" }}>
-                            {r.plannedDeadline && (
-                              <div>
-                                <span style={{ fontWeight: 500 }}>Plan:</span> {fmtDate(r.plannedDeadline)}
-                              </div>
-                            )}
-                            {r.actualDeliveryDate && (
-                              <div>
-                                <span style={{ fontWeight: 500 }}>Real:</span> {fmtDate(r.actualDeliveryDate)}
-                              </div>
-                            )}
-                            {r.deliveryStatus && (
-                              <div style={{ marginTop: "0.25rem" }}>
-                                <span style={{
-                                  fontSize: "0.75rem",
-                                  padding: "0.125rem 0.375rem",
-                                  borderRadius: "0.25rem",
-                                  background: r.deliveryStatus === "on-time" ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                                  color: r.deliveryStatus === "on-time" ? "var(--ok)" : "var(--bad)"
-                                }}>
-                                  {r.deliveryStatus}
-                                </span>
-                              </div>
-                            )}
-                            {!r.plannedDeadline && <span className="text-[var(--text-disabled)]">—</span>}
-                          </div>
-                        ) : (
-                          <span className="text-[var(--text-disabled)]">—</span>
-                        )}
-                      </td>
                       <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
                       <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
                     </tr>
                     {abierta && (
                       <tr>
                         <td></td>
-                        <td colSpan={8} className="pb-3">
-                          <FaseReprocesoAccordion items={r.itemsDone} />
+                        <td colSpan={7} className="pb-3">
+                          {r.source === "REQ" && r.phaseDetails ? (
+                            <ReqPhaseAccordion phases={r.phaseDetails} />
+                          ) : (
+                            <FaseReprocesoAccordion items={r.itemsDone} />
+                          )}
                         </td>
                       </tr>
                     )}
