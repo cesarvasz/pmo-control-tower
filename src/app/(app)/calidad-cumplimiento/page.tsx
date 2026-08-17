@@ -98,25 +98,49 @@ function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML"; id?: string;
   const [projIds, setProjIds] = useState<string[]>([]);
   const [soloProblema, setSoloProblema] = useState(true);
 
-  const allPMs = useMemo(() => [...new Set(rows.map((r) => r.pm).filter(Boolean))].sort(), [rows]);
-  const pmOpts: MSOption[] = allPMs.map((pm) => ({
-    value: pm, label: pm, count: rows.filter((r) => r.pm === pm).length,
-  }));
+  // Helper: aplicar todos los filtros EXCEPTO uno específico
+  const getFilteredRows = (excludeFilter: 'pms' | 'tipos' | 'pmlIds' | 'projIds') => {
+    return rows.filter((r) => {
+      if (excludeFilter !== 'pms' && pms.length > 0 && !pms.includes(r.pm)) return false;
+      if (excludeFilter !== 'tipos' && tipos.length > 0 && (r.tipo == null || !tipos.includes(r.tipo))) return false;
+      if (excludeFilter !== 'pmlIds' && pmlIds.length > 0 && (r.source !== "REQ" || !pmlIds.includes(r.id ?? ""))) return false;
+      if (excludeFilter !== 'projIds' && projIds.length > 0 && (r.source !== "Proyecto" || !projIds.includes(r.projCode ?? ""))) return false;
+      return true;
+    });
+  };
 
-  const allTipos = useMemo(() => [...new Set(rows.map((r) => r.tipo).filter(Boolean) as string[])].sort(), [rows]);
-  const tipoOpts: MSOption[] = allTipos.map((t) => ({
-    value: t, label: t, count: rows.filter((r) => r.tipo === t).length,
-  }));
+  // Opciones dinámicas: cada filtro se calcula excluyéndose a sí mismo
+  const pmOpts: MSOption[] = useMemo(() => {
+    const filtered = getFilteredRows('pms');
+    const allPMs = [...new Set(filtered.map((r) => r.pm).filter(Boolean))].sort();
+    return allPMs.map((pm) => ({
+      value: pm, label: pm, count: filtered.filter((r) => r.pm === pm).length,
+    }));
+  }, [rows, tipos, pmlIds, projIds]);
 
-  const allPmlIds = useMemo(() => [...new Set(rows.filter((r) => r.source === "REQ").map((r) => r.id).filter(Boolean) as string[])].sort(), [rows]);
-  const pmlOpts: MSOption[] = allPmlIds.map((id) => ({
-    value: id, label: id, count: rows.filter((r) => r.id === id).length,
-  }));
+  const tipoOpts: MSOption[] = useMemo(() => {
+    const filtered = getFilteredRows('tipos');
+    const allTipos = [...new Set(filtered.map((r) => r.tipo).filter(Boolean) as string[])].sort();
+    return allTipos.map((t) => ({
+      value: t, label: t, count: filtered.filter((r) => r.tipo === t).length,
+    }));
+  }, [rows, pms, pmlIds, projIds]);
 
-  const allProjIds = useMemo(() => [...new Set(rows.filter((r) => r.source === "Proyecto").map((r) => r.projCode).filter(Boolean) as string[])].sort(), [rows]);
-  const projOpts: MSOption[] = allProjIds.map((code) => ({
-    value: code, label: code, count: rows.filter((r) => r.projCode === code).length,
-  }));
+  const pmlOpts: MSOption[] = useMemo(() => {
+    const filtered = getFilteredRows('pmlIds').filter((r) => r.source === "REQ");
+    const allPmlIds = [...new Set(filtered.map((r) => r.id).filter(Boolean) as string[])].sort();
+    return allPmlIds.map((id) => ({
+      value: id, label: id, count: filtered.filter((r) => r.id === id).length,
+    }));
+  }, [rows, pms, tipos, projIds]);
+
+  const projOpts: MSOption[] = useMemo(() => {
+    const filtered = getFilteredRows('projIds').filter((r) => r.source === "Proyecto");
+    const allProjIds = [...new Set(filtered.map((r) => r.projCode).filter(Boolean) as string[])].sort();
+    return allProjIds.map((code) => ({
+      value: code, label: code, count: filtered.filter((r) => r.projCode === code).length,
+    }));
+  }, [rows, pms, tipos, pmlIds]);
 
   const byPm = useMemo(
     () => rows.filter((r) =>
