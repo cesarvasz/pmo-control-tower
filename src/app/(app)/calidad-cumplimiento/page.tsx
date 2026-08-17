@@ -11,8 +11,10 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
+import { useMe } from "@/context/PermissionsContext";
 import { fmtDate } from "@/lib/business";
 import { buildEntregaRows, buildReprocesoRows } from "@/lib/dashboard";
+import { hasAction } from "@/lib/permissions";
 import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES, RESPONSIBLE_COLOR, countByResponsible, type DelayMap } from "@/lib/delay";
 import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
@@ -24,6 +26,7 @@ const responsableOf = (id: string, map: DelayMap) => map[id]?.responsible || SIN
 
 export default function CalidadCumplimientoPage() {
   const { data, loading, error } = useData();
+  const { me } = useMe();
   const [tab, setTab] = useState<"entrega" | "reproceso">("entrega");
 
   if (loading && !data) return <Loader />;
@@ -31,6 +34,7 @@ export default function CalidadCumplimientoPage() {
   if (!data) return null;
 
   const { req, proj, projBoards, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
+  const canEditFilters = me && hasAction(me.permissions, "manage_roles");
 
   return (
     <div>
@@ -59,8 +63,8 @@ export default function CalidadCumplimientoPage() {
       </div>
 
       {tab === "entrega"
-        ? <EntregaTab req={req} proj={proj} projBoards={projBoards} delays={delays} />
-        : <ReprocesoTab req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} />}
+        ? <EntregaTab req={req} proj={proj} projBoards={projBoards} delays={delays} canEditFilters={canEditFilters} />
+        : <ReprocesoTab req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} canEditFilters={canEditFilters} />}
     </div>
   );
 }
@@ -220,8 +224,8 @@ function FaseAtrasadaAccordion({ items }: { items: { kind: "step" | "hito"; name
   );
 }
 
-function EntregaTab({ req, proj, projBoards, delays }: {
-  req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap;
+function EntregaTab({ req, proj, projBoards, delays, canEditFilters }: {
+  req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap; canEditFilters: boolean | null;
 }) {
   const rows = useMemo(() => buildEntregaRows(req, proj, projBoards), [req, proj, projBoards]);
   const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
@@ -265,21 +269,22 @@ function EntregaTab({ req, proj, projBoards, delays }: {
 
       {/* Filtros */}
       <div className="mb-4 flex flex-wrap items-end gap-3.5">
-        <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
-        <MultiSelect label="PM" options={pmOpts} selected={pms} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
-        <MultiSelect label="PML ID" options={pmlOpts} selected={pmlIds} onToggle={(v, ch) => setPmlIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPmlIds([])} />
-        <MultiSelect label="Proyecto" options={projOpts} selected={projIds} onToggle={(v, ch) => setProjIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setProjIds([])} />
-        <MultiSelect label="Responsable" options={respOpts} selected={resps} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
+        <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} disabled={!canEditFilters} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
+        <MultiSelect label="PM" options={pmOpts} selected={pms} disabled={!canEditFilters} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
+        <MultiSelect label="PML ID" options={pmlOpts} selected={pmlIds} disabled={!canEditFilters} onToggle={(v, ch) => setPmlIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPmlIds([])} />
+        <MultiSelect label="Proyecto" options={projOpts} selected={projIds} disabled={!canEditFilters} onToggle={(v, ch) => setProjIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setProjIds([])} />
+        <MultiSelect label="Responsable" options={respOpts} selected={resps} disabled={!canEditFilters} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
         <button
           onClick={() => setSoloProblema((v) => !v)}
-          className="self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors"
+          disabled={!canEditFilters}
+          className="self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           style={soloProblema
             ? { borderColor: "var(--bad)", color: "var(--bad)", background: "var(--bad-bg)" }
             : { borderColor: "var(--border)", color: "var(--text-muted)" }}
         >
           {soloProblema ? "✓ Solo con atraso" : "Solo con atraso"}
         </button>
-        {anyFilter && <FilterReset onClick={reset} />}
+        {anyFilter && canEditFilters && <FilterReset onClick={reset} />}
       </div>
 
       {/* Detalle */}
@@ -357,8 +362,8 @@ function EntregaTab({ req, proj, projBoards, delays }: {
 }
 
 // ── Calidad de Entregas (Reproceso) ─────────────────────────────────────
-function ReprocesoTab({ req, proj, projBoards, reproceso }: {
-  req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap;
+function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
+  req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap; canEditFilters: boolean | null;
 }) {
   const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso), [req, proj, projBoards, reproceso]);
   const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
@@ -402,21 +407,22 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
 
       {/* Filtros */}
       <div className="mb-4 flex flex-wrap items-end gap-3.5">
-        <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
-        <MultiSelect label="PM" options={pmOpts} selected={pms} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
-        <MultiSelect label="PML ID" options={pmlOpts} selected={pmlIds} onToggle={(v, ch) => setPmlIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPmlIds([])} />
-        <MultiSelect label="Proyecto" options={projOpts} selected={projIds} onToggle={(v, ch) => setProjIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setProjIds([])} />
-        <MultiSelect label="Responsable" options={respOpts} selected={resps} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
+        <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} disabled={!canEditFilters} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
+        <MultiSelect label="PM" options={pmOpts} selected={pms} disabled={!canEditFilters} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
+        <MultiSelect label="PML ID" options={pmlOpts} selected={pmlIds} disabled={!canEditFilters} onToggle={(v, ch) => setPmlIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPmlIds([])} />
+        <MultiSelect label="Proyecto" options={projOpts} selected={projIds} disabled={!canEditFilters} onToggle={(v, ch) => setProjIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setProjIds([])} />
+        <MultiSelect label="Responsable" options={respOpts} selected={resps} disabled={!canEditFilters} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
         <button
           onClick={() => setSoloProblema((v) => !v)}
-          className="self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors"
+          disabled={!canEditFilters}
+          className="self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           style={soloProblema
             ? { borderColor: "var(--bad)", color: "var(--bad)", background: "var(--bad-bg)" }
             : { borderColor: "var(--border)", color: "var(--text-muted)" }}
         >
           {soloProblema ? "✓ Solo con reproceso" : "Solo con reproceso"}
         </button>
-        {anyFilter && <FilterReset onClick={reset} />}
+        {anyFilter && canEditFilters && <FilterReset onClick={reset} />}
       </div>
 
       {/* Detalle */}

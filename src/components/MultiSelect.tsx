@@ -14,6 +14,7 @@ interface MultiSelectProps {
   selected: string[];
   onToggle: (value: string, checked: boolean) => void;
   onToggleAll: () => void;
+  disabled?: boolean;
 }
 
 export default function MultiSelect({
@@ -22,6 +23,7 @@ export default function MultiSelect({
   selected,
   onToggle,
   onToggleAll,
+  disabled = false,
 }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -51,15 +53,16 @@ export default function MultiSelect({
       </label>
       <button
         type="button"
+        disabled={disabled}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((o) => !o);
+          if (!disabled) setOpen((o) => !o);
         }}
-        className="flex min-w-[190px] items-center justify-between gap-2.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm transition-colors"
+        className={`flex min-w-[190px] items-center justify-between gap-2.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm transition-colors ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
         style={{
-          borderColor: isAll ? "var(--border)" : "var(--accent)",
-          background: isAll ? "var(--bg-surface)" : "var(--bg-accent-soft)",
-          color: isAll ? "var(--text-primary)" : "var(--accent-light)",
+          borderColor: disabled ? "var(--border)" : (isAll ? "var(--border)" : "var(--accent)"),
+          background: disabled ? "var(--bg-surface)" : (isAll ? "var(--bg-surface)" : "var(--bg-accent-soft)"),
+          color: disabled ? "var(--text-muted)" : (isAll ? "var(--text-primary)" : "var(--accent-light)"),
         }}
       >
         <span>{triggerLabel}</span>
