@@ -9,7 +9,6 @@ import {
   calcEntregaStats,
   calcEntregaStatsRaw,
   calcReprocesoPct,
-  completedProjectPhases,
   buildEntregaRows,
   buildLateResponsibleRows,
   buildLateResponsibleRowsRaw,
@@ -309,23 +308,10 @@ describe("calcEntregaStatsRaw (tarjeta principal: todas las fases con atraso, si
   });
 });
 
-describe("completedProjectPhases", () => {
-  it("una fase (board+grupo) está completa solo si TODOS sus items están Done", () => {
-    const projs = [
-      proj({ boardId: "b1", grupo: "Launch", status: "Done" }),
-      proj({ boardId: "b1", grupo: "Launch", status: "Done" }),
-      proj({ boardId: "b1", grupo: "Aprobación", status: "Working on it" }), // fase incompleta
-      proj({ boardId: "b2", grupo: "Launch", status: "Done" }),
-    ];
-    expect(completedProjectPhases(projs).sort()).toEqual(["b1::Launch", "b2::Launch"]);
-  });
-});
-
 describe("calcReprocesoPct (5º componente del KPI)", () => {
   const cerrado = (id: string) => req({ id, pm: "Luis", estado: "CERRADO" });
-  const faseDone = (boardId: string, grupo: string) => proj({ boardId, grupo, status: "Done" });
 
-  it("null si no hay unidades en scope (sin REQ cerrados ni fases completadas)", () => {
+  it("null si no hay unidades en scope (sin REQ cerrados ni fases con items Done)", () => {
     expect(calcReprocesoPct([req({ id: "1", estado: "EN PROCESO" })], [], {})).toBeNull();
   });
 
@@ -340,22 +326,26 @@ describe("calcReprocesoPct (5º componente del KPI)", () => {
 
   it("PM y sin asignar penalizan; solo un responsable ≠ PM excusa (1 de 4 → 25%)", () => {
     const reqs = [cerrado("1"), cerrado("2"), cerrado("3"), cerrado("4")];
-    // 1=PM (penaliza), 2=Sponsor (excusa), 3 y 4 sin asignar (penalizan) → 1 limpio de 4.
     expect(calcReprocesoPct(reqs, [], { "1": { responsible: "PM" }, "2": { responsible: "Sponsor" } })).toBe(25);
   });
 
-  it("combina REQ cerrados + fases de proyecto COMPLETADAS (las incompletas no cuentan)", () => {
+  it("combina REQ cerrados + fases de proyecto con al menos 1 item Done (medición progresiva)", () => {
     const reqs = [cerrado("r1")];
     const projs = [
-      faseDone("b1", "Launch"),                                    // fase completa → unidad "b1::Launch"
-      proj({ boardId: "b1", grupo: "Dev", status: "Working on it" }), // incompleta → fuera de scope
+      proj({ boardId: "b1", grupo: "Launch", status: "Done" }),                    // 1 step Done
+      proj({ boardId: "b1", grupo: "Dev", status: "Working on it" }),              // incompleta, sin items Done
     ];
-    // 2 unidades: r1 (sin asignar → penaliza) y b1::Launch ("Sin reproceso" → excusa) → 1 de 2 = 50%.
     expect(calcReprocesoPct(reqs, projs, { "b1::Launch": { responsible: "Sin reproceso" } })).toBe(50);
   });
 
-  it("'Sin reproceso' excusa la unidad; vacío o PM en una fase completada penalizan", () => {
-    const projs = [faseDone("b1", "Launch"), faseDone("b1", "Ops"), faseDone("b2", "Launch")];
+  it("fase con ≥1 item Done entra en scope aunque no esté 100% completada", () => {
+    const projs = [
+      proj({ boardId: "b1", grupo: "Launch", status: "Done" }),
+      proj({ boardId: "b1", grupo: "Launch", status: "Working on it" }),            // mismo grupo, otro item
+      proj({ boardId: "b1", grupo: "Ops", status: "Done" }),
+      proj({ boardId: "b2", grupo: "Launch", status: "Done" }),
+    ];
+    // 3 fases: b1::Launch (1 Done, aunque otra esté en progreso), b1::Ops (1 Done), b2::Launch (1 Done)
     // b1::Launch=Sin reproceso (excusa), b1::Ops=PM (penaliza), b2::Launch=vacío (penaliza) → 1 de 3 = 33%.
     expect(calcReprocesoPct([], projs, {
       "b1::Launch": { responsible: "Sin reproceso" },

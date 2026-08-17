@@ -349,33 +349,17 @@ export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[]): Entrega
  *  Debe coincidir con la usada en la UI de Proyectos (cabecera de cada fase). */
 export const projPhaseKey = (boardId: string, grupo: string) => `${boardId}::${grupo}`;
 
-/** Fases (board+grupo) COMPLETADAS: todos sus items en status "Done".
- *  Devuelve la clave de atribución de cada fase completada (unidad de reproceso). */
-export function completedProjectPhases(projs: ProjItem[]): string[] {
-  const groups = new Map<string, ProjItem[]>();
-  for (const r of projs) {
-    const key = projPhaseKey(r.boardId, r.grupo);
-    const arr = groups.get(key);
-    if (arr) arr.push(r); else groups.set(key, [r]);
-  }
-  const done: string[] = [];
-  for (const [key, items] of groups) {
-    if (items.every((r) => r.status === "Done")) done.push(key);
-  }
-  return done;
-}
 
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
 /** Desglose de "Calidad de Entregas" (unidades limpias vs. con reproceso). Las unidades
- *  en scope son los REQ CERRADOS + las fases de proyecto COMPLETADAS (todos sus items Done).
- *  Misma regla que entregas: cada unidad penaliza (cuenta como reproceso) por
- *  defecto —incluso sin responsable asignado— y también si es "PM"; solo se
- *  EXCUSA si se le asignó un responsable distinto de PM (incluida "Sin reproceso"). */
+ *  en scope son los REQ CERRADOS + las fases de proyecto (medición progresiva: con al
+ *  menos un item Done). Misma regla que entregas: cada unidad penaliza por defecto y
+ *  también si es "PM"; solo se EXCUSA si responsable ≠ PM (incluida "Sin reproceso"). */
 export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
   const units = [
     ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
-    ...completedProjectPhases(projs),
+    ...Array.from(groupFaseReproceso(projs).values()).filter((g) => g.items.length > 0).map((g) => g.key),
   ];
   const total = units.length;
   const conReproceso = units.filter((id) => !lateExcused(id, reproceso)).length;
@@ -391,15 +375,13 @@ export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: 
 }
 
 /** Variante "real, sin filtros" de Calidad de Entregas — SOLO para la tarjeta
- *  principal del Control Tower (no para Players/KPI, que siguen usando
- *  calcReprocesoStats). Únicamente cuenta unidades que YA tienen un responsable
- *  seleccionado en el dropdown de Reproceso: "Sin reproceso" → limpia; cualquier
- *  otra selección (incluido "PM") → con reproceso. Las unidades sin selección se
- *  ignoran por completo (no cuentan ni como limpias ni como con reproceso). */
+ *  principal del Control Tower (Players/KPI usan calcReprocesoStats). Únicamente
+ *  cuenta unidades que YA tienen responsable asignado: "Sin reproceso" → limpia;
+ *  otros (incluido "PM") → con reproceso. Sin selección se ignoran. */
 export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
   const units = [
     ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
-    ...completedProjectPhases(projs),
+    ...Array.from(groupFaseReproceso(projs).values()).filter((g) => g.items.length > 0).map((g) => g.key),
   ];
   const assigned = units.filter((id) => reproceso[id]?.responsible != null);
   const total = assigned.length;
@@ -534,31 +516,86 @@ export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], 
 export interface ReprocesoRow {
   id: string;                        // r.id / projPhaseKey(boardId, grupo) — atribución "reproceso"
   source: "REQ" | "Proyecto";
+  tipo: "PM" | "PML";                // Proyecto → "PM"; REQ → "PML"
   name: string;
+  context: string;                   // REQ: grupo. Proyecto: "board · grupo"
+  projCode: string;                  // "PM-003" del board; "" en REQ
+  projName: string;                  // proyecto; "" en REQ
+  fase: string;                      // REQ/Proyecto: grupo (fase)
   pm: string;
+  deadline: Date | null;             // REQ: su deadline. Proyecto: null
   verdict: "clean" | "reproceso";
+  /** Solo Proyecto: steps/hitos de la fase Done (informativo en acordeón). */
+  itemsDone: FaseReprocesoItem[];
+  /** Solo Proyecto: total de steps/hitos Done en la fase. */
+  totalDone: number;
 }
 
-/** Filas de "Calidad de Entregas": una por cada REQ CERRADO y cada fase de
- *  Proyecto COMPLETADA (misma unidad de reproceso que calcReprocesoStats). */
+/** Interfaz para items (steps/hitos) que componen una fase de Reproceso. */
+export interface FaseReprocesoItem {
+  id: string;
+  kind: "step" | "hito";
+  name: string;
+  stepPadre: string;
+  deadline: Date | null;
+}
+
+interface FaseReprocesoGroup {
+  key: string;                 // projPhaseKey(boardId, grupo)
+  boardId: string;
+  boardName: string;
+  fase: string;                // grupo
+  pm: string;
+  /** Solo steps/hitos YA evaluados (Done); los pendientes no entran aún. */
+  items: FaseReprocesoItem[];
+}
+
+/** Agrupa steps (ProjItem) + hitos (ProjSubitem) de Proyectos por FASE (board +
+ *  grupo) — medición progresiva, igual que Entregas. Solo entran items Done. */
+function groupFaseReproceso(projs: ProjItem[]): Map<string, FaseReprocesoGroup> {
+  const map = new Map<string, FaseReprocesoGroup>();
+  const grupoDe = (p: ProjItem) => {
+    const key = projPhaseKey(p.boardId, p.grupo);
+    let g = map.get(key);
+    if (!g) { g = { key, boardId: p.boardId, boardName: p.boardName, fase: p.grupo, pm: p.pm, items: [] }; map.set(key, g); }
+    return g;
+  };
+  for (const p of projs) {
+    const g = grupoDe(p);
+    if (p.status === "Done") {
+      g.items.push({ id: p.id, kind: "step", name: p.name, stepPadre: "", deadline: p.deadline });
+    }
+    for (const s of p.subitems) {
+      if (s.status === "Done") {
+        g.items.push({ id: s.id, kind: "hito", name: s.name, stepPadre: p.name, deadline: s.deadline });
+      }
+    }
+  }
+  return map;
+}
+
+/** Filas de "Calidad de Entregas": una por cada REQ CERRADO y cada FASE de
+ *  Proyecto (medición progresiva: con al menos un item Done). */
 export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap): ReprocesoRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: ReprocesoRow[] = [];
   for (const r of reqs) {
     if (r.estado !== "CERRADO") continue;
-    rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, verdict: lateExcused(r.id, reproceso) ? "clean" : "reproceso" });
+    rows.push({
+      id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo,
+      projCode: "", projName: "", fase: r.grupo, pm: r.pm, deadline: r.deadline,
+      verdict: lateExcused(r.id, reproceso) ? "clean" : "reproceso", itemsDone: [], totalDone: 0,
+    });
   }
-  const groups = new Map<string, ProjItem[]>();
-  for (const p of projs) {
-    const key = projPhaseKey(p.boardId, p.grupo);
-    const arr = groups.get(key);
-    if (arr) arr.push(p); else groups.set(key, [p]);
-  }
-  for (const [key, items] of groups) {
-    if (!items.every((it) => it.status === "Done")) continue;
-    const first = items[0];
-    const pm = bpm.get(first.boardId) ?? first.pm;
-    rows.push({ id: key, source: "Proyecto", name: `${first.boardName} · ${first.grupo}`, pm, verdict: lateExcused(key, reproceso) ? "clean" : "reproceso" });
+  for (const g of groupFaseReproceso(projs).values()) {
+    if (g.items.length === 0) continue;
+    const pm = bpm.get(g.boardId) ?? g.pm;
+    const { code: projCode, name: projName } = splitBoardName(g.boardName);
+    rows.push({
+      id: g.key, source: "Proyecto", tipo: "PM", name: `${projName} · ${g.fase}`,
+      context: `${g.boardName} · ${g.fase}`, projCode, projName, fase: g.fase, pm, deadline: null,
+      verdict: lateExcused(g.key, reproceso) ? "clean" : "reproceso", itemsDone: g.items, totalDone: g.items.length,
+    });
   }
   return rows;
 }
@@ -571,10 +608,9 @@ export interface ReprocesoRawRow {
   responsible: DelayResponsible;     // opción elegida en el dropdown (incluye "Sin reproceso")
 }
 
-/** Filas RAW de "Calidad de Entregas" — mismo universo que calcReprocesoStatsRaw:
- *  solo unidades con responsable YA seleccionado en el dropdown de Reproceso, con
- *  la opción elegida tal cual (incluye "Sin reproceso"). Usada para el detalle de
- *  la tarjeta principal del Control Tower (desglose por opción + nombre/id). */
+/** Filas RAW de "Calidad de Entregas" — solo unidades con responsable YA seleccionado,
+ *  con la opción elegida tal cual (incluye "Sin reproceso"). Para detalle de tarjeta
+ *  principal del Control Tower. */
 export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap): ReprocesoRawRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: ReprocesoRawRow[] = [];
@@ -584,19 +620,13 @@ export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBo
     if (responsible == null) continue;
     rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible });
   }
-  const groups = new Map<string, ProjItem[]>();
-  for (const p of projs) {
-    const key = projPhaseKey(p.boardId, p.grupo);
-    const arr = groups.get(key);
-    if (arr) arr.push(p); else groups.set(key, [p]);
-  }
-  for (const [key, items] of groups) {
-    if (!items.every((it) => it.status === "Done")) continue;
-    const responsible = reproceso[key]?.responsible;
+  for (const g of groupFaseReproceso(projs).values()) {
+    if (g.items.length === 0) continue;
+    const responsible = reproceso[g.key]?.responsible;
     if (responsible == null) continue;
-    const first = items[0];
-    const pm = bpm.get(first.boardId) ?? first.pm;
-    rows.push({ id: key, source: "Proyecto", name: `${first.boardName} · ${first.grupo}`, pm, responsible });
+    const pm = bpm.get(g.boardId) ?? g.pm;
+    const { name: projName } = splitBoardName(g.boardName);
+    rows.push({ id: g.key, source: "Proyecto", name: `${projName} · ${g.fase}`, pm, responsible });
   }
   return rows;
 }

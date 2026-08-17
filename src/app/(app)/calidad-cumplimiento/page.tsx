@@ -279,11 +279,40 @@ function EntregaTab({ req, proj, projBoards, delays }: {
 }
 
 // ── Calidad de Entregas (Reproceso) ─────────────────────────────────────
+// Componente para mostrar items Done de una fase en acordeón (informativo)
+function FaseReprocesoAccordion({ items }: { items: { kind: "step" | "hito"; name: string; stepPadre: string; deadline: Date | null }[] }) {
+  return (
+    <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+      <table className="w-full text-left text-[0.76rem]">
+        <thead>
+          <tr style={{ background: "var(--bg-hover)" }}>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Tipo</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Nombre</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Step padre</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((it, i) => (
+            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+              <td className="px-3 py-1.5"><Pill tone={it.kind === "step" ? "info" : "warn"} small>{it.kind === "step" ? "Step" : "Hito"}</Pill></td>
+              <td className="px-3 py-1.5 text-[var(--text-primary)]">{it.name}</td>
+              <td className="px-3 py-1.5 text-[var(--text-secondary)]">{it.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(it.deadline)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ReprocesoTab({ req, proj, projBoards, reproceso }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap;
 }) {
   const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso), [req, proj, projBoards, reproceso]);
   const { pms, setPms, pmOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  const [abierta, setAbierta] = useState(new Set<string>());
 
   const conReproceso = byPm.filter((r) => r.verdict === "reproceso");
   const limpias = byPm.length - conReproceso.length;
@@ -297,6 +326,12 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
     .filter((r) => resps.length === 0 || resps.includes(responsableOf(r.id, reproceso)))
     .filter((r) => !soloProblema || r.verdict === "reproceso")
     .sort((a, b) => (a.verdict === b.verdict ? a.pm.localeCompare(b.pm) || a.name.localeCompare(b.name) : a.verdict === "reproceso" ? -1 : 1));
+
+  const toggleAbierta = (id: string) => {
+    const n = new Set(abierta);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    setAbierta(n);
+  };
 
   return (
     <div>
@@ -334,25 +369,37 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
 
       {/* Detalle */}
       {tableRows.length === 0 ? <EmptyRow /> : (
-        <div className="table-wrap">
-          <table className="pmo">
-            <thead>
-              <tr>
-                <th>Fuente</th><th>Nombre</th><th>PM</th><th>Estado</th><th>Responsable</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tableRows.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{r.source}</td>
-                  <td className="ini-name">{r.name}</td>
-                  <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                  <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
-                  <td><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-2">
+          {tableRows.map((r) => (
+            <Fragment key={r.id}>
+              <div className="table-wrap">
+                <table className="pmo">
+                  <tbody>
+                    <tr>
+                      <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{r.source}</td>
+                      <td className="ini-name">
+                        {r.source === "Proyecto" ? (
+                          <button onClick={() => toggleAbierta(r.id)} className="flex w-full items-center gap-2 cursor-pointer hover:text-[var(--accent)]">
+                            <span>{abierta.has(r.id) ? "▼" : "▶"}</span>
+                            {r.name}
+                          </button>
+                        ) : r.name}
+                      </td>
+                      <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
+                      <td><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              {r.source === "Proyecto" && abierta.has(r.id) && r.itemsDone.length > 0 && (
+                <div className="ml-4 mb-4">
+                  <div className="mb-2 text-[0.75rem] font-semibold text-[var(--text-muted)]">Items Done: {r.totalDone}</div>
+                  <FaseReprocesoAccordion items={r.itemsDone} />
+                </div>
+              )}
+            </Fragment>
+          ))}
         </div>
       )}
     </div>
