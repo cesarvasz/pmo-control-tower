@@ -23,7 +23,7 @@ const req = (o: Partial<ReqItem>): ReqItem => o as ReqItem;
 const proj = (o: Partial<ProjItem>): ProjItem => ({ subitems: [], ...o }) as ProjItem;
 const sub = (o: Partial<ProjSubitem>): ProjSubitem => o as ProjSubitem;
 const board = (o: Partial<ProjBoard>): ProjBoard => o as ProjBoard;
-const onTime = (verdict: "on-time" | "late" | "n/a"): ReqItem["onTime"] => ({ verdict } as ReqItem["onTime"]);
+const onTime = (verdict: "on-time" | "late" | "n/a", actual?: Date | null): ReqItem["onTime"] => ({ verdict, phases: actual ? [{ name: "Test", actual, target: null, late: false, slipDays: 0 }] : [] } as ReqItem["onTime"]);
 
 describe("reqStage", () => {
   it("mapea cada grupo a su etapa; \"Cierre ROI\" cuenta como Aprobación hasta que cierre", () => {
@@ -425,7 +425,7 @@ describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la 
 
 describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
   it("incluye REQ CERRADOS y fases completadas, con verdict clean/reproceso según el DelayMap", () => {
-    const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO" })];
+    const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO", onTime: onTime("on-time") })];
     const projs = [
       proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }),
       proj({ id: "p2", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }),

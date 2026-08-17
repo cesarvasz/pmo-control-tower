@@ -258,7 +258,7 @@ function EntregaTab({ req, proj, projBoards, delays }: {
             <thead>
               <tr>
                 <th style={{ width: 28 }}></th>
-                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>Plazo (PML)</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>PML deadline</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
@@ -298,8 +298,37 @@ function EntregaTab({ req, proj, projBoards, delays }: {
                         {r.source === "Proyecto" ? `${r.totalAtrasados} / ${r.totalEvaluados}` : <span className="text-[var(--text-disabled)]">—</span>}
                       </td>
                       <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>
-                        {r.source === "REQ" ? (r.deadline ? fmtDate(r.deadline) : <span className="text-[var(--text-disabled)]">—</span>) : <span className="text-[var(--text-disabled)]">—</span>}
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {r.source === "REQ" ? (
+                          <div style={{ fontSize: "0.82rem", lineHeight: 1.4, color: "var(--text-secondary)" }}>
+                            {r.plannedDeadline && (
+                              <div>
+                                <span style={{ fontWeight: 500 }}>Plan:</span> {fmtDate(r.plannedDeadline)}
+                              </div>
+                            )}
+                            {r.actualDeliveryDate && (
+                              <div>
+                                <span style={{ fontWeight: 500 }}>Real:</span> {fmtDate(r.actualDeliveryDate)}
+                              </div>
+                            )}
+                            {r.deliveryStatus && (
+                              <div style={{ marginTop: "0.25rem" }}>
+                                <span style={{
+                                  fontSize: "0.75rem",
+                                  padding: "0.125rem 0.375rem",
+                                  borderRadius: "0.25rem",
+                                  background: r.deliveryStatus === "on-time" ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                                  color: r.deliveryStatus === "on-time" ? "var(--ok)" : "var(--bad)"
+                                }}>
+                                  {r.deliveryStatus}
+                                </span>
+                              </div>
+                            )}
+                            {!r.plannedDeadline && <span className="text-[var(--text-disabled)]">—</span>}
+                          </div>
+                        ) : (
+                          <span className="text-[var(--text-disabled)]">—</span>
+                        )}
                       </td>
                       <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
                       <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
@@ -393,7 +422,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
             <thead>
               <tr>
                 <th style={{ width: 28 }}></th>
-                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Items Done</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Items Done</th><th>PM</th><th>PML deadline</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
@@ -432,7 +461,38 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
                         {r.source === "Proyecto" ? r.totalDone : <span className="text-[var(--text-disabled)]">—</span>}
                       </td>
                       <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{r.deadline ? fmtDate(r.deadline) : <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {r.source === "REQ" ? (
+                          <div style={{ fontSize: "0.82rem", lineHeight: 1.4, color: "var(--text-secondary)" }}>
+                            {r.plannedDeadline && (
+                              <div>
+                                <span style={{ fontWeight: 500 }}>Plan:</span> {fmtDate(r.plannedDeadline)}
+                              </div>
+                            )}
+                            {r.actualDeliveryDate && (
+                              <div>
+                                <span style={{ fontWeight: 500 }}>Real:</span> {fmtDate(r.actualDeliveryDate)}
+                              </div>
+                            )}
+                            {r.deliveryStatus && (
+                              <div style={{ marginTop: "0.25rem" }}>
+                                <span style={{
+                                  fontSize: "0.75rem",
+                                  padding: "0.125rem 0.375rem",
+                                  borderRadius: "0.25rem",
+                                  background: r.deliveryStatus === "on-time" ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                                  color: r.deliveryStatus === "on-time" ? "var(--ok)" : "var(--bad)"
+                                }}>
+                                  {r.deliveryStatus}
+                                </span>
+                              </div>
+                            )}
+                            {!r.plannedDeadline && <span className="text-[var(--text-disabled)]">—</span>}
+                          </div>
+                        ) : (
+                          <span className="text-[var(--text-disabled)]">—</span>
+                        )}
+                      </td>
                       <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
                       <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
                     </tr>
