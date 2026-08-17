@@ -279,40 +279,17 @@ function EntregaTab({ req, proj, projBoards, delays }: {
 }
 
 // ── Calidad de Entregas (Reproceso) ─────────────────────────────────────
-// Componente para mostrar items Done de una fase en acordeón (informativo)
-function FaseReprocesoAccordion({ items }: { items: { kind: "step" | "hito"; name: string; stepPadre: string; deadline: Date | null }[] }) {
-  return (
-    <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
-      <table className="w-full text-left text-[0.76rem]">
-        <thead>
-          <tr style={{ background: "var(--bg-hover)" }}>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Tipo</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Nombre</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Step padre</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it, i) => (
-            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
-              <td className="px-3 py-1.5"><Pill tone={it.kind === "step" ? "info" : "warn"} small>{it.kind === "step" ? "Step" : "Hito"}</Pill></td>
-              <td className="px-3 py-1.5 text-[var(--text-primary)]">{it.name}</td>
-              <td className="px-3 py-1.5 text-[var(--text-secondary)]">{it.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
-              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(it.deadline)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function ReprocesoTab({ req, proj, projBoards, reproceso }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap;
 }) {
   const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso), [req, proj, projBoards, reproceso]);
-  const { pms, setPms, pmOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
-  const [abierta, setAbierta] = useState(new Set<string>());
+  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const toggleAbierta = (id: string) => setAbiertas((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const conReproceso = byPm.filter((r) => r.verdict === "reproceso");
   const limpias = byPm.length - conReproceso.length;
@@ -326,12 +303,6 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
     .filter((r) => resps.length === 0 || resps.includes(responsableOf(r.id, reproceso)))
     .filter((r) => !soloProblema || r.verdict === "reproceso")
     .sort((a, b) => (a.verdict === b.verdict ? a.pm.localeCompare(b.pm) || a.name.localeCompare(b.name) : a.verdict === "reproceso" ? -1 : 1));
-
-  const toggleAbierta = (id: string) => {
-    const n = new Set(abierta);
-    if (n.has(id)) n.delete(id); else n.add(id);
-    setAbierta(n);
-  };
 
   return (
     <div>
@@ -353,6 +324,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
 
       {/* Filtros */}
       <div className="mb-4 flex flex-wrap items-end gap-3.5">
+        <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
         <MultiSelect label="PM" options={pmOpts} selected={pms} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
         <MultiSelect label="Responsable" options={respOpts} selected={resps} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
         <button
@@ -369,39 +341,96 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
 
       {/* Detalle */}
       {tableRows.length === 0 ? <EmptyRow /> : (
-        <div className="space-y-2">
-          {tableRows.map((r) => (
-            <Fragment key={r.id}>
-              <div className="table-wrap">
-                <table className="pmo">
-                  <tbody>
-                    <tr>
-                      <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{r.source}</td>
-                      <td className="ini-name">
-                        {r.source === "Proyecto" ? (
-                          <button onClick={() => toggleAbierta(r.id)} className="flex w-full items-center gap-2 cursor-pointer hover:text-[var(--accent)]">
-                            <span>{abierta.has(r.id) ? "▼" : "▶"}</span>
-                            {r.name}
-                          </button>
-                        ) : r.name}
+        <div className="table-wrap">
+          <table className="pmo">
+            <thead>
+              <tr>
+                <th style={{ width: 28 }}></th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Items Done</th><th>PM</th><th>Deadline</th><th>Estado</th><th>Responsable</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map((r) => {
+                const expandible = r.source === "Proyecto" && r.totalDone > 0;
+                const abierta = expandible && abiertas.has(r.id);
+                return (
+                  <Fragment key={r.id}>
+                    <tr className={expandible ? "cursor-pointer" : undefined} onClick={() => expandible && toggleAbierta(r.id)}>
+                      <td>
+                        {expandible && (
+                          <span
+                            className="inline-block text-[0.6rem] text-[var(--accent)]"
+                            style={{ transition: "transform 0.15s", transform: abierta ? "rotate(90deg)" : undefined }}
+                          >▶</span>
+                        )}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
+                      </td>
+                      <td>
+                        {r.projName ? (
+                          <div className="leading-tight">
+                            {r.projCode && <div className="ini-id">{r.projCode}</div>}
+                            <div style={{ color: "var(--text-secondary)" }}>{r.projName}</div>
+                          </div>
+                        ) : (
+                          <div className="leading-tight">
+                            <div className="ini-id">{r.id}</div>
+                            <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td className="tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                        {r.source === "Proyecto" ? r.totalDone : <span className="text-[var(--text-disabled)]">—</span>}
                       </td>
                       <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                      <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{r.deadline ? fmtDate(r.deadline) : <span className="text-[var(--text-disabled)]">—</span>}</td>
                       <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
-                      <td><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
+                      <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
                     </tr>
-                  </tbody>
-                </table>
-              </div>
-              {r.source === "Proyecto" && abierta.has(r.id) && r.itemsDone.length > 0 && (
-                <div className="ml-4 mb-4">
-                  <div className="mb-2 text-[0.75rem] font-semibold text-[var(--text-muted)]">Items Done: {r.totalDone}</div>
-                  <FaseReprocesoAccordion items={r.itemsDone} />
-                </div>
-              )}
-            </Fragment>
-          ))}
+                    {abierta && (
+                      <tr>
+                        <td></td>
+                        <td colSpan={8} className="pb-3">
+                          <FaseReprocesoAccordion items={r.itemsDone} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function FaseReprocesoAccordion({ items }: { items: { kind: "step" | "hito"; name: string; stepPadre: string; deadline: Date | null }[] }) {
+  return (
+    <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+      <table className="w-full text-left text-[0.76rem]">
+        <thead>
+          <tr style={{ background: "var(--bg-hover)" }}>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Tipo</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Nombre</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Step padre</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((it, i) => (
+            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+              <td className="px-3 py-1.5"><Pill tone="bad" small>{it.kind === "step" ? "Step" : "Hito"}</Pill></td>
+              <td className="px-3 py-1.5 text-[var(--text-primary)]">{it.name}</td>
+              <td className="px-3 py-1.5 text-[var(--text-secondary)]">{it.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(it.deadline)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
