@@ -90,10 +90,12 @@ function ResponsibleBars({ counts, total }: { counts: Record<string, number>; to
 }
 
 // ── Filtros compartidos por ambas pestañas ─────────────────────────────────
-function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" }>(rows: T[]) {
+function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML"; id?: string; source?: "REQ" | "Proyecto"; projCode?: string }>(rows: T[]) {
   const [pms, setPms] = useState<string[]>([]);
   const [tipos, setTipos] = useState<string[]>([]);
   const [resps, setResps] = useState<string[]>([]);
+  const [pmlIds, setPmlIds] = useState<string[]>([]);
+  const [projIds, setProjIds] = useState<string[]>([]);
   const [soloProblema, setSoloProblema] = useState(true);
 
   const allPMs = useMemo(() => [...new Set(rows.map((r) => r.pm).filter(Boolean))].sort(), [rows]);
@@ -106,17 +108,29 @@ function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" }>(rows: T[])
     value: t, label: t, count: rows.filter((r) => r.tipo === t).length,
   }));
 
+  const allPmlIds = useMemo(() => [...new Set(rows.filter((r) => r.source === "REQ").map((r) => r.id).filter(Boolean) as string[])].sort(), [rows]);
+  const pmlOpts: MSOption[] = allPmlIds.map((id) => ({
+    value: id, label: id, count: rows.filter((r) => r.id === id).length,
+  }));
+
+  const allProjIds = useMemo(() => [...new Set(rows.filter((r) => r.source === "Proyecto").map((r) => r.projCode).filter(Boolean) as string[])].sort(), [rows]);
+  const projOpts: MSOption[] = allProjIds.map((code) => ({
+    value: code, label: code, count: rows.filter((r) => r.projCode === code).length,
+  }));
+
   const byPm = useMemo(
     () => rows.filter((r) =>
       (pms.length === 0 || pms.includes(r.pm)) &&
-      (tipos.length === 0 || (r.tipo != null && tipos.includes(r.tipo)))),
-    [rows, pms, tipos],
+      (tipos.length === 0 || (r.tipo != null && tipos.includes(r.tipo))) &&
+      (pmlIds.length === 0 || (r.source !== "REQ" || pmlIds.includes(r.id ?? ""))) &&
+      (projIds.length === 0 || (r.source !== "Proyecto" || projIds.includes(r.projCode ?? "")))),
+    [rows, pms, tipos, pmlIds, projIds],
   );
 
-  const anyFilter = pms.length > 0 || tipos.length > 0 || resps.length > 0 || !soloProblema;
-  const reset = () => { setPms([]); setTipos([]); setResps([]); setSoloProblema(true); };
+  const anyFilter = pms.length > 0 || tipos.length > 0 || resps.length > 0 || pmlIds.length > 0 || projIds.length > 0 || !soloProblema;
+  const reset = () => { setPms([]); setTipos([]); setResps([]); setPmlIds([]); setProjIds([]); setSoloProblema(true); };
 
-  return { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset };
+  return { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset };
 }
 
 // ── Cumplimiento de Entrega ─────────────────────────────────────────────
@@ -155,7 +169,7 @@ function EntregaTab({ req, proj, projBoards, delays }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap;
 }) {
   const rows = useMemo(() => buildEntregaRows(req, proj, projBoards), [req, proj, projBoards]);
-  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const toggleAbierta = (id: string) => setAbiertas((s) => {
     const n = new Set(s);
@@ -198,6 +212,8 @@ function EntregaTab({ req, proj, projBoards, delays }: {
       <div className="mb-4 flex flex-wrap items-end gap-3.5">
         <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
         <MultiSelect label="PM" options={pmOpts} selected={pms} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
+        <MultiSelect label="PML ID" options={pmlOpts} selected={pmlIds} onToggle={(v, ch) => setPmlIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPmlIds([])} />
+        <MultiSelect label="Proyecto" options={projOpts} selected={projIds} onToggle={(v, ch) => setProjIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setProjIds([])} />
         <MultiSelect label="Responsable" options={respOpts} selected={resps} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
         <button
           onClick={() => setSoloProblema((v) => !v)}
@@ -283,7 +299,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap;
 }) {
   const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso), [req, proj, projBoards, reproceso]);
-  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const toggleAbierta = (id: string) => setAbiertas((s) => {
     const n = new Set(s);
@@ -326,6 +342,8 @@ function ReprocesoTab({ req, proj, projBoards, reproceso }: {
       <div className="mb-4 flex flex-wrap items-end gap-3.5">
         <MultiSelect label="Tipo" options={tipoOpts} selected={tipos} onToggle={(v, ch) => setTipos((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setTipos([])} />
         <MultiSelect label="PM" options={pmOpts} selected={pms} onToggle={(v, ch) => setPms((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPms([])} />
+        <MultiSelect label="PML ID" options={pmlOpts} selected={pmlIds} onToggle={(v, ch) => setPmlIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setPmlIds([])} />
+        <MultiSelect label="Proyecto" options={projOpts} selected={projIds} onToggle={(v, ch) => setProjIds((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setProjIds([])} />
         <MultiSelect label="Responsable" options={respOpts} selected={resps} onToggle={(v, ch) => setResps((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)))} onToggleAll={() => setResps([])} />
         <button
           onClick={() => setSoloProblema((v) => !v)}
