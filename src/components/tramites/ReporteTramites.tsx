@@ -15,18 +15,16 @@ import MultiSelect from "@/components/MultiSelect";
 import BuscableSelect from "@/components/tramites/BuscableSelect";
 import BarraCiclo from "@/components/tramites/BarraCiclo";
 import TimelineMeses from "@/components/tramites/TimelineMeses";
-import TramitesSeries from "@/components/tramites/TramitesSeries";
-import TramitesCarga from "@/components/tramites/TramitesCarga";
-import { TablaDimension, TablaHitos } from "@/components/tramites/TramitesTablas";
-import CostoTiempo from "@/components/tramites/CostoTiempo";
 import CostoUnitario from "@/components/tramites/CostoUnitario";
+import CapacidadInstalada from "@/components/tramites/CapacidadInstalada";
 import Informe from "@/components/tramites/Informe";
 import { fmtHHMMSS, enDiasHabiles } from "@/lib/horario";
 import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
-  calcularIndicadores, composicionCiclo, serieTemporal, agruparPor, agruparPorPersona, coberturaHitos,
-  costoTiempo, costoUnitario, proyectarAnio, TARIFA_HORA_DEFECTO, ALCANCE_UNITARIO,
-  cargaYCapacidad, contarPersonas, exportarCSV,
+  calcularIndicadores, composicionCiclo,
+  costoTiempo, costoUnitario, costoPorPersona, ventanaDe,
+  proyectarAnio, TARIFA_HORA_DEFECTO, ALCANCE_UNITARIO,
+  exportarCSV,
   rangoEtapas, interseccionAlcance, etiquetaAlcance, recorridoAlcance,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
   type EtapaKey, type Filtros, type Metrica,
@@ -79,7 +77,6 @@ function IndicadorCard({ label, sub, valor, dias, variacion, cobertura, n }: {
 export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const [f, setF] = useState<Filtros>(FILTROS_VACIOS);
   const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
-  const [simultaneos, setSimultaneos] = useState(1);
   const [tarifa, setTarifa] = useState(TARIFA_HORA_DEFECTO);
   const [informe, setInforme] = useState(false);
 
@@ -92,30 +89,25 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const porDia = f.meses.length === 1;
 
   // Filtro global de "Tiempo": tramo contiguo T_i→T_j que se quiere ver. Con
-  // T1→T5 (por defecto) es "todas las etapas" y nada cambia. Reacciona en TODAS
-  // las secciones de abajo — cada una recibe `alcance` y recorta a ese tramo.
+  // T1→T5 (por defecto) es "todas las etapas" y nada cambia. Reacciona en la
+  // barra del ciclo, los indicadores y el costo por expediente (intersecado
+  // con Ducafast) — las demás secciones que lo usaban se quitaron temporalmente
+  // (Costo del tiempo → Plantilla y carga: se recalculan con nuevas reglas).
   const alcance = useMemo(() => rangoEtapas(f.etapaDesde, f.etapaHasta), [f.etapaDesde, f.etapaHasta]);
   const tramoLabel = etiquetaAlcance(alcance); // "" si son todas
 
   const comp = useMemo(() => composicionCiclo(exps, f.metrica, alcance), [exps, f.metrica, alcance]);
   const indicadores = useMemo(() => calcularIndicadores(exps, f.metrica, alcance), [exps, f.metrica, alcance]);
   const globales = useMemo(() => calcularIndicadores(todos, f.metrica, alcance), [todos, f.metrica, alcance]);
-  const serie = useMemo(() => serieTemporal(exps, f.metrica, porDia, alcance), [exps, f.metrica, porDia, alcance]);
-  const hitos = useMemo(() => coberturaHitos(exps, alcance), [exps, alcance]);
-  const porMesa = useMemo(() => agruparPor(exps, (e) => e.mesas, f.metrica, alcance), [exps, f.metrica, alcance]);
-  const porCliente = useMemo(() => agruparPor(exps, (e) => e.clientes, f.metrica, alcance), [exps, f.metrica, alcance]);
-  // Personas: el tiempo se atribuye por rol (Usuario T1–T4, Analista T5, ciclo
-  // completo si son la misma persona). Ver agruparPorPersona en lib/tramites.ts.
-  const porUsuario = useMemo(() => agruparPorPersona(exps, "usuario", f.metrica, alcance), [exps, f.metrica, alcance]);
-  const porAnalista = useMemo(() => agruparPorPersona(exps, "analista", f.metrica, alcance), [exps, f.metrica, alcance]);
-  const carga = useMemo(() => cargaYCapacidad(exps, simultaneos, porDia), [exps, simultaneos, porDia]);
-  // Costo: cuelga del mismo recorte, así que la línea de tiempo responde a los filtros.
-  const costo = useMemo(() => costoTiempo(exps, tarifa, porDia, false, alcance), [exps, tarifa, porDia, alcance]);
+  // Capacidad instalada: horas REALES por persona (unión de intervalos, sin
+  // sumar traslapes — ver costoPorPersona en lib/tramites.ts) dentro del tramo
+  // de "Tiempo" elegido, contra su disponibilidad de 44 h/semana escalada a la
+  // ventana del recorte.
+  const ventana = useMemo(() => ventanaDe(exps, alcance), [exps, alcance]);
+  const personas = useMemo(() => costoPorPersona(exps, tarifa, ventana, alcance), [exps, tarifa, ventana, alcance]);
   // El costo por expediente se mide SOLO sobre Ducafast (T1–T3), intersecado con
   // el filtro global de "Tiempo": si éste se acota a T1–T2, aquí se mide T1–T2
-  // (la parte de Ducafast que cae dentro del tramo elegido). Es un segundo pase
-  // completo sobre el mismo recorte, no un recorte del anterior: las horas
-  // reales salen de unir intervalos, y unir un tramo no se deduce de otro.
+  // (la parte de Ducafast que cae dentro del tramo elegido).
   const alcanceUnitario = useMemo(() => interseccionAlcance(alcance, ALCANCE_UNITARIO), [alcance]);
   const costoUnit = useMemo(
     () => costoTiempo(exps, tarifa, porDia, false, alcanceUnitario), [exps, tarifa, porDia, alcanceUnitario]);
@@ -128,9 +120,6 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       : proyectarAnio(costoUnit.serie, new Date(costoUnit.ventana.fin))),
     [costoUnit.serie, costoUnit.ventana.fin, porDia],
   );
-  // Plantilla del recorte: Usuario o Analista, sin duplicar a quien hace ambos.
-  const personasFiltro = useMemo(
-    () => contarPersonas(exps, (e) => [...e.usuarios, ...e.analistas]), [exps]);
 
   const set = (p: Partial<Filtros>) => setF((x) => ({ ...x, ...p }));
   const alternar = (k: DimFiltro, v: string) =>
@@ -215,9 +204,22 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
           </div>
         </div>
 
+        {/* Tarifa por hora: único control de dinero que le queda al reporte desde
+            que se quitó "Costo del tiempo" (que tenía este input); "Costo por
+            expediente" sigue necesitándola. */}
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Tarifa (USD/h)</span>
+          <input
+            type="number" min={0} step={0.5} value={tarifa}
+            onChange={(e) => setTarifa(Math.max(0, Number(e.target.value) || 0))}
+            className="w-24 rounded-lg border px-3 py-2 text-sm outline-none"
+            style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+          />
+        </label>
+
         {/* Filtro global de "Tiempo": qué tramo de la cadena T1–T5 se quiere ver.
-            Reacciona en TODO el reporte (barra del ciclo, indicadores, series,
-            tablas por dimensión/persona, costo del tiempo y costo por expediente). */}
+            Reacciona en la barra del ciclo, los indicadores y el costo por
+            expediente (intersecado con Ducafast). */}
         <div className="flex flex-col gap-1.5">
           <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Tramo de la cadena Creado→Firma que se quiere medir">
             Tiempo
@@ -286,56 +288,9 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
         />
       </div>
 
-      {/* ── Costo del tiempo ── */}
-      <Bloque titulo="Costo del tiempo" badge={tramoLabel ? `$${tarifa}/h · ${tramoLabel}` : `$${tarifa}/h`}>
-        <CostoTiempo
-          costo={costo} tarifa={tarifa} onTarifa={setTarifa}
-          porDia={porDia}
-          onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
-        />
-      </Bloque>
-
-      {/* ── Series ── */}
-      <Bloque titulo="Series de tiempo" badge={porDia ? "detalle diario" : "por mes"}>
-        <TramitesSeries serie={serie} porDia={porDia} alcance={alcance}
-          onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }} />
-      </Bloque>
-
-      {/* ── Cobertura de hitos ── */}
-      <Bloque titulo="Cobertura de hitos"
-        nota="Cuántos expedientes del recorte alcanzaron cada hito. Un tiempo bajo en una etapa puede ser un hito faltante, no rapidez.">
-        <TablaHitos filas={hitos} />
-      </Bloque>
-
-      {/* ── Por mesa ── */}
-      <Bloque titulo="Por mesa" badge={`${porMesa.length} mesas`}
-        nota="Un expediente cuya Mesa difiere entre filas cuenta en cada mesa en la que aparece.">
-        <TablaDimension filas={porMesa} etiqueta="Mesa" onFiltrar={(v) => alternar("mesas", v)} seleccion={f.mesas} alcance={alcance} />
-      </Bloque>
-
-      {/* ── Por cliente ── */}
-      <Bloque titulo="Por cliente" badge={`${porCliente.length} clientes`}>
-        <TablaDimension filas={porCliente} etiqueta="Cliente" onFiltrar={(v) => alternar("clientes", v)}
-          seleccion={f.clientes} buscable alcance={alcance} />
-      </Bloque>
-
-      {/* ── Por analista / usuario ── */}
-      <Bloque titulo="Por analista" badge={`${porAnalista.length}`}
-        nota="Al Analista se le atribuye solo T5 (Revisión → Solicitar firma), que es el tramo del que responde. Cuando además es el Usuario del expediente, hizo el trámite de punta a punta y carga el ciclo completo — esos son los de la columna «Punta a punta». Las etapas que no le tocan van en «—».">
-        <TablaDimension filas={porAnalista} etiqueta="Analista" onFiltrar={(v) => alternar("analistas", v)}
-          seleccion={f.analistas} buscable marcarBots columnaCiclo alcance={alcance} />
-      </Bloque>
-
-      <Bloque titulo="Por usuario" badge={`${porUsuario.length}`}
-        nota="Al Usuario se le atribuyen T1 a T4, hasta la Revisión del analista. Si él mismo fue el Analista, carga también T5 y con eso el ciclo completo.">
-        <TablaDimension filas={porUsuario} etiqueta="Usuario" onFiltrar={(v) => alternar("usuarios", v)}
-          seleccion={f.usuarios} buscable marcarBots columnaCiclo alcance={alcance} />
-      </Bloque>
-
-      {/* ── Plantilla y carga ── */}
-      <Bloque titulo="Plantilla y carga" badge={`${personasFiltro} personas`}
-        nota="La plantilla se cuenta, no se estima: personas distintas que aparecen como Usuario o Analista en cada periodo, sin duplicar a quien hace ambos papeles.">
-        <TramitesCarga filas={carga} simultaneos={simultaneos} onSimultaneos={setSimultaneos} />
+      {/* ── Capacidad instalada ── */}
+      <Bloque titulo="Capacidad instalada" badge={tramoLabel ? `$${tarifa}/h · ${tramoLabel}` : `$${tarifa}/h`}>
+        <CapacidadInstalada personas={personas} ventana={ventana} tarifa={tarifa} tramo={tramoLabel} />
       </Bloque>
 
       {/* ── Detalle y exportación ── */}

@@ -1052,6 +1052,12 @@ export interface FilaPersona {
   utilizacion: number;
   /** Diferencia en dinero entre la disponibilidad y lo usado. */
   costoSinUsar: number;
+  /** Roles con los que contribuyó horas medibles al alcance — puede ser ambos:
+   *  ya sea porque en unos expedientes fue Usuario y en otros Analista, o
+   *  porque en un mismo expediente fue AMBOS a la vez (mismaPersona) — ese caso
+   *  cuenta el ciclo completo una sola vez, pero queda marcado en los dos roles. */
+  esUsuario: boolean;
+  esAnalista: boolean;
 }
 
 /** Ventana del recorte: de la primera actividad medida a la última. */
@@ -1085,24 +1091,45 @@ export function ventanaDe(exps: Expediente[], alcance: EtapaKey[] = ETAPA_KEYS):
   return { inicio: min, fin: max, horas: segundosHabiles(new Date(min), new Date(max)) / 3600 };
 }
 
-/** Intervalos de cada persona, mezclando sus dos roles: es el mismo reloj. */
-function intervalosPorPersona(exps: Expediente[], alcance: EtapaKey[] = ETAPA_KEYS): Map<string, Intervalo[]> {
-  const m = new Map<string, Intervalo[]>();
-  const add = (p: string, iv: Intervalo | null) => {
+/** Intervalos de cada persona, mezclando sus dos roles (es el mismo reloj), y
+ *  con qué rol(es) contribuyó horas medibles dentro del alcance — para poder
+ *  clasificarla como Usuario / Analista / ambos (ver costoPorPersona).
+ *
+ *  Cuando Usuario y Analista son la MISMA persona en un expediente, su ciclo
+ *  completo ya se cuenta UNA sola vez (vía Usuario: etapasAtribuidas le da todo
+ *  el ciclo, no solo T1–T4) — el intervalo de Analista NO se vuelve a empujar
+ *  (sería duplicar la misma hora), pero la persona SÍ se marca también como
+ *  Analista, para que aparezca en ambos filtros mostrando el ciclo completo
+ *  detrás, en vez de perder esa etiqueta. */
+function intervalosPorPersona(
+  exps: Expediente[], alcance: EtapaKey[] = ETAPA_KEYS,
+): { intervalos: Map<string, Intervalo[]>; roles: Map<string, Set<Rol>> } {
+  const intervalos = new Map<string, Intervalo[]>();
+  const roles = new Map<string, Set<Rol>>();
+  const marcarRol = (p: string, rol: Rol) => {
+    const rs = roles.get(p);
+    if (rs) rs.add(rol); else roles.set(p, new Set([rol]));
+  };
+  const add = (p: string, rol: Rol, iv: Intervalo | null) => {
     if (!iv || p === SIN_DATO) return;
-    const l = m.get(p);
-    if (l) l.push(iv); else m.set(p, [iv]);
+    const l = intervalos.get(p);
+    if (l) l.push(iv); else intervalos.set(p, [iv]);
+    marcarRol(p, rol);
   };
   for (const e of exps) {
     const mismo = mismaPersona(e);
-    for (const u of e.usuarios) add(u, intervaloAtribuido(e, "usuario", alcance));
+    for (const u of e.usuarios) add(u, "usuario", intervaloAtribuido(e, "usuario", alcance));
     for (const a of e.analistas) {
-      // Si es la misma persona ya se contó su ciclo completo como Usuario.
-      if (mismo && e.usuarios.includes(a)) continue;
-      add(a, intervaloAtribuido(e, "analista", alcance));
+      if (mismo && e.usuarios.includes(a)) {
+        // No se duplica el intervalo, pero si hubo algo medido en el alcance
+        // (ya contado como Usuario) sí se marca el rol de Analista también.
+        if (a !== SIN_DATO && intervaloAtribuido(e, "usuario", alcance)) marcarRol(a, "analista");
+        continue;
+      }
+      add(a, "analista", intervaloAtribuido(e, "analista", alcance));
     }
   }
-  return m;
+  return { intervalos, roles };
 }
 
 /**
@@ -1124,13 +1151,15 @@ export function costoPorPersona(
 ): FilaPersona[] {
   const v = ventana ?? ventanaDe(exps, alcance);
   const costoDisponible = v.horas * tarifa;
+  const { intervalos, roles } = intervalosPorPersona(exps, alcance);
 
-  return [...intervalosPorPersona(exps, alcance).entries()]
+  return [...intervalos.entries()]
     .map(([clave, lista]) => {
       const bloques = unirIntervalos(lista);
       const suma = lista.reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0) / 3600;
       const reales = bloques.reduce((s, iv) => s + segundosHabiles(new Date(iv.inicio), new Date(iv.fin)), 0) / 3600;
       const costo = reales * tarifa;
+      const rs = roles.get(clave);
       return {
         clave, label: clave,
         expedientes: lista.length,
@@ -1144,6 +1173,8 @@ export function costoPorPersona(
         costoDisponible,
         utilizacion: v.horas > 0 ? reales / v.horas : 0,
         costoSinUsar: Math.max(0, costoDisponible - costo),
+        esUsuario: rs?.has("usuario") ?? false,
+        esAnalista: rs?.has("analista") ?? false,
       };
     })
     .sort((a, b) => b.horasReales - a.horasReales);
@@ -1373,7 +1404,7 @@ export function costoTiempo(
 function intervalosPorPersonaFiltrado(
   exps: Expediente[], incluirBots: boolean, alcance: EtapaKey[] = ETAPA_KEYS,
 ): Map<string, Intervalo[]> {
-  const m = intervalosPorPersona(exps, alcance);
+  const { intervalos: m } = intervalosPorPersona(exps, alcance);
   if (incluirBots) return m;
   for (const p of [...m.keys()]) if (esAutomatizado(p)) m.delete(p);
   return m;

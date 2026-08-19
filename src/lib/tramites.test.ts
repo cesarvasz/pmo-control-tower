@@ -1199,6 +1199,41 @@ describe("disponibilidad contra uso", () => {
     expect(ana.utilizacion).toBeCloseTo(0.8, 8);
   });
 
+  it("esUsuario/esAnalista clasifican a cada persona por el rol con que contribuyó horas", () => {
+    const exps = construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]);
+    const [ana] = costoPorPersona(exps, 8).filter((p) => p.clave === "ANA");
+    const [beto] = costoPorPersona(exps, 8).filter((p) => p.clave === "BETO");
+    expect(ana).toMatchObject({ esUsuario: true, esAnalista: false });
+    expect(beto).toMatchObject({ esUsuario: false, esAnalista: true });
+  });
+
+  it("quien es Usuario en un expediente y Analista en otro queda marcado en ambos roles", () => {
+    const exps = construirExpedientes([
+      fila({ c807_file: "A", Usuario: "ANA", Analista: "BETO" }),
+      fila({ c807_file: "B", Usuario: "CARLA", Analista: "ANA" }),
+    ]);
+    const [ana] = costoPorPersona(exps, 8).filter((p) => p.clave === "ANA");
+    expect(ana).toMatchObject({ esUsuario: true, esAnalista: true });
+  });
+
+  it("quien hace ambos papeles en el MISMO expediente queda marcado en AMBOS roles, sin duplicar la hora", () => {
+    // mismaPersona: su ciclo completo se cuenta UNA sola vez (vía Usuario,
+    // etapasAtribuidas le da las 5 etapas), pero se marca también Analista
+    // para que aparezca en los dos filtros mostrando el ciclo completo.
+    const exps = construirExpedientes([fila({ Usuario: "ANA", Analista: "ANA" })]);
+    const [ana] = costoPorPersona(exps, 8).filter((p) => p.clave === "ANA");
+    expect(ana).toMatchObject({ esUsuario: true, esAnalista: true });
+    expect(ana.horasReales).toBe(5);  // ciclo completo (Creado→Firma), una sola vez
+    expect(ana.expedientes).toBe(1);  // no se duplicó el intervalo
+  });
+
+  it("el alcance recorta el rol: si el tramo de su rol queda fuera, no se marca", () => {
+    // BETO solo es Analista (T5); con el alcance Ducafast (T1-T3) no le toca nada.
+    const exps = construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]);
+    const filas = costoPorPersona(exps, 8, undefined, ALCANCE_UNITARIO);
+    expect(filas.map((p) => p.clave)).toEqual(["ANA"]); // BETO ni aparece
+  });
+
   it("el total disponible es la plantilla por la ventana", () => {
     const c = costoTiempo(construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]), 8);
     expect(c.personas).toHaveLength(2);
