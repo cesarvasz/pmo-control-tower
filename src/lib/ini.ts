@@ -278,6 +278,12 @@ export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap?: CalMap)
   return { status, index, onTrack, inRisk, offTrack, total };
 }
 
+/** Iniciativas en Plan Futuro del PM cuya fecha Plan Futuro ya es hoy o ya pasó. */
+export function countPlanFuturoDue(pm: string, iniData: IniItem[]): number {
+  const t = today();
+  return iniData.filter((r) => r.pm === pm && r.estado === "PLAN_FUTURO" && r.planFuturo && r.planFuturo <= t).length;
+}
+
 /** "Para Hoy" de iniciativas: deadline calculado hoy O reunión agendada hoy. */
 export function iniIsParaHoy(r: IniItem, calMap: CalMap): boolean {
   if (isToday(r.deadline)) return true;

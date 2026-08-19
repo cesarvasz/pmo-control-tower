@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
-import { calcIniPMHealth, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
+import { calcIniPMHealth, countPlanFuturoDue, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
 import { type BoardHealthData } from "@/lib/proj";
 import {
   reqStageAmounts, projStageAmounts, sumStageAmounts, type StageAmounts,
@@ -555,7 +555,7 @@ function PMPortfolioCard({
   const [showEntregaDetail, setShowEntregaDetail] = useState(false);
 
   const {
-    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, pmNps, npsColor,
+    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
@@ -564,6 +564,7 @@ function PMPortfolioCard({
   const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
   const pmValueHard = calcPmValue(pm, req, proj, projBoards, true); // el badge $ muestra siempre solo HardSaving
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
+  const planFuturoDue = countPlanFuturoDue(pm, ini);
 
   // NPS personal del PM (mismas fórmulas, filtrando por PM).
   const pmNps = calcNpsFromRecords(npsRecords, pm);
@@ -631,7 +632,7 @@ function PMPortfolioCard({
   const hc = HEALTH_CFG[pmHealth];
 
   return {
-    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, pmNps, npsColor,
+    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
@@ -698,6 +699,12 @@ function PMPortfolioCard({
           <Stat n={iniHealth.offTrack} color="#ef4444" label="Off Track" />
           <Stat n={iniHealth.inRisk} color="#f59e0b" label="At Risk" />
           <Stat n={iniHealth.onTrack} color="#10b981" label="On Track" />
+          {planFuturoDue > 0 && (
+            <div className="mt-1">
+              <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Plan Futuro</div>
+              <div className="text-[0.82rem] font-bold" style={{ color: "#6c63ff" }}>{planFuturoDue}</div>
+            </div>
+          )}
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section
