@@ -23,9 +23,9 @@ import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
   calcularIndicadores, composicionCiclo,
   costoTiempo, costoUnitario, costoPorPersona, ventanaDe,
-  proyectarAnio, TARIFA_HORA_DEFECTO, ALCANCE_UNITARIO,
+  proyectarAnio, TARIFA_HORA_DEFECTO,
   exportarCSV,
-  rangoEtapas, interseccionAlcance, etiquetaAlcance, recorridoAlcance,
+  rangoEtapas, etiquetaAlcance, recorridoAlcance,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
   type EtapaKey, type Filtros, type Metrica,
 } from "@/lib/tramites";
@@ -90,9 +90,10 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
 
   // Filtro global de "Tiempo": tramo contiguo T_i→T_j que se quiere ver. Con
   // T1→T5 (por defecto) es "todas las etapas" y nada cambia. Reacciona en la
-  // barra del ciclo, los indicadores y el costo por expediente (intersecado
-  // con Ducafast) — las demás secciones que lo usaban se quitaron temporalmente
-  // (Costo del tiempo → Plantilla y carga: se recalculan con nuevas reglas).
+  // barra del ciclo, los indicadores, Capacidad instalada y Costo por
+  // expediente — TODOS con el mismo `alcance`, para que cuadren entre sí (las
+  // demás secciones que también lo usaban se quitaron temporalmente: Costo del
+  // tiempo → Plantilla y carga, se recalculan con nuevas reglas).
   const alcance = useMemo(() => rangoEtapas(f.etapaDesde, f.etapaHasta), [f.etapaDesde, f.etapaHasta]);
   const tramoLabel = etiquetaAlcance(alcance); // "" si son todas
 
@@ -105,12 +106,14 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   // ventana del recorte.
   const ventana = useMemo(() => ventanaDe(exps, alcance), [exps, alcance]);
   const personas = useMemo(() => costoPorPersona(exps, tarifa, ventana, alcance), [exps, tarifa, ventana, alcance]);
-  // El costo por expediente se mide SOLO sobre Ducafast (T1–T3), intersecado con
-  // el filtro global de "Tiempo": si éste se acota a T1–T2, aquí se mide T1–T2
-  // (la parte de Ducafast que cae dentro del tramo elegido).
-  const alcanceUnitario = useMemo(() => interseccionAlcance(alcance, ALCANCE_UNITARIO), [alcance]);
+  // Costo por expediente: MISMO alcance que Capacidad instalada (antes estaba
+  // fijo a Ducafast T1–T3; ahora sigue el filtro global de "Tiempo" completo),
+  // para que "personas que hoy participan" cuadre exactamente con el tile
+  // "Personas" de Capacidad instalada. Sigue siendo un segundo pase completo
+  // sobre el mismo recorte, no un recorte del anterior: las horas reales salen
+  // de unir intervalos, y unir un tramo no se deduce de otro.
   const costoUnit = useMemo(
-    () => costoTiempo(exps, tarifa, porDia, false, alcanceUnitario), [exps, tarifa, porDia, alcanceUnitario]);
+    () => costoTiempo(exps, tarifa, porDia, false, alcance), [exps, tarifa, porDia, alcance]);
   const unitario = useMemo(() => costoUnitario(costoUnit), [costoUnit]);
   // La proyección arranca de la última actividad medida, no de la fecha del
   // navegador: si los datos van atrasados, proyectar desde "hoy" mentiría.
@@ -218,8 +221,8 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
         </label>
 
         {/* Filtro global de "Tiempo": qué tramo de la cadena T1–T5 se quiere ver.
-            Reacciona en la barra del ciclo, los indicadores y el costo por
-            expediente (intersecado con Ducafast). */}
+            Reacciona en la barra del ciclo, los indicadores, Capacidad
+            instalada y Costo por expediente — todos con el mismo tramo. */}
         <div className="flex flex-col gap-1.5">
           <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Tramo de la cadena Creado→Firma que se quiere medir">
             Tiempo

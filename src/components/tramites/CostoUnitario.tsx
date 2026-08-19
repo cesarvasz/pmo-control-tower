@@ -3,9 +3,9 @@
 // Acordeón: cuánto cuesta un expediente, con qué plantilla se haría el mismo
 // trabajo al 95% de ocupación, y cómo se ve el resto del año.
 //
-// A DIFERENCIA del resto del reporte, mide solo el tramo Ducafast (T1–T3): el
-// `costo` que recibe viene calculado con ese alcance. Por eso sus números no
-// cuadran con los del bloque «Costo del tiempo», que sí abarca las 5 etapas.
+// Mide el MISMO tramo que el filtro global de "Tiempo" (el `costo` que recibe
+// ya viene calculado con ese alcance) — el mismo que usa Capacidad instalada,
+// así que "personas que hoy participan" cuadra con su tile "Personas".
 //
 // Todo cuelga del recorte ya filtrado, así que se recalcula solo al mover
 // cualquier filtro — el acordeón no guarda copia de nada.
@@ -51,7 +51,7 @@ export default function CostoUnitario({
         {tramo && (
           <span className="rounded-md px-2 py-0.5 text-[0.68rem] font-bold uppercase tracking-wider"
             style={{ background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-            solo {tramo} · Ducafast
+            tramo {tramo}
           </span>
         )}
         <span className="tabular-nums rounded-md px-2 py-0.5 text-[0.82rem] font-extrabold"
@@ -72,10 +72,13 @@ export default function CostoUnitario({
           {tramo && (
             <p className="mb-3 rounded-lg px-3 py-2 text-[0.72rem] leading-relaxed"
               style={{ background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-              Este bloque mide <strong>solo {tramo}</strong> ({recorrido}) — el tramo Ducafast. La
-              revisión del analista y la firma quedan fuera, así que estas cifras son más bajas que
-              las del bloque «Costo del tiempo», que sí abarca el ciclo completo. La plantilla que
-              se cuenta abajo es la que participa en ese tramo, no toda la del recorte.
+              Este bloque mide el tramo <strong>{tramo}</strong> ({recorrido}) elegido en el filtro
+              &quot;Tiempo&quot; — el mismo tramo que usa Capacidad instalada, así que las{" "}
+              <strong>personas</strong> de ambos bloques cuadran entre sí. Los{" "}
+              <strong>expedientes</strong> no siempre cuadran exacto: aquí solo se cuentan los que
+              tuvieron tiempo en horario hábil (L–V), mientras que la columna &quot;Expedientes&quot;
+              de Capacidad instalada cuenta por marca de reloj — un trámite hecho de noche o fin de
+              semana puede aparecer ahí con 0 horas hábiles y por eso no sumar aquí.
             </p>
           )}
 

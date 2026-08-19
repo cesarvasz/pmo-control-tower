@@ -183,7 +183,7 @@ export default function CapacidadInstalada({
           <thead>
             <tr>
               <th title="Usuario y/o Analista, según el rol con que le tocó cada expediente. Si aparece en ambos roles del mismo expediente (la misma persona hizo todo el trámite), cuenta una sola vez con el ciclo completo.">Persona</th>
-              <th style={{ textAlign: "center" }} title="Cantidad de expedientes con horas medidas atribuidas a esta persona, dentro del tramo elegido.">Expedientes</th>
+              <th style={{ textAlign: "center" }} title="Cantidad de expedientes con un intervalo de reloj atribuido a esta persona, dentro del tramo elegido. Cuenta por MARCA DE RELOJ (inicio-fin real), no por horas hábiles: un expediente tramitado de noche o fin de semana cuenta aquí aunque su tiempo hábil dé 0 y por eso no aparezca en el n de «Costo por expediente» (que solo cuenta horario hábil L-V).">Expedientes</th>
               <th style={{ textAlign: "center" }} title="Suma de sus expedientes: cuenta la misma hora tantas veces como trámites tenía abiertos a la vez (no descuenta traslapes).">Suma</th>
               <th style={{ textAlign: "center" }} title="Unión de sus tramos: cada hora del reloj cuenta una sola vez, sin importar cuántos expedientes llevaba en paralelo. Esta es la que se usa para el costo y la utilización.">Horas reales</th>
               <th style={{ textAlign: "center" }} title={`Capacidad instalada: ${HORAS_SEMANA_PERSONA} h/semana escaladas a la ventana del recorte (misma ventana para todos).`}>Disponibles</th>

@@ -422,12 +422,14 @@ export function composicionCiclo(exps: Expediente[], metrica: Metrica, alcance: 
 export const UTILIZACION_OBJETIVO = 0.95;
 
 /**
- * Tramo del ciclo con el que se calcula el costo por expediente: Ducafast, de
- * Creado a Creación Pre-DUCA. Es la parte que la operación efectivamente
- * trabaja; la revisión del analista y la firma van después y no entran aquí.
- *
- * Solo lo usa el acordeón del costo unitario. El resto del reporte —el costo
- * del tiempo, la tabla por persona, la barra del ciclo— sigue con las 5 etapas.
+ * Tramo Ducafast del ciclo: de Creado a Creación Pre-DUCA. Es la parte que la
+ * operación efectivamente trabaja; la revisión del analista y la firma van
+ * después. Se usa como corchete informativo sobre la barra del ciclo (ver
+ * GRUPOS_ETAPAS) y como alcance fijo del Informe anual (lib/informe.ts), que
+ * no tiene el filtro interactivo de "Tiempo". El acordeón "Costo por
+ * expediente" del reporte interactivo YA NO lo usa: sigue el mismo alcance
+ * que el resto del reporte (el filtro global de "Tiempo"), para cuadrar con
+ * Capacidad instalada.
  */
 export const ALCANCE_UNITARIO: EtapaKey[] = GRUPOS_ETAPAS[0].etapas;
 

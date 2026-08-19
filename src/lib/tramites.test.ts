@@ -1060,9 +1060,11 @@ describe("alcance de etapas", () => {
 });
 
 // Filtro global "Tiempo" del reporte: un rango T_i→T_j elegido por el usuario
-// que reacciona en TODAS las secciones (barra del ciclo, indicadores, series,
-// tablas por dimensión/persona, costo del tiempo y — intersecado con Ducafast —
-// costo por expediente). Ver rangoEtapas/interseccionAlcance/totalEnAlcance.
+// que reacciona en la barra del ciclo, los indicadores, Capacidad instalada y
+// Costo por expediente — todas con el MISMO alcance (interseccionAlcance ya
+// no se usa para acotar costo por expediente a Ducafast; eso quedó solo para
+// el Informe anual y como corchete informativo de la barra del ciclo).
+// Ver rangoEtapas/interseccionAlcance/totalEnAlcance.
 describe("filtro global de Tiempo", () => {
   it("rangoEtapas arma un tramo contiguo sin importar el orden de desde/hasta", () => {
     expect(rangoEtapas("t2", "t4")).toEqual(["t2", "t3", "t4"]);
