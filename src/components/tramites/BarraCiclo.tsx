@@ -14,23 +14,25 @@ import type { Composicion, EtapaKey } from "@/lib/tramites";
 const MIN_PCT_ETIQUETA = 7; // por debajo de esto la etiqueta no cabe dentro del tramo
 
 export default function BarraCiclo({
-  comp, metricaLabel, activa, onActivar,
+  comp, metricaLabel, activa, onActivar, tramo,
 }: {
   comp: Composicion;
   metricaLabel: string;
   activa: EtapaKey | null;
   onActivar: (k: EtapaKey | null) => void;
+  /** Etiqueta del filtro global de "Tiempo" (ej. "T1–T3"); vacío si son todas. */
+  tramo?: string;
 }) {
   const dias = enDiasHabiles(comp.total);
   const visibles = comp.segmentos.filter((s) => s.pct > 0);
 
   return (
     <div className="viz-etapas rounded-xl border p-5" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
-      {/* Encabezado: el total real del ciclo */}
+      {/* Encabezado: el total real del ciclo (o del tramo elegido) */}
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-[0.66rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            {metricaLabel} del ciclo completo
+            {metricaLabel} {tramo ? `del tramo ${tramo}` : "del ciclo completo"}
           </div>
           <div className="mt-0.5 flex items-baseline gap-2.5">
             <span className="tabular-nums text-[2rem] font-extrabold leading-none text-[var(--card-value-total)]">

@@ -8,6 +8,7 @@ import {
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
   unirIntervalos, costoPorPersona, ventanaDe, contarLicencias, costoUnitario, proyectarAnio,
   etiquetaAlcance, recorridoAlcance, hitosDelAlcance,
+  rangoEtapas, interseccionAlcance, totalEnAlcance,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS, ALCANCE_UNITARIO,
   type Filtros,
 } from "./tramites";
@@ -1055,6 +1056,106 @@ describe("alcance de etapas", () => {
     expect(a.horas).toBe(b.horas);
     expect(a.n).toBe(b.n);
     expect(a.alcance).toEqual(ETAPA_KEYS);
+  });
+});
+
+// Filtro global "Tiempo" del reporte: un rango T_i→T_j elegido por el usuario
+// que reacciona en TODAS las secciones (barra del ciclo, indicadores, series,
+// tablas por dimensión/persona, costo del tiempo y — intersecado con Ducafast —
+// costo por expediente). Ver rangoEtapas/interseccionAlcance/totalEnAlcance.
+describe("filtro global de Tiempo", () => {
+  it("rangoEtapas arma un tramo contiguo sin importar el orden de desde/hasta", () => {
+    expect(rangoEtapas("t2", "t4")).toEqual(["t2", "t3", "t4"]);
+    expect(rangoEtapas("t4", "t2")).toEqual(["t2", "t3", "t4"]); // invertido: mismo tramo
+    expect(rangoEtapas("t1", "t5")).toEqual(ETAPA_KEYS);
+    expect(rangoEtapas("t3", "t3")).toEqual(["t3"]);
+  });
+
+  it("interseccionAlcance combina el filtro global con un alcance fijo (Ducafast)", () => {
+    expect(interseccionAlcance(rangoEtapas("t1", "t2"), ALCANCE_UNITARIO)).toEqual(["t1", "t2"]);
+    expect(interseccionAlcance(rangoEtapas("t4", "t5"), ALCANCE_UNITARIO)).toEqual([]); // sin traslape
+    expect(interseccionAlcance(ETAPA_KEYS, ALCANCE_UNITARIO)).toEqual(ALCANCE_UNITARIO);
+  });
+
+  it("totalEnAlcance suma solo las etapas del tramo y exige que ESAS estén completas", () => {
+    const e = construirExpedientes([fila({})])[0]; // 1 h por etapa
+    expect(totalEnAlcance(e, ["t1", "t2"])).toBe(7200); // 2 h, ignora t3-t5
+    expect(totalEnAlcance(e, ETAPA_KEYS)).toBe(e.total); // alcance completo = e.total
+    const incompleto = construirExpedientes([fila({ DPR: "" })])[0]; // sin hito de t1/t2
+    expect(totalEnAlcance(incompleto, ["t1", "t2"])).toBeNull(); // le falta t1 (y t2) dentro del tramo
+    expect(totalEnAlcance(incompleto, ["t3"])).not.toBeNull(); // t3 no depende de DPR
+  });
+
+  it("calcularIndicadores recorta las tarjetas y el Total refleja el tramo", () => {
+    const exps = construirExpedientes([fila({})]);
+    const ind = calcularIndicadores(exps, "mediana", rangoEtapas("t1", "t2"));
+    expect(ind.map((i) => i.key)).toEqual(["t1", "t2", "total"]);
+    expect(ind.find((i) => i.key === "total")!.label).toBe("Total · T1–T2");
+    expect(ind.find((i) => i.key === "total")!.valor).toBe(7200); // 2 h
+  });
+
+  it("calcularIndicadores omite el Total si el tramo es una sola etapa (sería redundante)", () => {
+    const exps = construirExpedientes([fila({})]);
+    const ind = calcularIndicadores(exps, "mediana", ["t3"]);
+    expect(ind.map((i) => i.key)).toEqual(["t3"]); // sin fila "total" duplicada
+  });
+
+  it("composicionCiclo recorta segmentos, exige solo las etapas del tramo y sigue sumando 100", () => {
+    const exps = construirExpedientes([fila({})]);
+    const c = composicionCiclo(exps, "mediana", rangoEtapas("t1", "t3"));
+    expect(c.segmentos.map((s) => s.key)).toEqual(["t1", "t2", "t3"]);
+    expect(c.total).toBe(10800); // 3 h
+    expect(c.segmentos.reduce((s, x) => s + x.pct, 0)).toBeCloseTo(100, 8);
+    // Ducafast (t1-t3) SÍ cabe entero en el tramo t1-t3 → se dibuja.
+    expect(c.grupos.map((g) => g.key)).toEqual(["ducafast"]);
+  });
+
+  it("composicionCiclo oculta un grupo con nombre que no cabe entero en el tramo", () => {
+    const exps = construirExpedientes([fila({})]);
+    // Ducafast es t1-t3; un tramo t2-t4 solo cubre una parte → no se dibuja el corchete.
+    const c = composicionCiclo(exps, "mediana", rangoEtapas("t2", "t4"));
+    expect(c.grupos).toEqual([]);
+  });
+
+  it("composicionCiclo: un expediente que solo completa el tramo (no las 5) SÍ cuenta como completo", () => {
+    // Le falta Revisión/Firma (t4/t5), pero el tramo pedido es solo t1-t2.
+    const exps = construirExpedientes([fila({ Revision_Analista: "", Solicitar_firma_def: "" })]);
+    expect(exps[0].total).toBeNull(); // no completa el ciclo entero
+    const c = composicionCiclo(exps, "mediana", rangoEtapas("t1", "t2"));
+    expect(c.n).toBe(1); // pero sí completa t1-t2
+    expect(c.total).toBe(7200);
+  });
+
+  it("agruparPorPersona: un rol sin ningún solape con el tramo da null (no cero)", () => {
+    const exps = construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]);
+    // El Analista solo carga T5; con el tramo T1-T3 no le toca nada del ciclo.
+    const filas = agruparPorPersona(exps, "analista", "mediana", ALCANCE_UNITARIO);
+    const beto = filas.find((f) => f.clave === "BETO")!;
+    expect(beto.tiempos.total).toBeNull();
+    expect(beto.tiempos.t5).toBeNull(); // fuera del alcance, no "no le tocó su etapa"
+  });
+
+  it("agruparPorPersona: quien sí solapa con el tramo mide solo esa parte", () => {
+    const exps = construirExpedientes([fila({ Usuario: "ANA", Analista: "BETO" })]);
+    const filas = agruparPorPersona(exps, "usuario", "mediana", ALCANCE_UNITARIO);
+    const ana = filas.find((f) => f.clave === "ANA")!;
+    expect(ana.tiempos.total).toBe(10800); // T1-T3 = 3 h
+    expect(ana.tiempos.t4).toBeNull(); // fuera del alcance elegido
+  });
+
+  it("coberturaHitos recorta a los hitos que delimitan el tramo elegido", () => {
+    const exps = construirExpedientes([fila({})]);
+    const h = coberturaHitos(exps, rangoEtapas("t1", "t2"));
+    expect(h.map((x) => x.key)).toEqual(["creado", "dpr", "clasificacion"]);
+  });
+
+  it("sin filtro (T1→T5) todas las funciones se comportan como antes", () => {
+    const exps = construirExpedientes([fila({})]);
+    const full = rangoEtapas("t1", "t5");
+    expect(full).toEqual(ETAPA_KEYS);
+    expect(calcularIndicadores(exps, "mediana", full)).toEqual(calcularIndicadores(exps, "mediana"));
+    expect(composicionCiclo(exps, "mediana", full)).toEqual(composicionCiclo(exps, "mediana"));
+    expect(coberturaHitos(exps, full)).toEqual(coberturaHitos(exps));
   });
 });
 

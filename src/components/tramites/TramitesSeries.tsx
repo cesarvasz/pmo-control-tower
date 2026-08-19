@@ -12,12 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { fmtHHMMSS } from "@/lib/horario";
-import { ETAPAS, type EtapaKey, type PuntoSerie } from "@/lib/tramites";
-
-const SERIES: { key: EtapaKey | "total"; label: string; corto: string }[] = [
-  ...ETAPAS.map((e) => ({ key: e.key, label: e.label, corto: e.key.toUpperCase() })),
-  { key: "total" as const, label: "Total · ciclo completo", corto: "Total" },
-];
+import { ETAPAS, ETAPA_KEYS, etiquetaAlcance, type EtapaKey, type PuntoSerie } from "@/lib/tramites";
 
 const ALTO = 90;
 const PAD_Y = 10;
@@ -107,14 +102,24 @@ function Grafica({
 }
 
 export default function TramitesSeries({
-  serie, porDia, onSeleccionarPeriodo,
+  serie, porDia, onSeleccionarPeriodo, alcance = ETAPA_KEYS,
 }: {
   serie: PuntoSerie[];
   porDia: boolean;
   onSeleccionarPeriodo: (clave: string) => void;
+  /** Filtro global de "Tiempo": solo se grafican las etapas de este tramo. */
+  alcance?: EtapaKey[];
 }) {
   const [activo, setActivo] = useState<number | null>(null);
   const punto = activo != null ? serie[activo] : null;
+
+  const SERIES: { key: EtapaKey | "total"; label: string; corto: string }[] = useMemo(() => {
+    const tramo = etiquetaAlcance(alcance);
+    return [
+      ...ETAPAS.filter((e) => alcance.includes(e.key)).map((e) => ({ key: e.key, label: e.label, corto: e.key.toUpperCase() })),
+      { key: "total" as const, label: tramo ? `Total · ${tramo}` : "Total · ciclo completo", corto: "Total" },
+    ];
+  }, [alcance]);
 
   // Etiquetas del eje X compartido: se ralean para no amontonarse.
   const etiquetas = useMemo(() => {

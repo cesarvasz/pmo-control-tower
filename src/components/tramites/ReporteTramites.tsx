@@ -27,6 +27,7 @@ import {
   calcularIndicadores, composicionCiclo, serieTemporal, agruparPor, agruparPorPersona, coberturaHitos,
   costoTiempo, costoUnitario, proyectarAnio, TARIFA_HORA_DEFECTO, ALCANCE_UNITARIO,
   cargaYCapacidad, contarPersonas, exportarCSV,
+  rangoEtapas, interseccionAlcance, etiquetaAlcance, recorridoAlcance,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
   type EtapaKey, type Filtros, type Metrica,
 } from "@/lib/tramites";
@@ -90,25 +91,34 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const conFiltros = hayFiltros(f);
   const porDia = f.meses.length === 1;
 
-  const comp = useMemo(() => composicionCiclo(exps, f.metrica), [exps, f.metrica]);
-  const indicadores = useMemo(() => calcularIndicadores(exps, f.metrica), [exps, f.metrica]);
-  const globales = useMemo(() => calcularIndicadores(todos, f.metrica), [todos, f.metrica]);
-  const serie = useMemo(() => serieTemporal(exps, f.metrica, porDia), [exps, f.metrica, porDia]);
-  const hitos = useMemo(() => coberturaHitos(exps), [exps]);
-  const porMesa = useMemo(() => agruparPor(exps, (e) => e.mesas, f.metrica), [exps, f.metrica]);
-  const porCliente = useMemo(() => agruparPor(exps, (e) => e.clientes, f.metrica), [exps, f.metrica]);
+  // Filtro global de "Tiempo": tramo contiguo T_i→T_j que se quiere ver. Con
+  // T1→T5 (por defecto) es "todas las etapas" y nada cambia. Reacciona en TODAS
+  // las secciones de abajo — cada una recibe `alcance` y recorta a ese tramo.
+  const alcance = useMemo(() => rangoEtapas(f.etapaDesde, f.etapaHasta), [f.etapaDesde, f.etapaHasta]);
+  const tramoLabel = etiquetaAlcance(alcance); // "" si son todas
+
+  const comp = useMemo(() => composicionCiclo(exps, f.metrica, alcance), [exps, f.metrica, alcance]);
+  const indicadores = useMemo(() => calcularIndicadores(exps, f.metrica, alcance), [exps, f.metrica, alcance]);
+  const globales = useMemo(() => calcularIndicadores(todos, f.metrica, alcance), [todos, f.metrica, alcance]);
+  const serie = useMemo(() => serieTemporal(exps, f.metrica, porDia, alcance), [exps, f.metrica, porDia, alcance]);
+  const hitos = useMemo(() => coberturaHitos(exps, alcance), [exps, alcance]);
+  const porMesa = useMemo(() => agruparPor(exps, (e) => e.mesas, f.metrica, alcance), [exps, f.metrica, alcance]);
+  const porCliente = useMemo(() => agruparPor(exps, (e) => e.clientes, f.metrica, alcance), [exps, f.metrica, alcance]);
   // Personas: el tiempo se atribuye por rol (Usuario T1–T4, Analista T5, ciclo
   // completo si son la misma persona). Ver agruparPorPersona en lib/tramites.ts.
-  const porUsuario = useMemo(() => agruparPorPersona(exps, "usuario", f.metrica), [exps, f.metrica]);
-  const porAnalista = useMemo(() => agruparPorPersona(exps, "analista", f.metrica), [exps, f.metrica]);
+  const porUsuario = useMemo(() => agruparPorPersona(exps, "usuario", f.metrica, alcance), [exps, f.metrica, alcance]);
+  const porAnalista = useMemo(() => agruparPorPersona(exps, "analista", f.metrica, alcance), [exps, f.metrica, alcance]);
   const carga = useMemo(() => cargaYCapacidad(exps, simultaneos, porDia), [exps, simultaneos, porDia]);
   // Costo: cuelga del mismo recorte, así que la línea de tiempo responde a los filtros.
-  const costo = useMemo(() => costoTiempo(exps, tarifa, porDia), [exps, tarifa, porDia]);
-  // El costo por expediente se mide SOLO sobre Ducafast (T1–T3). Es un segundo
-  // pase completo sobre el mismo recorte, no un recorte del anterior: las horas
-  // reales salen de unir intervalos, y unir T1–T3 no se deduce de unir T1–T5.
+  const costo = useMemo(() => costoTiempo(exps, tarifa, porDia, false, alcance), [exps, tarifa, porDia, alcance]);
+  // El costo por expediente se mide SOLO sobre Ducafast (T1–T3), intersecado con
+  // el filtro global de "Tiempo": si éste se acota a T1–T2, aquí se mide T1–T2
+  // (la parte de Ducafast que cae dentro del tramo elegido). Es un segundo pase
+  // completo sobre el mismo recorte, no un recorte del anterior: las horas
+  // reales salen de unir intervalos, y unir un tramo no se deduce de otro.
+  const alcanceUnitario = useMemo(() => interseccionAlcance(alcance, ALCANCE_UNITARIO), [alcance]);
   const costoUnit = useMemo(
-    () => costoTiempo(exps, tarifa, porDia, false, ALCANCE_UNITARIO), [exps, tarifa, porDia]);
+    () => costoTiempo(exps, tarifa, porDia, false, alcanceUnitario), [exps, tarifa, porDia, alcanceUnitario]);
   const unitario = useMemo(() => costoUnitario(costoUnit), [costoUnit]);
   // La proyección arranca de la última actividad medida, no de la fecha del
   // navegador: si los datos van atrasados, proyectar desde "hoy" mentiría.
@@ -205,6 +215,31 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
           </div>
         </div>
 
+        {/* Filtro global de "Tiempo": qué tramo de la cadena T1–T5 se quiere ver.
+            Reacciona en TODO el reporte (barra del ciclo, indicadores, series,
+            tablas por dimensión/persona, costo del tiempo y costo por expediente). */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Tramo de la cadena Creado→Firma que se quiere medir">
+            Tiempo
+          </label>
+          <div className="flex items-center gap-1.5">
+            <select value={f.etapaDesde} onChange={(e) => set({ etapaDesde: e.target.value as EtapaKey })}
+              className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
+              style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
+            </select>
+            <span className="text-[0.72rem] text-[var(--text-muted)]">a</span>
+            <select value={f.etapaHasta} onChange={(e) => set({ etapaHasta: e.target.value as EtapaKey })}
+              className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
+              style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
+            </select>
+          </div>
+          {tramoLabel && (
+            <span className="text-[0.64rem] text-[var(--text-muted)]">{recorridoAlcance(alcance)}</span>
+          )}
+        </div>
+
         {conFiltros && <FilterReset onClick={() => setF({ ...FILTROS_VACIOS, metrica: f.metrica })} />}
       </div>
 
@@ -223,10 +258,10 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       )}
 
       {/* ── Barra del ciclo ── */}
-      <BarraCiclo comp={comp} metricaLabel={METRICA_LABEL[f.metrica]} activa={etapaActiva} onActivar={setEtapaActiva} />
+      <BarraCiclo comp={comp} metricaLabel={METRICA_LABEL[f.metrica]} activa={etapaActiva} onActivar={setEtapaActiva} tramo={tramoLabel} />
 
       {/* ── Indicadores por etapa ── */}
-      {/* Una tarjeta por etapa + el Total */}
+      {/* Una tarjeta por etapa (solo las del tramo elegido) + el Total */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {indicadores.map((i) => {
           const g = globales.find((x) => x.key === i.key)?.valor ?? null;
@@ -239,8 +274,8 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       </div>
       <p className="mt-2 text-[0.72rem] text-[var(--text-muted)]">
         {METRICA_LABEL[f.metrica]} en horario hábil (L–J 08:00–13:00 y 14:00–18:00 · V hasta 17:00; almuerzo y
-        fin de semana no cuentan). Cadena: {ETAPAS.map((e) => `${e.corto} ${e.label}`).join(" · ")}. El Total se
-        calcula por expediente y solo incluye los que recorrieron las {ETAPAS.length} etapas — por eso su cobertura es menor.
+        fin de semana no cuentan). Cadena{tramoLabel ? ` (tramo ${tramoLabel})` : ""}: {ETAPAS.filter((e) => alcance.includes(e.key)).map((e) => `${e.corto} ${e.label}`).join(" · ")}. El Total se
+        calcula por expediente y solo incluye los que recorrieron las {alcance.length} etapas — por eso su cobertura es menor.
       </p>
 
       {/* ── Costo por expediente (acordeón) ── */}
@@ -252,7 +287,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       </div>
 
       {/* ── Costo del tiempo ── */}
-      <Bloque titulo="Costo del tiempo" badge={`$${tarifa}/h`}>
+      <Bloque titulo="Costo del tiempo" badge={tramoLabel ? `$${tarifa}/h · ${tramoLabel}` : `$${tarifa}/h`}>
         <CostoTiempo
           costo={costo} tarifa={tarifa} onTarifa={setTarifa}
           porDia={porDia}
@@ -262,7 +297,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
 
       {/* ── Series ── */}
       <Bloque titulo="Series de tiempo" badge={porDia ? "detalle diario" : "por mes"}>
-        <TramitesSeries serie={serie} porDia={porDia}
+        <TramitesSeries serie={serie} porDia={porDia} alcance={alcance}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }} />
       </Bloque>
 
@@ -275,26 +310,26 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       {/* ── Por mesa ── */}
       <Bloque titulo="Por mesa" badge={`${porMesa.length} mesas`}
         nota="Un expediente cuya Mesa difiere entre filas cuenta en cada mesa en la que aparece.">
-        <TablaDimension filas={porMesa} etiqueta="Mesa" onFiltrar={(v) => alternar("mesas", v)} seleccion={f.mesas} />
+        <TablaDimension filas={porMesa} etiqueta="Mesa" onFiltrar={(v) => alternar("mesas", v)} seleccion={f.mesas} alcance={alcance} />
       </Bloque>
 
       {/* ── Por cliente ── */}
       <Bloque titulo="Por cliente" badge={`${porCliente.length} clientes`}>
         <TablaDimension filas={porCliente} etiqueta="Cliente" onFiltrar={(v) => alternar("clientes", v)}
-          seleccion={f.clientes} buscable />
+          seleccion={f.clientes} buscable alcance={alcance} />
       </Bloque>
 
       {/* ── Por analista / usuario ── */}
       <Bloque titulo="Por analista" badge={`${porAnalista.length}`}
         nota="Al Analista se le atribuye solo T5 (Revisión → Solicitar firma), que es el tramo del que responde. Cuando además es el Usuario del expediente, hizo el trámite de punta a punta y carga el ciclo completo — esos son los de la columna «Punta a punta». Las etapas que no le tocan van en «—».">
         <TablaDimension filas={porAnalista} etiqueta="Analista" onFiltrar={(v) => alternar("analistas", v)}
-          seleccion={f.analistas} buscable marcarBots columnaCiclo />
+          seleccion={f.analistas} buscable marcarBots columnaCiclo alcance={alcance} />
       </Bloque>
 
       <Bloque titulo="Por usuario" badge={`${porUsuario.length}`}
         nota="Al Usuario se le atribuyen T1 a T4, hasta la Revisión del analista. Si él mismo fue el Analista, carga también T5 y con eso el ciclo completo.">
         <TablaDimension filas={porUsuario} etiqueta="Usuario" onFiltrar={(v) => alternar("usuarios", v)}
-          seleccion={f.usuarios} buscable marcarBots columnaCiclo />
+          seleccion={f.usuarios} buscable marcarBots columnaCiclo alcance={alcance} />
       </Bloque>
 
       {/* ── Plantilla y carga ── */}

@@ -8,7 +8,7 @@
 import { useMemo, useState } from "react";
 import { fmtHHMMSS } from "@/lib/horario";
 import { Pill } from "@/components/ui";
-import { ETAPAS, ETAPA_KEYS, esAutomatizado, type EtapaKey, type FilaAgregada, type FilaHito } from "@/lib/tramites";
+import { ETAPAS, esAutomatizado, type EtapaKey, type FilaAgregada, type FilaHito } from "@/lib/tramites";
 
 type Dir = "asc" | "desc";
 const num = (v: number | null | undefined) => (v == null ? -1 : v);
@@ -44,7 +44,7 @@ export function BadgeBot() {
  */
 export function TablaDimension({
   filas, etiqueta, onFiltrar, seleccion, buscable = false, marcarBots = false, maxFilas = 200,
-  columnaCiclo = false,
+  columnaCiclo = false, alcance,
 }: {
   filas: FilaAgregada[];
   etiqueta: string;
@@ -55,7 +55,10 @@ export function TablaDimension({
   maxFilas?: number;
   /** Tablas de persona: agrega «De punta a punta» (expedientes donde es Usuario y Analista). */
   columnaCiclo?: boolean;
+  /** Filtro global de "Tiempo": solo se muestran columnas de etapas de este tramo. */
+  alcance?: EtapaKey[];
 }) {
+  const etapasVisibles = alcance ? ETAPAS.filter((e) => alcance.includes(e.key)) : ETAPAS;
   const [campo, setCampo] = useState("volumen");
   const [dir, setDir] = useState<Dir>("desc");
   const [q, setQ] = useState("");
@@ -111,7 +114,7 @@ export function TablaDimension({
                   </span>
                 </Th>
               )}
-              {ETAPAS.map((e) => (
+              {etapasVisibles.map((e) => (
                 <Th key={e.key} campo={e.key} orden={{ campo, dir }} alternar={alternar} align="center">
                   {e.corto}
                 </Th>
@@ -141,9 +144,9 @@ export function TablaDimension({
                       {f.cicloCompleto ? f.cicloCompleto.toLocaleString("es-GT") : "—"}
                     </td>
                   )}
-                  {ETAPA_KEYS.map((k) => (
-                    <td key={k} className="tabular-nums text-center text-[var(--text-secondary)]">
-                      {fmtHHMMSS(f.tiempos[k])}
+                  {etapasVisibles.map((e) => (
+                    <td key={e.key} className="tabular-nums text-center text-[var(--text-secondary)]">
+                      {fmtHHMMSS(f.tiempos[e.key])}
                     </td>
                   ))}
                   <td className="tabular-nums text-center font-semibold">{fmtHHMMSS(f.tiempos.total)}</td>

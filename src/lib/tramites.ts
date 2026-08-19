@@ -283,17 +283,23 @@ export function valoresEtapa(exps: Expediente[], key: EtapaKey | "total"): numbe
   return out;
 }
 
-export function calcularIndicadores(exps: Expediente[], metrica: Metrica): Indicador[] {
+/** `alcance` recorta qué etapas se muestran y a qué tramo responde el "Total"
+ *  (ya no exige las 5 completas — exige solo las del alcance). Con el alcance
+ *  completo (por defecto) el comportamiento es idéntico al de siempre. */
+export function calcularIndicadores(exps: Expediente[], metrica: Metrica, alcance: EtapaKey[] = ETAPA_KEYS): Indicador[] {
   const den = exps.length || 1;
-  const filas: Indicador[] = ETAPAS.map((e) => {
+  const filas: Indicador[] = ETAPAS.filter((e) => alcance.includes(e.key)).map((e) => {
     const v = valoresEtapa(exps, e.key);
     return { key: e.key, label: e.label, corto: e.corto, valor: aplicarMetrica(v, metrica), n: v.length, cobertura: v.length / den };
   });
-  const vt = valoresEtapa(exps, "total");
-  filas.push({
-    key: "total", label: "Total · ciclo completo", corto: "Total",
-    valor: aplicarMetrica(vt, metrica), n: vt.length, cobertura: vt.length / den,
-  });
+  if (alcance.length > 1) {
+    const vt = exps.map((e) => totalEnAlcance(e, alcance)).filter((v): v is number => v != null);
+    const tramo = etiquetaAlcance(alcance);
+    filas.push({
+      key: "total", label: tramo ? `Total · ${tramo}` : "Total · ciclo completo", corto: "Total",
+      valor: aplicarMetrica(vt, metrica), n: vt.length, cobertura: vt.length / den,
+    });
+  }
   return filas;
 }
 
@@ -364,16 +370,20 @@ export interface Composicion {
  *    dibujar eso daría una barra que no representa el total que la encabeza.
  *    Con el agregado, `aporte` reparte el total exacto entre las etapas.
  */
-export function composicionCiclo(exps: Expediente[], metrica: Metrica): Composicion {
-  const completos = exps.filter((e) => e.total != null);
+/** `alcance` recorta el ciclo a un tramo contiguo: la base «completos» exige
+ *  solo las etapas del alcance (no las 5), y el Total/las cuotas se calculan
+ *  sobre ese tramo. Con el alcance completo (por defecto) es idéntico a siempre. */
+export function composicionCiclo(exps: Expediente[], metrica: Metrica, alcance: EtapaKey[] = ETAPA_KEYS): Composicion {
+  const etapasEnAlcance = ETAPAS.filter((e) => alcance.includes(e.key));
+  const completos = exps.filter((e) => totalEnAlcance(e, alcance) != null);
   const den = exps.length || 1;
-  const total = aplicarMetrica(completos.map((e) => e.total as number), metrica);
+  const total = aplicarMetrica(completos.map((e) => totalEnAlcance(e, alcance) as number), metrica);
 
   // Tiempo agregado por etapa sobre la base común → cuotas que suman 100.
-  const sumas = ETAPAS.map((e) => completos.reduce((s, x) => s + (x.etapas[e.key] as number), 0));
+  const sumas = etapasEnAlcance.map((e) => completos.reduce((s, x) => s + (x.etapas[e.key] as number), 0));
   const sumaTotal = sumas.reduce((s, x) => s + x, 0);
 
-  const segmentos: SegmentoCiclo[] = ETAPAS.map((e, i) => {
+  const segmentos: SegmentoCiclo[] = etapasEnAlcance.map((e, i) => {
     const pct = sumaTotal > 0 ? (sumas[i] / sumaTotal) * 100 : 0;
     return {
       key: e.key, label: e.label, corto: e.corto, color: e.color,
@@ -383,22 +393,25 @@ export function composicionCiclo(exps: Expediente[], metrica: Metrica): Composic
     };
   });
 
-  // Tramos con nombre: se posicionan sumando las cuotas de sus etapas.
-  const grupos: GrupoCiclo[] = GRUPOS_ETAPAS.map((g) => {
-    const idx = g.etapas.map((k) => ETAPA_KEYS.indexOf(k)).filter((i) => i >= 0).sort((a, b) => a - b);
-    const desdePct = segmentos.slice(0, idx[0] ?? 0).reduce((s, x) => s + x.pct, 0);
-    const propios = idx.map((i) => segmentos[i]);
-    const pct = propios.reduce((s, x) => s + x.pct, 0);
-    return {
-      key: g.key, label: g.label, etapas: g.etapas,
-      desdePct, anchoPct: pct, pct,
-      aporte: propios.reduce((s, x) => s + x.aporte, 0),
-      valor: aplicarMetrica(
-        completos.map((e) => g.etapas.reduce((s, k) => s + (e.etapas[k] as number), 0)),
-        metrica,
-      ),
-    };
-  });
+  // Tramos con nombre: se posicionan sumando las cuotas de sus etapas. Un grupo
+  // que se salga del alcance (ej. Ducafast con el filtro en T4–T5) no se dibuja.
+  const grupos: GrupoCiclo[] = GRUPOS_ETAPAS
+    .filter((g) => g.etapas.every((k) => alcance.includes(k)))
+    .map((g) => {
+      const idx = g.etapas.map((k) => etapasEnAlcance.findIndex((e) => e.key === k)).filter((i) => i >= 0).sort((a, b) => a - b);
+      const desdePct = segmentos.slice(0, idx[0] ?? 0).reduce((s, x) => s + x.pct, 0);
+      const propios = idx.map((i) => segmentos[i]);
+      const pct = propios.reduce((s, x) => s + x.pct, 0);
+      return {
+        key: g.key, label: g.label, etapas: g.etapas,
+        desdePct, anchoPct: pct, pct,
+        aporte: propios.reduce((s, x) => s + x.aporte, 0),
+        valor: aplicarMetrica(
+          completos.map((e) => g.etapas.reduce((s, k) => s + (e.etapas[k] as number), 0)),
+          metrica,
+        ),
+      };
+    });
 
   return { n: completos.length, cobertura: completos.length / den, total, segmentos, grupos };
 }
@@ -430,6 +443,35 @@ export function recorridoAlcance(alcance: EtapaKey[]): string {
   const dentro = ETAPAS.filter((e) => alcance.includes(e.key));
   if (dentro.length === 0) return "";
   return `${HITO_LABEL[dentro[0].desde]} → ${HITO_LABEL[dentro[dentro.length - 1].hasta]}`;
+}
+
+/** Tramo CONTINUO entre dos etapas (inclusive), sin importar el orden en que se
+ *  den `desde`/`hasta` — es lo único que el resto del módulo asume seguro: el
+ *  alcance siempre es un tramo contiguo de la cadena T1→T5 (ver etapasAtribuidas,
+ *  intervaloAtribuido). Es el filtro global «Tiempo» del reporte. */
+export function rangoEtapas(desde: EtapaKey, hasta: EtapaKey): EtapaKey[] {
+  const i = ETAPA_KEYS.indexOf(desde), j = ETAPA_KEYS.indexOf(hasta);
+  const [a, b] = i <= j ? [i, j] : [j, i];
+  return ETAPA_KEYS.slice(a, b + 1);
+}
+
+/** Intersección de dos alcances, en orden de la cadena. Usada para combinar el
+ *  filtro global «Tiempo» con un alcance fijo de una sección (ej. Ducafast). */
+export function interseccionAlcance(a: EtapaKey[], b: EtapaKey[]): EtapaKey[] {
+  return ETAPA_KEYS.filter((k) => a.includes(k) && b.includes(k));
+}
+
+/** Suma de las etapas del alcance para UN expediente; null si le falta alguna de
+ *  ELLAS (a diferencia de segundosMedidos, que suma lo que haya sin exigir
+ *  completitud). Con el alcance completo (ETAPA_KEYS) equivale a `e.total`. */
+export function totalEnAlcance(e: Expediente, alcance: EtapaKey[]): number | null {
+  let s = 0;
+  for (const k of alcance) {
+    const v = e.etapas[k];
+    if (v == null) return null;
+    s += v;
+  }
+  return s;
 }
 
 export interface PuntoProyectado extends PuntoCosto {
@@ -577,17 +619,23 @@ export interface Filtros {
   embarques: string[];
   ducafast: "todos" | "si" | "no";
   metrica: Metrica;
+  /** Tramo contiguo T_i→T_j que se quiere ver — filtro global de "Tiempo".
+   *  Por defecto T1→T5 (todas). Se resuelve con rangoEtapas(). */
+  etapaDesde: EtapaKey;
+  etapaHasta: EtapaKey;
 }
 
 export const FILTROS_VACIOS: Filtros = {
   meses: [], usuarios: [], analistas: [], clientes: [], mesas: [],
   procesos: [], documentos: [], embarques: [], ducafast: "todos", metrica: "mediana",
+  etapaDesde: "t1", etapaHasta: "t5",
 };
 
 export const hayFiltros = (f: Filtros): boolean =>
   f.meses.length > 0 || f.usuarios.length > 0 || f.analistas.length > 0 ||
   f.clientes.length > 0 || f.mesas.length > 0 || f.procesos.length > 0 ||
-  f.documentos.length > 0 || f.embarques.length > 0 || f.ducafast !== "todos";
+  f.documentos.length > 0 || f.embarques.length > 0 || f.ducafast !== "todos" ||
+  f.etapaDesde !== "t1" || f.etapaHasta !== "t5";
 
 /** Un expediente pasa si ALGUNO de sus valores coincide (dimensiones multivaluadas). */
 const coincide = (valores: string[], sel: Set<string>) => sel.size === 0 || valores.some((v) => sel.has(v));
@@ -620,18 +668,24 @@ export interface FilaAgregada {
   cicloCompleto?: number;
 }
 
-function tiemposDe(exps: Expediente[], metrica: Metrica): Record<EtapaKey | "total", number | null> {
+/** `alcance` recorta qué etapas se calculan; las que quedan fuera van en null
+ *  (la tabla las muestra como «—», igual que una etapa fuera del rol de alguien).
+ *  El "total" respeta el mismo tramo (ver totalEnAlcance). */
+function tiemposDe(exps: Expediente[], metrica: Metrica, alcance: EtapaKey[] = ETAPA_KEYS): Record<EtapaKey | "total", number | null> {
   const out = {} as Record<EtapaKey | "total", number | null>;
-  for (const k of ETAPA_KEYS) out[k] = aplicarMetrica(valoresEtapa(exps, k), metrica);
-  out.total = aplicarMetrica(valoresEtapa(exps, "total"), metrica);
+  for (const k of ETAPA_KEYS) out[k] = alcance.includes(k) ? aplicarMetrica(valoresEtapa(exps, k), metrica) : null;
+  const vt = exps.map((e) => totalEnAlcance(e, alcance)).filter((v): v is number => v != null);
+  out.total = aplicarMetrica(vt, metrica);
   return out;
 }
 
-/** Agrupa por una dimensión multivaluada: el expediente cuenta en cada grupo. */
+/** Agrupa por una dimensión multivaluada: el expediente cuenta en cada grupo.
+ *  `alcance` recorta a qué tramo responden los tiempos (ver tiemposDe). */
 export function agruparPor(
   exps: Expediente[],
   claves: (e: Expediente) => string[],
   metrica: Metrica,
+  alcance: EtapaKey[] = ETAPA_KEYS,
   personasDe: (e: Expediente) => string[] = (e) => e.analistas,
 ): FilaAgregada[] {
   const grupos = new Map<string, Expediente[]>();
@@ -651,7 +705,7 @@ export function agruparPor(
     }
     return {
       clave, label: clave, volumen: lista.length,
-      tiempos: tiemposDe(lista, metrica),
+      tiempos: tiemposDe(lista, metrica, alcance),
       personas: humanos.size, automatizados: bots.size,
     };
   }).sort((a, b) => b.volumen - a.volumen || a.label.localeCompare(b.label, "es"));
@@ -712,10 +766,14 @@ export function etapasAtribuidas(e: Expediente, rol: Rol, alcance: EtapaKey[] = 
   return alcance === ETAPA_KEYS ? propias : propias.filter((k) => alcance.includes(k));
 }
 
-/** Tiempo que carga una persona en este expediente. null si le falta una etapa suya. */
-export function tiempoAtribuido(e: Expediente, rol: Rol): number | null {
+/** Tiempo que carga una persona en este expediente. null si le falta una etapa
+ *  suya, o si `alcance` no se solapa en absoluto con su rol (no es que tardara
+ *  cero, es que ese tramo no era suyo). */
+export function tiempoAtribuido(e: Expediente, rol: Rol, alcance: EtapaKey[] = ETAPA_KEYS): number | null {
+  const etapas = etapasAtribuidas(e, rol, alcance);
+  if (etapas.length === 0) return null;
   let s = 0;
-  for (const k of etapasAtribuidas(e, rol)) {
+  for (const k of etapas) {
     const v = e.etapas[k];
     if (v == null) return null;
     s += v;
@@ -727,9 +785,10 @@ export function tiempoAtribuido(e: Expediente, rol: Rol): number | null {
  * Agrupa por persona atribuyendo solo el tiempo del que esa persona responde.
  *
  * Las etapas fuera de su alcance quedan en null (la tabla las muestra como «—»),
- * no en cero: no es que tardara nada, es que ese tramo no era suyo.
+ * no en cero: no es que tardara nada, es que ese tramo no era suyo. `alcance`
+ * combina ambos recortes: el de su rol Y el del filtro global de "Tiempo".
  */
-export function agruparPorPersona(exps: Expediente[], rol: Rol, metrica: Metrica): FilaAgregada[] {
+export function agruparPorPersona(exps: Expediente[], rol: Rol, metrica: Metrica, alcance: EtapaKey[] = ETAPA_KEYS): FilaAgregada[] {
   const grupos = new Map<string, Expediente[]>();
   for (const e of exps) {
     for (const p of personasDelRol(e, rol)) {
@@ -741,9 +800,10 @@ export function agruparPorPersona(exps: Expediente[], rol: Rol, metrica: Metrica
   return [...grupos.entries()].map(([clave, lista]) => {
     const tiempos = {} as Record<EtapaKey | "total", number | null>;
     for (const k of ETAPA_KEYS) {
+      if (!alcance.includes(k)) { tiempos[k] = null; continue; }
       const v: number[] = [];
       for (const e of lista) {
-        if (!etapasAtribuidas(e, rol).includes(k)) continue; // no es suya
+        if (!etapasAtribuidas(e, rol, alcance).includes(k)) continue; // no es suya
         const s = e.etapas[k];
         if (s != null) v.push(s);
       }
@@ -751,7 +811,7 @@ export function agruparPorPersona(exps: Expediente[], rol: Rol, metrica: Metrica
     }
     const totales: number[] = [];
     for (const e of lista) {
-      const t = tiempoAtribuido(e, rol);
+      const t = tiempoAtribuido(e, rol, alcance);
       if (t != null) totales.push(t);
     }
     tiempos.total = aplicarMetrica(totales, metrica);
@@ -777,10 +837,14 @@ export interface FilaHito {
 }
 
 /** Cuántos expedientes alcanzaron cada hito. Sustituye a «Por acción»: el
- *  formato ancho ya no trae quién ejecutó cada uno. */
-export function coberturaHitos(exps: Expediente[]): FilaHito[] {
+ *  formato ancho ya no trae quién ejecutó cada uno. `alcance` recorta a los
+ *  hitos que delimitan ese tramo (ver hitosDelAlcance); con el alcance
+ *  completo se muestran los 6 hitos, como siempre. */
+export function coberturaHitos(exps: Expediente[], alcance: EtapaKey[] = ETAPA_KEYS): FilaHito[] {
   const den = exps.length || 1;
-  return HITOS.map(({ key, label }) => {
+  const claves = hitosDelAlcance(alcance);
+  const relevantes = alcance.length === ETAPA_KEYS.length ? HITOS : HITOS.filter((h) => claves.includes(h.key));
+  return relevantes.map(({ key, label }) => {
     const n = exps.reduce((s, e) => s + (e.hitos[key] ? 1 : 0), 0);
     return { key, label, expedientes: n, cobertura: n / den };
   });
@@ -794,7 +858,7 @@ export interface PuntoSerie {
   valores: Record<EtapaKey | "total", number | null>;
 }
 
-export function serieTemporal(exps: Expediente[], metrica: Metrica, porDia: boolean): PuntoSerie[] {
+export function serieTemporal(exps: Expediente[], metrica: Metrica, porDia: boolean, alcance: EtapaKey[] = ETAPA_KEYS): PuntoSerie[] {
   const grupos = new Map<string, Expediente[]>();
   for (const e of exps) {
     const k = porDia ? diaDe(e.creado) : e.mes;
@@ -808,7 +872,7 @@ export function serieTemporal(exps: Expediente[], metrica: Metrica, porDia: bool
       clave,
       label: porDia ? etiquetaDia(clave) : etiquetaMes(clave),
       volumen: lista.length,
-      valores: tiemposDe(lista, metrica),
+      valores: tiemposDe(lista, metrica, alcance),
     }));
 }
 

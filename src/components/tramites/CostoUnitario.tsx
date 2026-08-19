@@ -79,16 +79,22 @@ export default function CostoUnitario({
             </p>
           )}
 
-          {/* Desglose del costo unitario */}
+          {/* Desglose del costo unitario. Cada tile trae su fórmula en el hover (title). */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { l: "Por expediente", v: usdExacto(unitario.porExpediente), s: "todo incluido", fuerte: true },
-              { l: "Operativo", v: usdExacto(unitario.operativoPorExpediente), s: `${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa}${tramo ? ` · ${tramo}` : ""}` },
-              { l: "Licencias", v: usdExacto(unitario.licenciasPorExpediente), s: `${costo.licenciasBase.total.toLocaleString("es-GT")} licencias` },
-              { l: "Expedientes", v: num(unitario.expedientes), s: tramo ? `con ${tramo} medido` : "con tiempo medido" },
+              { l: "Por expediente", v: usdExacto(unitario.porExpediente), s: "todo incluido", fuerte: true,
+                tip: `Costo por expediente = Operativo + Licencias (misma base)\n= ${usdExacto(unitario.operativoPorExpediente)} + ${usdExacto(unitario.licenciasPorExpediente)} = ${usdExacto(unitario.porExpediente)}\n\nNumerador = horas·tarifa + costo de licencias; denominador = ${num(unitario.expedientes)} expedientes con tiempo medido.` },
+              { l: "Operativo", v: usdExacto(unitario.operativoPorExpediente), s: `${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa}${tramo ? ` · ${tramo}` : ""}`,
+                tip: `Operativo por expediente = horas de reloj × tarifa ÷ expedientes\n= ${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa} = ${usdExacto(unitario.operativoPorExpediente)}${tramo ? `\n(solo el tramo ${tramo})` : ""}` },
+              { l: "Licencias", v: usdExacto(unitario.licenciasPorExpediente), s: `${costo.licenciasBase.total.toLocaleString("es-GT")} licencias`,
+                tip: `Licencias por expediente = costo de licencias ÷ expedientes medidos\n= ${usdExacto(costo.licenciasBase.costo)} ÷ ${num(unitario.expedientes)} = ${usdExacto(unitario.licenciasPorExpediente)}\n\nEl costo viene de la hoja (columna "Costo"), tomado como MÁXIMO por expediente (no suma) y sumado solo sobre los ${num(unitario.expedientes)} con tiempo medido — la misma base que el denominador.\n\n${costo.licenciasBase.total.toLocaleString("es-GT")} licencias · ≈ ${usdExacto(costo.licenciasBase.precioUnitario)} por licencia` },
+              { l: "Expedientes", v: num(unitario.expedientes), s: tramo ? `con ${tramo} medido` : "con tiempo medido",
+                tip: `Expedientes con tiempo medido${tramo ? ` en ${tramo}` : ""} (n).\nEs la base del denominador: el numerador (horas + licencias) y el denominador usan este mismo conjunto para no mezclar bases.` },
             ].map((c) => (
-              <div key={c.l} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-hover)" }}>
-                <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{c.l}</div>
+              <div key={c.l} title={c.tip} className="cursor-help rounded-lg px-3 py-2 transition-colors hover:bg-[var(--bg-accent-soft)]" style={{ background: "var(--bg-hover)" }}>
+                <div className="flex items-center gap-1 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  {c.l}<span className="opacity-50" aria-hidden>ⓘ</span>
+                </div>
                 <div className="tabular-nums text-[1.2rem] font-extrabold leading-tight"
                   style={{ color: c.fuerte ? "var(--accent-light)" : "var(--text-primary)" }}>{c.v}</div>
                 <div className="text-[0.64rem] text-[var(--text-muted)]">{c.s}</div>
