@@ -285,6 +285,18 @@ export function lookupEstrategia(
  *  (board_relation) es el último fallback: en algunos boards el Kick Off trae el PM ahí en vez
  *  de en "Resp"/"PM". Si ninguna de las tres viene cargada, el board queda sin PM (vacío en
  *  Monday, no un bug del código). */
+// Alias explícito board.id → nombre de Iniciativa, para boards cuyo nombre no matchea ni
+// por igualdad ni por prefijo (renombrados sin actualizar la Iniciativa, código "PM-XXX"
+// pegado sin "|", o abreviado — ej. "A&O NEW" vs "Air & Ocean"). Confirmado manualmente:
+// son la misma iniciativa que la Iniciativa referenciada, solo que el nombre del board o
+// de la Iniciativa se desvió de la convención "PM-XXX | Nombre" ↔ "Nombre".
+const BOARD_INI_ALIAS_BY_ID: Record<string, string> = {
+  "18416191689": "PM-011 | ROAD 🚛",  // PM-011 | ROAD 🚛 (viejo) — la Iniciativa quedó con el código pegado al nombre
+  "18427419145": "PM-011 | ROAD 🚛",  // PM-011 | ROAD NEW🚛
+  "18427447179": "Air & Ocean",        // PM-010 | A&O NEW ✈️🚢
+  "18427168172": "DUCAfast Regional",  // PM-012 DUCAfast Reg⚡
+};
+
 export function projEnrichBoards(
   boards: { id: string; name: string }[],
   projData: ProjItem[],
@@ -302,6 +314,9 @@ export function projEnrichBoards(
       for (const [iniKey, val] of iniLookup) {
         if (iniKey.length > 4 && key.startsWith(iniKey)) { ini = val; break; }
       }
+    }
+    if (!ini && BOARD_INI_ALIAS_BY_ID[b.id]) {
+      ini = iniLookup.get(normName(BOARD_INI_ALIAS_BY_ID[b.id]));
     }
     // Excepción única: el Sponsor de "DUCAfast SV" siempre es Javier Claros.
     const sponsor = key.includes("ducafast sv") ? "Javier Claros" : (ini?.sponsor || "");
