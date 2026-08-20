@@ -93,7 +93,7 @@ const estBoardQuery = (boardId: string) =>
   `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name column_values(ids:["text_mkx5ehzc","text_mkx5fa5a","multiple_person_mkz54zk0"]) { id text } } } } }`;
 
 const projBoardsQuery = (ids: string) =>
-  `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name group { title } column_values { id text column { title } } subitems { id name column_values { id text column { title } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } } } } } }`;
+  `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name group { title } column_values { id text column { title } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } subitems { id name column_values { id text column { title } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } } } } } }`;
 
 async function discoverProjBoards(): Promise<{ id: string; name: string }[]> {
   const data = await mondayFetch<{

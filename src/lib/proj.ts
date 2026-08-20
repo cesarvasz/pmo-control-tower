@@ -20,7 +20,7 @@ import type {
 export const PROJ_ACTIVE_STS = new Set(["Working on it", "Future Steps", "Done"]);
 
 export const PROJ_COL = {
-  pm: "PM", resp: "Resp", status: "Status",
+  pm: "PM", resp: "Resp", responsible: "Responsible", status: "Status",
   deadline: "Limit Date", cost: "Cost $", benefit: "Benefit $",
   pmsId: "PMS ID", // ID del hito/subitem (ej. PMO-002-1)
   developer: "Developer", tld: "TLD", // columnas de subelemento (hito)
@@ -71,6 +71,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const cv = item.column_values || [];
     const pm = colByTitle(cv, PROJ_COL.pm);
     const resp = colByTitle(cv, PROJ_COL.resp);
+    const responsible = colByTitleAny(cv, PROJ_COL.responsible).trim();
     const status = colByTitle(cv, PROJ_COL.status);
     const deadline = resolveDeadline(cv, FORMULA_FALLBACK_COL.itemTimeline);
     const endDate = parseYMD(colByTitle(cv, PROJ_COL.endDate));
@@ -101,7 +102,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     return {
       boardId, boardName, id: item.id, name: item.name,
       grupo: item.group?.title || "",
-      pm, resp, status, deadline, endDate, cost, benefit,
+      pm, resp, responsible, status, deadline, endDate, cost, benefit,
       entrega: calcProjEntrega(status, endDate, deadline),
       valueNet: benefit - cost, estado, subitems,
     };
@@ -277,7 +278,13 @@ export function lookupEstrategia(
   return estrategiaName ? map.get(normName(estrategiaName)) : undefined;
 }
 
-/** Asigna a cada board su PM = Resp (o PM) del primer item, y la Estrategia/Sponsor/CKU de su Iniciativa. */
+/** Asigna a cada board su PM = Resp (o PM, o Responsible) del primer item, y la Estrategia/
+ *  Sponsor/CKU de su Iniciativa. El primer item ("Kick Off Project Meeting") es intencional:
+ *  es el step que lidera el PM asignado al proyecto; los checkpoints de Aprobación/Revisión
+ *  (VPA Validado/Aprobado, Cierre VMO, etc.) los aprueba PMO y NO identifican al PM. "Responsible"
+ *  (board_relation) es el último fallback: en algunos boards el Kick Off trae el PM ahí en vez
+ *  de en "Resp"/"PM". Si ninguna de las tres viene cargada, el board queda sin PM (vacío en
+ *  Monday, no un bug del código). */
 export function projEnrichBoards(
   boards: { id: string; name: string }[],
   projData: ProjItem[],
@@ -285,7 +292,7 @@ export function projEnrichBoards(
 ): ProjBoard[] {
   const boardResp: Record<string, string> = {};
   projData.forEach((item) => {
-    if (!(item.boardId in boardResp)) boardResp[item.boardId] = item.resp || item.pm || "";
+    if (!(item.boardId in boardResp)) boardResp[item.boardId] = item.resp || item.pm || item.responsible || "";
   });
   return boards.map((b) => {
     const key = normName(stripPmPrefix(b.name));

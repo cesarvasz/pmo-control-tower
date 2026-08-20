@@ -263,6 +263,7 @@ export interface ProjItem {
   grupo: string;
   pm: string;
   resp: string;
+  responsible: string; // columna "Responsible" (board_relation) — fallback cuando "Resp" viene vacío
   status: string;
   deadline: Date | null;
   endDate: Date | null;                       // "End Date": fecha real de cierre del item
