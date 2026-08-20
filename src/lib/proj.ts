@@ -7,6 +7,7 @@ import { colText, colDisplay, colByTitle, colByTitleAny } from "@/lib/monday-col
 import { calcVem, healthStatusFromIndex, type HealthStatus } from "@/lib/health";
 import type {
   EstrategiaInfo,
+  MondayColumnValue,
   MondayItem,
   ProjBoard,
   ProjItem,
@@ -26,6 +27,28 @@ export const PROJ_COL = {
   endDate: "End Date",   // fecha real de cierre del item
   actualEnd: "Actual End", // fecha real de cierre del subitem (hito)
 };
+
+// Plantilla "NEW" de boards de Proyectos (PM-010/011/012): "Cost $" y "Limit Date"
+// son columnas fórmula (Cost $ = Effort Spent × 9 · Limit Date = fin de un rango
+// Timeline). Monday no expone el texto calculado de una fórmula vía la API, y su
+// display_value para fechas no trae año — así que se recalculan desde las columnas
+// fuente (no-fórmula) cuando la lectura directa viene vacía.
+const FORMULA_FALLBACK_COL = { effort: "Effort Spent", itemTimeline: "CPM", subTimeline: "Timeline" };
+const EFFORT_COST_RATE = 9;
+
+export function resolveCost(cv: MondayColumnValue[]): number {
+  const direct = parseFloat(colByTitle(cv, PROJ_COL.cost));
+  if (Number.isFinite(direct)) return direct;
+  const effort = parseFloat(colByTitle(cv, FORMULA_FALLBACK_COL.effort));
+  return Number.isFinite(effort) ? effort * EFFORT_COST_RATE : 0;
+}
+
+function resolveDeadline(cv: MondayColumnValue[], timelineTitle: string): Date | null {
+  const direct = parseYMD(colByTitle(cv, PROJ_COL.deadline));
+  if (direct) return direct;
+  const end = colByTitle(cv, timelineTitle).split(" - ")[1]?.trim();
+  return end ? parseYMD(end) : null;
+}
 
 export function calcProjEstado(dl: Date | null): string {
   const t = today();
@@ -49,15 +72,15 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const pm = colByTitle(cv, PROJ_COL.pm);
     const resp = colByTitle(cv, PROJ_COL.resp);
     const status = colByTitle(cv, PROJ_COL.status);
-    const deadline = parseYMD(colByTitle(cv, PROJ_COL.deadline));
+    const deadline = resolveDeadline(cv, FORMULA_FALLBACK_COL.itemTimeline);
     const endDate = parseYMD(colByTitle(cv, PROJ_COL.endDate));
-    const cost = parseFloat(colByTitle(cv, PROJ_COL.cost)) || 0;
+    const cost = resolveCost(cv);
     const benefit = parseFloat(colByTitle(cv, PROJ_COL.benefit)) || 0;
     const estado = calcProjEstado(deadline);
 
     const subitems = (item.subitems || []).map((sub) => {
       const scv = sub.column_values || [];
-      const sdl = parseYMD(colByTitle(scv, PROJ_COL.deadline));
+      const sdl = resolveDeadline(scv, FORMULA_FALLBACK_COL.subTimeline);
       const sActualEnd = parseYMD(colByTitle(scv, PROJ_COL.actualEnd));
       const sStatus = colByTitle(scv, PROJ_COL.status);
       return {

@@ -5,8 +5,9 @@
 import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
+import { resolveCost } from "@/lib/proj";
 import { verifyRequest, getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline, getAttributions } from "@/lib/firebase-admin";
-import type { MondayColumnValue, MondayItem, ProjBoardRaw } from "@/types";
+import type { MondayItem, ProjBoardRaw } from "@/types";
 
 // IDs de columnas REQ necesarios para baseline (mismo valor que REQ_COLS en process.ts).
 const BL_COLS = { costRH: "labor_budget_spent", costSft: "numeric_mm3gbavc" };
@@ -18,10 +19,6 @@ function parseNum(v: string | null | undefined): number {
 
 function getCol(item: MondayItem, id: string): string {
   return item.column_values.find((c) => c.id === id)?.text ?? "";
-}
-
-function getColByTitle(cvs: MondayColumnValue[], title: string): string {
-  return cvs.find((c) => (c.column?.title ?? "") === title)?.text ?? "";
 }
 
 async function syncBaselines(reqItems: MondayItem[]) {
@@ -63,7 +60,7 @@ async function syncProjItemBaselines(projRaw: ProjBoardRaw[]) {
 
   for (const board of projRaw) {
     for (const item of board.items_page.items) {
-      const cost = parseNum(getColByTitle(item.column_values, "Cost $"));
+      const cost = resolveCost(item.column_values);
       const existing = baselines[item.id];
 
       if (!existing) {

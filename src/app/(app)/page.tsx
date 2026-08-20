@@ -595,8 +595,7 @@ function PMPortfolioCard({
   const reqEnEsperaN = reqItems.filter((r) => r.estado === "EN_ESPERA").length;
   const reqHas = reqAct.length > 0 || reqEnEsperaN > 0;
 
-  const pmProjBoards = projBoards
-    .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null);
+  const pmProjBoards = projBoards.filter((b) => b.pm === pm);
   const projHas = pmProjBoards.length > 0;
   const pmProjHIs = pmProjBoards.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
   const pmProjAvgHI = pmProjHIs.length > 0 ? pmProjHIs.reduce((a, b) => a + b, 0) / pmProjHIs.length : null;

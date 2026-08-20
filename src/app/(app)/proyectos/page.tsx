@@ -118,8 +118,7 @@ function ProyectosInner() {
   const pmBoardIds = pms.length ? new Set(projBoards.filter((b) => pms.includes(b.pm)).map((b) => b.id)) : null;
   const byPM = pmBoardIds ? projData.filter((r) => pmBoardIds.has(r.boardId)) : projData;
   const visibleBoards = allBoardsSorted.filter((b) =>
-    boardHealthMap.get(b.id)?.healthStatus !== null &&
-    (!boardFilter.length || boardFilter.includes(b.id))
+    !boardFilter.length || boardFilter.includes(b.id)
   );
 
   const handleResetBaseline = async (boardId: string, boardItems: ProjItem[]) => {
@@ -428,7 +427,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
         <span className="rounded-full px-2 py-0.5 text-[0.7rem]" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
           {items.length} items
         </span>
-        {badge && (
+        {badge ? (
           <button
             onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
             className="rounded-full px-2.5 py-0.5 text-[0.7rem] font-bold"
@@ -436,6 +435,14 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
           >
             {badge.icon} {badge.label}{healthIndex !== null ? ` · ${Math.round(healthIndex * 100)}%` : ""}
           </button>
+        ) : (
+          <span
+            className="rounded-full px-2.5 py-0.5 text-[0.7rem] font-bold"
+            title="Falta Cost $ y/o Limit Date en los items del board para calcular el VEM"
+            style={{ color: "var(--text-muted)", background: "var(--bg-hover)" }}
+          >
+            — Sin datos
+          </span>
         )}
         {isAdmin && onResetBaseline && (
           <button
