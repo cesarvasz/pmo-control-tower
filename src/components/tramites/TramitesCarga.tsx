@@ -60,10 +60,10 @@ export default function TramitesCarga({
       <div className="rounded-lg border px-4 py-3 text-[0.8rem]"
         style={{ background: "var(--pill-parahoy-bg)", borderColor: "var(--pill-parahoy-br)", color: "var(--pill-parahoy-fg)" }}>
         <strong>Las etapas miden tiempo transcurrido, no horas trabajadas.</strong>{" "}
-        Un expediente abierto 5 h no consumió 5 h de una persona: durante ese lapso llevaba otros en
+        Un File abierto 5 h no consumió 5 h de una persona: durante ese lapso llevaba otros en
         paralelo. Por eso la utilización supera el 100% incluso contra la plantilla real —{" "}
         <strong>ese múltiplo es el paralelismo</strong>, no falta de personal. Ajusta{" "}
-        <strong>expedientes simultáneos</strong> hasta que la utilización se acerque al 100%: ese
+        <strong>Files simultáneos</strong> hasta que la utilización se acerque al 100%: ese
         valor es la carga observada.
       </div>
 
@@ -71,7 +71,7 @@ export default function TramitesCarga({
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1.5">
           <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-            Expedientes simultáneos por persona
+            Files simultáneos por persona
           </label>
           <div className="flex items-center gap-2.5">
             <input
@@ -90,7 +90,7 @@ export default function TramitesCarga({
         <p className="text-[0.72rem] text-[var(--text-muted)]">
           {simultaneos === 1
             ? "1 = tiempo de reloj sin corregir por paralelismo"
-            : `cada persona lleva ${simultaneos} expedientes a la vez`}
+            : `cada persona lleva ${simultaneos} Files a la vez`}
         </p>
       </div>
 

@@ -233,7 +233,7 @@ export default function Informe({ exps, onCerrar }: { exps: Expediente[]; onCerr
       </div>
 
       {inf.meses.length === 0 ? (
-        <p className="mt-6 text-[0.85rem] text-[var(--text-muted)]">No hay expedientes en {inf.anio}.</p>
+        <p className="mt-6 text-[0.85rem] text-[var(--text-muted)]">No hay Files en {inf.anio}.</p>
       ) : (
         <>
           {/* ── Resumen ── */}
@@ -504,7 +504,7 @@ export default function Informe({ exps, onCerrar }: { exps: Expediente[]; onCerr
           <p className="mt-4 text-[0.68rem] leading-relaxed text-[var(--text-muted)]">
             Todo el informe mide <strong>T1+T2+T3</strong> (Creado → Creación Pre-DUCA), el tramo que
             DUCAFAST automatiza; la revisión del analista y la firma quedan fuera porque ocurren
-            igual con DUCAFAST y sin él. Calculado sobre todos los expedientes de {inf.anio} de la
+            igual con DUCAFAST y sin él. Calculado sobre todos los Files de {inf.anio} de la
             hoja 003, sin los filtros del tablero. Las horas salen de unir los intervalos de cada
             persona, así que el trabajo simultáneo no se cuenta dos veces, y los ejecutores
             automatizados no suman horas. Horario hábil L–J 08:00–13:00 y 14:00–18:00, V hasta las

@@ -145,7 +145,7 @@ export default function TramitesSeries({
         </span>
         {punto && (
           <span className="text-[0.72rem] font-semibold text-[var(--accent-light)]">
-            {punto.label} · {punto.volumen} expedientes
+            {punto.label} · {punto.volumen} Files
           </span>
         )}
       </div>
@@ -180,7 +180,7 @@ export default function TramitesSeries({
         <div className="mt-3 rounded-xl border p-3" style={{ background: "var(--bg-surface)", borderColor: "var(--accent)" }}>
           <div className="mb-2 flex items-baseline gap-2">
             <span className="text-[0.82rem] font-bold text-[var(--text-primary)]">{punto.label}</span>
-            <span className="text-[0.72rem] text-[var(--text-muted)]">{punto.volumen} expedientes</span>
+            <span className="text-[0.72rem] text-[var(--text-muted)]">{punto.volumen} Files</span>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
             {SERIES.map((s) => (

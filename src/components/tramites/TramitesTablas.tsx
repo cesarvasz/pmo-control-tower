@@ -53,7 +53,7 @@ export function TablaDimension({
   buscable?: boolean;
   marcarBots?: boolean;
   maxFilas?: number;
-  /** Tablas de persona: agrega «De punta a punta» (expedientes donde es Usuario y Analista). */
+  /** Tablas de persona: agrega «De punta a punta» (Files donde es Usuario y Analista). */
   columnaCiclo?: boolean;
   /** Filtro global de "Tiempo": solo se muestran columnas de etapas de este tramo. */
   alcance?: EtapaKey[];
@@ -165,7 +165,7 @@ export function TablaDimension({
   );
 }
 
-/** Cuántos expedientes alcanzaron cada hito del trámite. */
+/** Cuántos Files alcanzaron cada hito del trámite. */
 export function TablaHitos({ filas }: { filas: FilaHito[] }) {
   return (
     <div className="table-wrap">
@@ -173,7 +173,7 @@ export function TablaHitos({ filas }: { filas: FilaHito[] }) {
         <thead>
           <tr>
             <th>Hito</th>
-            <th style={{ textAlign: "center" }}>Expedientes</th>
+            <th style={{ textAlign: "center" }}>Files</th>
             <th style={{ textAlign: "center" }}>Cobertura</th>
             <th style={{ minWidth: 160 }}>&nbsp;</th>
           </tr>
