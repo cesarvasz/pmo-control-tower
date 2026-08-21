@@ -151,7 +151,7 @@ export default function TimelineMeses({
         <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Periodo</span>
         <span className="text-[0.82rem] font-semibold text-[var(--text-primary)]">{etiquetaSeleccion()}</span>
         <span className="text-[0.72rem] text-[var(--text-muted)]">
-          {volSeleccionado.toLocaleString("es-GT")} expedientes
+          {volSeleccionado.toLocaleString("es-GT")} Files
         </span>
         {sel.size > 0 && (
           <button
@@ -203,7 +203,7 @@ export default function TimelineMeses({
                     const a = rangoRef.current;
                     if (arrastrando.current && a) marcar({ ...a, hasta: i });
                   }}
-                  title={`${m.label} · ${m.count.toLocaleString("es-GT")} expedientes`}
+                  title={`${m.label} · ${m.count.toLocaleString("es-GT")} Files`}
                   className="flex cursor-pointer flex-col justify-end transition-colors"
                   style={{
                     width: 54, height: pegado ? 34 : 52,
