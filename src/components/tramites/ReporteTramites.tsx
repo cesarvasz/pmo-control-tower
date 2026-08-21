@@ -106,7 +106,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   // ventana del recorte.
   const ventana = useMemo(() => ventanaDe(exps, alcance), [exps, alcance]);
   const personas = useMemo(() => costoPorPersona(exps, tarifa, ventana, alcance), [exps, tarifa, ventana, alcance]);
-  // Costo por expediente: MISMO alcance que Capacidad instalada (antes estaba
+  // Costo por File: MISMO alcance que Capacidad instalada (antes estaba
   // fijo a Ducafast T1–T3; ahora sigue el filtro global de "Tiempo" completo),
   // para que "personas que hoy participan" cuadre exactamente con el tile
   // "Personas" de Capacidad instalada. Sigue siendo un segundo pase completo
@@ -148,7 +148,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   );
 
   // El informe sustituye al tablero en lugar de abrirse encima: se presenta a
-  // dirección y va sobre TODOS los expedientes del año, no sobre el recorte.
+  // dirección y va sobre TODOS los Files del año, no sobre el recorte.
   if (informe) return <Informe exps={todos} onCerrar={() => setInforme(false)} />;
 
   return (
@@ -284,10 +284,10 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       <p className="mt-2 text-[0.72rem] text-[var(--text-muted)]">
         {METRICA_LABEL[f.metrica]} en horario hábil (L–J 08:00–13:00 y 14:00–18:00 · V hasta 17:00; almuerzo y
         fin de semana no cuentan). Cadena{tramoLabel ? ` (tramo ${tramoLabel})` : ""}: {ETAPAS.filter((e) => alcance.includes(e.key)).map((e) => `${e.corto} ${e.label}`).join(" · ")}. El Total se
-        calcula por expediente y solo incluye los que recorrieron las {alcance.length} etapas — por eso su cobertura es menor.
+        calcula por File y solo incluye los que recorrieron las {alcance.length} etapas — por eso su cobertura es menor.
       </p>
 
-      {/* ── Costo por expediente (acordeón) ── */}
+      {/* ── Costo por File (acordeón) ── */}
       <div className="mt-5">
         <CostoUnitario
           costo={costoUnit} unitario={unitario} proyeccion={proyeccion}
