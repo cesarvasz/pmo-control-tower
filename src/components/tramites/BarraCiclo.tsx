@@ -1,9 +1,9 @@
 "use client";
 
-// Barra apilada del ciclo: una sola línea con el tiempo total del expediente,
+// Barra apilada del ciclo: una sola línea con el tiempo total del File,
 // dividida por la cuota que aporta cada etapa. Responde a todos los filtros.
 //
-// El número grande es el Total REAL por expediente (métrica elegida). Las cuotas
+// El número grande es el Total REAL por File (métrica elegida). Las cuotas
 // salen del tiempo agregado de cada etapa, no de aplicar la métrica a cada una
 // por separado — así los tramos suman exactamente el total que encabeza
 // la barra (ver composicionCiclo en lib/tramites.ts).
@@ -44,7 +44,7 @@ export default function BarraCiclo({
           </div>
         </div>
         <div className="text-right text-[0.72rem] text-[var(--text-muted)]">
-          <div>{comp.n.toLocaleString("es-GT")} expedientes con el ciclo completo</div>
+          <div>{comp.n.toLocaleString("es-GT")} Files con el ciclo completo</div>
           <div style={{ color: comp.cobertura >= 0.9 ? "var(--ok)" : comp.cobertura >= 0.7 ? "var(--warn)" : "var(--bad)" }}>
             cobertura {Math.round(comp.cobertura * 100)}%
           </div>
@@ -53,7 +53,7 @@ export default function BarraCiclo({
 
       {comp.n === 0 ? (
         <div className="py-6 text-center text-[0.82rem] text-[var(--text-muted)]">
-          Ningún expediente del recorte recorrió las {comp.segmentos.length} etapas.
+          Ningún File del recorte recorrió las {comp.segmentos.length} etapas.
         </div>
       ) : (
         <>
@@ -139,12 +139,12 @@ export default function BarraCiclo({
 
           <p className="mt-3 text-[0.7rem] text-[var(--text-muted)]">
             Los {comp.segmentos.length} tramos suman exactamente el total de arriba. Las cuotas salen del tiempo
-            agregado de cada etapa sobre los expedientes de ciclo completo; la {metricaLabel.toLowerCase()} de
+            agregado de cada etapa sobre los Files de ciclo completo; la {metricaLabel.toLowerCase()} de
             cada etapa por separado no sumaría el ciclo real (una mediana de etapas no es la mediana del total).
             {comp.grupos.filter((g) => g.anchoPct > 0).map((g) => (
               <span key={g.key}>
                 {" "}El corchete <strong>{g.label}</strong> abarca {g.etapas.join(", ").toUpperCase()} y muestra
-                la {metricaLabel.toLowerCase()} real del tramo por expediente ({fmtHHMMSS(g.valor)}), que por
+                la {metricaLabel.toLowerCase()} real del tramo por File ({fmtHHMMSS(g.valor)}), que por
                 esa misma razón no es la suma de sus tres segmentos ({fmtHHMMSS(g.aporte)}).
               </span>
             ))}

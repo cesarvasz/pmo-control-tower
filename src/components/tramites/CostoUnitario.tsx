@@ -1,6 +1,6 @@
 "use client";
 
-// Acordeón: cuánto cuesta un expediente, con qué plantilla se haría el mismo
+// Acordeón: cuánto cuesta un File, con qué plantilla se haría el mismo
 // trabajo al 95% de ocupación, y cómo se ve el resto del año.
 //
 // Mide el MISMO tramo que el filtro global de "Tiempo" (el `costo` que recibe
@@ -47,7 +47,7 @@ export default function CostoUnitario({
         className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-hover)]"
       >
         <span className="text-[0.8rem] transition-transform" style={{ transform: abierto ? "rotate(90deg)" : undefined }}>▶</span>
-        <span className="text-[0.9rem] font-bold text-[var(--text-primary)]">Costo por expediente</span>
+        <span className="text-[0.9rem] font-bold text-[var(--text-primary)]">Costo por File</span>
         {tramo && (
           <span className="rounded-md px-2 py-0.5 text-[0.68rem] font-bold uppercase tracking-wider"
             style={{ background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
@@ -59,7 +59,7 @@ export default function CostoUnitario({
           {usdExacto(unitario.porExpediente)}
         </span>
         <span className="text-[0.72rem] text-[var(--text-muted)]">
-          {num(unitario.expedientes)} expedientes · {num(unitario.personasNecesarias)} personas al{" "}
+          {num(unitario.expedientes)} Files · {num(unitario.personasNecesarias)} personas al{" "}
           {Math.round(UTILIZACION_OBJETIVO * 100)}%
         </span>
         <span className="ml-auto text-[0.72rem] text-[var(--text-muted)]">
@@ -75,8 +75,8 @@ export default function CostoUnitario({
               Este bloque mide el tramo <strong>{tramo}</strong> ({recorrido}) elegido en el filtro
               &quot;Tiempo&quot; — el mismo tramo que usa Capacidad instalada, así que las{" "}
               <strong>personas</strong> de ambos bloques cuadran entre sí. Los{" "}
-              <strong>expedientes</strong> no siempre cuadran exacto: aquí solo se cuentan los que
-              tuvieron tiempo en horario hábil (L–V), mientras que la columna &quot;Expedientes&quot;
+              <strong>Files</strong> no siempre cuadran exacto: aquí solo se cuentan los que
+              tuvieron tiempo en horario hábil (L–V), mientras que la columna &quot;Files&quot;
               de Capacidad instalada cuenta por marca de reloj — un trámite hecho de noche o fin de
               semana puede aparecer ahí con 0 horas hábiles y por eso no sumar aquí.
             </p>
@@ -85,14 +85,14 @@ export default function CostoUnitario({
           {/* Desglose del costo unitario. Cada tile trae su fórmula en el hover (title). */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { l: "Por expediente", v: usdExacto(unitario.porExpediente), s: "todo incluido", fuerte: true,
-                tip: `Costo por expediente = Operativo + Licencias (misma base)\n= ${usdExacto(unitario.operativoPorExpediente)} + ${usdExacto(unitario.licenciasPorExpediente)} = ${usdExacto(unitario.porExpediente)}\n\nNumerador = horas·tarifa + costo de licencias; denominador = ${num(unitario.expedientes)} expedientes con tiempo medido.` },
+              { l: "Por File", v: usdExacto(unitario.porExpediente), s: "todo incluido", fuerte: true,
+                tip: `Costo por File = Operativo + Licencias (misma base)\n= ${usdExacto(unitario.operativoPorExpediente)} + ${usdExacto(unitario.licenciasPorExpediente)} = ${usdExacto(unitario.porExpediente)}\n\nNumerador = horas·tarifa + costo de licencias; denominador = ${num(unitario.expedientes)} Files con tiempo medido.` },
               { l: "Operativo", v: usdExacto(unitario.operativoPorExpediente), s: `${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa}${tramo ? ` · ${tramo}` : ""}`,
-                tip: `Operativo por expediente = horas de reloj × tarifa ÷ expedientes\n= ${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa} = ${usdExacto(unitario.operativoPorExpediente)}${tramo ? `\n(solo el tramo ${tramo})` : ""}` },
+                tip: `Operativo por File = horas de reloj × tarifa ÷ Files\n= ${unitario.horasPorExpediente.toFixed(1)} h × $${costo.tarifa} = ${usdExacto(unitario.operativoPorExpediente)}${tramo ? `\n(solo el tramo ${tramo})` : ""}` },
               { l: "Licencias", v: usdExacto(unitario.licenciasPorExpediente), s: `${costo.licenciasBase.total.toLocaleString("es-GT")} licencias`,
-                tip: `Licencias por expediente = costo de licencias ÷ expedientes medidos\n= ${usdExacto(costo.licenciasBase.costo)} ÷ ${num(unitario.expedientes)} = ${usdExacto(unitario.licenciasPorExpediente)}\n\nEl costo viene de la hoja (columna "Costo"), tomado como MÁXIMO por expediente (no suma) y sumado solo sobre los ${num(unitario.expedientes)} con tiempo medido — la misma base que el denominador.\n\n${costo.licenciasBase.total.toLocaleString("es-GT")} licencias · ≈ ${usdExacto(costo.licenciasBase.precioUnitario)} por licencia` },
-              { l: "Expedientes", v: num(unitario.expedientes), s: tramo ? `con ${tramo} medido` : "con tiempo medido",
-                tip: `Expedientes con tiempo medido${tramo ? ` en ${tramo}` : ""} (n).\nEs la base del denominador: el numerador (horas + licencias) y el denominador usan este mismo conjunto para no mezclar bases.` },
+                tip: `Licencias por File = costo de licencias ÷ Files medidos\n= ${usdExacto(costo.licenciasBase.costo)} ÷ ${num(unitario.expedientes)} = ${usdExacto(unitario.licenciasPorExpediente)}\n\nEl costo viene de la hoja (columna "Costo"), tomado como MÁXIMO por File (no suma) y sumado solo sobre los ${num(unitario.expedientes)} con tiempo medido — la misma base que el denominador.\n\n${costo.licenciasBase.total.toLocaleString("es-GT")} licencias · ≈ ${usdExacto(costo.licenciasBase.precioUnitario)} por licencia` },
+              { l: "Files", v: num(unitario.expedientes), s: tramo ? `con ${tramo} medido` : "con tiempo medido",
+                tip: `Files con tiempo medido${tramo ? ` en ${tramo}` : ""} (n).\nEs la base del denominador: el numerador (horas + licencias) y el denominador usan este mismo conjunto para no mezclar bases.` },
             ].map((c) => (
               <div key={c.l} title={c.tip} className="cursor-help rounded-lg px-3 py-2 transition-colors hover:bg-[var(--bg-accent-soft)]" style={{ background: "var(--bg-hover)" }}>
                 <div className="flex items-center gap-1 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
@@ -167,7 +167,7 @@ export default function CostoUnitario({
                       <div
                         key={p.clave}
                         onClick={() => { if (!p.estimado) onSeleccionarPeriodo(p.clave); }}
-                        title={`${p.label}${p.estimado ? p.parcial ? " · mes en curso, completado" : " · estimado" : ""}\n${usdExacto(p.costo)} · ${num(p.volumen)} expedientes · ${usdExacto(p.costoPorExpediente)} c/u`}
+                        title={`${p.label}${p.estimado ? p.parcial ? " · mes en curso, completado" : " · estimado" : ""}\n${usdExacto(p.costo)} · ${num(p.volumen)} Files · ${usdExacto(p.costoPorExpediente)} c/u`}
                         className={`flex flex-col items-center justify-end ${p.estimado ? "cursor-default" : "cursor-pointer"}`}
                         style={{ width: 56 }}
                       >
@@ -192,7 +192,7 @@ export default function CostoUnitario({
               </div>
 
               <p className="mt-2 text-[0.7rem] leading-relaxed text-[var(--text-muted)]">
-                El número sobre cada barra es el costo <strong>por expediente</strong> de ese mes.
+                El número sobre cada barra es el costo <strong>por File</strong> de ese mes.
                 Los meses estimados repiten el promedio de los últimos tres meses completos; el mes
                 en curso se completa por regla de tres sobre las horas hábiles transcurridas. No se
                 extrapola tendencia a propósito: con una caída fuerte de tiempos, una recta daría
