@@ -2,7 +2,7 @@
 
 // Costo del tiempo medido, a una tarifa por hora.
 //
-// La línea de tiempo se calcula sobre los expedientes YA filtrados, así que
+// La línea de tiempo se calcula sobre los Files YA filtrados, así que
 // responde a todos los filtros del reporte sin hacer nada especial.
 //
 // El aviso de arriba no es decorativo: las etapas miden tiempo transcurrido, no
@@ -35,14 +35,14 @@ export default function CostoTiempo({
 
   return (
     <div className="viz-etapas">
-      {/* Qué se está contando y por qué no es la suma de los expedientes */}
+      {/* Qué se está contando y por qué no es la suma de los Files */}
       <div className="mb-4 rounded-lg border-l-[3px] px-3.5 py-2.5 text-[0.76rem] leading-relaxed"
         style={{ borderColor: "var(--ok)", background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-        <strong>Se cobran horas de reloj, no la suma de los expedientes.</strong>{" "}
+        <strong>Se cobran horas de reloj, no la suma de los Files.</strong>{" "}
         Quien lleva varios trámites a la vez no trabaja la suma de todos: el reloj corre una sola
         vez. Por eso los tramos de cada persona se <em>unen</em> antes de contar, y cada hora se
-        paga una vez aunque hubiera {costo.traslape.toFixed(1)} expedientes abiertos en ella.
-        Sumando por expediente saldrían {horas(costo.horasSuma)} — {costo.traslape.toFixed(1)}× de más.
+        paga una vez aunque hubiera {costo.traslape.toFixed(1)} Files abiertos en ella.
+        Sumando por File saldrían {horas(costo.horasSuma)} — {costo.traslape.toFixed(1)}× de más.
       </div>
 
       {/* Controles */}
@@ -64,7 +64,7 @@ export default function CostoTiempo({
           <div className="tabular-nums text-[1.4rem] font-extrabold leading-tight text-[var(--text-primary)]">
             {costo.traslape.toFixed(1)}×
           </div>
-          <div className="text-[0.68rem] text-[var(--text-muted)]">expedientes en paralelo</div>
+          <div className="text-[0.68rem] text-[var(--text-muted)]">Files en paralelo</div>
         </div>
 
         <div className="ml-auto text-right">
@@ -100,7 +100,7 @@ export default function CostoTiempo({
           </div>
         </div>
         <div className="rounded-xl border p-3" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
-          <div className="text-[0.64rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Expedientes con licencia</div>
+          <div className="text-[0.64rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Files con licencia</div>
           <div className="tabular-nums text-[1.5rem] font-extrabold leading-tight text-[var(--text-primary)]">
             {costo.licencias.expedientes.toLocaleString("es-GT")}
           </div>
@@ -114,7 +114,7 @@ export default function CostoTiempo({
       {costo.licencias.cobertura > 0 && costo.licencias.cobertura < 0.5 && (
         <p className="mb-4 rounded-lg border-l-[3px] px-3.5 py-2 text-[0.74rem]"
           style={{ borderColor: "var(--warn)", background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-          Solo el <strong>{(costo.licencias.cobertura * 100).toFixed(1)}%</strong> de los expedientes
+          Solo el <strong>{(costo.licencias.cobertura * 100).toFixed(1)}%</strong> de los Files
           del recorte trae dato de licencias ({costo.licencias.expedientes.toLocaleString("es-GT")} de{" "}
           {(costo.licencias.expedientes / costo.licencias.cobertura).toFixed(0).toLocaleString()}). El
           costo de licencias solo cubre esos; el resto no tiene el dato en la hoja, que no es lo mismo
@@ -138,7 +138,7 @@ export default function CostoTiempo({
                   <div
                     key={p.clave}
                     onClick={() => onSeleccionarPeriodo(p.clave)}
-                    title={`${p.label}\n${usdExacto(p.costo)} · ${horas(p.horas)} · ${p.volumen.toLocaleString("es-GT")} expedientes`}
+                    title={`${p.label}\n${usdExacto(p.costo)} · ${horas(p.horas)} · ${p.volumen.toLocaleString("es-GT")} Files`}
                     className="flex cursor-pointer flex-col items-center justify-end"
                     style={{ width: porDia ? 22 : 52 }}
                   >
@@ -159,7 +159,7 @@ export default function CostoTiempo({
             </div>
           </div>
           <p className="mt-2 text-[0.7rem] text-[var(--text-muted)]">
-            Costo por {porDia ? "día" : "mes"} de creación del expediente. Clic en una barra para filtrar ese periodo.
+            Costo por {porDia ? "día" : "mes"} de creación del File. Clic en una barra para filtrar ese periodo.
             {pico && <> El pico es <strong>{pico.label}</strong> con {usdExacto(pico.costo)}.</>}
           </p>
         </>
