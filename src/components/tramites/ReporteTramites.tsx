@@ -1,11 +1,11 @@
 "use client";
 
-// Reporte de tiempos de trámites (hoja ROI → expedientes).
+// Reporte de tiempos de trámites (hoja ROI → files).
 // Se monta como pestaña dentro de la página ROI; recibe las filas ya cargadas
 // (la carga y el botón Actualizar viven en la página padre) y calcula todo con
 // las funciones puras de lib/tramites.ts + lib/horario.ts.
 //
-// Los expedientes se construyen UNA sola vez por carga; los filtros solo
+// Los files se construyen UNA sola vez por carga; los filtros solo
 // seleccionan subconjuntos, así que cambiar un filtro recalcula agregados sobre
 // un arreglo ya normalizado.
 
@@ -155,7 +155,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
     <div>
       <SectionHeader
         title="Tiempos de trámites"
-        badge={`${exps.length.toLocaleString("es-GT")} de ${todos.length.toLocaleString("es-GT")} expedientes`}
+        badge={`${exps.length.toLocaleString("es-GT")} de ${todos.length.toLocaleString("es-GT")} Files`}
       >
         <button onClick={() => setInforme(true)}
           className="ml-auto rounded-lg border px-3.5 py-1.5 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
@@ -165,87 +165,91 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       </SectionHeader>
 
       {/* ── Filtros ── */}
-      <div className="mb-5 flex flex-wrap items-end gap-3">
-        <BuscableSelect label="Cliente" options={opciones.clientes} selected={f.clientes}
-          onChange={(v) => set({ clientes: v })} minWidth={200} />
-        <BuscableSelect label="Usuario"
-          options={opciones.usuarios.map((p) => ({ ...p, marca: p.automatizado ? "⚙" : undefined }))}
-          selected={f.usuarios} onChange={(v) => set({ usuarios: v })} minWidth={190} />
-        <BuscableSelect label="Analista"
-          options={opciones.analistas.map((p) => ({ ...p, marca: p.automatizado ? "⚙" : undefined }))}
-          selected={f.analistas} onChange={(v) => set({ analistas: v })} minWidth={190} />
-        {msSelect("mesas", "Mesa", opciones.mesas)}
-        {msSelect("procesos", "Proceso", opciones.procesos)}
-        {msSelect("documentos", "Documento", opciones.documentos)}
-        {msSelect("embarques", "Embarque", opciones.embarques)}
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Ducafast</label>
-          <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
-            {([["todos", "Todos"], ["si", "Ducafast"], ["no", "No"]] as const).map(([v, l]) => (
-              <button key={v} onClick={() => set({ ducafast: v })}
-                className="px-3 py-2 text-[0.78rem] font-semibold transition-colors"
-                style={{
-                  background: f.ducafast === v ? "var(--bg-accent-soft)" : "var(--bg-surface)",
-                  color: f.ducafast === v ? "var(--accent-light)" : "var(--text-secondary)",
-                }}>{l}</button>
-            ))}
-          </div>
+      <div className="mb-6">
+        {/* Fila 1: Filtros principales */}
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <BuscableSelect label="Cliente" options={opciones.clientes} selected={f.clientes}
+            onChange={(v) => set({ clientes: v })} minWidth={200} />
+          <BuscableSelect label="Usuario"
+            options={opciones.usuarios.map((p) => ({ ...p, marca: p.automatizado ? "⚙" : undefined }))}
+            selected={f.usuarios} onChange={(v) => set({ usuarios: v })} minWidth={190} />
+          <BuscableSelect label="Analista"
+            options={opciones.analistas.map((p) => ({ ...p, marca: p.automatizado ? "⚙" : undefined }))}
+            selected={f.analistas} onChange={(v) => set({ analistas: v })} minWidth={190} />
+          {msSelect("mesas", "Mesa", opciones.mesas)}
+          {msSelect("procesos", "Proceso", opciones.procesos)}
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Métrica</label>
-          <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
-            {(["mediana", "promedio", "p90"] as Metrica[]).map((m) => (
-              <button key={m} onClick={() => set({ metrica: m })}
-                className="px-3 py-2 text-[0.78rem] font-semibold transition-colors"
-                style={{
-                  background: f.metrica === m ? "var(--bg-accent-soft)" : "var(--bg-surface)",
-                  color: f.metrica === m ? "var(--accent-light)" : "var(--text-secondary)",
-                }}>{METRICA_LABEL[m]}</button>
-            ))}
+        {/* Fila 2: Filtros secundarios y configuración */}
+        <div className="flex flex-wrap items-end gap-3">
+          {msSelect("documentos", "Documento", opciones.documentos)}
+          {msSelect("embarques", "Embarque", opciones.embarques)}
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Ducafast</label>
+            <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+              {([["todos", "Todos"], ["si", "Sí"], ["no", "No"]] as const).map(([v, l]) => (
+                <button key={v} onClick={() => set({ ducafast: v })}
+                  className="px-3 py-2 text-[0.78rem] font-semibold transition-colors"
+                  style={{
+                    background: f.ducafast === v ? "var(--bg-accent-soft)" : "var(--bg-surface)",
+                    color: f.ducafast === v ? "var(--accent-light)" : "var(--text-secondary)",
+                  }}>{l}</button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Tarifa por hora: único control de dinero que le queda al reporte desde
-            que se quitó "Costo del tiempo" (que tenía este input); "Costo por
-            expediente" sigue necesitándola. */}
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Tarifa (USD/h)</span>
-          <input
-            type="number" min={0} step={0.5} value={tarifa}
-            onChange={(e) => setTarifa(Math.max(0, Number(e.target.value) || 0))}
-            className="w-24 rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-          />
-        </label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Métrica</label>
+            <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+              {(["mediana", "promedio", "p90"] as Metrica[]).map((m) => (
+                <button key={m} onClick={() => set({ metrica: m })}
+                  className="px-3 py-2 text-[0.78rem] font-semibold transition-colors"
+                  style={{
+                    background: f.metrica === m ? "var(--bg-accent-soft)" : "var(--bg-surface)",
+                    color: f.metrica === m ? "var(--accent-light)" : "var(--text-secondary)",
+                  }}>{METRICA_LABEL[m]}</button>
+              ))}
+            </div>
+          </div>
 
-        {/* Filtro global de "Tiempo": qué tramo de la cadena T1–T5 se quiere ver.
-            Reacciona en la barra del ciclo, los indicadores, Capacidad
-            instalada y Costo por expediente — todos con el mismo tramo. */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Tramo de la cadena Creado→Firma que se quiere medir">
-            Tiempo
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Tarifa (USD/h)</span>
+            <input
+              type="number" min={0} step={0.5} value={tarifa}
+              onChange={(e) => setTarifa(Math.max(0, Number(e.target.value) || 0))}
+              className="w-24 rounded-lg border px-3 py-2 text-sm outline-none"
+              style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
           </label>
-          <div className="flex items-center gap-1.5">
-            <select value={f.etapaDesde} onChange={(e) => set({ etapaDesde: e.target.value as EtapaKey })}
-              className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
-              style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-              {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
-            </select>
-            <span className="text-[0.72rem] text-[var(--text-muted)]">a</span>
-            <select value={f.etapaHasta} onChange={(e) => set({ etapaHasta: e.target.value as EtapaKey })}
-              className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
-              style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-              {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
-            </select>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Tramo de la cadena Creado→Firma que se quiere medir">
+              Tiempo
+            </label>
+            <div className="flex items-center gap-1.5">
+              <select value={f.etapaDesde} onChange={(e) => set({ etapaDesde: e.target.value as EtapaKey })}
+                className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
+                style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
+              </select>
+              <span className="text-[0.72rem] text-[var(--text-muted)]">→</span>
+              <select value={f.etapaHasta} onChange={(e) => set({ etapaHasta: e.target.value as EtapaKey })}
+                className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
+                style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
+              </select>
+            </div>
           </div>
-          {tramoLabel && (
-            <span className="text-[0.64rem] text-[var(--text-muted)]">{recorridoAlcance(alcance)}</span>
-          )}
+
+          {conFiltros && <FilterReset onClick={() => setF({ ...FILTROS_VACIOS, metrica: f.metrica })} />}
         </div>
 
-        {conFiltros && <FilterReset onClick={() => setF({ ...FILTROS_VACIOS, metrica: f.metrica })} />}
+        {tramoLabel && (
+          <p className="mt-2 text-[0.68rem] text-[var(--text-muted)]">
+            Tramo: {recorridoAlcance(alcance)}
+          </p>
+        )}
       </div>
 
       {/* Línea de tiempo (slicer de periodo).
@@ -297,7 +301,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       </Bloque>
 
       {/* ── Detalle y exportación ── */}
-      <Bloque titulo="Detalle" badge={`${exps.length.toLocaleString("es-GT")} expedientes`}>
+      <Bloque titulo="Detalle" badge={`${exps.length.toLocaleString("es-GT")} Files`}>
         <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
           <button onClick={descargarCSV}
             className="rounded-lg border px-3.5 py-2 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
@@ -312,7 +316,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
           <table className="pmo">
             <thead>
               <tr>
-                <th>Expediente</th>
+                <th>File</th>
                 <th>Creado</th>
                 <th>Cliente</th>
                 <th>Analista</th>
@@ -352,7 +356,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
         </div>
         {exps.length > 200 && (
           <p className="mt-2 text-[0.72rem] text-[var(--text-muted)]">
-            Se muestran los primeros 200 de {exps.length.toLocaleString("es-GT")}. La exportación incluye todos.
+            Se muestran los primeros 200 de {exps.length.toLocaleString("es-GT")} Files. La exportación incluye todos.
           </p>
         )}
         <p className="mt-1 text-[0.7rem] text-[var(--text-muted)]">
