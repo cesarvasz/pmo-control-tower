@@ -109,7 +109,7 @@ export function TablaDimension({
               <Th campo="volumen" orden={{ campo, dir }} alternar={alternar} align="center">Volumen</Th>
               {columnaCiclo && (
                 <Th campo="ciclo" orden={{ campo, dir }} alternar={alternar} align="center">
-                  <span title="Expedientes donde es Usuario y Analista a la vez: carga el ciclo completo">
+                  <span title="Files donde es Usuario y Analista a la vez: carga el ciclo completo">
                     Punta a punta
                   </span>
                 </Th>

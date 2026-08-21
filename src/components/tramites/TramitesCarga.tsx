@@ -105,12 +105,12 @@ export default function TramitesCarga({
           <thead>
             <tr>
               <th>Periodo</th>
-              <th style={{ textAlign: "center" }}>Expedientes</th>
+              <th style={{ textAlign: "center" }}>Files</th>
               <th style={{ textAlign: "center" }} title="Personas distintas: Usuario o Analista, sin duplicar">Personas</th>
               <th style={{ textAlign: "center" }}>Usuarios</th>
               <th style={{ textAlign: "center" }}>Analistas</th>
               <th style={{ textAlign: "center" }} title="Actuaron como Usuario y Analista en el mismo periodo">Ambos</th>
-              <th style={{ textAlign: "center" }}>Exp./persona</th>
+              <th style={{ textAlign: "center" }}>Files/persona</th>
               <th style={{ textAlign: "center" }}>Demanda</th>
               <th style={{ textAlign: "center" }} title="Personas × 44 h/semana">Capacidad</th>
               <th style={{ textAlign: "center" }}>h/persona</th>

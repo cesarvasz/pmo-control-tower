@@ -226,11 +226,11 @@ export default function CostoTiempo({
               <thead>
                 <tr>
                   <th>Persona</th>
-                  <th style={{ textAlign: "center" }}>Expedientes</th>
-                  <th style={{ textAlign: "center" }} title="Suma de sus expedientes: cuenta la misma hora una vez por tramite abierto">Suma</th>
+                  <th style={{ textAlign: "center" }}>Files</th>
+                  <th style={{ textAlign: "center" }} title="Suma de sus Files: cuenta la misma hora una vez por tramite abierto">Suma</th>
                   <th style={{ textAlign: "center" }} title="Union de sus tramos: cada hora cuenta una sola vez">Horas reales</th>
                   <th style={{ textAlign: "center" }} title="Horas habiles que caben en la ventana del recorte">Disponibles</th>
-                  <th style={{ textAlign: "center" }} title="Suma / reales: expedientes que llevaba en paralelo">Traslape</th>
+                  <th style={{ textAlign: "center" }} title="Suma / reales: Files que llevaba en paralelo">Traslape</th>
                   <th style={{ textAlign: "center" }} title="Horas habiles de la ventana x tarifa">Costo disponible</th>
                   <th style={{ textAlign: "center" }}>Costo usado</th>
                   <th style={{ textAlign: "center" }} title="Diferencia entre lo disponible y lo usado">Sin usar</th>
