@@ -79,13 +79,13 @@ export default function CapacidadInstalada({
 
   return (
     <div className="viz-etapas">
-      {/* Qué se está contando y por qué no es la suma de los expedientes */}
+      {/* Qué se está contando y por qué no es la suma de los Files */}
       <div className="mb-4 rounded-lg border-l-[3px] px-3.5 py-2.5 text-[0.76rem] leading-relaxed"
         style={{ borderColor: "var(--ok)", background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-        <strong>Se cuentan horas de reloj, no la suma de los expedientes.</strong>{" "}
+        <strong>Se cuentan horas de reloj, no la suma de los Files.</strong>{" "}
         Quien lleva varios trámites a la vez no trabaja la suma de todos: el reloj corre una sola
         vez. Por eso los tramos de cada persona se <em>unen</em> antes de contar — si trabajó 3
-        expedientes en la misma ventana de 2 horas, son 2 horas reales, no 6.
+        Files en la misma ventana de 2 horas, son 2 horas reales, no 6.
       </div>
 
       {/* Filtro por rol: una persona puede aparecer en ambos si en un
@@ -147,7 +147,7 @@ export default function CapacidadInstalada({
             {horas(horasReales)}
           </div>
           <div className="text-[0.64rem] text-[var(--text-muted)]">
-            {horasSuma > 0 && `sumando por expediente serían ${horas(horasSuma)}`}
+            {horasSuma > 0 && `sumando por File serían ${horas(horasSuma)}`}
           </div>
         </div>
         <div className="rounded-lg px-3 py-2" style={{ background: "var(--bg-hover)" }}
@@ -182,12 +182,12 @@ export default function CapacidadInstalada({
         <table className="pmo">
           <thead>
             <tr>
-              <th title="Usuario y/o Analista, según el rol con que le tocó cada expediente. Si aparece en ambos roles del mismo expediente (la misma persona hizo todo el trámite), cuenta una sola vez con el ciclo completo.">Persona</th>
-              <th style={{ textAlign: "center" }} title="Cantidad de expedientes con un intervalo de reloj atribuido a esta persona, dentro del tramo elegido. Cuenta por MARCA DE RELOJ (inicio-fin real), no por horas hábiles: un expediente tramitado de noche o fin de semana cuenta aquí aunque su tiempo hábil dé 0 y por eso no aparezca en el n de «Costo por expediente» (que solo cuenta horario hábil L-V).">Expedientes</th>
-              <th style={{ textAlign: "center" }} title="Suma de sus expedientes: cuenta la misma hora tantas veces como trámites tenía abiertos a la vez (no descuenta traslapes).">Suma</th>
-              <th style={{ textAlign: "center" }} title="Unión de sus tramos: cada hora del reloj cuenta una sola vez, sin importar cuántos expedientes llevaba en paralelo. Esta es la que se usa para el costo y la utilización.">Horas reales</th>
+              <th title="Usuario y/o Analista, según el rol con que le tocó cada File. Si aparece en ambos roles del mismo File (la misma persona hizo todo el trámite), cuenta una sola vez con el ciclo completo.">Persona</th>
+              <th style={{ textAlign: "center" }} title="Cantidad de Files con un intervalo de reloj atribuido a esta persona, dentro del tramo elegido. Cuenta por MARCA DE RELOJ (inicio-fin real), no por horas hábiles: un File tramitado de noche o fin de semana cuenta aquí aunque su tiempo hábil dé 0 y por eso no aparezca en el n de «Costo por File» (que solo cuenta horario hábil L-V).">Files</th>
+              <th style={{ textAlign: "center" }} title="Suma de sus Files: cuenta la misma hora tantas veces como trámites tenía abiertos a la vez (no descuenta traslapes).">Suma</th>
+              <th style={{ textAlign: "center" }} title="Unión de sus tramos: cada hora del reloj cuenta una sola vez, sin importar cuántos Files llevaba en paralelo. Esta es la que se usa para el costo y la utilización.">Horas reales</th>
               <th style={{ textAlign: "center" }} title={`Capacidad instalada: ${HORAS_SEMANA_PERSONA} h/semana escaladas a la ventana del recorte (misma ventana para todos).`}>Disponibles</th>
-              <th style={{ textAlign: "center" }} title="Suma ÷ Horas reales: cuántos expedientes llevaba en paralelo, en promedio, durante sus horas trabajadas.">Traslape</th>
+              <th style={{ textAlign: "center" }} title="Suma ÷ Horas reales: cuántos Files llevaba en paralelo, en promedio, durante sus horas trabajadas.">Traslape</th>
               <th style={{ textAlign: "center" }} title="Horas reales × tarifa por hora.">Costo usado</th>
               <th style={{ textAlign: "center" }} title="Diferencia en dinero entre lo disponible (Disponibles × tarifa) y lo usado (Costo usado).">Sin usar</th>
               <th style={{ minWidth: 130 }} title="Horas reales ÷ Disponibles. 100% = ocupada de punta a punta durante toda la ventana medida.">Utilización</th>
@@ -253,7 +253,7 @@ export default function CapacidadInstalada({
       )}
       {botsVisibles.length > 0 && (
         <p className="mt-2 text-[0.7rem] text-[var(--text-muted)]">
-          <BadgeBot /> = ejecutor automatizado: tramita expedientes y sus horas reales sí se ven arriba, pero no
+          <BadgeBot /> = ejecutor automatizado: tramita Files y sus horas reales sí se ven arriba, pero no
           tiene una jornada de 44 h/semana — por eso no cuenta en Personas/Necesarias/Utilización y sus columnas
           de disponibilidad van en «—».
         </p>
