@@ -27,13 +27,15 @@ const horas = (n: number) => `${Math.round(n).toLocaleString("es-GT")} h`;
 type RolFiltro = "todos" | "usuario" | "analista";
 
 export default function CapacidadInstalada({
-  personas, ventana, tarifa, tramo,
+  personas, ventana, tarifa, tramo, onFiltrarPersona,
 }: {
   personas: FilaPersona[];
   ventana: Ventana;
   tarifa: number;
   /** Etiqueta del filtro global de "Tiempo" (ej. "T1–T3"); vacío si son todas. */
   tramo?: string;
+  /** Callback al hacer click en una persona para filtrar. */
+  onFiltrarPersona?: (clave: string, rol: "usuario" | "analista") => void;
 }) {
   const [rol, setRol] = useState<RolFiltro>("todos");
 
@@ -197,7 +199,19 @@ export default function CapacidadInstalada({
             {filasTabla.slice(0, 150).map((p) => {
               const col = p.utilizacion >= 0.85 ? "var(--ok)" : p.utilizacion >= 0.5 ? "var(--warn)" : "var(--bad)";
               return (
-                <tr key={p.clave}>
+                <tr key={p.clave} onClick={() => {
+                  if (onFiltrarPersona && !p.automatizado) {
+                    if (rol === "usuario") onFiltrarPersona(p.clave, "usuario");
+                    else if (rol === "analista") onFiltrarPersona(p.clave, "analista");
+                    else if (p.esUsuario && p.esAnalista) {
+                      onFiltrarPersona(p.clave, "usuario");
+                    } else if (p.esUsuario) {
+                      onFiltrarPersona(p.clave, "usuario");
+                    } else {
+                      onFiltrarPersona(p.clave, "analista");
+                    }
+                  }
+                }} className={onFiltrarPersona && !p.automatizado ? "cursor-pointer hover:bg-[var(--bg-hover)]" : undefined}>
                   <td className="truncate" title={p.clave}>
                     <span className="flex items-center gap-2">
                       <span className="truncate">{p.label}</span>

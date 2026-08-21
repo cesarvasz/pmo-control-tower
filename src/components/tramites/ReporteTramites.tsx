@@ -297,7 +297,16 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
 
       {/* ── Capacidad instalada ── */}
       <Bloque titulo="Capacidad instalada" badge={tramoLabel ? `$${tarifa}/h · ${tramoLabel}` : `$${tarifa}/h`}>
-        <CapacidadInstalada personas={personas} ventana={ventana} tarifa={tarifa} tramo={tramoLabel} />
+        <CapacidadInstalada
+          personas={personas}
+          ventana={ventana}
+          tarifa={tarifa}
+          tramo={tramoLabel}
+          onFiltrarPersona={(clave, rol) => {
+            if (rol === "usuario") set({ usuarios: [clave] });
+            else set({ analistas: [clave] });
+          }}
+        />
       </Bloque>
 
       {/* ── Detalle y exportación ── */}
