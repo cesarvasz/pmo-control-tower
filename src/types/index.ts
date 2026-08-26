@@ -91,6 +91,33 @@ export interface RoiPayload {
   filas: (string | number | null)[][];
 }
 
+/** Fila del archivo "Clonacion files" (Google Sheets, pestaña "clonacion") —
+ *  un archivo DISTINTO al de la hoja ROI de 003. Una clonación de file por
+ *  fila. Fuente independiente de 003 (ver apps-script/roi-clonacion.gs).
+ *  Claves = nombres exactos de columna en la hoja.
+ *
+ *  Nota: un mismo c807_file puede repetirse (varias clonaciones del mismo
+ *  file) — no se deduplica. */
+export interface ClonacionRow {
+  c807_file: string;
+  Solicitud_fecha: string;
+  Creacion_Fecha: string;
+  Usuario: string;
+  Cliente: string;
+}
+
+/** Hoja "Clonación" tal como la manda el Apps Script: codificada, mismo
+ *  esquema que RoiPayload (ver apps-script/roi-clonacion.gs). */
+export interface ClonacionPayload {
+  epoca: number;
+  generado?: string;
+  libres: string[];
+  textos: string[];
+  fechas: string[];
+  dicc: Record<string, string[]>;
+  filas: (string | number | null)[][];
+}
+
 /** Costo planificado de un REQ guardado en Firestore (baseline para EV/CPI). */
 export interface ReqBaseline {
   costRH: number;
@@ -245,10 +272,12 @@ export interface ProjSubitem {
   pmsId: string; // ID del hito desde la columna "PMS ID" de Monday (ej. PMO-002-1)
   status: string;
   person: string;
+  responsible: string; // "Responsible" del subelemento (board_relation, display_value)
   developer: string; // "Developer" del subelemento (board_relation, display_value)
   tld: string;       // "TLD" del subelemento (lookup, display_value)
   deadline: Date | null;
   estado: string;
+  startDate: Date | null;                     // fecha real de inicio del hito (solo plantilla nueva, vía Timeline; null si Monday no lo registra)
   actualEnd: Date | null;                     // "Actual End": fecha real de cierre del hito
   entrega: "on-time" | "late" | null;         // a tiempo si Actual End ≤ Limit Date (solo Done)
   cost: number;
@@ -266,6 +295,7 @@ export interface ProjItem {
   responsible: string; // columna "Responsible" (board_relation) — fallback cuando "Resp" viene vacío
   status: string;
   deadline: Date | null;
+  startDate: Date | null;                     // "Start Date": fecha real de inicio del item
   endDate: Date | null;                       // "End Date": fecha real de cierre del item
   entrega: "on-time" | "late" | null;         // a tiempo si End Date ≤ Limit Date (solo Done)
   cost: number;
