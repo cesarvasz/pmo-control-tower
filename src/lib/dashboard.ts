@@ -3,6 +3,7 @@
 // NPS, % de entregas, costo/beneficio y KPI ponderado). Funciones PURAS sobre
 // datos ya procesados (ini/req/proj), reutilizables y testeables.
 
+import { today } from "@/lib/business";
 import { calcIniPMHealth } from "@/lib/ini";
 import { healthStatusFromIndex, type HealthStatus } from "@/lib/health";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName, type BoardHealthData } from "@/lib/proj";
@@ -345,24 +346,244 @@ export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[]): Entrega
 }
 
 // ── Reproceso (componente del KPI, peso 20) ──────────────────────────────
-/** Clave sintética de atribución de una fase (grupo) de un proyecto.
- *  Debe coincidir con la usada en la UI de Proyectos (cabecera de cada fase). */
+/** Clave sintética de atribución de una fase (grupo) de un proyecto. Usada por
+ *  Cumplimiento de Entrega (Atraso, a nivel fase — ver groupFaseEntrega y la UI de
+ *  Proyectos, cabecera de cada fase). Reproceso ya NO la usa: atribuye por step
+ *  (p.id) — ver calcReprocesoStats/buildReprocesoRows más abajo. */
 export const projPhaseKey = (boardId: string, grupo: string) => `${boardId}::${grupo}`;
 
+
+/** Calidad/Reproceso de Proyecto SOLO mide la Fase 3 (Launch/Desarrollo) — es la
+ *  única fase donde ocurre el desarrollo real; Valuación, Aprobación, Operación y
+ *  Revisión son checkpoints administrativos, sin "rework" que medir. Se identifica
+ *  por el nombre del grupo: en los boards reales todas las fase-3 arrancan con
+ *  "Launch" (plantilla nueva: "Launch | Lanzamiento"; plantilla vieja: "Launch |
+ *  Desarrollo"). Si un board futuro nombra su fase 3 distinto, hay que ajustar
+ *  este chequeo — no hay forma robusta de detectarla por posición hoy (Monday no
+ *  nos da el orden de los grupos, solo su nombre). */
+export const isFase3 = (grupo: string): boolean => (grupo ?? "").trim().toLowerCase().startsWith("launch");
+
+// La plantilla "vieja" de Fase 3 tiene siempre 4 steps fijos que son CHECKPOINTS, no
+// entregables ("Analisis técnico...", "Value Gate (BC)...", "Agenda BAT/UAT CKU" y
+// "Desarrollo por iteraciones (Hitos) / Entrega(s) CKU") — el mismo hito real aparece
+// duplicado como subitem independiente bajo 2-3 de esos checkpoints (confirmado con
+// IDs de Monday). "Desarrollo por iteraciones..." es el checkpoint final: sus hitos
+// reflejan el estado real de cada entregable, así que SI existe en la fase, la unidad
+// de Calidad pasa a ser cada uno de SUS hitos (no el step). El nombre exacto varía
+// ("...Entrega CKU" en la mayoría, "...Entregas CKU" en PM-001) — de ahí el match por
+// substring. Ningún step de la plantilla nueva usa este nombre (son entregables como
+// "POC", "MESA 2 - GT", etc. — "desarrollo por iteraciones" solo aparece como nombre
+// de HITO dentro de su propio pipeline, nunca como nombre de STEP).
+const DESARROLLO_ITERACIONES_RE = /desarrollo por iteraciones/i;
+export const isDesarrolloPorIteracionesStep = (name: string): boolean => DESARROLLO_ITERACIONES_RE.test(name);
+
+/** Unidad de medición de Calidad dentro de una Fase 3: SIEMPRE un ITEM (step) —
+ *  ver isDesarrolloPorIteracionesStep arriba para cuáles steps de la fase miden.
+ *  Sus hitos son solo lectura (detalle en `cascade`/`pendingAtrasados`), no unidades
+ *  propias. El veredicto es progresivo — ver calcItemCalidad para cómo se calcula
+ *  cuando el item aún no está Done. */
+export interface CalidadUnit {
+  id: string;                        // p.id — clave de atribución/Firestore
+  kind: "step";
+  name: string;
+  pm: string;
+  boardId: string;
+  boardName: string;
+  grupo: string;
+  /** Status de Monday del item (Done / Working on it / Future Steps / ...). */
+  status: string;
+  deadline: Date | null;
+  startDate: Date | null;
+  /** Fecha real de cierre (End Date) — null mientras el item no está Done. */
+  actualEnd: Date | null;
+  entrega: "on-time" | "late" | null;
+  /** true = hubo atraso pero se recuperó (PM se recuperó), sea porque el item cerró
+   *  a tiempo o porque sigue abierto y ya no hay nada pendiente vencido.
+   *  false = hubo atraso y sigue sin recuperarse. null = nada que diagnosticar. */
+  recuperado: boolean | null;
+  /** Desglose de los hitos del item (para el acordeón de detalle). */
+  cascade: ReprocesoCascade | null;
+  /** Hitos aún no Done que ya vencieron su propio CPM — por qué un item en curso
+   *  puede estar marcado "con reproceso" antes de cerrar. */
+  pendingAtrasados: PendingCalidadItem[];
+}
+
+type CalidadGroup = { boardId: string; boardName: string; grupo: string; pm: string; steps: ProjItem[] };
+
+/** Agrupa los steps de Fase 3 por proyecto (board+grupo) — agrupador compartido por
+ *  calidadUnits() y calidadProjectStatus() para no repetir la lógica de scoping. */
+function groupCalidad(projs: ProjItem[]): Map<string, CalidadGroup> {
+  const groups = new Map<string, CalidadGroup>();
+  for (const p of projs) {
+    if (!isFase3(p.grupo)) continue;
+    const key = projPhaseKey(p.boardId, p.grupo);
+    let g = groups.get(key);
+    if (!g) { g = { boardId: p.boardId, boardName: p.boardName, grupo: p.grupo, pm: p.pm, steps: [] }; groups.set(key, g); }
+    g.steps.push(p);
+  }
+  return groups;
+}
+
+/** Steps de la fase cuyos hitos (o ellos mismos, si no tienen subitems) cuentan para
+ *  Calidad — ver el comentario de isDesarrolloPorIteracionesStep arriba: plantilla
+ *  vieja → solo "Desarrollo por iteraciones..."; plantilla nueva → todos los steps. */
+function stepsQueMidenCalidad(g: CalidadGroup): ProjItem[] {
+  const desarrolloStep = g.steps.find((p) => isDesarrolloPorIteracionesStep(p.name));
+  return desarrolloStep ? [desarrolloStep] : g.steps;
+}
+
+/** Un hito o step de Fase 3 que TODAVÍA no está Done — insumo tanto de
+ *  calcItemCalidad() (veredicto progresivo de un item en curso) como de
+ *  calidadProjectStatus() (rollup por proyecto), para saber si, a día de hoy,
+ *  sigue dentro de su propio CPM o ya lo venció. */
+export interface PendingCalidadItem {
+  id: string;
+  name: string;
+  deadline: Date | null;
+  /** Nombre del step padre. */
+  stepName: string;
+}
+
+/** Veredicto de Calidad de UN item (step), calculado de forma PROGRESIVA — no
+ *  exige que el item esté Done:
+ *  · Done: el veredicto es su propio `entrega` (CPM) y `recuperado` es el
+ *    diagnóstico ya existente de calcReprocesoCascade (hito atrasado vs. cierre
+ *    del item).
+ *  · No Done: se arma un veredicto provisional a partir de sus hitos — un hito
+ *    pendiente que YA venció su propio CPM marca al item "atrasado" (con
+ *    reproceso, excusable); si no hay ninguno vencido pero SÍ hubo un hito Done
+ *    que llegó tarde, el item cuenta "recuperado" (limpio + badge); si no pasó
+ *    nada de eso, `qualifies: false` — todavía no hay nada que evaluar, y el
+ *    item no genera unidad (medición progresiva, igual que en el resto de la app). */
+export interface ItemCalidad {
+  entrega: "on-time" | "late" | null;
+  recuperado: boolean | null;
+  cascade: ReprocesoCascade;
+  pendingAtrasados: PendingCalidadItem[];
+  qualifies: boolean;
+}
+
+export function calcItemCalidad(step: ProjItem): ItemCalidad {
+  const cascade = calcReprocesoCascade(step);
+  const pendingAtrasados = step.subitems
+    .filter((s) => s.status !== "Done" && s.deadline != null && s.deadline < today())
+    .map((s) => ({ id: s.id, name: s.name, deadline: s.deadline, stepName: step.name }));
+
+  if (step.status === "Done") {
+    return { entrega: step.entrega, recuperado: cascade.recuperado, cascade, pendingAtrasados, qualifies: true };
+  }
+  const doneLate = step.subitems.some((s) => s.status === "Done" && s.entrega === "late");
+  const doneAny = step.subitems.some((s) => s.status === "Done");
+  const qualifies = doneAny || pendingAtrasados.length > 0;
+  if (!qualifies) return { entrega: null, recuperado: null, cascade, pendingAtrasados, qualifies: false };
+  const entrega = pendingAtrasados.length > 0 ? "late" : "on-time";
+  const recuperado = pendingAtrasados.length > 0 ? (doneLate ? false : null) : (doneLate ? true : null);
+  return { entrega, recuperado, cascade, pendingAtrasados, qualifies: true };
+}
+
+/** Resuelve las unidades de Calidad de TODOS los proyectos: agrupa los steps de Fase 3
+ *  por proyecto (board+grupo), decide CUÁLES steps miden (ver isDesarrolloPorIteracionesStep
+ *  arriba) y, para cada uno, su veredicto progresivo (ver calcItemCalidad). La unidad de
+ *  atribución/KPI es siempre el ITEM — sus hitos son solo lectura (detalle en `cascade`).
+ *  Único punto de la app que decide el alcance; calcReprocesoStats/calcReprocesoStatsRaw/
+ *  buildReprocesoRows/buildReprocesoRowsRaw consumen su resultado sin repetir la lógica. */
+export function calidadUnits(projs: ProjItem[]): CalidadUnit[] {
+  const units: CalidadUnit[] = [];
+  for (const g of groupCalidad(projs).values()) {
+    for (const step of stepsQueMidenCalidad(g)) {
+      const calc = calcItemCalidad(step);
+      if (!calc.qualifies) continue;
+      units.push({
+        id: step.id, kind: "step", name: step.name, pm: g.pm,
+        boardId: g.boardId, boardName: g.boardName, grupo: g.grupo, status: step.status,
+        deadline: step.deadline, startDate: step.startDate, actualEnd: step.endDate,
+        entrega: calc.entrega, recuperado: calc.recuperado, cascade: calc.cascade,
+        pendingAtrasados: calc.pendingAtrasados,
+      });
+    }
+  }
+  return units;
+}
+
+/** "Trayectoria" de Calidad de un proyecto en Fase 3, a día de hoy — responde si el PM
+ *  se recuperó de sus atrasos tomando en cuenta TANTO lo ya cerrado como lo pendiente:
+ *  · "atrasado": hay al menos un hito/step AÚN pendiente (no Done) cuyo propio CPM ya
+ *    venció (estado "ATRASADO") — hay un problema abierto HOY, sin importar el
+ *    historial. Es la señal de que todavía no se ha recuperado.
+ *  · "recuperado": al menos una unidad Done llegó atrasada en el pasado, pero TODO lo
+ *    que sigue pendiente hoy está dentro de su CPM — el PM se puso al día.
+ *  · "sin-atrasos": ninguna unidad Done llegó atrasada, y nada pendiente está vencido. */
+export type CalidadTrayectoria = "sin-atrasos" | "recuperado" | "atrasado";
+
+export interface CalidadProjectStatus {
+  boardId: string;
+  boardName: string;
+  grupo: string;
+  pm: string;
+  doneTotal: number;
+  doneLate: number;
+  pendingTotal: number;
+  /** Subconjunto de lo pendiente que ya venció su propio CPM sin haber cerrado. Un
+   *  pendiente SIN CPM asignado (típico de "Future Steps" al fondo del pipeline, que
+   *  Monday todavía no programó) no cuenta aquí — no hay fecha que haya incumplido
+   *  todavía, a diferencia de un Done sin fechas (que sí penaliza, ver calcReprocesoCascade). */
+  pendingAtrasados: PendingCalidadItem[];
+  trayectoria: CalidadTrayectoria;
+}
+
+/** Trayectoria de Calidad por proyecto (board+fase 3) — ver CalidadTrayectoria arriba.
+ *  Cuenta HITOS directamente (Done/pendientes), independiente de calidadUnits() y de
+ *  qué es "una unidad" para el KPI — un rollup agregado del proyecto entero no debe
+ *  cambiar de comportamiento solo porque cambie el grano de atribución. Un grupo sin
+ *  ninguna unidad Done ni nada pendiente (fase aún sin arrancar) no aparece en el resultado. */
+export function calidadProjectStatus(projs: ProjItem[]): CalidadProjectStatus[] {
+  const result: CalidadProjectStatus[] = [];
+  for (const g of groupCalidad(projs).values()) {
+    let doneTotal = 0, doneLate = 0;
+    const pending: PendingCalidadItem[] = [];
+    for (const step of stepsQueMidenCalidad(g)) {
+      if (step.subitems.length > 0) {
+        for (const s of step.subitems) {
+          if (s.status === "Done") { doneTotal++; if (s.entrega === "late") doneLate++; }
+          else pending.push({ id: s.id, name: s.name, deadline: s.deadline, stepName: step.name });
+        }
+      } else if (step.status === "Done") {
+        doneTotal++;
+        if (step.entrega === "late") doneLate++;
+      } else {
+        pending.push({ id: step.id, name: step.name, deadline: step.deadline, stepName: "" });
+      }
+    }
+    if (doneTotal === 0 && pending.length === 0) continue;
+    const pendingAtrasados = pending.filter((p) => p.deadline != null && p.deadline < today());
+    const trayectoria: CalidadTrayectoria =
+      pendingAtrasados.length > 0 ? "atrasado" : doneLate > 0 ? "recuperado" : "sin-atrasos";
+    result.push({
+      boardId: g.boardId, boardName: g.boardName, grupo: g.grupo, pm: g.pm,
+      doneTotal, doneLate, pendingTotal: pending.length, pendingAtrasados, trayectoria,
+    });
+  }
+  return result;
+}
 
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
 /** Desglose de "Calidad de Entregas" (unidades limpias vs. con reproceso). Las unidades
- *  en scope son los REQ CERRADOS + las fases de proyecto (medición progresiva: con al
- *  menos un item Done). Misma regla que entregas: cada unidad penaliza por defecto y
- *  también si es "PM"; solo se EXCUSA si responsable ≠ PM (incluida "Sin reproceso"). */
+ *  en scope son los REQ CERRADOS + las unidades de Calidad de la FASE 3 de Proyecto
+ *  (ver calidadUnits: step completo o hito de "Desarrollo por iteraciones...", según la
+ *  plantilla) — las demás fases del proyecto no entran (ver isFase3). Para REQ: penaliza
+ *  por defecto, incluso sin responsable asignado; solo se EXCUSA con responsable ≠ PM
+ *  (misma regla que siempre). Para una unidad de Fase 3: el veredicto arranca
+ *  AUTOMÁTICO — `entrega === "on-time"` (cumplió su CPM) limpia sin necesidad de
+ *  atribución; si quedó atrasada (o no se pudo verificar por falta de fechas) penaliza
+ *  salvo que se excuse con un responsable ≠ PM. */
 export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
-  const units = [
-    ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
-    ...Array.from(groupFaseReproceso(projs).values()).filter((g) => g.items.length > 0).map((g) => g.key),
-  ];
-  const total = units.length;
-  const conReproceso = units.filter((id) => !lateExcused(id, reproceso)).length;
+  const reqUnits = reqs.filter((r) => r.estado === "CERRADO");
+  const stepUnits = calidadUnits(projs);
+  const total = reqUnits.length + stepUnits.length;
+  const reqConReproceso = reqUnits.filter((r) => !lateExcused(r.id, reproceso)).length;
+  const stepConReproceso = stepUnits.filter((u) => u.entrega !== "on-time" && !lateExcused(u.id, reproceso)).length;
+  const conReproceso = reqConReproceso + stepConReproceso;
   const limpias = total - conReproceso;
   const pct = total ? Math.round((limpias / total) * 100) : null;
   return { total, limpias, conReproceso, pct };
@@ -376,12 +597,13 @@ export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: 
 
 /** Variante "real, sin filtros" de Calidad de Entregas — SOLO para la tarjeta
  *  principal del Control Tower (Players/KPI usan calcReprocesoStats). Únicamente
- *  cuenta unidades que YA tienen responsable asignado: "Sin reproceso" → limpia;
- *  otros (incluido "PM") → con reproceso. Sin selección se ignoran. */
+ *  cuenta unidades (REQ CERRADO / step Done) que YA tienen responsable asignado:
+ *  "Sin reproceso" → limpia; otros (incluido "PM") → con reproceso. Sin selección
+ *  se ignoran — ignora el veredicto automático por fechas. */
 export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
   const units = [
     ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
-    ...Array.from(groupFaseReproceso(projs).values()).filter((g) => g.items.length > 0).map((g) => g.key),
+    ...calidadUnits(projs).map((u) => u.id),
   ];
   const assigned = units.filter((id) => reproceso[id]?.responsible != null);
   const total = assigned.length;
@@ -526,90 +748,105 @@ export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], 
 }
 
 export interface ReprocesoRow {
-  id: string;                        // r.id / projPhaseKey(boardId, grupo) — atribución "reproceso"
+  id: string;                        // r.id (REQ) / CalidadUnit.id (item de Proyecto) — atribución "reproceso"
   source: "REQ" | "Proyecto";
+  unitKind: "req" | "step";
   tipo: "PM" | "PML";                // Proyecto → "PM"; REQ → "PML"
-  name: string;
+  name: string;                      // REQ: r.name. Proyecto: nombre del item (el entregable)
   context: string;                   // REQ: grupo. Proyecto: "board · grupo"
   projCode: string;                  // "PM-003" del board; "" en REQ
   projName: string;                  // proyecto; "" en REQ
   fase: string;                      // REQ/Proyecto: grupo (fase)
   pm: string;
-  deadline: Date | null;             // REQ: su deadline. Proyecto: null
+  /** REQ: r.estado (EN PROCESO / CERRADO / ...). Proyecto: status de Monday del item
+   *  (Done / Working on it / Future Steps / ...). */
+  status: string;
+  deadline: Date | null;             // REQ: su deadline. Proyecto: deadline/CPM propio de la unidad.
+  /** Fecha real de inicio. REQ: inicio del trámite. Proyecto: startDate propio del item. */
+  startDate: Date | null;
+  /** Fecha real de cierre. REQ: fin de la última fase evaluada. Proyecto: End Date del
+   *  item. null si aún no cerró. */
+  actualEnd: Date | null;
   verdict: "clean" | "reproceso";
   /** Solo REQ: desglose de deadlines por fase (para acordeón). */
   phaseDetails?: ReqPhaseDetail[];
-  /** Solo Proyecto: steps/hitos de la fase Done (informativo en acordeón). */
-  itemsDone: FaseReprocesoItem[];
-  /** Solo Proyecto: total de steps/hitos Done en la fase. */
+  /** Solo unitKind "step": hitos Done de ese item (informativo en acordeón). Vacío en "req". */
+  itemsDone: ReprocesoHito[];
+  /** Solo unitKind "step": total de hitos Done del item. 0 en "req". */
   totalDone: number;
+  /** true = hubo atraso pero se recuperó (PM se recuperó). false = no se recuperó.
+   *  null = nada que diagnosticar (o unitKind "req", que no aplica). */
+  recuperado: boolean | null;
+  /** Solo unitKind "step": diagnóstico de recuperación de atraso entre los hitos del item
+   *  (para el acordeón de detalle). */
+  cascade: ReprocesoCascade | null;
+  /** Solo unitKind "step": hitos aún no Done que ya vencieron su propio CPM — por qué un
+   *  item en curso puede aparecer marcado antes de cerrar. Vacío en "req". */
+  pendingAtrasados: PendingCalidadItem[];
 }
 
-/** Interfaz para items (steps/hitos) que componen una fase de Reproceso. */
-export interface FaseReprocesoItem {
+/** Un hito (subitem) de un step de Proyecto, con su propio veredicto de entrega —
+ *  ya NO es una unidad de Reproceso; es el insumo del diagnóstico de recuperación. */
+export interface ReprocesoHito {
   id: string;
-  kind: "step" | "hito";
   name: string;
-  stepPadre: string;
   deadline: Date | null;
+  entrega: "on-time" | "late" | null;
 }
 
-interface FaseReprocesoGroup {
-  key: string;                 // projPhaseKey(boardId, grupo)
-  boardId: string;
-  boardName: string;
-  fase: string;                // grupo
-  pm: string;
-  /** Solo steps/hitos YA evaluados (Done); los pendientes no entran aún. */
-  items: FaseReprocesoItem[];
+/** Diagnóstico de recuperación de un step: si tuvo al menos un hito marcado "late"
+ *  en algún momento, pero el STEP EN SÍ terminó a tiempo según su propio CPM/deadline
+ *  (`p.entrega === "on-time"`), el PM "se recuperó" del atraso puntual — el hito que
+ *  se atrasó no le costó el cumplimiento del entregable. Si el step también terminó
+ *  atrasado (o sin fechas para verificar), no hubo recuperación. */
+export interface ReprocesoCascade {
+  hitos: ReprocesoHito[];
+  /** Índice (en `hitos`) del primer hito con entrega "late"; null si ninguno se atrasó. */
+  primerAtrasoIdx: number | null;
+  /** true = hubo un hito atrasado pero el step cerró a tiempo (PM se recuperó).
+   *  false = hubo un hito atrasado y el step también terminó atrasado (no se recuperó).
+   *  null = ningún hito estuvo atrasado — no hay nada que diagnosticar. */
+  recuperado: boolean | null;
 }
 
-/** Agrupa steps (ProjItem) + hitos (ProjSubitem) de Proyectos por FASE (board +
- *  grupo) — medición progresiva, igual que Entregas. Solo entran items Done. */
-function groupFaseReproceso(projs: ProjItem[]): Map<string, FaseReprocesoGroup> {
-  const map = new Map<string, FaseReprocesoGroup>();
-  const grupoDe = (p: ProjItem) => {
-    const key = projPhaseKey(p.boardId, p.grupo);
-    let g = map.get(key);
-    if (!g) { g = { key, boardId: p.boardId, boardName: p.boardName, fase: p.grupo, pm: p.pm, items: [] }; map.set(key, g); }
-    return g;
-  };
-  for (const p of projs) {
-    const g = grupoDe(p);
-    if (p.status === "Done") {
-      g.items.push({ id: p.id, kind: "step", name: p.name, stepPadre: "", deadline: p.deadline });
-    }
-    for (const s of p.subitems) {
-      if (s.status === "Done") {
-        g.items.push({ id: s.id, kind: "hito", name: s.name, stepPadre: p.name, deadline: s.deadline });
-      }
-    }
-  }
-  return map;
+/** Calcula el diagnóstico de recuperación de un step a partir de sus hitos + su
+ *  propio veredicto de entrega (CPM). Ver ReprocesoCascade para la semántica. */
+export function calcReprocesoCascade(p: ProjItem): ReprocesoCascade {
+  const hitos: ReprocesoHito[] = p.subitems.map((s) => ({ id: s.id, name: s.name, deadline: s.deadline, entrega: s.entrega }));
+  const primerAtrasoIdx = hitos.findIndex((h) => h.entrega === "late");
+  if (primerAtrasoIdx === -1) return { hitos, primerAtrasoIdx: null, recuperado: null };
+  const recuperado = p.entrega === "on-time";
+  return { hitos, primerAtrasoIdx, recuperado };
 }
 
-/** Filas de "Calidad de Entregas": una por cada REQ CERRADO y cada FASE de
- *  Proyecto (medición progresiva: con al menos un item Done). */
+/** Filas de "Calidad de Entregas": una por cada REQ CERRADO y una por cada unidad de
+ *  Calidad de Fase 3 (ver calidadUnits: siempre un item, con veredicto progresivo). */
 export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap): ReprocesoRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: ReprocesoRow[] = [];
   for (const r of reqs) {
     if (r.estado !== "CERRADO") continue;
+    const ultimaFase = r.onTime.phases[r.onTime.phases.length - 1];
     rows.push({
-      id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo,
-      projCode: "", projName: "", fase: r.grupo, pm: r.pm, deadline: r.deadline,
+      id: r.id, source: "REQ", unitKind: "req", tipo: "PML", name: r.name, context: r.grupo,
+      projCode: "", projName: "", fase: r.grupo, pm: r.pm, status: r.estado, deadline: r.deadline,
+      startDate: r.inicioReq ?? r.inicio, actualEnd: ultimaFase?.actual ?? null,
       verdict: lateExcused(r.id, reproceso) ? "clean" : "reproceso", phaseDetails: r.onTime.phases,
-      itemsDone: [], totalDone: 0,
+      itemsDone: [], totalDone: 0, recuperado: null, cascade: null, pendingAtrasados: [],
     });
   }
-  for (const g of groupFaseReproceso(projs).values()) {
-    if (g.items.length === 0) continue;
-    const pm = bpm.get(g.boardId) ?? g.pm;
-    const { code: projCode, name: projName } = splitBoardName(g.boardName);
+  for (const u of calidadUnits(projs)) {
+    const pm = bpm.get(u.boardId) ?? u.pm;
+    const { code: projCode, name: projName } = splitBoardName(u.boardName);
+    const clean = u.entrega === "on-time" || lateExcused(u.id, reproceso);
     rows.push({
-      id: g.key, source: "Proyecto", tipo: "PM", name: `${projName} · ${g.fase}`,
-      context: `${g.boardName} · ${g.fase}`, projCode, projName, fase: g.fase, pm, deadline: null,
-      verdict: lateExcused(g.key, reproceso) ? "clean" : "reproceso", itemsDone: g.items, totalDone: g.items.length,
+      id: u.id, source: "Proyecto", unitKind: u.kind, tipo: "PM", name: u.name,
+      context: `${u.boardName} · ${u.grupo}`, projCode, projName, fase: u.grupo, pm, status: u.status, deadline: u.deadline,
+      startDate: u.startDate, actualEnd: u.actualEnd,
+      verdict: clean ? "clean" : "reproceso",
+      itemsDone: u.cascade?.hitos.filter((h) => h.entrega != null) ?? [],
+      totalDone: u.cascade?.hitos.filter((h) => h.entrega != null).length ?? 0,
+      recuperado: u.recuperado, cascade: u.cascade, pendingAtrasados: u.pendingAtrasados,
     });
   }
   return rows;
@@ -635,13 +872,11 @@ export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBo
     if (responsible == null) continue;
     rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible });
   }
-  for (const g of groupFaseReproceso(projs).values()) {
-    if (g.items.length === 0) continue;
-    const responsible = reproceso[g.key]?.responsible;
+  for (const u of calidadUnits(projs)) {
+    const responsible = reproceso[u.id]?.responsible;
     if (responsible == null) continue;
-    const pm = bpm.get(g.boardId) ?? g.pm;
-    const { name: projName } = splitBoardName(g.boardName);
-    rows.push({ id: g.key, source: "Proyecto", name: `${projName} · ${g.fase}`, pm, responsible });
+    const pm = bpm.get(u.boardId) ?? u.pm;
+    rows.push({ id: u.id, source: "Proyecto", name: u.name, pm, responsible });
   }
   return rows;
 }

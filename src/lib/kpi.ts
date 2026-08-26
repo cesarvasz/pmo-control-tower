@@ -7,11 +7,16 @@
 //   · EVM: el % rinde directo el peso (90% → 0.9×30). NPS: escalonado por rango, ver
 //     npsLogro() abajo. Beneficio: ver computeBenefitKpi() abajo. Entregas y Reproceso:
 //     el % es directamente la fracción del peso (85% → 0.85×peso).
-// El Reproceso mide el % de REQ cerrados "limpios" (ideal 100%): cada cerrado
-// penaliza por defecto —incluso sin responsable asignado— y también si es PM; solo
-// se excusa con un responsable ≠ PM (misma regla que Entregas). Si no hay REQ
-// cerrados (reprocesoPct = null) el componente queda "pendiente" y se excluye del
-// máximo alcanzable (achievable).
+// El Reproceso mide el % de unidades "limpias" (ideal 100%): REQ cerrados + steps
+// de la FASE 3 (Launch/Desarrollo, ver isFase3 en dashboard.ts) de Proyecto en
+// "Done", cada uno con su propio veredicto (ya no por fase completa, y las demás
+// fases del proyecto no entran — Fase 3 es la única con desarrollo real que medir).
+// REQ: penaliza por defecto —incluso sin responsable asignado— y también si es PM;
+// solo se excusa con un responsable ≠ PM. Step de Fase 3: arranca AUTOMÁTICO desde
+// si se entregó a tiempo según el CPM (ProjItem.entrega); "on-time" limpia sin
+// atribución, "late" (o sin fechas para verificar) penaliza salvo que se excuse
+// igual que REQ. Si no hay unidades en scope (reprocesoPct = null) el componente
+// queda "pendiente" y se excluye del máximo alcanzable (achievable).
 //
 // La UI (tarjeta/modal) es puramente presentacional: recibe el resultado de
 // computeKpi() y lo pinta. Así el mismo cálculo sirve para el KPI del equipo y

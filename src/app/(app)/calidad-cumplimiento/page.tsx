@@ -3,8 +3,8 @@
 // Auditoría cruzada de las dos métricas de "entregas" del KPI:
 //   · Cumplimiento de Entrega (peso 15): REQ + items/subitems de Proyecto con
 //     veredicto on-time/late.
-//   · Calidad de Entregas (peso 20, "reproceso"): REQ CERRADOS + fases de
-//     Proyecto COMPLETADAS, limpias vs. con reproceso.
+//   · Calidad de Entregas (peso 20, "reproceso"): REQ CERRADOS + steps de
+//     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
 // Objetivo: ver cuántos casos hay de cada tipo y QUIÉN ha sido el responsable
 // asignado, para medir patrones y poder asignar responsables desde aquí mismo
 // (reutiliza ResponsibleSelect — misma atribución que REQ/Proyectos).
@@ -13,8 +13,9 @@ import { Fragment, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { fmtDate } from "@/lib/business";
-import { buildEntregaRows, buildReprocesoRows } from "@/lib/dashboard";
+import { buildEntregaRows, buildReprocesoRows, calidadProjectStatus, type ReprocesoCascade, type CalidadProjectStatus, type PendingCalidadItem } from "@/lib/dashboard";
 import { hasAction } from "@/lib/permissions";
+import { splitBoardName } from "@/lib/proj";
 import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES, RESPONSIBLE_COLOR, countByResponsible, type DelayMap } from "@/lib/delay";
 import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
@@ -162,6 +163,14 @@ function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML"; id?: string;
 }
 
 // ── Cumplimiento de Entrega ─────────────────────────────────────────────
+// CPM planeado (inicio → fin) de una fila — reemplaza mostrar Inicio/Fin reales por
+// separado: el rango ya trae ambas fechas planeadas en un solo vistazo. El cierre
+// REAL va aparte, en la columna "End Date".
+function cpmCell(start: Date | null, end: Date | null) {
+  if (!start && !end) return <span className="text-[var(--text-disabled)]">—</span>;
+  return <>{start ? fmtDate(start) : "—"} – {end ? fmtDate(end) : "—"}</>;
+}
+
 // Desde este cambio la unidad es la FASE de Proyecto (board+grupo), no el hito
 // individual: un solo responsable por fase, y el acordeón de abajo muestra
 // SOLO los steps/hitos que salieron atrasados dentro de esa fase (solo lectura,
@@ -366,6 +375,17 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap; canEditFilters: boolean | null;
 }) {
   const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso), [req, proj, projBoards, reproceso]);
+  // Trayectoria de Calidad por proyecto (Done + pendiente, a día de hoy) — ver
+  // calidadProjectStatus en lib/dashboard. Se busca por código de proyecto (PM-XXX),
+  // la misma clave que ya usan los grupos de esta tabla.
+  const projectStatusByCode = useMemo(() => {
+    const m = new Map<string, CalidadProjectStatus>();
+    for (const s of calidadProjectStatus(proj)) {
+      const { code } = splitBoardName(s.boardName);
+      if (code) m.set(code, s);
+    }
+    return m;
+  }, [proj]);
   const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const toggleAbierta = (id: string) => setAbiertas((s) => {
@@ -386,6 +406,31 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
     .filter((r) => resps.length === 0 || resps.includes(responsableOf(r.id, reproceso)))
     .filter((r) => !soloProblema || r.verdict === "reproceso")
     .sort((a, b) => (a.verdict === b.verdict ? a.pm.localeCompare(b.pm) || a.name.localeCompare(b.name) : a.verdict === "reproceso" ? -1 : 1));
+
+  // Agrupa por PROYECTO (código+nombre) — todas sus unidades de Fase 3 (steps o hitos
+  // de "Desarrollo por iteraciones...", según la plantilla) quedan juntas. REQ no
+  // cuelga de un proyecto, así que va en su propia sección aparte, al final.
+  const REQ_GROUP_KEY = "__REQ__";
+  const grupos = (() => {
+    const map = new Map<string, { key: string; label: string; code: string; rows: typeof tableRows }>();
+    for (const r of tableRows) {
+      const key = r.source === "REQ" ? REQ_GROUP_KEY : (r.projCode ? `${r.projCode}|${r.projName}` : r.projName || "Sin proyecto");
+      let g = map.get(key);
+      if (!g) { g = { key, label: r.source === "REQ" ? "REQ" : (r.projName || "Sin proyecto"), code: r.source === "REQ" ? "" : r.projCode, rows: [] }; map.set(key, g); }
+      g.rows.push(r);
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.key === REQ_GROUP_KEY) return 1;
+      if (b.key === REQ_GROUP_KEY) return -1;
+      return (a.code || a.label).localeCompare(b.code || b.label);
+    });
+  })();
+  const [openProjects, setOpenProjects] = useState<Set<string>>(new Set());
+  const toggleProject = (key: string) => setOpenProjects((s) => {
+    const n = new Set(s);
+    if (n.has(key)) n.delete(key); else n.add(key);
+    return n;
+  });
 
   return (
     <div>
@@ -432,61 +477,104 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
             <thead>
               <tr>
                 <th style={{ width: 28 }}></th>
-                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Items Done</th><th>PM</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>CPM</th><th>End Date</th><th>Status</th><th>Hitos</th><th>PM</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((r) => {
-                const hasLatePhaseReq = r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late);
-                const expandible = (r.source === "Proyecto" && r.totalDone > 0) || hasLatePhaseReq;
-                const abierta = expandible && abiertas.has(r.id);
+              {grupos.map((g) => {
+                const gConReproceso = g.rows.filter((r) => r.verdict === "reproceso").length;
+                const gPct = g.rows.length ? Math.round(((g.rows.length - gConReproceso) / g.rows.length) * 100) : null;
+                const gPctColor = gPct === null ? "#6b7280" : gPct >= 90 ? "var(--ok)" : gPct >= 75 ? "var(--warn)" : "var(--bad)";
+                const gOpen = openProjects.has(g.key);
+                const gStatus = projectStatusByCode.get(g.code);
                 return (
-                  <Fragment key={r.id}>
-                    <tr className={expandible ? "cursor-pointer" : undefined} onClick={() => expandible && toggleAbierta(r.id)}>
-                      <td>
-                        {expandible && (
+                  <Fragment key={g.key}>
+                    {/* ── Encabezado de grupo (proyecto o REQ) ── */}
+                    <tr onClick={() => toggleProject(g.key)} className="cursor-pointer select-none">
+                      <td colSpan={11} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
+                        <div className="flex items-center gap-2 px-4 py-2" style={{ background: "var(--bg-hover)", borderLeft: "3px solid var(--accent)" }}>
                           <span
-                            className="inline-block text-[0.6rem] text-[var(--accent)]"
-                            style={{ transition: "transform 0.15s", transform: abierta ? "rotate(90deg)" : undefined }}
+                            className="text-[0.58rem]"
+                            style={{ display: "inline-block", transition: "transform 0.15s", transform: gOpen ? "rotate(90deg)" : undefined, color: "var(--accent)" }}
                           >▶</span>
-                        )}
+                          {g.code && <span className="ini-id" style={{ marginRight: 2 }}>{g.code}</span>}
+                          <span className="text-[0.78rem] font-bold" style={{ color: "var(--text-primary)" }}>{g.label}</span>
+                          {gStatus && <TrayectoriaBadge status={gStatus} />}
+                          <span className="ml-auto flex items-center gap-2">
+                            {gConReproceso > 0 && (
+                              <span style={{ color: "var(--bad)", fontSize: ".72rem", fontWeight: 600 }}>{gConReproceso} con reproceso</span>
+                            )}
+                            <span
+                              className="rounded-full px-2 py-px text-[0.63rem] font-semibold"
+                              style={{ background: "var(--bg-surface)", color: gPctColor, border: "1px solid var(--border)" }}
+                            >
+                              {gPct !== null ? `${gPct}%` : "—"} · {g.rows.length}
+                            </span>
+                          </span>
+                        </div>
                       </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
-                      </td>
-                      <td>
-                        {r.projName ? (
-                          <div className="leading-tight">
-                            {r.projCode && <div className="ini-id">{r.projCode}</div>}
-                            <div style={{ color: "var(--text-secondary)" }}>{r.projName}</div>
-                          </div>
-                        ) : (
-                          <div className="leading-tight">
-                            <div className="ini-id">{r.id}</div>
-                            <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td className="tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                        {r.source === "Proyecto" ? r.totalDone : <span className="text-[var(--text-disabled)]">—</span>}
-                      </td>
-                      <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
-                      <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
                     </tr>
-                    {abierta && (
-                      <tr>
-                        <td></td>
-                        <td colSpan={7} className="pb-3">
-                          {r.source === "REQ" && r.phaseDetails ? (
-                            <ReqPhaseAccordion phases={r.phaseDetails} />
-                          ) : (
-                            <FaseReprocesoAccordion items={r.itemsDone} />
+                    {gOpen && g.rows.map((r) => {
+                      const hasLatePhaseReq = r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late);
+                      // Expandible si el item tiene algo que desglosar: hitos ya Done, o
+                      // pendientes que ya vencieron su propio CPM (marcado antes de cerrar).
+                      const expandible = (r.source === "Proyecto" && (r.totalDone > 0 || r.pendingAtrasados.length > 0)) || hasLatePhaseReq;
+                      const abierta = expandible && abiertas.has(r.id);
+                      return (
+                        <Fragment key={r.id}>
+                          <tr className={expandible ? "cursor-pointer" : undefined} onClick={() => expandible && toggleAbierta(r.id)}>
+                            <td>
+                              {expandible && (
+                                <span
+                                  className="ml-4 inline-block text-[0.6rem] text-[var(--accent)]"
+                                  style={{ transition: "transform 0.15s", transform: abierta ? "rotate(90deg)" : undefined }}
+                                >▶</span>
+                              )}
+                            </td>
+                            <td style={{ whiteSpace: "nowrap" }}>
+                              <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
+                            </td>
+                            <td>
+                              {r.source === "Proyecto" ? (
+                                // El proyecto ya se ve en el encabezado del grupo — acá solo el entregable/hito.
+                                <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
+                              ) : (
+                                <div className="leading-tight">
+                                  <div className="ini-id">{r.id}</div>
+                                  <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ color: "var(--text-secondary)" }}>
+                              {r.fase || <span className="text-[var(--text-disabled)]">—</span>}
+                            </td>
+                            <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{cpmCell(r.startDate, r.deadline)}</td>
+                            <td style={{ whiteSpace: "nowrap", color: "var(--text-secondary)" }}>
+                              {r.actualEnd ? fmtDate(r.actualEnd) : <span className="text-[var(--text-disabled)]">—</span>}
+                            </td>
+                            <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.status || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                            <td className="tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                              {r.unitKind === "step" ? r.totalDone : <span className="text-[var(--text-disabled)]">—</span>}
+                            </td>
+                            <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                            <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
+                            <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
+                          </tr>
+                          {abierta && (
+                            <tr>
+                              <td></td>
+                              <td colSpan={10} className="pb-3">
+                                {r.source === "REQ" && r.phaseDetails ? (
+                                  <ReqPhaseAccordion phases={r.phaseDetails} />
+                                ) : r.cascade ? (
+                                  <ReprocesoHitosAccordion cascade={r.cascade} recuperado={r.recuperado} pendingAtrasados={r.pendingAtrasados} />
+                                ) : null}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    )}
+                        </Fragment>
+                      );
+                    })}
                   </Fragment>
                 );
               })}
@@ -498,29 +586,94 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
   );
 }
 
-function FaseReprocesoAccordion({ items }: { items: { kind: "step" | "hito"; name: string; stepPadre: string; deadline: Date | null }[] }) {
+// Trayectoria de Calidad del proyecto en Fase 3, a día de hoy — combina lo YA
+// cerrado (Done) con lo que sigue pendiente (Working on it / Future Steps), ver
+// calidadProjectStatus en lib/dashboard. "sin-atrasos" no se muestra (nada que
+// señalar); "atrasado" pesa más que "recuperado" aunque hubo un historial limpio.
+function TrayectoriaBadge({ status }: { status: CalidadProjectStatus }) {
+  if (status.trayectoria === "sin-atrasos") return null;
+  if (status.trayectoria === "atrasado") {
+    const n = status.pendingAtrasados.length;
+    const detalle = status.pendingAtrasados
+      .map((p) => (p.stepName ? `${p.name} (${p.stepName})` : p.name))
+      .join("\n");
+    return (
+      <Pill tone="bad" small title={`Aún no se recupera — pendiente sin cerrar, ya fuera de su CPM:\n${detalle}`}>
+        ⚠ {n} pendiente{n === 1 ? "" : "s"} vencido{n === 1 ? "" : "s"}
+      </Pill>
+    );
+  }
+  return (
+    <Pill tone="ok" small title="Tuvo atrasos en Fase 3, pero todo lo que sigue pendiente hoy está dentro de su CPM.">
+      ↩ PM recuperado
+    </Pill>
+  );
+}
+
+// Detalle de hitos del ITEM + diagnóstico de recuperación: si algún hito se
+// atrasó, ¿el item se puso al día dentro de su propio CPM (PM se recuperó) o el
+// atraso le costó el cumplimiento del entregable (no se recuperó)? `recuperado`
+// llega ya resuelto por el llamador (calcItemCalidad) — progresivo si el item
+// sigue abierto, no el diagnóstico "solo Done" de cascade.recuperado.
+function ReprocesoHitosAccordion({ cascade, recuperado, pendingAtrasados }: { cascade: ReprocesoCascade; recuperado: boolean | null; pendingAtrasados: PendingCalidadItem[] }) {
+  const { hitos, primerAtrasoIdx } = cascade;
+  const resumen = primerAtrasoIdx === null
+    ? null
+    : recuperado
+    ? `↩ PM se recuperó: hubo atraso en "${hitos[primerAtrasoIdx].name}", pero el item se puso al día dentro de su CPM.`
+    : `🔁 No se recuperó: el atraso en "${hitos[primerAtrasoIdx].name}" hizo que el item saliera fuera de su CPM.`;
   return (
     <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+      {resumen && (
+        <div
+          className="px-3 py-1.5 text-[0.76rem] font-semibold"
+          style={{ background: "var(--bg-hover)", color: recuperado === true ? "var(--ok)" : recuperado === false ? "var(--bad)" : "var(--text-secondary)" }}
+        >
+          {resumen}
+        </div>
+      )}
       <table className="w-full text-left text-[0.76rem]">
         <thead>
           <tr style={{ background: "var(--bg-hover)" }}>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Tipo</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Nombre</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Step padre</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Hito</th>
             <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Entrega</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((it, i) => (
-            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
-              <td className="px-3 py-1.5"><Pill tone="bad" small>{it.kind === "step" ? "Step" : "Hito"}</Pill></td>
-              <td className="px-3 py-1.5 text-[var(--text-primary)]">{it.name}</td>
-              <td className="px-3 py-1.5 text-[var(--text-secondary)]">{it.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
-              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(it.deadline)}</td>
+          {hitos.length === 0 ? (
+            <tr><td colSpan={3} className="px-3 py-1.5 text-[var(--text-disabled)]">Sin hitos en este item.</td></tr>
+          ) : hitos.map((h, i) => (
+            <tr key={h.id} className="border-t" style={{ borderColor: "var(--border)", background: i === primerAtrasoIdx ? "var(--bad-bg)" : undefined }}>
+              <td className="px-3 py-1.5 text-[var(--text-primary)]">{h.name}</td>
+              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(h.deadline)}</td>
+              <td className="px-3 py-1.5">
+                {h.entrega === "late" ? <Pill tone="bad" small>✕ Atraso</Pill>
+                  : h.entrega === "on-time" ? <Pill tone="ok" small>✓ A tiempo</Pill>
+                  : <span className="text-[var(--text-disabled)]">— pendiente</span>}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {pendingAtrasados.length > 0 && (
+        <>
+          <div className="px-3 py-1.5 text-[0.72rem] font-bold uppercase tracking-wide" style={{ background: "var(--bg-hover)", color: "var(--bad)", borderTop: "1px solid var(--border)" }}>
+            Pendientes ya vencidos (aún no Done)
+          </div>
+          <table className="w-full text-left text-[0.76rem]">
+            <tbody>
+              {pendingAtrasados.map((p) => (
+                <tr key={p.id} className="border-t" style={{ borderColor: "var(--border)" }}>
+                  <td className="px-3 py-1.5 text-[var(--text-primary)]">{p.name}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(p.deadline)}</td>
+                  <td className="px-3 py-1.5"><Pill tone="bad" small>✕ Vencido</Pill></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }

@@ -24,6 +24,7 @@ export const PROJ_COL = {
   deadline: "Limit Date", cost: "Cost $", benefit: "Benefit $",
   pmsId: "PMS ID", // ID del hito/subitem (ej. PMO-002-1)
   developer: "Developer", tld: "TLD", // columnas de subelemento (hito)
+  startDate: "Start Date", // fecha real de inicio del item (columna directa; sin equivalente en subitems)
   endDate: "End Date",   // fecha real de cierre del item
   actualEnd: "Actual End", // fecha real de cierre del subitem (hito)
 };
@@ -50,6 +51,17 @@ function resolveDeadline(cv: MondayColumnValue[], timelineTitle: string): Date |
   return end ? parseYMD(end) : null;
 }
 
+/** Fecha real de inicio: columna directa "Start Date" (solo existe a nivel item,
+ *  no en subitems) con fallback al INICIO del mismo rango Timeline/CPM que usa
+ *  resolveDeadline para su fin. Si el subitem tampoco tiene columna Timeline
+ *  (plantilla vieja), no hay forma de saber su inicio real — queda null. */
+function resolveStartDate(cv: MondayColumnValue[], timelineTitle: string): Date | null {
+  const direct = parseYMD(colByTitle(cv, PROJ_COL.startDate));
+  if (direct) return direct;
+  const start = colByTitle(cv, timelineTitle).split(" - ")[0]?.trim();
+  return start ? parseYMD(start) : null;
+}
+
 export function calcProjEstado(dl: Date | null): string {
   const t = today();
   if (!dl) return "ATRASADO";
@@ -74,6 +86,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const responsible = colByTitleAny(cv, PROJ_COL.responsible).trim();
     const status = colByTitle(cv, PROJ_COL.status);
     const deadline = resolveDeadline(cv, FORMULA_FALLBACK_COL.itemTimeline);
+    const startDate = resolveStartDate(cv, FORMULA_FALLBACK_COL.itemTimeline);
     const endDate = parseYMD(colByTitle(cv, PROJ_COL.endDate));
     const cost = resolveCost(cv);
     const benefit = parseFloat(colByTitle(cv, PROJ_COL.benefit)) || 0;
@@ -82,6 +95,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const subitems = (item.subitems || []).map((sub) => {
       const scv = sub.column_values || [];
       const sdl = resolveDeadline(scv, FORMULA_FALLBACK_COL.subTimeline);
+      const sStartDate = resolveStartDate(scv, FORMULA_FALLBACK_COL.subTimeline);
       const sActualEnd = parseYMD(colByTitle(scv, PROJ_COL.actualEnd));
       const sStatus = colByTitle(scv, PROJ_COL.status);
       return {
@@ -89,9 +103,11 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
         pmsId: colByTitle(scv, PROJ_COL.pmsId),
         status: sStatus,
         person: "",
+        responsible: colByTitleAny(scv, PROJ_COL.responsible).trim(),
         developer: colByTitleAny(scv, PROJ_COL.developer).trim(),
         tld: colByTitleAny(scv, PROJ_COL.tld).trim(),
         deadline: sdl, estado: calcProjEstado(sdl),
+        startDate: sStartDate,
         actualEnd: sActualEnd,
         entrega: calcProjEntrega(sStatus, sActualEnd, sdl),
         cost: parseFloat(colByTitle(scv, PROJ_COL.cost)) || 0,
@@ -102,7 +118,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     return {
       boardId, boardName, id: item.id, name: item.name,
       grupo: item.group?.title || "",
-      pm, resp, responsible, status, deadline, endDate, cost, benefit,
+      pm, resp, responsible, status, deadline, startDate, endDate, cost, benefit,
       entrega: calcProjEntrega(status, endDate, deadline),
       valueNet: benefit - cost, estado, subitems,
     };

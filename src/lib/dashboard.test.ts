@@ -9,11 +9,17 @@ import {
   calcEntregaStats,
   calcEntregaStatsRaw,
   calcReprocesoPct,
+  calcReprocesoStats,
+  calcReprocesoCascade,
+  calidadUnits,
+  calcItemCalidad,
+  calidadProjectStatus,
   buildEntregaRows,
   buildLateResponsibleRows,
   buildLateResponsibleRowsRaw,
   buildReprocesoRows,
 } from "./dashboard";
+import { today } from "./business";
 import type { BoardHealthData } from "./proj";
 import type { DelayMap } from "./delay";
 import type { ProjBoard, ProjItem, ProjSubitem, ReqItem } from "@/types";
@@ -310,12 +316,14 @@ describe("calcEntregaStatsRaw (tarjeta principal: todas las fases con atraso, si
 
 describe("calcReprocesoPct (5º componente del KPI)", () => {
   const cerrado = (id: string) => req({ id, pm: "Luis", estado: "CERRADO" });
+  // Grupo por defecto "Launch" = Fase 3 (única fase que mide Calidad/Reproceso, ver isFase3).
+  const step = (id: string, entrega: "on-time" | "late" | null, grupo = "Launch") => proj({ id, grupo, status: "Done", entrega });
 
-  it("null si no hay unidades en scope (sin REQ cerrados ni fases con items Done)", () => {
-    expect(calcReprocesoPct([req({ id: "1", estado: "EN PROCESO" })], [], {})).toBeNull();
+  it("null si no hay unidades en scope (sin REQ cerrados ni steps Done)", () => {
+    expect(calcReprocesoPct([req({ id: "1", estado: "EN PROCESO" })], [proj({ id: "p1", status: "Working on it", entrega: null })], {})).toBeNull();
   });
 
-  it("sin asignar penaliza: 2 cerrados sin responsable → 0% limpio", () => {
+  it("sin asignar penaliza (REQ): 2 cerrados sin responsable → 0% limpio", () => {
     expect(calcReprocesoPct([cerrado("1"), cerrado("2")], [], {})).toBe(0);
   });
 
@@ -329,28 +337,57 @@ describe("calcReprocesoPct (5º componente del KPI)", () => {
     expect(calcReprocesoPct(reqs, [], { "1": { responsible: "PM" }, "2": { responsible: "Sponsor" } })).toBe(25);
   });
 
-  it("combina REQ cerrados + fases de proyecto con al menos 1 item Done (medición progresiva)", () => {
-    const reqs = [cerrado("r1")];
-    const projs = [
-      proj({ boardId: "b1", grupo: "Launch", status: "Done" }),                    // 1 step Done
-      proj({ boardId: "b1", grupo: "Dev", status: "Working on it" }),              // incompleta, sin items Done
-    ];
-    expect(calcReprocesoPct(reqs, projs, { "b1::Launch": { responsible: "Sin reproceso" } })).toBe(50);
+  it("step de Proyecto entregado a tiempo (CPM) limpia AUTOMÁTICO, sin necesidad de atribución", () => {
+    expect(calcReprocesoPct([], [step("p1", "on-time")], {})).toBe(100);
   });
 
-  it("fase con ≥1 item Done entra en scope aunque no esté 100% completada", () => {
+  it("step de Proyecto atrasado penaliza por defecto (sin atribución)", () => {
+    expect(calcReprocesoPct([], [step("p1", "late")], {})).toBe(0);
+  });
+
+  it("step atrasado se excusa igual que REQ: responsable ≠ PM limpia, \"PM\" sigue penalizando", () => {
+    expect(calcReprocesoPct([], [step("p1", "late")], { p1: { responsible: "Sin reproceso" } })).toBe(100);
+    expect(calcReprocesoPct([], [step("p1", "late")], { p1: { responsible: "PM" } })).toBe(0);
+  });
+
+  it("step Done sin fechas para verificar (entrega null) penaliza por defecto, igual que REQ", () => {
+    expect(calcReprocesoPct([], [step("p1", null)], {})).toBe(0);
+  });
+
+  it("combina REQ cerrados + steps de Proyecto Done (medición progresiva: los no-Done no entran)", () => {
+    const reqs = [cerrado("r1")];
     const projs = [
-      proj({ boardId: "b1", grupo: "Launch", status: "Done" }),
-      proj({ boardId: "b1", grupo: "Launch", status: "Working on it" }),            // mismo grupo, otro item
-      proj({ boardId: "b1", grupo: "Ops", status: "Done" }),
-      proj({ boardId: "b2", grupo: "Launch", status: "Done" }),
+      step("p1", "on-time"),                                       // Done, limpio automático
+      proj({ id: "p2", status: "Working on it", entrega: null }),   // incompleto, no entra
     ];
-    // 3 fases: b1::Launch (1 Done, aunque otra esté en progreso), b1::Ops (1 Done), b2::Launch (1 Done)
-    // b1::Launch=Sin reproceso (excusa), b1::Ops=PM (penaliza), b2::Launch=vacío (penaliza) → 1 de 3 = 33%.
-    expect(calcReprocesoPct([], projs, {
-      "b1::Launch": { responsible: "Sin reproceso" },
-      "b1::Ops": { responsible: "PM" },
-    })).toBe(33);
+    // r1 sin atribución → con reproceso; p1 on-time → limpio. 1 de 2 = 50%.
+    expect(calcReprocesoPct(reqs, projs, {})).toBe(50);
+  });
+
+  it("cada step es su propia unidad, no toda la fase junta", () => {
+    const projs = [
+      step("p1", "on-time"),  // fase Launch, limpio
+      step("p2", "late"),     // fase Launch, con reproceso — mismo grupo que p1, veredicto independiente
+      step("p3", "on-time"),  // fase Launch, limpio
+    ];
+    // 2 de 3 limpios = 67%.
+    expect(calcReprocesoPct([], projs, {})).toBe(67);
+  });
+
+  it("SOLO Fase 3 (Launch) mide Calidad/Reproceso: un step de otra fase no cuenta, aunque esté Done y atrasado", () => {
+    const projs = [
+      step("p1", "late"),                                          // Fase 3, cuenta
+      step("p2", "late", "Valuación | Formulación del proyecto"),  // otra fase, no cuenta
+      step("p3", "late", "Revisión | Cierre ROI"),                 // otra fase, no cuenta
+    ];
+    // Si contaran las 3, serían 0 de 3 = 0%; al filtrar solo Fase 3 debería ser también
+    // 0% pero con total=1 (no 3) — lo confirmamos vía calcReprocesoStats.
+    expect(calcReprocesoStats([], projs, {})).toMatchObject({ total: 1, conReproceso: 1, pct: 0 });
+  });
+
+  it("Fase 3 con plantilla vieja (\"Launch | Desarrollo\") también cuenta — se detecta por prefijo, no por nombre exacto", () => {
+    const projs = [step("p1", "on-time", "Launch | Desarrollo")];
+    expect(calcReprocesoPct([], projs, {})).toBe(100);
   });
 });
 
@@ -424,24 +461,238 @@ describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la 
 });
 
 describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
-  it("incluye REQ CERRADOS y fases completadas, con verdict clean/reproceso según el DelayMap", () => {
+  it("incluye REQ CERRADOS y steps Done (cada uno su propia fila), con verdict clean/reproceso según entrega + DelayMap", () => {
     const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO", onTime: onTime("on-time") })];
     const projs = [
-      proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }),
-      proj({ id: "p2", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }),
+      proj({ id: "p1", name: "Step A", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", entrega: "on-time" }),
+      proj({ id: "p2", name: "Step B", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", entrega: "late" }),
     ];
     const rows = buildReprocesoRows(reqs, projs, [board({ id: "b1", pm: "Luis" })], { r1: { responsible: "VPA" } });
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     const req1 = rows.find((r) => r.id === "r1")!;
-    const fase = rows.find((r) => r.id === "b1::Launch")!;
-    expect(req1.verdict).toBe("clean");      // excusado (VPA)
-    expect(fase.verdict).toBe("reproceso");  // sin asignar → penaliza
-    expect(fase.pm).toBe("Luis");            // PM del board, no del item
+    const stepA = rows.find((r) => r.id === "p1")!;
+    const stepB = rows.find((r) => r.id === "p2")!;
+    expect(req1.verdict).toBe("clean");       // excusado (VPA)
+    expect(stepA.verdict).toBe("clean");      // entregado a tiempo (CPM) → automático
+    expect(stepB.verdict).toBe("reproceso");  // atrasado, sin excusa → penaliza
+    expect(stepA.pm).toBe("Luis");            // PM del board, no del item
+    expect(stepA.name).toBe("Step A");        // el entregable, no "<proyecto> · <fase>"
+    expect(stepA.fase).toBe("Launch");
+    expect(req1.unitKind).toBe("req");
+    expect(stepA.unitKind).toBe("step");      // plantilla nueva: no hay "Desarrollo por iteraciones..." en la fase
   });
 
-  it("una fase incompleta (no todos Done) no genera fila", () => {
+  it("un step atrasado excusado (responsable ≠ PM) queda clean", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", entrega: "late" })];
+    const rows = buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], { p1: { responsible: "Sin reproceso" } });
+    expect(rows[0].verdict).toBe("clean");
+  });
+
+  it("un step no-Done no genera fila (medición progresiva por step, no por fase)", () => {
     const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Working on it" })];
     expect(buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], {})).toEqual([]);
+  });
+});
+
+describe("calcReprocesoCascade (diagnóstico de recuperación: hito atrasado vs. veredicto del step)", () => {
+  const hito = (id: string, entrega: "on-time" | "late" | null) => sub({ id, name: id, deadline: null, entrega });
+
+  it("sin hitos atrasados → recuperado: null (nada que diagnosticar), sin importar el veredicto del step", () => {
+    const p = proj({ entrega: "on-time", subitems: [hito("h1", "on-time"), hito("h2", "on-time")] });
+    expect(calcReprocesoCascade(p)).toMatchObject({ primerAtrasoIdx: null, recuperado: null });
+  });
+
+  it("hubo un hito atrasado pero el STEP cerró a tiempo (CPM) → PM se recuperó", () => {
+    const p = proj({ entrega: "on-time", subitems: [hito("h1", "on-time"), hito("h2", "late"), hito("h3", "on-time")] });
+    expect(calcReprocesoCascade(p)).toMatchObject({ primerAtrasoIdx: 1, recuperado: true });
+  });
+
+  it("hubo un hito atrasado y el STEP también terminó atrasado → no se recuperó", () => {
+    const p = proj({ entrega: "late", subitems: [hito("h1", "on-time"), hito("h2", "late"), hito("h3", "late")] });
+    expect(calcReprocesoCascade(p)).toMatchObject({ primerAtrasoIdx: 1, recuperado: false });
+  });
+
+  it("hubo un hito atrasado pero el step está Done sin fechas para verificar (entrega null) → no se recuperó (conservador)", () => {
+    const p = proj({ entrega: null, subitems: [hito("h1", "late")] });
+    expect(calcReprocesoCascade(p)).toMatchObject({ primerAtrasoIdx: 0, recuperado: false });
+  });
+
+  it("usa el primer hito atrasado (por índice) aunque el step se haya recuperado", () => {
+    const p = proj({ entrega: "on-time", subitems: [hito("h1", "late"), hito("h2", "late"), hito("h3", "on-time")] });
+    expect(calcReprocesoCascade(p)).toMatchObject({ primerAtrasoIdx: 0, recuperado: true });
+  });
+});
+
+describe("calcItemCalidad (veredicto progresivo de un item — no exige que esté Done)", () => {
+  const daysFromToday = (n: number): Date => {
+    const d = today();
+    d.setDate(d.getDate() + n);
+    return d;
+  };
+  const hito = (id: string, entrega: "on-time" | "late" | null, status = "Done", deadline: Date | null = null) =>
+    sub({ id, name: id, deadline, entrega, status });
+
+  it("Done: entrega = su propio CPM; recuperado = diagnóstico existente de calcReprocesoCascade", () => {
+    const p = proj({ status: "Done", entrega: "late", subitems: [hito("h1", "late")] });
+    expect(calcItemCalidad(p)).toMatchObject({ entrega: "late", recuperado: false, qualifies: true });
+  });
+
+  it("no Done, sin hitos Done y sin pendientes vencidos → qualifies: false (nada que evaluar todavía)", () => {
+    expect(calcItemCalidad(proj({ status: "Working on it", subitems: [] })).qualifies).toBe(false);
+    const conFuturos = proj({ status: "Working on it", subitems: [hito("h1", null, "Future Steps")] });
+    expect(calcItemCalidad(conFuturos).qualifies).toBe(false); // sin fecha → no cuenta como vencido
+  });
+
+  it("no Done, con un hito pendiente YA vencido → \"atrasado\" de inmediato, sin esperar a que cierre", () => {
+    const p = proj({ status: "Working on it", subitems: [hito("h1", null, "Working on it", daysFromToday(-1))] });
+    const c = calcItemCalidad(p);
+    expect(c).toMatchObject({ entrega: "late", recuperado: null, qualifies: true });
+    expect(c.pendingAtrasados.map((x) => x.id)).toEqual(["h1"]);
+  });
+
+  it("no Done, un hito Done llegó tarde pero nada pendiente está vencido → \"se recuperó\" antes de cerrar", () => {
+    const p = proj({ status: "Working on it", subitems: [hito("h1", "late"), hito("h2", null, "Working on it", daysFromToday(5))] });
+    expect(calcItemCalidad(p)).toMatchObject({ entrega: "on-time", recuperado: true, qualifies: true });
+  });
+
+  it("no Done, un hito Done a tiempo y nada pendiente vencido → limpio, sin nada que recuperar", () => {
+    const p = proj({ status: "Working on it", subitems: [hito("h1", "on-time")] });
+    expect(calcItemCalidad(p)).toMatchObject({ entrega: "on-time", recuperado: null, qualifies: true });
+  });
+});
+
+describe("calidadUnits (unidad = ITEM, no hito; ver calcItemCalidad para el veredicto)", () => {
+  const hito = (id: string, entrega: "on-time" | "late" | null, status = "Done") => sub({ id, name: id, deadline: null, entrega, status });
+
+  it("si existe \"Desarrollo por iteraciones...\" en la fase, la unidad es ESE STEP — los demás steps no aportan nada", () => {
+    const projs = [
+      proj({ id: "analisis", name: "Analisis técnico / Fechas estimadas de desarrollo (Costo DEV)", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done", entrega: "late" }),
+      proj({ id: "vg", name: "Value Gate (BC) Firmado y aprobado", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done", entrega: "late" }),
+      proj({ id: "desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done", entrega: "on-time",
+        subitems: [hito("h1", "on-time"), hito("h2", "late")] }),
+    ];
+    const units = calidadUnits(projs);
+    // ni "analisis" ni "vg" aportan unidad, aunque estén Done y atrasados
+    expect(units.map((u) => u.id)).toEqual(["desarrollo"]);
+    expect(units[0].kind).toBe("step");
+  });
+
+  it("recuperado del step \"Desarrollo por iteraciones...\" viene de sus propios hitos (variante plural \"Entregas CKU\" también matchea)", () => {
+    const recuperado = proj({ id: "d1", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch",
+      status: "Done", entrega: "on-time", subitems: [hito("h1", "late")] });
+    const noRecuperado = proj({ id: "d2", name: "Desarrollo por iteraciones (Hitos) / Entregas CKU", boardId: "b2", grupo: "Launch",
+      status: "Done", entrega: "late", subitems: [hito("h1", "late")] });
+    expect(calidadUnits([recuperado])[0]).toMatchObject({ id: "d1", recuperado: true });
+    expect(calidadUnits([noRecuperado])[0]).toMatchObject({ id: "d2", recuperado: false });
+  });
+
+  it("plantilla nueva, item sin subitems: solo genera unidad si está Done (fallback, caso raro)", () => {
+    const abierto = proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch | Lanzamiento", status: "Working on it" });
+    const cerrado = proj({ id: "xd", name: "xDocking", boardId: "b2", grupo: "Launch | Lanzamiento", status: "Done", entrega: "on-time" });
+    expect(calidadUnits([abierto])).toEqual([]);
+    expect(calidadUnits([cerrado])).toEqual([expect.objectContaining({ id: "xd", kind: "step" })]);
+  });
+
+  it("plantilla nueva: cada step de la fase mide por SUS PROPIOS hitos — progresivo, no espera a que cierre, independiente de los demás steps", () => {
+    const projs = [
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it", subitems: [hito("h1", "on-time")] }),
+      proj({ id: "xd", name: "xDocking", boardId: "b1", grupo: "Launch", status: "Working on it", subitems: [hito("h2", "late")] }),
+    ];
+    const units = calidadUnits(projs);
+    expect(units.map((u) => u.id).sort()).toEqual(["poc", "xd"]);
+    expect(units.find((u) => u.id === "poc")).toMatchObject({ recuperado: null });
+    expect(units.find((u) => u.id === "xd")).toMatchObject({ recuperado: true }); // h2 llegó tarde, pero nada de xd está vencido pendiente
+  });
+
+  it("agrupa por proyecto (board+fase): dos boards distintos no se mezclan aunque compartan nombre de fase", () => {
+    const projs = [
+      proj({ id: "d1", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch",
+        status: "Done", entrega: "on-time", subitems: [hito("h1", "on-time")] }),
+      proj({ id: "poc2", name: "POC", boardId: "b2", grupo: "Launch", status: "Done", entrega: "late" }),
+    ];
+    const units = calidadUnits(projs);
+    expect(units.map((u) => u.id).sort()).toEqual(["d1", "poc2"]);
+  });
+});
+
+describe("calidadProjectStatus (trayectoria de Calidad por proyecto: Done + pendiente, a día de hoy)", () => {
+  const daysFromToday = (n: number): Date => {
+    const d = today();
+    d.setDate(d.getDate() + n);
+    return d;
+  };
+  const hito = (id: string, o: Partial<ProjSubitem> = {}) => sub({ id, name: id, deadline: null, entrega: null, status: "Working on it", ...o });
+
+  it("sin nada Done y sin nada pendiente vencido → sin-atrasos", () => {
+    const projs = [
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it",
+        subitems: [hito("h1", { deadline: daysFromToday(5) })] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status).toMatchObject({ doneTotal: 0, doneLate: 0, pendingTotal: 1, trayectoria: "sin-atrasos" });
+  });
+
+  it("hubo un Done atrasado pero lo pendiente sigue dentro de su CPM → recuperado", () => {
+    const projs = [
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it",
+        subitems: [
+          hito("h1", { status: "Done", entrega: "late", deadline: daysFromToday(-10) }),
+          hito("h2", { deadline: daysFromToday(5) }),
+        ] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status).toMatchObject({ doneTotal: 1, doneLate: 1, pendingTotal: 1, trayectoria: "recuperado" });
+  });
+
+  it("hay un pendiente ya vencido (aún no Done) → atrasado, sin importar el historial", () => {
+    const projs = [
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it",
+        subitems: [hito("h1", { deadline: daysFromToday(-3) })] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status.trayectoria).toBe("atrasado");
+    expect(status.pendingAtrasados.map((p) => p.id)).toEqual(["h1"]);
+  });
+
+  it("un pendiente SIN deadline (Future Steps al fondo del pipeline, aún sin CPM) NO cuenta como vencido", () => {
+    const projs = [
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it",
+        subitems: [hito("h1", { deadline: null, status: "Future Steps" })] }),
+    ];
+    const status = calidadProjectStatus(projs)[0];
+    expect(status.trayectoria).toBe("sin-atrasos");
+    expect(status.pendingTotal).toBe(1);
+    expect(status.pendingAtrasados).toEqual([]);
+  });
+
+  it("un proyecto sin nada Done ni pendiente en Fase 3 no aparece en el resultado", () => {
+    const projs = [proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Otra fase", status: "Working on it" })];
+    expect(calidadProjectStatus(projs)).toEqual([]);
+  });
+
+  it("plantilla vieja: solo lo pendiente del step \"Desarrollo por iteraciones...\" cuenta — un checkpoint vencido en OTRO step no afecta la trayectoria", () => {
+    const projs = [
+      proj({ id: "analisis", name: "Analisis técnico", boardId: "b1", grupo: "Launch | Desarrollo", status: "Working on it", deadline: daysFromToday(-30) }),
+      proj({ id: "desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch | Desarrollo", status: "Working on it",
+        subitems: [hito("h1", { deadline: daysFromToday(5) })] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status.trayectoria).toBe("sin-atrasos"); // "analisis" vencido no cuenta: no es el step que mide Calidad
+    expect(status.pendingTotal).toBe(1);
+  });
+
+  it("plantilla nueva: varios steps en progreso, cada uno con sus propios hitos pendientes — solo cuenta el vencido (caso PM-011 ROAD NEW)", () => {
+    const projs = [
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it",
+        subitems: [hito("h1", { status: "Done", entrega: "on-time", deadline: daysFromToday(-5) }), hito("h2", { deadline: daysFromToday(-1) })] }),
+      proj({ id: "xd", name: "xDocking", boardId: "b1", grupo: "Launch", status: "Working on it",
+        subitems: [hito("h3", { deadline: daysFromToday(10) })] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status.doneTotal).toBe(1);
+    expect(status.pendingTotal).toBe(2);
+    expect(status.pendingAtrasados.map((p) => p.id)).toEqual(["h2"]);
+    expect(status.trayectoria).toBe("atrasado");
   });
 });
 

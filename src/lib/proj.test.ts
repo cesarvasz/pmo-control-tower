@@ -106,4 +106,28 @@ describe("projProcess", () => {
     expect(r.subitems[0].name).toBe("Sub 1");
     expect(r.subitems[0].entrega).toBe("on-time");
   });
+
+  it("lee \"Responsible\" del item y de cada subitem por separado (pueden ser personas distintas)", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [pcol("Responsible", "Karyna Pineda")], [
+      { id: "s1", name: "Sub 1", column_values: [pcol("Responsible", "Gabriela Pineda")] },
+    ])]);
+    expect(r.responsible).toBe("Karyna Pineda");
+    expect(r.subitems[0].responsible).toBe("Gabriela Pineda");
+  });
+
+  it("lee \"Start Date\" del item directo; el subitem sin esa columna (plantilla vieja) queda null", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [pcol("Start Date", "2026-01-05")], [
+      { id: "s1", name: "Sub 1", column_values: [pcol("Actual End", "2026-01-10")] },
+    ])]);
+    expect(r.startDate).toEqual(new Date(2026, 0, 5));
+    expect(r.subitems[0].startDate).toBeNull();
+  });
+
+  it("sin \"Start Date\" directo, cae al INICIO del rango Timeline/CPM (plantilla nueva)", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [pcol("CPM", "2026-03-01 - 2026-03-15")], [
+      { id: "s1", name: "Sub 1", column_values: [pcol("Timeline", "2026-04-02 - 2026-04-20")] },
+    ])]);
+    expect(r.startDate).toEqual(new Date(2026, 2, 1));
+    expect(r.subitems[0].startDate).toEqual(new Date(2026, 3, 2));
+  });
 });

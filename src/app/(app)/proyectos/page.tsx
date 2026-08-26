@@ -9,7 +9,7 @@ import { fmtDate, fmtMoney } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
 import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib/proj";
-import { projPhaseKey } from "@/lib/dashboard";
+import { projPhaseKey, calcItemCalidad, isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import type { ProjBoard, ProjItem } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
@@ -287,6 +287,39 @@ function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, li
   );
 }
 
+// Celda "Calidad" del ITEM (step) que mide en su fase — ver isDesarrolloPorIteracionesStep
+// en lib/dashboard para cuáles steps de la Fase 3 miden. Veredicto progresivo desde
+// calcItemCalidad: automático por CPM si ya cerró, o provisional a partir de sus
+// hitos si sigue abierto (ver comentario de calcItemCalidad).
+function reprocesoCell(entrega: "on-time" | "late" | null, itemId: string, recuperado: boolean | null, hitoName: string) {
+  if (!entrega) return <span className="text-[var(--text-disabled)]">—</span>;
+  const conReproceso = entrega !== "on-time";
+  const tituloOk = `Hubo atraso en "${hitoName}", pero el item se puso al día dentro de su CPM.`;
+  const tituloBad = `El atraso en "${hitoName}" hizo que el item saliera fuera de su CPM.`;
+  const badge = recuperado === true
+    ? <span title={tituloOk} style={{ color: "var(--ok)", fontSize: ".62rem", fontWeight: 600 }}>↩ PM se recuperó</span>
+    : recuperado === false
+    ? <span title={tituloBad} style={{ color: "var(--bad)", fontSize: ".62rem", fontWeight: 600 }}>🔁 No se recuperó</span>
+    : null;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      {conReproceso
+        ? <Pill tone="bad" small>✕ Con reproceso</Pill>
+        : <Pill tone="ok" small>✓ Sin reproceso</Pill>}
+      <ResponsibleSelect itemId={itemId} kind="reproceso" emptyPenalizes={conReproceso} />
+      {badge}
+    </div>
+  );
+}
+
+// Celda "Calidad" de un HITO — SOLO LECTURA: el dropdown vive en el item padre, el
+// hito solo informa si él mismo salió a tiempo (o sigue pendiente). Se muestra
+// únicamente bajo un item que mide Calidad (ver stepMideCalidad en Row).
+function hitoCalidadReadOnly(entrega: "on-time" | "late" | null) {
+  if (!entrega) return <span className="text-[var(--text-disabled)]">— pendiente</span>;
+  return entrega === "late" ? <Pill tone="bad" small>✕ Atraso</Pill> : <Pill tone="ok" small>✓ A tiempo</Pill>;
+}
+
 function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void }) {
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -486,7 +519,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
           <table className="pmo grouped">
             <thead>
               <tr>
-                <th>Tarea</th><th>Status</th><th>Estado</th><th>Deadline</th><th>Entrega</th>
+                <th>Tarea</th><th>Responsible</th><th>Status</th><th>Estado</th><th>Deadline</th><th>Entrega</th><th>Calidad</th>
                 <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Beneficio</th>
               </tr>
             </thead>
@@ -499,18 +532,20 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                 if (filterNoDl && gItems.length === 0) return null;
                 const gOpen = filterNoDl || openGroups.has(grupo);
                 const gOffTrack = gItems.some((r) => isOffTrack(r.status, r.estado) || r.subitems.some((s) => isOffTrack(s.status, s.estado)));
-                // Fase completada = todos sus items en "Done" (análogo a REQ cerrado). Solo entonces
-                // el reproceso cuenta en la métrica; en las demás el dropdown es informativo.
-                const faseDone = allGItems.every((r) => r.status === "Done");
                 // Cumplimiento de Entrega mide progresivo (no espera a que la fase cierre):
                 // basta un step o hito YA evaluado y atrasado para que la fase entera cuente
                 // "con atraso" — un solo responsable decide la excusa de todos a la vez.
                 const gAtrasada = allGItems.some((r) => r.entrega === "late" || r.subitems.some((s) => s.entrega === "late"));
+                // Calidad (ex-Reproceso): solo en Fase 3. Si la fase tiene un step "Desarrollo
+                // por iteraciones..." (plantilla vieja), la unidad de Calidad son SUS hitos —
+                // ningún step de la fase (ni ese ni los demás) mide a nivel de step. Si no
+                // existe (plantilla nueva), cada step de la fase mide por sí mismo.
+                const desarrolloStep = isFase3(grupo) ? allGItems.find((r) => isDesarrolloPorIteracionesStep(r.name)) : undefined;
                 return (
                   <React.Fragment key={grupo}>
                     {/* ── Group header row ── */}
                     <tr onClick={() => toggleGroup(grupo)} className="cursor-pointer select-none">
-                      <td colSpan={7} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
+                      <td colSpan={9} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
                         <div
                           className="flex items-center gap-2 px-4 py-2"
                           style={{ background: "var(--bg-hover)", borderLeft: "3px solid var(--accent)" }}
@@ -522,15 +557,13 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                           <span className="text-[0.72rem] font-bold uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>
                             {grupo || "Sin grupo"}
                           </span>
-                          {/* Atraso y Reproceso de la fase — un responsable para toda la fase en cada métrica */}
+                          {/* Atraso de la fase — un responsable para toda la fase. Calidad ya no va
+                              acá: se asigna por fila (step o hito, según la plantilla — ver columna
+                              "Calidad" y desarrolloStep más abajo). */}
                           <div className="ml-auto flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1.5">
                               <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Atraso</span>
                               <ResponsibleSelect itemId={projPhaseKey(board.id, grupo)} kind="delay" emptyPenalizes={gAtrasada} />
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Reproceso</span>
-                              <ResponsibleSelect itemId={projPhaseKey(board.id, grupo)} kind="reproceso" emptyPenalizes={faseDone} />
                             </div>
                           </div>
                           <span
@@ -549,7 +582,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                     </tr>
                     {gOpen && gItems.map((r) => {
                       const [ecls, elbl] = estadoPill(r.status, r.estado);
-                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} pm={board.pm} surveysByReq={surveysByReq} onOpenSurvey={onOpenSurvey} />;
+                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} pm={board.pm} surveysByReq={surveysByReq} onOpenSurvey={onOpenSurvey} desarrolloStepId={desarrolloStep?.id} />;
                     })}
                   </React.Fragment>
                 );
@@ -563,7 +596,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
   );
 }
 
-function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean; pm: string; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void }) {
+function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarrolloStepId }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean; pm: string; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void; desarrolloStepId?: string }) {
   const [open, setOpen] = useState(false);
   const allSubitems = r.subitems;
   const visibleSubitems = filterNoDl ? allSubitems.filter((s) => s.deadline === null) : allSubitems;
@@ -573,6 +606,15 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
 
   // Solo los subitems del step "Encuesta para NPS" que estén en Working on it llevan encuesta.
   const isNpsStep = NPS_STEP_RE.test(r.name);
+
+  // Calidad mide a nivel de ITEM (el dropdown vive en el step), de forma
+  // progresiva — no espera a que el item entero cierre (ver calcItemCalidad en
+  // lib/dashboard). Plantilla vieja (desarrolloStepId definido): SOLO ese step
+  // mide; los demás checkpoints de la fase no aportan nada. Plantilla nueva (sin
+  // ese step): CADA step de la fase mide. Sus hitos quedan de solo lectura.
+  const inFase3 = isFase3(r.grupo);
+  const stepMideCalidad = inFase3 && (desarrolloStepId ? desarrolloStepId === r.id : true);
+  const calc = stepMideCalidad ? calcItemCalidad(r) : null;
 
   const SUB_BG = "var(--bg-hover)";
 
@@ -606,10 +648,14 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
             </span>
           )}
         </td>
+        <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.responsible || <span className="text-[var(--text-disabled)]">—</span>}</td>
         <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.status || "—"}</td>
         <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
         <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
         <td>{entregaCell(r.entrega, r.endDate, r.deadline, r.id)}</td>
+        <td>{calc?.qualifies
+          ? reprocesoCell(calc.entrega, r.id, calc.recuperado, calc.cascade.primerAtrasoIdx != null ? calc.cascade.hitos[calc.cascade.primerAtrasoIdx].name : "")
+          : <span className="text-[var(--text-disabled)]">—</span>}</td>
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "var(--ok)", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
       </tr>
@@ -651,10 +697,14 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey }: { r:
                 );
               })()}
             </td>
+            <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.responsible || <span className="text-[var(--text-disabled)]">—</span>}</td>
             <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.status || "—"}</td>
             <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
             <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true })}</td>
             <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline, s.id)}</td>
+            <td style={{ background: SUB_BG }}>
+              {stepMideCalidad ? hitoCalidadReadOnly(s.entrega) : <span className="text-[var(--text-disabled)]">—</span>}
+            </td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
           </tr>
