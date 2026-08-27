@@ -9,7 +9,7 @@
 // espera. Toda la lógica de agregación vive en lib/portfolioSummary.ts y
 // lib/projSummary.ts (puras, con tests) — esta página solo arma la presentación.
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
@@ -24,9 +24,22 @@ import {
 } from "@/lib/portfolioSummary";
 import { HEALTH_CFG } from "@/lib/health";
 import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
+import ResponsibleSelect from "@/components/ResponsibleSelect";
 import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 const fmtDays = (n: number) => `${n} día${Math.abs(n) === 1 ? "" : "s"}`;
+
+// ── Eje de tiempo (compartido por PhaseTimeline) ──
+const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+const addMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 1);
+function monthTicks(min: Date, max: Date): { date: Date; label: string }[] {
+  const ticks: { date: Date; label: string }[] = [];
+  for (let d = startOfMonth(min); d <= max; d = addMonth(d)) {
+    ticks.push({ date: new Date(d), label: `${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
+  }
+  return ticks;
+}
 
 const SEVERITY_CFG: Record<"high" | "medium" | "low", { color: string; bg: string; label: string }> = {
   high:   { color: "var(--bad)",  bg: "var(--bad-bg)",  label: "Crítico" },
@@ -377,17 +390,6 @@ const PHASE_CFG: Record<PhaseState, { color: string; bg: string; icon: string; l
   pending:     { color: "var(--text-disabled)", bg: "var(--bg-hover)",           icon: "○", label: "Pendiente" },
 };
 
-/** Rango de fechas de una fase: meta (deadline más tardío) y, si aplica, cierre real. */
-function phaseDates(units: WorkUnit[], grupo: string): { target: Date | null; closed: Date | null } {
-  const list = units.filter((u) => u.grupo === grupo);
-  const deadlines = list.map((u) => u.deadline).filter((d): d is Date => d !== null);
-  const ends = list.map((u) => u.actualEnd).filter((d): d is Date => d !== null);
-  return {
-    target: deadlines.length ? new Date(Math.max(...deadlines.map((d) => d.getTime()))) : null,
-    closed: ends.length ? new Date(Math.max(...ends.map((d) => d.getTime()))) : null,
-  };
-}
-
 // ── Mensaje explicativo del estimado (para que sea legible sin leer números) ──
 function estimateMessage(summary: ProjectSummary): { icon: string; color: string; text: string } {
   const { completion, delay } = summary;
@@ -417,15 +419,6 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   const { code, name } = splitBoardName(board.name);
   const healthCfg = health.healthStatus ? HEALTH_CFG[health.healthStatus] : null;
   const est = estimateMessage(summary);
-
-  const upcoming = useMemo(() => {
-    const t = today();
-    return summary.units
-      .filter((u) => u.status !== "Done" && u.deadline && u.estado !== "ATRASADO")
-      .map((u) => ({ u, daysLeft: businessDays(t, u.deadline!) }))
-      .sort((a, b) => a.u.deadline!.getTime() - b.u.deadline!.getTime())
-      .slice(0, 6);
-  }, [summary.units]);
 
   const overdue = useMemo(() => {
     const t = today();
@@ -518,106 +511,170 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
 
           {/* Timeline por fase */}
           <h3 className="mb-3 text-[0.95rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
-          <PhaseStepper phases={summary.phases} units={summary.units} />
+          <PhaseTimeline phases={summary.phases} units={summary.units} estimatedFinish={summary.completion.estimatedFinish} />
 
-          {/* Próximos hitos / atrasados */}
-          <div className="mt-8 grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <MilestoneList
-              title="Próximos hitos"
-              empty="No hay hitos pendientes sin atraso."
-              rows={upcoming.map(({ u, daysLeft }) => ({
-                id: u.id, name: u.name, grupo: u.grupo,
-                dateLabel: fmtDate(u.deadline),
-                tag: daysLeft <= 0 ? "Hoy" : `en ${fmtDays(daysLeft)}`,
-                tone: "neutral" as const,
-              }))}
-            />
-            <MilestoneList
-              title="Hitos atrasados"
-              empty="Sin hitos atrasados. 🎉"
-              rows={overdue.map(({ u, daysLate }) => ({
-                id: u.id, name: u.name, grupo: u.grupo,
-                dateLabel: fmtDate(u.deadline),
-                tag: `${fmtDays(daysLate)} de atraso`,
-                tone: "bad" as const,
-              }))}
-            />
-          </div>
-
-          {/* Desglose por fase */}
-          <h3 className="mb-3 mt-8 text-[0.95rem] font-bold text-[var(--text-primary)]">Desglose por fase</h3>
-          <div className="table-wrap">
-            <table className="pmo">
-              <thead>
-                <tr><th>Fase</th><th>Hitos</th><th>Avance</th><th>Estado</th></tr>
-              </thead>
-              <tbody>
-                {summary.phases.map((p) => {
-                  const st = phaseState(p);
-                  const cfg = PHASE_CFG[st];
-                  const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
-                  return (
-                    <tr key={p.grupo}>
-                      <td className="ini-name">{p.grupo || "Sin grupo"}</td>
-                      <td style={{ color: "var(--text-secondary)" }}>{p.done}/{p.total}</td>
-                      <td style={{ minWidth: 140 }}>
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 w-24 overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
-                            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: cfg.color }} />
-                          </div>
-                          <span style={{ color: "var(--text-muted)", fontSize: ".72rem" }}>{pct}%</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="rounded-full px-2 py-0.5 text-[0.7rem] font-bold" style={{ color: cfg.color, background: cfg.bg }}>
-                          {cfg.icon} {cfg.label}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {/* Hitos atrasados */}
+          <MilestoneList
+            title="Hitos atrasados"
+            empty="Sin hitos atrasados. 🎉"
+            rows={overdue.map(({ u, daysLate }) => ({
+              id: u.id, name: u.name, grupo: u.grupo,
+              dateLabel: fmtDate(u.deadline),
+              tag: `${fmtDays(daysLate)} de atraso`,
+              tone: "bad" as const,
+            }))}
+          />
         </>
       )}
     </div>
   );
 }
 
-// ── Stepper horizontal de fases ─────────────────────────────────────────
-function PhaseStepper({ phases, units }: { phases: PhaseSummary[]; units: WorkUnit[] }) {
+// ── Línea de tiempo gráfica por fase (Gantt compacto) ────────────────────
+// Una fila por fase, en un único eje de calendario compartido: barra = rango
+// de fechas de sus hitos, relleno = % avance, rombos = cada hito individual
+// (verde=cumplido, rojo=atrasado, hueco=pendiente). Líneas verticales para
+// "Hoy" y el cierre estimado (predictivo), para ver de un vistazo qué tan
+// lejos está cada fase de la fecha proyectada de cierre.
+interface PhaseTimelineRow {
+  phase: PhaseSummary;
+  cfg: (typeof PHASE_CFG)[PhaseState];
+  hasDates: boolean;
+  barStart: number | null; barEnd: number | null;
+  overdueEnd: number | null; // fin del segmento de atraso (hasta hoy), si aplica
+  milestones: { id: string; name: string; date: Date; isDone: boolean; isLate: boolean }[];
+}
+
+function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummary[]; units: WorkUnit[]; estimatedFinish: Date | null }) {
+  const [nowMs] = useState(() => Date.now()); // "hoy" fijado al montar (evita impureza en render)
+  const { data } = useData();
+  const delayAttributions = data?.delayAttributions;
+
+  const domain = useMemo(() => {
+    const dates: number[] = [nowMs];
+    units.forEach((u) => {
+      if (u.deadline) dates.push(u.deadline.getTime());
+      if (u.actualEnd) dates.push(u.actualEnd.getTime());
+    });
+    if (estimatedFinish) dates.push(estimatedFinish.getTime());
+    const min = startOfMonth(new Date(Math.min(...dates)));
+    const max = addMonth(new Date(Math.max(...dates)));
+    return { min, max, span: Math.max(max.getTime() - min.getTime(), 1) };
+  }, [units, estimatedFinish, nowMs]);
+
+  const pct = (d: Date) => Math.max(0, Math.min(100, ((d.getTime() - domain.min.getTime()) / domain.span) * 100));
+  const ticks = monthTicks(domain.min, domain.max);
+  const todayX = pct(new Date(nowMs));
+  const estX = estimatedFinish ? pct(estimatedFinish) : null;
+  const chartMinWidth = 190 + Math.max(ticks.length, 3) * 92;
+
   if (!phases.length) return <EmptyRow msg="Este proyecto no tiene fases." />;
+
+  const rows: PhaseTimelineRow[] = phases.map((p) => {
+    const cfg = PHASE_CFG[phaseState(p)];
+    const list = units.filter((u) => u.grupo === p.grupo);
+    const barDates: number[] = [];
+    const milestones: PhaseTimelineRow["milestones"] = [];
+    list.forEach((u) => {
+      const d = u.actualEnd ?? u.deadline;
+      if (!d) return;
+      if (u.deadline) barDates.push(u.deadline.getTime());
+      if (u.actualEnd) barDates.push(u.actualEnd.getTime());
+      milestones.push({ id: u.id, name: u.name, date: d, isDone: u.status === "Done", isLate: u.status !== "Done" && u.estado === "ATRASADO" });
+    });
+    const hasDates = barDates.length > 0;
+    const barStart = hasDates ? Math.min(...barDates) : null;
+    const barEnd = hasDates ? Math.max(...barDates) : null;
+    const notDone = p.total === 0 || p.done < p.total;
+    const overdueEnd = hasDates && notDone && barEnd! < nowMs ? nowMs : null;
+    return { phase: p, cfg, hasDates, barStart, barEnd, overdueEnd, milestones };
+  });
+
   return (
-    <div className="mb-8 overflow-x-auto">
-      <div className="flex min-w-max items-start">
-        {phases.map((p, i) => {
-          const st = phaseState(p);
-          const cfg = PHASE_CFG[st];
-          const dates = phaseDates(units, p.grupo);
-          const caption = st === "done"
-            ? (dates.closed ? `Completada ${fmtDate(dates.closed)}` : "Completada")
-            : dates.target ? `Meta: ${fmtDate(dates.target)}` : "—";
-          return (
-            <div key={p.grupo} className="flex items-start">
-              <div className="flex w-[150px] flex-col items-center gap-1.5 px-1 text-center">
-                <div
-                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 text-[0.9rem] font-bold"
-                  style={{ borderColor: cfg.color, color: cfg.color, background: cfg.bg }}
-                  title={`${p.done}/${p.total} · ${cfg.label}`}
-                >
-                  {cfg.icon}
-                </div>
-                <div className="truncate text-[0.75rem] font-semibold text-[var(--text-primary)]" title={p.grupo}>{p.grupo || "Sin grupo"}</div>
-                <div className="text-[0.65rem] text-[var(--text-muted)]">{p.done}/{p.total} hitos</div>
-                <div className="text-[0.65rem]" style={{ color: cfg.color }}>{caption}</div>
+    <div className="mb-8 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+      <div style={{ minWidth: chartMinWidth }}>
+        {/* Eje */}
+        <div className="flex items-end border-b" style={{ borderColor: "var(--border)" }}>
+          <div style={{ width: 190 }} className="shrink-0 px-3 py-2 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+            Fase
+          </div>
+          <div className="relative h-9 flex-1">
+            {ticks.map((t, i) => (
+              <div key={i} className="absolute top-0 h-full" style={{ left: `${pct(t.date)}%` }}>
+                <div className="h-full w-px" style={{ background: "var(--border)" }} />
+                <span className="absolute top-1 left-1 whitespace-nowrap text-[0.66rem] text-[var(--text-muted)]">{t.label}</span>
               </div>
-              {i < phases.length - 1 && (
-                <div className="mt-[18px] h-0.5 w-8 flex-shrink-0" style={{ background: st === "done" ? "var(--ok)" : "var(--border)" }} />
+            ))}
+          </div>
+        </div>
+
+        {/* Filas */}
+        {rows.map((r) => (
+          <div
+            key={r.phase.grupo}
+            className="flex items-stretch border-b transition-colors last:border-b-0 hover:bg-[var(--bg-hover)]"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div style={{ width: 190 }} className="shrink-0 px-3 py-2.5">
+              <div className="truncate text-[0.78rem] font-semibold text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
+              <div className="mt-0.5 flex items-center gap-1 text-[0.65rem] font-semibold" style={{ color: r.cfg.color }}>
+                {r.cfg.icon} {r.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
+              </div>
+            </div>
+
+            <div className="relative flex-1" style={{ minHeight: 52 }}>
+              {ticks.map((t, i) => (
+                <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
+              ))}
+              {estX != null && (
+                <div className="absolute top-0 bottom-0" title="Cierre estimado (predictivo)" style={{ left: `${estX}%`, width: 2, background: "var(--warn)", opacity: 0.6 }} />
+              )}
+              <div className="absolute top-0 bottom-0" title="Hoy" style={{ left: `${todayX}%`, width: 2, background: "var(--accent)", opacity: 0.7 }} />
+
+              {!r.hasDates ? (
+                <div className="flex h-full items-center pl-2 text-[0.72rem] italic text-[var(--text-disabled)]">— sin fechas —</div>
+              ) : (
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+                  {/* Rango planificado de la fase */}
+                  <div
+                    className="absolute h-2 rounded-full"
+                    style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max(pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!)), 0.6)}%`, background: "var(--bg-hover)", border: `1px solid ${r.cfg.color}` }}
+                  />
+                  {/* Relleno de avance (% de hitos Done) */}
+                  <div
+                    className="absolute h-2 rounded-full"
+                    style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max((pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!))) * (r.phase.total ? r.phase.done / r.phase.total : 0), r.phase.done > 0 ? 0.6 : 0)}%`, background: r.cfg.color }}
+                  />
+                  {/* Atraso: fin de la fase → hoy */}
+                  {r.overdueEnd != null && (
+                    <div
+                      className="absolute h-2 rounded-full"
+                      title="Sigue abierta, pasado su rango planificado"
+                      style={{ left: `${pct(new Date(r.barEnd!))}%`, width: `${Math.max(pct(new Date(r.overdueEnd))- pct(new Date(r.barEnd!)), 0.6)}%`, background: "var(--bad)", opacity: 0.55 }}
+                    />
+                  )}
+                  {/* Hitos individuales */}
+                  {r.milestones.map((m) => {
+                    const color = m.isDone ? "var(--ok)" : m.isLate ? "var(--bad)" : "var(--text-muted)";
+                    const responsible = m.isLate ? (delayAttributions?.[m.id]?.responsible || "Sin asignar") : null;
+                    return (
+                      <div
+                        key={m.id}
+                        className="absolute rounded-[2px]"
+                        title={`${m.name} · ${fmtDate(m.date)} · ${m.isDone ? "Cumplido" : m.isLate ? "Atrasado" : "Pendiente"}${responsible ? ` · Responsable: ${responsible}` : ""}`}
+                        style={{
+                          left: `${pct(m.date)}%`, top: -3, width: 9, height: 9, transform: "translateX(-4.5px) rotate(45deg)",
+                          background: m.isDone || m.isLate ? color : "var(--bg-surface)",
+                          border: `2px solid ${color}`, boxShadow: "0 0 0 2px var(--bg-surface)",
+                        }}
+                      />
+                    );
+                  })}
+                </div>
               )}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -639,12 +696,15 @@ function MilestoneList({ title, empty, rows }: { title: string; empty: string; r
                 <div className="truncate text-[0.8rem] font-medium text-[var(--text-primary)]" title={r.name}>{r.name}</div>
                 <div className="truncate text-[0.68rem] text-[var(--text-muted)]" title={r.grupo}>{r.grupo} · {r.dateLabel}</div>
               </div>
-              <span
-                className="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
-                style={{ color: r.tone === "bad" ? "var(--bad)" : "var(--text-secondary)", background: r.tone === "bad" ? "var(--bad-bg)" : "var(--bg-hover)" }}
-              >
-                {r.tag}
-              </span>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <span
+                  className="rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
+                  style={{ color: r.tone === "bad" ? "var(--bad)" : "var(--text-secondary)", background: r.tone === "bad" ? "var(--bad-bg)" : "var(--bg-hover)" }}
+                >
+                  {r.tag}
+                </span>
+                {r.tone === "bad" && <ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes />}
+              </div>
             </div>
           ))}
         </div>
