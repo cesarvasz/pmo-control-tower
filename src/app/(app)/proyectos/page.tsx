@@ -9,7 +9,7 @@ import { fmtDate, fmtMoney } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
 import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib/proj";
-import { projPhaseKey, calcItemCalidad, isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { projPhaseKey, calcItemCalidad, calcItemNota, isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import type { ProjBoard, ProjItem } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
@@ -288,36 +288,41 @@ function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, li
 }
 
 // Celda "Calidad" del ITEM (step) que mide en su fase — ver isDesarrolloPorIteracionesStep
-// en lib/dashboard para cuáles steps de la Fase 3 miden. Veredicto progresivo desde
-// calcItemCalidad: automático por CPM si ya cerró, o provisional a partir de sus
-// hitos si sigue abierto (ver comentario de calcItemCalidad).
-function reprocesoCell(entrega: "on-time" | "late" | null, itemId: string, recuperado: boolean | null, hitoName: string) {
-  if (!entrega) return <span className="text-[var(--text-disabled)]">—</span>;
-  const conReproceso = entrega !== "on-time";
-  const tituloOk = `Hubo atraso en "${hitoName}", pero el item se puso al día dentro de su CPM.`;
-  const tituloBad = `El atraso en "${hitoName}" hizo que el item saliera fuera de su CPM.`;
-  const badge = recuperado === true
-    ? <span title={tituloOk} style={{ color: "var(--ok)", fontSize: ".62rem", fontWeight: 600 }}>↩ PM se recuperó</span>
-    : recuperado === false
-    ? <span title={tituloBad} style={{ color: "var(--bad)", fontSize: ".62rem", fontWeight: 600 }}>🔁 No se recuperó</span>
-    : null;
+// en lib/dashboard para cuáles steps de la Fase 3 miden. Nota 0/50/100 (ver
+// calcItemNota en lib/dashboard): 50% por el responsable asignado (SIEMPRE manual,
+// sin bypass automático) + 50% por "recuperado" (ningún hito con Limit Date después
+// del fin del CPM del item — ver calcItemCalidad/hitosFueraDeCpm; solo se verifica
+// el fin, no el inicio — ver el comentario de hitosFueraDeCpm para el porqué).
+function reprocesoCell(nota: number, itemId: string, recuperado: boolean, cpmFin: string) {
+  const tone = nota === 100 ? "ok" : nota === 0 ? "bad" : "warn";
+  const icon = nota === 100 ? "✓" : nota === 0 ? "✕" : "⚠";
+  const badge = recuperado
+    ? <span title={`Ningún hito tiene Limit Date después del fin del CPM del item (${cpmFin}).`} style={{ color: "var(--ok)", fontSize: ".62rem", fontWeight: 600 }}>↩ Recuperado</span>
+    : <span title={`Algún hito tiene Limit Date después del fin del CPM del item (${cpmFin}), o falta ese fin para verificarlo.`} style={{ color: "var(--bad)", fontSize: ".62rem", fontWeight: 600 }}>🔁 No se recuperó</span>;
   return (
     <div className="flex flex-col items-start gap-0.5">
-      {conReproceso
-        ? <Pill tone="bad" small>✕ Con reproceso</Pill>
-        : <Pill tone="ok" small>✓ Sin reproceso</Pill>}
-      <ResponsibleSelect itemId={itemId} kind="reproceso" emptyPenalizes={conReproceso} />
+      <Pill tone={tone} small>{icon} {nota}%</Pill>
+      <ResponsibleSelect itemId={itemId} kind="reproceso" emptyPenalizes={nota !== 100} />
       {badge}
     </div>
   );
 }
 
 // Celda "Calidad" de un HITO — SOLO LECTURA: el dropdown vive en el item padre, el
-// hito solo informa si él mismo salió a tiempo (o sigue pendiente). Se muestra
-// únicamente bajo un item que mide Calidad (ver stepMideCalidad en Row).
-function hitoCalidadReadOnly(entrega: "on-time" | "late" | null) {
-  if (!entrega) return <span className="text-[var(--text-disabled)]">— pendiente</span>;
-  return entrega === "late" ? <Pill tone="bad" small>✕ Atraso</Pill> : <Pill tone="ok" small>✓ A tiempo</Pill>;
+// hito solo informa si él mismo salió a tiempo (o sigue pendiente), y si su Limit
+// Date quedó después del fin del CPM del item (fueraDeCpm). Se muestra únicamente
+// bajo un item que mide Calidad (ver stepMideCalidad en Row).
+function hitoCalidadReadOnly(entrega: "on-time" | "late" | null, fueraDeCpm: boolean) {
+  const pill = !entrega
+    ? <span className="text-[var(--text-disabled)]">— pendiente</span>
+    : entrega === "late" ? <Pill tone="bad" small>✕ Atraso</Pill> : <Pill tone="ok" small>✓ A tiempo</Pill>;
+  if (!fueraDeCpm) return pill;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      {pill}
+      <span title="El Limit Date de este hito quedó después del fin del CPM del item" style={{ color: "var(--bad)", fontSize: ".62rem", fontWeight: 600 }}>⚠ después del CPM</span>
+    </div>
+  );
 }
 
 function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void }) {
@@ -597,6 +602,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
 }
 
 function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarrolloStepId }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean; pm: string; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void; desarrolloStepId?: string }) {
+  const { data } = useData();
   const [open, setOpen] = useState(false);
   const allSubitems = r.subitems;
   const visibleSubitems = filterNoDl ? allSubitems.filter((s) => s.deadline === null) : allSubitems;
@@ -615,6 +621,9 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   const inFase3 = isFase3(r.grupo);
   const stepMideCalidad = inFase3 && (desarrolloStepId ? desarrolloStepId === r.id : true);
   const calc = stepMideCalidad ? calcItemCalidad(r) : null;
+  const nota = calc?.qualifies ? calcItemNota(r.id, calc.recuperado, data?.reprocesoAttributions ?? {}) : null;
+  const fueraDeCpmIds = new Set((calc?.fueraDeCpm ?? []).map((x) => x.id));
+  const cpmFin = r.deadline ? fmtDate(r.deadline) : "sin CPM";
 
   const SUB_BG = "var(--bg-hover)";
 
@@ -653,8 +662,8 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
         <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
         <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
         <td>{entregaCell(r.entrega, r.endDate, r.deadline, r.id)}</td>
-        <td>{calc?.qualifies
-          ? reprocesoCell(calc.entrega, r.id, calc.recuperado, calc.cascade.primerAtrasoIdx != null ? calc.cascade.hitos[calc.cascade.primerAtrasoIdx].name : "")
+        <td>{nota != null && calc
+          ? reprocesoCell(nota, r.id, calc.recuperado, cpmFin)
           : <span className="text-[var(--text-disabled)]">—</span>}</td>
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "var(--ok)", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
@@ -703,7 +712,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
             <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true })}</td>
             <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline, s.id)}</td>
             <td style={{ background: SUB_BG }}>
-              {stepMideCalidad ? hitoCalidadReadOnly(s.entrega) : <span className="text-[var(--text-disabled)]">—</span>}
+              {stepMideCalidad ? hitoCalidadReadOnly(s.entrega, fueraDeCpmIds.has(s.id)) : <span className="text-[var(--text-disabled)]">—</span>}
             </td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>

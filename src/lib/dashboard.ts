@@ -379,9 +379,9 @@ export const isDesarrolloPorIteracionesStep = (name: string): boolean => DESARRO
 
 /** Unidad de medición de Calidad dentro de una Fase 3: SIEMPRE un ITEM (step) —
  *  ver isDesarrolloPorIteracionesStep arriba para cuáles steps de la fase miden.
- *  Sus hitos son solo lectura (detalle en `cascade`/`pendingAtrasados`), no unidades
- *  propias. El veredicto es progresivo — ver calcItemCalidad para cómo se calcula
- *  cuando el item aún no está Done. */
+ *  Sus hitos son solo lectura (detalle en `cascade`/`pendingAtrasados`/`fueraDeCpm`),
+ *  no unidades propias. Ver calcItemCalidad para cómo se calcula `recuperado` — la
+ *  nota final (0/50/100) se arma aparte, en calcItemNota, con el responsable asignado. */
 export interface CalidadUnit {
   id: string;                        // p.id — clave de atribución/Firestore
   kind: "step";
@@ -396,16 +396,18 @@ export interface CalidadUnit {
   startDate: Date | null;
   /** Fecha real de cierre (End Date) — null mientras el item no está Done. */
   actualEnd: Date | null;
-  entrega: "on-time" | "late" | null;
-  /** true = hubo atraso pero se recuperó (PM se recuperó), sea porque el item cerró
-   *  a tiempo o porque sigue abierto y ya no hay nada pendiente vencido.
-   *  false = hubo atraso y sigue sin recuperarse. null = nada que diagnosticar. */
-  recuperado: boolean | null;
-  /** Desglose de los hitos del item (para el acordeón de detalle). */
+  /** true = ningún hito tiene Limit Date después del fin del CPM propio del item
+   *  (PM se recuperó / nunca se salió del CPM). false = algún hito quedó después
+   *  (ver fueraDeCpm), o el item no tiene su propio fin de CPM para verificarlo. */
+  recuperado: boolean;
+  /** Desglose histórico de entrega por hito (para el acordeón de detalle). */
   cascade: ReprocesoCascade | null;
-  /** Hitos aún no Done que ya vencieron su propio CPM — por qué un item en curso
-   *  puede estar marcado "con reproceso" antes de cerrar. */
+  /** Hitos aún no Done que ya vencieron su propio CPM — informativo (por qué un item
+   *  en curso ya aparece en la tabla antes de cerrar, ver calcItemCalidad/qualifies). */
   pendingAtrasados: PendingCalidadItem[];
+  /** Hitos cuyo Limit Date cae después del fin del CPM del item — por qué no se
+   *  recuperó (ver hitosFueraDeCpm). Vacío si `recuperado` es true. */
+  fueraDeCpm: PendingCalidadItem[];
 }
 
 type CalidadGroup = { boardId: string; boardName: string; grupo: string; pm: string; steps: ProjItem[] };
@@ -444,22 +446,39 @@ export interface PendingCalidadItem {
   stepName: string;
 }
 
-/** Veredicto de Calidad de UN item (step), calculado de forma PROGRESIVA — no
- *  exige que el item esté Done:
- *  · Done: el veredicto es su propio `entrega` (CPM) y `recuperado` es el
- *    diagnóstico ya existente de calcReprocesoCascade (hito atrasado vs. cierre
- *    del item).
- *  · No Done: se arma un veredicto provisional a partir de sus hitos — un hito
- *    pendiente que YA venció su propio CPM marca al item "atrasado" (con
- *    reproceso, excusable); si no hay ninguno vencido pero SÍ hubo un hito Done
- *    que llegó tarde, el item cuenta "recuperado" (limpio + badge); si no pasó
- *    nada de eso, `qualifies: false` — todavía no hay nada que evaluar, y el
- *    item no genera unidad (medición progresiva, igual que en el resto de la app). */
+/** Hitos del item cuyo Limit Date cae DESPUÉS del fin de su propio CPM — el chequeo
+ *  real de "recuperado": no importa si el hito ya cerró o sigue pendiente, es
+ *  consistencia de planeación (¿el pipeline quedó programado para cerrar dentro
+ *  del compromiso del item?), no cumplimiento real.
+ *
+ *  SOLO se compara contra el FIN del CPM (`step.deadline`), nunca contra el
+ *  inicio (`step.startDate`) — verificado con datos reales de Monday: "Start
+ *  Date" no es el arranque fijo del compromiso, es un marcador que se corre
+ *  hacia adelante conforme avanza el trabajo (a veces incluso queda DESPUÉS que
+ *  el fin del CPM). Comparar contra ese inicio producía falsos positivos: hitos
+ *  con Limit Date bien dentro del rango "CPM" real de Monday aparecían como
+ *  "fuera de la ventana" solo porque `startDate` ya se había movido más allá de
+ *  esas fechas. Sin `deadline` propio no se puede verificar → devuelve vacío; el
+ *  "no se recuperó" en ese caso lo decide calcItemCalidad, no esta lista. */
+function hitosFueraDeCpm(step: ProjItem): PendingCalidadItem[] {
+  if (!step.deadline) return [];
+  const { deadline } = step;
+  return step.subitems
+    .filter((s) => s.deadline != null && s.deadline > deadline)
+    .map((s) => ({ id: s.id, name: s.name, deadline: s.deadline, stepName: step.name }));
+}
+
+/** Veredicto de Calidad de UN item (step) — mide PROGRESIVAMENTE (no exige que
+ *  esté Done): `qualifies` se cumple si el item ya cerró, o tiene al menos un hito
+ *  Done, o algún hito pendiente ya venció su propio CPM (mismo criterio que antes).
+ *  `recuperado` (ver hitosFueraDeCpm) ya NO depende del status — es puramente si
+ *  los hitos quedaron con Limit Date dentro del CPM del item (solo se verifica el
+ *  fin, ver comentario de hitosFueraDeCpm). */
 export interface ItemCalidad {
-  entrega: "on-time" | "late" | null;
-  recuperado: boolean | null;
+  recuperado: boolean;
   cascade: ReprocesoCascade;
   pendingAtrasados: PendingCalidadItem[];
+  fueraDeCpm: PendingCalidadItem[];
   qualifies: boolean;
 }
 
@@ -468,22 +487,16 @@ export function calcItemCalidad(step: ProjItem): ItemCalidad {
   const pendingAtrasados = step.subitems
     .filter((s) => s.status !== "Done" && s.deadline != null && s.deadline < today())
     .map((s) => ({ id: s.id, name: s.name, deadline: s.deadline, stepName: step.name }));
-
-  if (step.status === "Done") {
-    return { entrega: step.entrega, recuperado: cascade.recuperado, cascade, pendingAtrasados, qualifies: true };
-  }
-  const doneLate = step.subitems.some((s) => s.status === "Done" && s.entrega === "late");
+  const fueraDeCpm = hitosFueraDeCpm(step);
+  const recuperado = step.deadline != null && fueraDeCpm.length === 0;
   const doneAny = step.subitems.some((s) => s.status === "Done");
-  const qualifies = doneAny || pendingAtrasados.length > 0;
-  if (!qualifies) return { entrega: null, recuperado: null, cascade, pendingAtrasados, qualifies: false };
-  const entrega = pendingAtrasados.length > 0 ? "late" : "on-time";
-  const recuperado = pendingAtrasados.length > 0 ? (doneLate ? false : null) : (doneLate ? true : null);
-  return { entrega, recuperado, cascade, pendingAtrasados, qualifies: true };
+  const qualifies = step.status === "Done" || doneAny || pendingAtrasados.length > 0;
+  return { recuperado, cascade, pendingAtrasados, fueraDeCpm, qualifies };
 }
 
 /** Resuelve las unidades de Calidad de TODOS los proyectos: agrupa los steps de Fase 3
  *  por proyecto (board+grupo), decide CUÁLES steps miden (ver isDesarrolloPorIteracionesStep
- *  arriba) y, para cada uno, su veredicto progresivo (ver calcItemCalidad). La unidad de
+ *  arriba) y, para cada uno, su veredicto (ver calcItemCalidad). La unidad de
  *  atribución/KPI es siempre el ITEM — sus hitos son solo lectura (detalle en `cascade`).
  *  Único punto de la app que decide el alcance; calcReprocesoStats/calcReprocesoStatsRaw/
  *  buildReprocesoRows/buildReprocesoRowsRaw consumen su resultado sin repetir la lógica. */
@@ -497,8 +510,8 @@ export function calidadUnits(projs: ProjItem[]): CalidadUnit[] {
         id: step.id, kind: "step", name: step.name, pm: g.pm,
         boardId: g.boardId, boardName: g.boardName, grupo: g.grupo, status: step.status,
         deadline: step.deadline, startDate: step.startDate, actualEnd: step.endDate,
-        entrega: calc.entrega, recuperado: calc.recuperado, cascade: calc.cascade,
-        pendingAtrasados: calc.pendingAtrasados,
+        recuperado: calc.recuperado, cascade: calc.cascade,
+        pendingAtrasados: calc.pendingAtrasados, fueraDeCpm: calc.fueraDeCpm,
       });
     }
   }
@@ -506,13 +519,16 @@ export function calidadUnits(projs: ProjItem[]): CalidadUnit[] {
 }
 
 /** "Trayectoria" de Calidad de un proyecto en Fase 3, a día de hoy — responde si el PM
- *  se recuperó de sus atrasos tomando en cuenta TANTO lo ya cerrado como lo pendiente:
- *  · "atrasado": hay al menos un hito/step AÚN pendiente (no Done) cuyo propio CPM ya
- *    venció (estado "ATRASADO") — hay un problema abierto HOY, sin importar el
- *    historial. Es la señal de que todavía no se ha recuperado.
- *  · "recuperado": al menos una unidad Done llegó atrasada en el pasado, pero TODO lo
- *    que sigue pendiente hoy está dentro de su CPM — el PM se puso al día.
- *  · "sin-atrasos": ninguna unidad Done llegó atrasada, y nada pendiente está vencido. */
+ *  se recuperó, usando la MISMA fuente de verdad que la nota del item (ver
+ *  calcItemCalidad/hitosFueraDeCpm): no basta con que nada esté vencido hoy, ningún
+ *  hito puede haber quedado reprogramado fuera del CPM de su propio item.
+ *  · "atrasado": hay un problema sin resolver HOY — un hito pendiente (no Done) cuyo
+ *    propio CPM ya venció, Y/O algún hito (Done o no) cuyo Limit Date quedó después
+ *    del fin del CPM de su item. Cualquiera de los dos basta: todavía no se recuperó.
+ *  · "recuperado": hubo un atraso en el pasado (alguna unidad Done llegó tarde), pero
+ *    HOY no hay nada vencido ni nada fuera del CPM de su item — el PM se puso al día.
+ *  · "sin-atrasos": nunca hubo un atraso Done, nada está vencido y nada quedó fuera
+ *    del CPM de su item. */
 export type CalidadTrayectoria = "sin-atrasos" | "recuperado" | "atrasado";
 
 export interface CalidadProjectStatus {
@@ -528,19 +544,25 @@ export interface CalidadProjectStatus {
    *  Monday todavía no programó) no cuenta aquí — no hay fecha que haya incumplido
    *  todavía, a diferencia de un Done sin fechas (que sí penaliza, ver calcReprocesoCascade). */
   pendingAtrasados: PendingCalidadItem[];
+  /** Hitos (Done o no) cuyo Limit Date cae después del fin del CPM de su propio item —
+   *  ver hitosFueraDeCpm. Misma señal que usa la nota del item; puede solaparse con
+   *  pendingAtrasados (un mismo hito puede estar vencido HOY y además fuera de CPM). */
+  fueraDeCpm: PendingCalidadItem[];
   trayectoria: CalidadTrayectoria;
 }
 
 /** Trayectoria de Calidad por proyecto (board+fase 3) — ver CalidadTrayectoria arriba.
- *  Cuenta HITOS directamente (Done/pendientes), independiente de calidadUnits() y de
- *  qué es "una unidad" para el KPI — un rollup agregado del proyecto entero no debe
- *  cambiar de comportamiento solo porque cambie el grano de atribución. Un grupo sin
- *  ninguna unidad Done ni nada pendiente (fase aún sin arrancar) no aparece en el resultado. */
+ *  Cuenta HITOS directamente (Done/pendientes) para doneTotal/doneLate, independiente
+ *  de calidadUnits() y de qué es "una unidad" para el KPI; pero fueraDeCpm SÍ reutiliza
+ *  hitosFueraDeCpm (misma fuente que calcItemCalidad) para que este rollup nunca
+ *  contradiga la nota del item. Un grupo sin ninguna unidad Done ni nada pendiente
+ *  (fase aún sin arrancar) no aparece en el resultado. */
 export function calidadProjectStatus(projs: ProjItem[]): CalidadProjectStatus[] {
   const result: CalidadProjectStatus[] = [];
   for (const g of groupCalidad(projs).values()) {
     let doneTotal = 0, doneLate = 0;
     const pending: PendingCalidadItem[] = [];
+    const fueraDeCpm: PendingCalidadItem[] = [];
     for (const step of stepsQueMidenCalidad(g)) {
       if (step.subitems.length > 0) {
         for (const s of step.subitems) {
@@ -553,39 +575,55 @@ export function calidadProjectStatus(projs: ProjItem[]): CalidadProjectStatus[] 
       } else {
         pending.push({ id: step.id, name: step.name, deadline: step.deadline, stepName: "" });
       }
+      fueraDeCpm.push(...hitosFueraDeCpm(step));
     }
     if (doneTotal === 0 && pending.length === 0) continue;
     const pendingAtrasados = pending.filter((p) => p.deadline != null && p.deadline < today());
+    const atrasado = pendingAtrasados.length > 0 || fueraDeCpm.length > 0;
     const trayectoria: CalidadTrayectoria =
-      pendingAtrasados.length > 0 ? "atrasado" : doneLate > 0 ? "recuperado" : "sin-atrasos";
+      atrasado ? "atrasado" : doneLate > 0 ? "recuperado" : "sin-atrasos";
     result.push({
       boardId: g.boardId, boardName: g.boardName, grupo: g.grupo, pm: g.pm,
-      doneTotal, doneLate, pendingTotal: pending.length, pendingAtrasados, trayectoria,
+      doneTotal, doneLate, pendingTotal: pending.length, pendingAtrasados, fueraDeCpm, trayectoria,
     });
   }
   return result;
 }
 
+/** Nota de Calidad de un item de Proyecto (0/50/100): 50% si el responsable
+ *  asignado es ≠ "PM" (mismo criterio que lateExcused — SIEMPRE hace falta
+ *  asignarlo explícitamente; no hay bypass automático por haber salido a
+ *  tiempo), + 50% si se recuperó (ver calcItemCalidad/hitosFueraDeCpm). Con
+ *  esto se calcula el % de Calidad que alimenta el KPI del PM (ver
+ *  calcReprocesoStats). Los REQ no usan esta función — su nota sigue siendo
+ *  binaria (100/0), ver calcReprocesoStats. */
+export function calcItemNota(id: string, recuperado: boolean, reproceso: DelayMap): number {
+  return (lateExcused(id, reproceso) ? 50 : 0) + (recuperado ? 50 : 0);
+}
+
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
-/** Desglose de "Calidad de Entregas" (unidades limpias vs. con reproceso). Las unidades
- *  en scope son los REQ CERRADOS + las unidades de Calidad de la FASE 3 de Proyecto
- *  (ver calidadUnits: step completo o hito de "Desarrollo por iteraciones...", según la
- *  plantilla) — las demás fases del proyecto no entran (ver isFase3). Para REQ: penaliza
- *  por defecto, incluso sin responsable asignado; solo se EXCUSA con responsable ≠ PM
- *  (misma regla que siempre). Para una unidad de Fase 3: el veredicto arranca
- *  AUTOMÁTICO — `entrega === "on-time"` (cumplió su CPM) limpia sin necesidad de
- *  atribución; si quedó atrasada (o no se pudo verificar por falta de fechas) penaliza
- *  salvo que se excuse con un responsable ≠ PM. */
+/** Desglose de "Calidad de Entregas" (nota promedio de las unidades en scope). Las
+ *  unidades en scope son los REQ CERRADOS + las unidades de Calidad de la FASE 3 de
+ *  Proyecto (ver calidadUnits) — las demás fases del proyecto no entran (ver isFase3).
+ *  REQ: nota binaria — 100 si se excusa con un responsable ≠ "PM", 0 si no (sin
+ *  asignar penaliza). Proyecto: nota graduada 0/50/100, ver calcItemNota — el
+ *  responsable SIEMPRE debe asignarse explícitamente (sin bypass automático por
+ *  CPM), y el otro 50% depende de si se recuperó (ningún hito con Limit Date
+ *  después del fin de su propio CPM, ver hitosFueraDeCpm).
+ *  `pct` es el PROMEDIO de las notas (no la fracción de unidades 100% limpias);
+ *  `limpias`/`conReproceso` siguen siendo conteos, para las tarjetas de resumen. */
 export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
   const reqUnits = reqs.filter((r) => r.estado === "CERRADO");
   const stepUnits = calidadUnits(projs);
   const total = reqUnits.length + stepUnits.length;
-  const reqConReproceso = reqUnits.filter((r) => !lateExcused(r.id, reproceso)).length;
-  const stepConReproceso = stepUnits.filter((u) => u.entrega !== "on-time" && !lateExcused(u.id, reproceso)).length;
-  const conReproceso = reqConReproceso + stepConReproceso;
-  const limpias = total - conReproceso;
-  const pct = total ? Math.round((limpias / total) * 100) : null;
+  const notas = [
+    ...reqUnits.map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
+    ...stepUnits.map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
+  ];
+  const limpias = notas.filter((n) => n === 100).length;
+  const conReproceso = total - limpias;
+  const pct = total ? Math.round(notas.reduce((a, b) => a + b, 0) / total) : null;
   return { total, limpias, conReproceso, pct };
 }
 
@@ -768,21 +806,25 @@ export interface ReprocesoRow {
    *  item. null si aún no cerró. */
   actualEnd: Date | null;
   verdict: "clean" | "reproceso";
+  /** Nota de Calidad (0/50/100). REQ: binaria (100/0). Proyecto: ver calcItemNota. */
+  nota: number;
   /** Solo REQ: desglose de deadlines por fase (para acordeón). */
   phaseDetails?: ReqPhaseDetail[];
   /** Solo unitKind "step": hitos Done de ese item (informativo en acordeón). Vacío en "req". */
   itemsDone: ReprocesoHito[];
   /** Solo unitKind "step": total de hitos Done del item. 0 en "req". */
   totalDone: number;
-  /** true = hubo atraso pero se recuperó (PM se recuperó). false = no se recuperó.
-   *  null = nada que diagnosticar (o unitKind "req", que no aplica). */
+  /** true = ningún hito tiene Limit Date después del fin del CPM del item (recuperado).
+   *  false = alguno quedó después, o no se pudo verificar. null = unitKind "req" (no aplica). */
   recuperado: boolean | null;
-  /** Solo unitKind "step": diagnóstico de recuperación de atraso entre los hitos del item
-   *  (para el acordeón de detalle). */
+  /** Solo unitKind "step": desglose histórico de entrega por hito (para el acordeón de detalle). */
   cascade: ReprocesoCascade | null;
   /** Solo unitKind "step": hitos aún no Done que ya vencieron su propio CPM — por qué un
    *  item en curso puede aparecer marcado antes de cerrar. Vacío en "req". */
   pendingAtrasados: PendingCalidadItem[];
+  /** Solo unitKind "step": hitos cuyo Limit Date cae después del fin del CPM del item —
+   *  por qué no se recuperó. Vacío en "req". */
+  fueraDeCpm: PendingCalidadItem[];
 }
 
 /** Un hito (subitem) de un step de Proyecto, con su propio veredicto de entrega —
@@ -790,6 +832,8 @@ export interface ReprocesoRow {
 export interface ReprocesoHito {
   id: string;
   name: string;
+  /** Status de Monday del hito (Done / Working on it / Future Steps / ...). */
+  status: string;
   deadline: Date | null;
   entrega: "on-time" | "late" | null;
 }
@@ -812,7 +856,7 @@ export interface ReprocesoCascade {
 /** Calcula el diagnóstico de recuperación de un step a partir de sus hitos + su
  *  propio veredicto de entrega (CPM). Ver ReprocesoCascade para la semántica. */
 export function calcReprocesoCascade(p: ProjItem): ReprocesoCascade {
-  const hitos: ReprocesoHito[] = p.subitems.map((s) => ({ id: s.id, name: s.name, deadline: s.deadline, entrega: s.entrega }));
+  const hitos: ReprocesoHito[] = p.subitems.map((s) => ({ id: s.id, name: s.name, status: s.status, deadline: s.deadline, entrega: s.entrega }));
   const primerAtrasoIdx = hitos.findIndex((h) => h.entrega === "late");
   if (primerAtrasoIdx === -1) return { hitos, primerAtrasoIdx: null, recuperado: null };
   const recuperado = p.entrega === "on-time";
@@ -827,26 +871,27 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
   for (const r of reqs) {
     if (r.estado !== "CERRADO") continue;
     const ultimaFase = r.onTime.phases[r.onTime.phases.length - 1];
+    const reqNota = lateExcused(r.id, reproceso) ? 100 : 0;
     rows.push({
       id: r.id, source: "REQ", unitKind: "req", tipo: "PML", name: r.name, context: r.grupo,
       projCode: "", projName: "", fase: r.grupo, pm: r.pm, status: r.estado, deadline: r.deadline,
       startDate: r.inicioReq ?? r.inicio, actualEnd: ultimaFase?.actual ?? null,
-      verdict: lateExcused(r.id, reproceso) ? "clean" : "reproceso", phaseDetails: r.onTime.phases,
-      itemsDone: [], totalDone: 0, recuperado: null, cascade: null, pendingAtrasados: [],
+      verdict: reqNota === 100 ? "clean" : "reproceso", nota: reqNota, phaseDetails: r.onTime.phases,
+      itemsDone: [], totalDone: 0, recuperado: null, cascade: null, pendingAtrasados: [], fueraDeCpm: [],
     });
   }
   for (const u of calidadUnits(projs)) {
     const pm = bpm.get(u.boardId) ?? u.pm;
     const { code: projCode, name: projName } = splitBoardName(u.boardName);
-    const clean = u.entrega === "on-time" || lateExcused(u.id, reproceso);
+    const nota = calcItemNota(u.id, u.recuperado, reproceso);
     rows.push({
       id: u.id, source: "Proyecto", unitKind: u.kind, tipo: "PM", name: u.name,
       context: `${u.boardName} · ${u.grupo}`, projCode, projName, fase: u.grupo, pm, status: u.status, deadline: u.deadline,
       startDate: u.startDate, actualEnd: u.actualEnd,
-      verdict: clean ? "clean" : "reproceso",
+      verdict: nota === 100 ? "clean" : "reproceso", nota,
       itemsDone: u.cascade?.hitos.filter((h) => h.entrega != null) ?? [],
       totalDone: u.cascade?.hitos.filter((h) => h.entrega != null).length ?? 0,
-      recuperado: u.recuperado, cascade: u.cascade, pendingAtrasados: u.pendingAtrasados,
+      recuperado: u.recuperado, cascade: u.cascade, pendingAtrasados: u.pendingAtrasados, fueraDeCpm: u.fueraDeCpm,
     });
   }
   return rows;

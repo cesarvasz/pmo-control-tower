@@ -13,6 +13,7 @@ import {
   calcReprocesoCascade,
   calidadUnits,
   calcItemCalidad,
+  calcItemNota,
   calidadProjectStatus,
   buildEntregaRows,
   buildLateResponsibleRows,
@@ -314,13 +315,16 @@ describe("calcEntregaStatsRaw (tarjeta principal: todas las fases con atraso, si
   });
 });
 
-describe("calcReprocesoPct (5º componente del KPI)", () => {
+describe("calcReprocesoPct (5º componente del KPI: nota 0/50/100 por item de Proyecto)", () => {
   const cerrado = (id: string) => req({ id, pm: "Luis", estado: "CERRADO" });
+  const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
   // Grupo por defecto "Launch" = Fase 3 (única fase que mide Calidad/Reproceso, ver isFase3).
-  const step = (id: string, entrega: "on-time" | "late" | null, grupo = "Launch") => proj({ id, grupo, status: "Done", entrega });
+  // Done, CON ventana CPM propia y SIN subitems → recuperado: true trivialmente (nada
+  // puede quedar "fuera" sin hitos) — aísla el componente "responsable" en los tests.
+  const step = (id: string, grupo = "Launch") => proj({ id, grupo, status: "Done", startDate: CPM_INI, deadline: CPM_FIN });
 
-  it("null si no hay unidades en scope (sin REQ cerrados ni steps Done)", () => {
-    expect(calcReprocesoPct([req({ id: "1", estado: "EN PROCESO" })], [proj({ id: "p1", status: "Working on it", entrega: null })], {})).toBeNull();
+  it("null si no hay unidades en scope (sin REQ cerrados ni items Done/con señal)", () => {
+    expect(calcReprocesoPct([req({ id: "1", estado: "EN PROCESO" })], [proj({ id: "p1", status: "Working on it" })], {})).toBeNull();
   });
 
   it("sin asignar penaliza (REQ): 2 cerrados sin responsable → 0% limpio", () => {
@@ -337,57 +341,57 @@ describe("calcReprocesoPct (5º componente del KPI)", () => {
     expect(calcReprocesoPct(reqs, [], { "1": { responsible: "PM" }, "2": { responsible: "Sponsor" } })).toBe(25);
   });
 
-  it("step de Proyecto entregado a tiempo (CPM) limpia AUTOMÁTICO, sin necesidad de atribución", () => {
-    expect(calcReprocesoPct([], [step("p1", "on-time")], {})).toBe(100);
+  it("un item recuperado (ventana CPM propia, sin hitos fuera) pero SIN responsable asignado se queda en 50 — ya no hay bypass automático por CPM", () => {
+    expect(calcReprocesoPct([], [step("p1")], {})).toBe(50);
   });
 
-  it("step de Proyecto atrasado penaliza por defecto (sin atribución)", () => {
-    expect(calcReprocesoPct([], [step("p1", "late")], {})).toBe(0);
+  it("excusando el responsable (≠ PM) un item recuperado llega a 100; \"PM\" no excusa, se queda en 50", () => {
+    expect(calcReprocesoPct([], [step("p1")], { p1: { responsible: "Sin reproceso" } })).toBe(100);
+    expect(calcReprocesoPct([], [step("p1")], { p1: { responsible: "PM" } })).toBe(50);
   });
 
-  it("step atrasado se excusa igual que REQ: responsable ≠ PM limpia, \"PM\" sigue penalizando", () => {
-    expect(calcReprocesoPct([], [step("p1", "late")], { p1: { responsible: "Sin reproceso" } })).toBe(100);
-    expect(calcReprocesoPct([], [step("p1", "late")], { p1: { responsible: "PM" } })).toBe(0);
+  it("sin ventana CPM propia (falta startDate/deadline) no se puede verificar \"recuperado\" → pierde ese 50% aunque el responsable esté excusado", () => {
+    const sinVentana = proj({ id: "p1", grupo: "Launch", status: "Done" });
+    expect(calcReprocesoPct([], [sinVentana], { p1: { responsible: "Sin reproceso" } })).toBe(50);
   });
 
-  it("step Done sin fechas para verificar (entrega null) penaliza por defecto, igual que REQ", () => {
-    expect(calcReprocesoPct([], [step("p1", null)], {})).toBe(0);
+  it("un hito fuera de la ventana CPM del item quita el 50% de \"recuperado\", aunque el responsable esté excusado", () => {
+    const hitoFuera = sub({ id: "h1", name: "h1", deadline: new Date(2026, 1, 5) }); // después de CPM_FIN
+    const p = proj({ id: "p1", grupo: "Launch", status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hitoFuera] });
+    expect(calcReprocesoPct([], [p], { p1: { responsible: "Sin reproceso" } })).toBe(50);
   });
 
-  it("combina REQ cerrados + steps de Proyecto Done (medición progresiva: los no-Done no entran)", () => {
+  it("combina REQ cerrados + items de Proyecto (medición progresiva: sin señal aún no entran)", () => {
     const reqs = [cerrado("r1")];
     const projs = [
-      step("p1", "on-time"),                                       // Done, limpio automático
-      proj({ id: "p2", status: "Working on it", entrega: null }),   // incompleto, no entra
+      step("p1"),                                    // Done, recuperado, sin responsable → nota 50
+      proj({ id: "p2", status: "Working on it" }),    // sin hitos Done ni pendientes vencidos → no entra
     ];
-    // r1 sin atribución → con reproceso; p1 on-time → limpio. 1 de 2 = 50%.
-    expect(calcReprocesoPct(reqs, projs, {})).toBe(50);
+    // r1 sin atribución → nota 0; p1 → nota 50. Promedio (0+50)/2 = 25.
+    expect(calcReprocesoPct(reqs, projs, {})).toBe(25);
   });
 
-  it("cada step es su propia unidad, no toda la fase junta", () => {
-    const projs = [
-      step("p1", "on-time"),  // fase Launch, limpio
-      step("p2", "late"),     // fase Launch, con reproceso — mismo grupo que p1, veredicto independiente
-      step("p3", "on-time"),  // fase Launch, limpio
-    ];
-    // 2 de 3 limpios = 67%.
-    expect(calcReprocesoPct([], projs, {})).toBe(67);
+  it("cada item es su propia unidad, no toda la fase junta", () => {
+    const projs = [step("p1"), step("p2"), step("p3")];
+    const reproceso: DelayMap = { p1: { responsible: "Sin reproceso" }, p3: { responsible: "Sin reproceso" } };
+    // p1/p3 excusados y recuperados → 100 c/u; p2 sin excusar → 50. Promedio (100+100+50)/3 ≈ 83.
+    expect(calcReprocesoPct([], projs, reproceso)).toBe(83);
   });
 
-  it("SOLO Fase 3 (Launch) mide Calidad/Reproceso: un step de otra fase no cuenta, aunque esté Done y atrasado", () => {
+  it("SOLO Fase 3 (Launch) mide Calidad/Reproceso: un item de otra fase no cuenta, aunque esté Done", () => {
     const projs = [
-      step("p1", "late"),                                          // Fase 3, cuenta
-      step("p2", "late", "Valuación | Formulación del proyecto"),  // otra fase, no cuenta
-      step("p3", "late", "Revisión | Cierre ROI"),                 // otra fase, no cuenta
+      step("p1"),                                                                                   // Fase 3, cuenta
+      proj({ id: "p2", grupo: "Valuación | Formulación del proyecto", status: "Done", startDate: CPM_INI, deadline: CPM_FIN }), // otra fase, no cuenta
+      proj({ id: "p3", grupo: "Revisión | Cierre ROI", status: "Done", startDate: CPM_INI, deadline: CPM_FIN }),                // otra fase, no cuenta
     ];
-    // Si contaran las 3, serían 0 de 3 = 0%; al filtrar solo Fase 3 debería ser también
-    // 0% pero con total=1 (no 3) — lo confirmamos vía calcReprocesoStats.
-    expect(calcReprocesoStats([], projs, {})).toMatchObject({ total: 1, conReproceso: 1, pct: 0 });
+    // Si contaran las 3 (sin responsable asignado a ninguna) el promedio sería igual (50),
+    // pero el total debe ser 1 (no 3) — lo confirmamos vía calcReprocesoStats.
+    expect(calcReprocesoStats([], projs, {})).toMatchObject({ total: 1, pct: 50 });
   });
 
   it("Fase 3 con plantilla vieja (\"Launch | Desarrollo\") también cuenta — se detecta por prefijo, no por nombre exacto", () => {
-    const projs = [step("p1", "on-time", "Launch | Desarrollo")];
-    expect(calcReprocesoPct([], projs, {})).toBe(100);
+    const projs = [step("p1", "Launch | Desarrollo")];
+    expect(calcReprocesoPct([], projs, { p1: { responsible: "Sin reproceso" } })).toBe(100);
   });
 });
 
@@ -461,20 +465,22 @@ describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la 
 });
 
 describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
-  it("incluye REQ CERRADOS y steps Done (cada uno su propia fila), con verdict clean/reproceso según entrega + DelayMap", () => {
+  const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
+
+  it("incluye REQ CERRADOS y items Done (cada uno su propia fila), con nota/verdict según responsable + recuperado", () => {
     const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO", onTime: onTime("on-time") })];
     const projs = [
-      proj({ id: "p1", name: "Step A", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", entrega: "on-time" }),
-      proj({ id: "p2", name: "Step B", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", entrega: "late" }),
+      proj({ id: "p1", name: "Step A", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", startDate: CPM_INI, deadline: CPM_FIN }),
+      proj({ id: "p2", name: "Step B", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }), // sin ventana CPM propia
     ];
-    const rows = buildReprocesoRows(reqs, projs, [board({ id: "b1", pm: "Luis" })], { r1: { responsible: "VPA" } });
+    const rows = buildReprocesoRows(reqs, projs, [board({ id: "b1", pm: "Luis" })], { r1: { responsible: "VPA" }, p1: { responsible: "Sin reproceso" } });
     expect(rows).toHaveLength(3);
     const req1 = rows.find((r) => r.id === "r1")!;
     const stepA = rows.find((r) => r.id === "p1")!;
     const stepB = rows.find((r) => r.id === "p2")!;
-    expect(req1.verdict).toBe("clean");       // excusado (VPA)
-    expect(stepA.verdict).toBe("clean");      // entregado a tiempo (CPM) → automático
-    expect(stepB.verdict).toBe("reproceso");  // atrasado, sin excusa → penaliza
+    expect(req1.verdict).toBe("clean"); expect(req1.nota).toBe(100);         // excusado (VPA)
+    expect(stepA.verdict).toBe("clean"); expect(stepA.nota).toBe(100);       // excusado + recuperado (ventana CPM propia, sin hitos)
+    expect(stepB.verdict).toBe("reproceso"); expect(stepB.nota).toBe(0);     // sin excusar y sin ventana CPM → no recuperado
     expect(stepA.pm).toBe("Luis");            // PM del board, no del item
     expect(stepA.name).toBe("Step A");        // el entregable, no "<proyecto> · <fase>"
     expect(stepA.fase).toBe("Launch");
@@ -482,13 +488,15 @@ describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
     expect(stepA.unitKind).toBe("step");      // plantilla nueva: no hay "Desarrollo por iteraciones..." en la fase
   });
 
-  it("un step atrasado excusado (responsable ≠ PM) queda clean", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", entrega: "late" })];
-    const rows = buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], { p1: { responsible: "Sin reproceso" } });
-    expect(rows[0].verdict).toBe("clean");
+  it("un item recuperado pero sin excusar queda en nota 50 (reproceso); excusando el responsable llega a 100 (clean)", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", startDate: CPM_INI, deadline: CPM_FIN })];
+    const sinExcusar = buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], {});
+    expect(sinExcusar[0]).toMatchObject({ nota: 50, verdict: "reproceso" });
+    const excusado = buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], { p1: { responsible: "Sin reproceso" } });
+    expect(excusado[0]).toMatchObject({ nota: 100, verdict: "clean" });
   });
 
-  it("un step no-Done no genera fila (medición progresiva por step, no por fase)", () => {
+  it("un item sin ninguna señal (no Done, sin hitos Done ni pendientes vencidos) no genera fila", () => {
     const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Working on it" })];
     expect(buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], {})).toEqual([]);
   });
@@ -529,86 +537,133 @@ describe("calcItemCalidad (veredicto progresivo de un item — no exige que est�
     d.setDate(d.getDate() + n);
     return d;
   };
-  const hito = (id: string, entrega: "on-time" | "late" | null, status = "Done", deadline: Date | null = null) =>
-    sub({ id, name: id, deadline, entrega, status });
+  const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
+  const hito = (id: string, deadline: Date | null, status = "Done") => sub({ id, name: id, deadline, status, entrega: null });
 
-  it("Done: entrega = su propio CPM; recuperado = diagnóstico existente de calcReprocesoCascade", () => {
-    const p = proj({ status: "Done", entrega: "late", subitems: [hito("h1", "late")] });
-    expect(calcItemCalidad(p)).toMatchObject({ entrega: "late", recuperado: false, qualifies: true });
+  it("con ventana CPM propia y todos los hitos dentro → recuperado: true", () => {
+    const p = proj({ status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", new Date(2026, 0, 15))] });
+    expect(calcItemCalidad(p)).toMatchObject({ recuperado: true, qualifies: true, fueraDeCpm: [] });
   });
 
-  it("no Done, sin hitos Done y sin pendientes vencidos → qualifies: false (nada que evaluar todavía)", () => {
+  it("un hito con Limit Date DESPUÉS del fin del CPM del item → no se recuperó, sin importar si ya cerró o sigue pendiente", () => {
+    const cerrado = proj({ status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", new Date(2026, 1, 5))] });
+    const abierto = proj({ status: "Working on it", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", new Date(2026, 1, 5), "Working on it")] });
+    expect(calcItemCalidad(cerrado).recuperado).toBe(false);
+    expect(calcItemCalidad(abierto).recuperado).toBe(false);
+    expect(calcItemCalidad(cerrado).fueraDeCpm.map((h) => h.id)).toEqual(["h1"]);
+  });
+
+  it("un hito con Limit Date ANTES del inicio del CPM del item NO cuenta como fuera — solo se verifica el fin", () => {
+    // "Start Date" no es un arranque fijo del compromiso: se corre hacia adelante
+    // conforme avanza el trabajo (confirmado con datos reales de Monday, a veces
+    // incluso queda DESPUÉS del fin del CPM) — compararlo producía falsos positivos
+    // con hitos que sí estaban dentro del CPM real. Por eso solo se verifica el fin.
+    const p = proj({ status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", new Date(2025, 11, 20))] });
+    expect(calcItemCalidad(p)).toMatchObject({ recuperado: true, fueraDeCpm: [] });
+  });
+
+  it("sin \"Start Date\" propio (falta o no aplica) el item igual puede recuperarse — ya no se requiere para el chequeo", () => {
+    const p = proj({ status: "Done", deadline: CPM_FIN, subitems: [hito("h1", new Date(2026, 0, 15))] });
+    expect(calcItemCalidad(p).recuperado).toBe(true);
+  });
+
+  it("sin \"deadline\" propio (fin del CPM) no se puede verificar → recuperado: false, conservador", () => {
+    expect(calcItemCalidad(proj({ status: "Done", startDate: CPM_INI })).recuperado).toBe(false);
+  });
+
+  it("un hito sin Limit Date no puede evaluarse como fuera de la ventana — no penaliza recuperado", () => {
+    const p = proj({ status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", null)] });
+    expect(calcItemCalidad(p)).toMatchObject({ recuperado: true, fueraDeCpm: [] });
+  });
+
+  it("item sin subitems: recuperado es trivialmente true si tiene su propia ventana CPM (nada puede quedar fuera)", () => {
+    expect(calcItemCalidad(proj({ status: "Done", startDate: CPM_INI, deadline: CPM_FIN })).recuperado).toBe(true);
+  });
+
+  it("qualifies: no Done, sin hitos Done y sin pendientes vencidos → false (nada que evaluar todavía)", () => {
     expect(calcItemCalidad(proj({ status: "Working on it", subitems: [] })).qualifies).toBe(false);
     const conFuturos = proj({ status: "Working on it", subitems: [hito("h1", null, "Future Steps")] });
     expect(calcItemCalidad(conFuturos).qualifies).toBe(false); // sin fecha → no cuenta como vencido
   });
 
-  it("no Done, con un hito pendiente YA vencido → \"atrasado\" de inmediato, sin esperar a que cierre", () => {
-    const p = proj({ status: "Working on it", subitems: [hito("h1", null, "Working on it", daysFromToday(-1))] });
+  it("qualifies: no Done, con un hito pendiente YA vencido → true de inmediato, sin esperar a que cierre", () => {
+    const p = proj({ status: "Working on it", subitems: [hito("h1", daysFromToday(-1), "Working on it")] });
     const c = calcItemCalidad(p);
-    expect(c).toMatchObject({ entrega: "late", recuperado: null, qualifies: true });
+    expect(c.qualifies).toBe(true);
     expect(c.pendingAtrasados.map((x) => x.id)).toEqual(["h1"]);
   });
 
-  it("no Done, un hito Done llegó tarde pero nada pendiente está vencido → \"se recuperó\" antes de cerrar", () => {
-    const p = proj({ status: "Working on it", subitems: [hito("h1", "late"), hito("h2", null, "Working on it", daysFromToday(5))] });
-    expect(calcItemCalidad(p)).toMatchObject({ entrega: "on-time", recuperado: true, qualifies: true });
+  it("qualifies: no Done, con al menos un hito Done → true", () => {
+    expect(calcItemCalidad(proj({ status: "Working on it", subitems: [hito("h1", null, "Done")] })).qualifies).toBe(true);
   });
+});
 
-  it("no Done, un hito Done a tiempo y nada pendiente vencido → limpio, sin nada que recuperar", () => {
-    const p = proj({ status: "Working on it", subitems: [hito("h1", "on-time")] });
-    expect(calcItemCalidad(p)).toMatchObject({ entrega: "on-time", recuperado: null, qualifies: true });
+describe("calcItemNota (nota 0/50/100: responsable + recuperado)", () => {
+  const reproceso: DelayMap = { excusado: { responsible: "Sin reproceso" }, pm: { responsible: "PM" } };
+
+  it("excusado + recuperado -> 100", () => {
+    expect(calcItemNota("excusado", true, reproceso)).toBe(100);
+  });
+  it("excusado + no recuperado -> 50", () => {
+    expect(calcItemNota("excusado", false, reproceso)).toBe(50);
+  });
+  it("no excusado + recuperado -> 50", () => {
+    expect(calcItemNota("pm", true, reproceso)).toBe(50);
+  });
+  it("sin asignar + no recuperado -> 0", () => {
+    expect(calcItemNota("sin-asignar", false, reproceso)).toBe(0);
   });
 });
 
 describe("calidadUnits (unidad = ITEM, no hito; ver calcItemCalidad para el veredicto)", () => {
-  const hito = (id: string, entrega: "on-time" | "late" | null, status = "Done") => sub({ id, name: id, deadline: null, entrega, status });
+  const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
+  const hito = (id: string, deadline: Date | null = null, status = "Done") => sub({ id, name: id, deadline, status, entrega: null });
 
   it("si existe \"Desarrollo por iteraciones...\" en la fase, la unidad es ESE STEP — los demás steps no aportan nada", () => {
     const projs = [
-      proj({ id: "analisis", name: "Analisis técnico / Fechas estimadas de desarrollo (Costo DEV)", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done", entrega: "late" }),
-      proj({ id: "vg", name: "Value Gate (BC) Firmado y aprobado", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done", entrega: "late" }),
-      proj({ id: "desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done", entrega: "on-time",
-        subitems: [hito("h1", "on-time"), hito("h2", "late")] }),
+      proj({ id: "analisis", name: "Analisis técnico / Fechas estimadas de desarrollo (Costo DEV)", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done" }),
+      proj({ id: "vg", name: "Value Gate (BC) Firmado y aprobado", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done" }),
+      proj({ id: "desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch | Desarrollo", status: "Done",
+        subitems: [hito("h1"), hito("h2")] }),
     ];
     const units = calidadUnits(projs);
-    // ni "analisis" ni "vg" aportan unidad, aunque estén Done y atrasados
+    // ni "analisis" ni "vg" aportan unidad, aunque estén Done
     expect(units.map((u) => u.id)).toEqual(["desarrollo"]);
     expect(units[0].kind).toBe("step");
   });
 
-  it("recuperado del step \"Desarrollo por iteraciones...\" viene de sus propios hitos (variante plural \"Entregas CKU\" también matchea)", () => {
+  it("recuperado del step \"Desarrollo por iteraciones...\" viene de su propia ventana CPM (variante plural \"Entregas CKU\" también matchea)", () => {
     const recuperado = proj({ id: "d1", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch",
-      status: "Done", entrega: "on-time", subitems: [hito("h1", "late")] });
+      status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", CPM_INI)] });
     const noRecuperado = proj({ id: "d2", name: "Desarrollo por iteraciones (Hitos) / Entregas CKU", boardId: "b2", grupo: "Launch",
-      status: "Done", entrega: "late", subitems: [hito("h1", "late")] });
+      status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", new Date(2026, 1, 5))] });
     expect(calidadUnits([recuperado])[0]).toMatchObject({ id: "d1", recuperado: true });
     expect(calidadUnits([noRecuperado])[0]).toMatchObject({ id: "d2", recuperado: false });
   });
 
   it("plantilla nueva, item sin subitems: solo genera unidad si está Done (fallback, caso raro)", () => {
     const abierto = proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch | Lanzamiento", status: "Working on it" });
-    const cerrado = proj({ id: "xd", name: "xDocking", boardId: "b2", grupo: "Launch | Lanzamiento", status: "Done", entrega: "on-time" });
+    const cerrado = proj({ id: "xd", name: "xDocking", boardId: "b2", grupo: "Launch | Lanzamiento", status: "Done" });
     expect(calidadUnits([abierto])).toEqual([]);
     expect(calidadUnits([cerrado])).toEqual([expect.objectContaining({ id: "xd", kind: "step" })]);
   });
 
   it("plantilla nueva: cada step de la fase mide por SUS PROPIOS hitos — progresivo, no espera a que cierre, independiente de los demás steps", () => {
     const projs = [
-      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it", subitems: [hito("h1", "on-time")] }),
-      proj({ id: "xd", name: "xDocking", boardId: "b1", grupo: "Launch", status: "Working on it", subitems: [hito("h2", "late")] }),
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", CPM_INI)] }),
+      proj({ id: "xd", name: "xDocking", boardId: "b1", grupo: "Launch", status: "Working on it", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h2", new Date(2026, 1, 5))] }),
     ];
     const units = calidadUnits(projs);
     expect(units.map((u) => u.id).sort()).toEqual(["poc", "xd"]);
-    expect(units.find((u) => u.id === "poc")).toMatchObject({ recuperado: null });
-    expect(units.find((u) => u.id === "xd")).toMatchObject({ recuperado: true }); // h2 llegó tarde, pero nada de xd está vencido pendiente
+    expect(units.find((u) => u.id === "poc")).toMatchObject({ recuperado: true });
+    expect(units.find((u) => u.id === "xd")).toMatchObject({ recuperado: false }); // h2 quedó fuera de la ventana CPM de xd
   });
 
   it("agrupa por proyecto (board+fase): dos boards distintos no se mezclan aunque compartan nombre de fase", () => {
     const projs = [
       proj({ id: "d1", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch",
-        status: "Done", entrega: "on-time", subitems: [hito("h1", "on-time")] }),
-      proj({ id: "poc2", name: "POC", boardId: "b2", grupo: "Launch", status: "Done", entrega: "late" }),
+        status: "Done", subitems: [hito("h1")] }),
+      proj({ id: "poc2", name: "POC", boardId: "b2", grupo: "Launch", status: "Done" }),
     ];
     const units = calidadUnits(projs);
     expect(units.map((u) => u.id).sort()).toEqual(["d1", "poc2"]);
@@ -693,6 +748,52 @@ describe("calidadProjectStatus (trayectoria de Calidad por proyecto: Done + pend
     expect(status.pendingTotal).toBe(2);
     expect(status.pendingAtrasados.map((p) => p.id)).toEqual(["h2"]);
     expect(status.trayectoria).toBe("atrasado");
+  });
+
+  // Caso real que expuso la inconsistencia (PM-007 VOLT): un hito reprogramado más
+  // allá del CPM de su item, pero con Limit Date TODAVÍA en el futuro (no vencido
+  // hoy) — antes esto no afectaba la trayectoria (solo miraba "vencido hoy") y el
+  // header mostraba "↩ PM recuperado" mientras la nota del item ya marcaba
+  // recuperado=false. Ahora usa la MISMA señal (hitosFueraDeCpm) que la nota.
+  it("un Done llegó tarde en el pasado, nada vencido hoy, pero un hito quedó fuera del CPM del item → sigue atrasado, NO recuperado", () => {
+    const projs = [
+      proj({ id: "desarrollo", name: "Desarrollo por iteraciones", boardId: "b1", grupo: "Launch", status: "Working on it",
+        deadline: daysFromToday(-5), // fin del CPM del item ya pasó
+        subitems: [
+          hito("h1", { status: "Done", entrega: "late", deadline: daysFromToday(-40) }),
+          hito("h2", { deadline: daysFromToday(20) }), // futuro (no vencido hoy) pero después del fin del CPM
+        ] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status.pendingAtrasados).toEqual([]); // nada vencido hoy
+    expect(status.fueraDeCpm.map((p) => p.id)).toEqual(["h2"]);
+    expect(status.trayectoria).toBe("atrasado");
+  });
+
+  it("un hito fuera del CPM de su item, sin historial de atrasos Done → también atrasado (no 'sin-atrasos')", () => {
+    const projs = [
+      proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch", status: "Working on it",
+        deadline: daysFromToday(-1),
+        subitems: [hito("h1", { deadline: daysFromToday(15) })] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status.doneLate).toBe(0);
+    expect(status.fueraDeCpm.map((p) => p.id)).toEqual(["h1"]);
+    expect(status.trayectoria).toBe("atrasado");
+  });
+
+  it("recuperado de verdad: hubo un Done atrasado, nada vencido hoy, y ningún hito quedó fuera del CPM del item", () => {
+    const projs = [
+      proj({ id: "desarrollo", name: "Desarrollo por iteraciones", boardId: "b1", grupo: "Launch", status: "Working on it",
+        deadline: daysFromToday(30),
+        subitems: [
+          hito("h1", { status: "Done", entrega: "late", deadline: daysFromToday(-40) }),
+          hito("h2", { deadline: daysFromToday(20) }), // futuro, dentro del CPM del item
+        ] }),
+    ];
+    const [status] = calidadProjectStatus(projs);
+    expect(status.fueraDeCpm).toEqual([]);
+    expect(status.trayectoria).toBe("recuperado");
   });
 });
 

@@ -557,7 +557,11 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
                               {r.unitKind === "step" ? r.totalDone : <span className="text-[var(--text-disabled)]">—</span>}
                             </td>
                             <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                            <td>{r.verdict === "reproceso" ? <Pill tone="bad">✕ Con reproceso</Pill> : <Pill tone="ok">✓ Limpia</Pill>}</td>
+                            <td>
+                              {r.nota === 100 ? <Pill tone="ok">✓ {r.nota}%</Pill>
+                                : r.nota === 0 ? <Pill tone="bad">✕ {r.nota}%</Pill>
+                                : <Pill tone="warn">⚠ {r.nota}%</Pill>}
+                            </td>
                             <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
                           </tr>
                           {abierta && (
@@ -567,7 +571,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
                                 {r.source === "REQ" && r.phaseDetails ? (
                                   <ReqPhaseAccordion phases={r.phaseDetails} />
                                 ) : r.cascade ? (
-                                  <ReprocesoHitosAccordion cascade={r.cascade} recuperado={r.recuperado} pendingAtrasados={r.pendingAtrasados} />
+                                  <ReprocesoHitosAccordion cascade={r.cascade} recuperado={r.recuperado} pendingAtrasados={r.pendingAtrasados} fueraDeCpm={r.fueraDeCpm} />
                                 ) : null}
                               </td>
                             </tr>
@@ -590,62 +594,80 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
 // cerrado (Done) con lo que sigue pendiente (Working on it / Future Steps), ver
 // calidadProjectStatus en lib/dashboard. "sin-atrasos" no se muestra (nada que
 // señalar); "atrasado" pesa más que "recuperado" aunque hubo un historial limpio.
+// "atrasado" combina DOS motivos (misma fuente que la nota del item): un pendiente
+// ya vencido HOY, y/o un hito reprogramado fuera del CPM de su item — un mismo hito
+// puede tener ambos motivos, se deduplica por id para no contarlo dos veces.
 function TrayectoriaBadge({ status }: { status: CalidadProjectStatus }) {
   if (status.trayectoria === "sin-atrasos") return null;
   if (status.trayectoria === "atrasado") {
-    const n = status.pendingAtrasados.length;
-    const detalle = status.pendingAtrasados
-      .map((p) => (p.stepName ? `${p.name} (${p.stepName})` : p.name))
+    const motivos = new Map<string, { name: string; stepName: string; reasons: string[] }>();
+    for (const p of status.pendingAtrasados) {
+      const e = motivos.get(p.id) ?? { name: p.name, stepName: p.stepName, reasons: [] };
+      e.reasons.push("vencido hoy");
+      motivos.set(p.id, e);
+    }
+    for (const p of status.fueraDeCpm) {
+      const e = motivos.get(p.id) ?? { name: p.name, stepName: p.stepName, reasons: [] };
+      e.reasons.push("fuera del CPM de su item");
+      motivos.set(p.id, e);
+    }
+    const n = motivos.size;
+    const detalle = [...motivos.values()]
+      .map((e) => `${e.stepName ? `${e.name} (${e.stepName})` : e.name} — ${e.reasons.join(" + ")}`)
       .join("\n");
     return (
-      <Pill tone="bad" small title={`Aún no se recupera — pendiente sin cerrar, ya fuera de su CPM:\n${detalle}`}>
-        ⚠ {n} pendiente{n === 1 ? "" : "s"} vencido{n === 1 ? "" : "s"}
+      <Pill tone="bad" small title={`Aún no se recupera:\n${detalle}`}>
+        ⚠ {n} sin recuperar
       </Pill>
     );
   }
   return (
-    <Pill tone="ok" small title="Tuvo atrasos en Fase 3, pero todo lo que sigue pendiente hoy está dentro de su CPM.">
+    <Pill tone="ok" small title="Tuvo atrasos en Fase 3, pero hoy no hay nada vencido ni ningún hito quedó fuera del CPM de su item.">
       ↩ PM recuperado
     </Pill>
   );
 }
 
-// Detalle de hitos del ITEM + diagnóstico de recuperación: si algún hito se
-// atrasó, ¿el item se puso al día dentro de su propio CPM (PM se recuperó) o el
-// atraso le costó el cumplimiento del entregable (no se recuperó)? `recuperado`
-// llega ya resuelto por el llamador (calcItemCalidad) — progresivo si el item
-// sigue abierto, no el diagnóstico "solo Done" de cascade.recuperado.
-function ReprocesoHitosAccordion({ cascade, recuperado, pendingAtrasados }: { cascade: ReprocesoCascade; recuperado: boolean | null; pendingAtrasados: PendingCalidadItem[] }) {
-  const { hitos, primerAtrasoIdx } = cascade;
-  const resumen = primerAtrasoIdx === null
-    ? null
-    : recuperado
-    ? `↩ PM se recuperó: hubo atraso en "${hitos[primerAtrasoIdx].name}", pero el item se puso al día dentro de su CPM.`
-    : `🔁 No se recuperó: el atraso en "${hitos[primerAtrasoIdx].name}" hizo que el item saliera fuera de su CPM.`;
+// Detalle de hitos del ITEM + diagnóstico de recuperación: "recuperado" YA NO
+// depende de si un hito se completó tarde — compara el Limit Date de cada hito
+// contra el FIN del CPM del item (deadline, ver hitosFueraDeCpm en lib/dashboard).
+// Solo se verifica el fin, no el inicio (ver el comentario de hitosFueraDeCpm: la
+// columna "Start Date" no es un arranque fijo, se corre conforme avanza el
+// trabajo — usarla producía falsos positivos). La tabla de hitos abajo sigue
+// mostrando su entrega histórica (informativo); lo que resalta y arma el resumen
+// es `fueraDeCpm`.
+function ReprocesoHitosAccordion({ cascade, recuperado, pendingAtrasados, fueraDeCpm }: { cascade: ReprocesoCascade; recuperado: boolean | null; pendingAtrasados: PendingCalidadItem[]; fueraDeCpm: PendingCalidadItem[] }) {
+  const { hitos } = cascade;
+  const fueraDeCpmIds = new Set(fueraDeCpm.map((h) => h.id));
+  const resumen = recuperado
+    ? "↩ Recuperado: ningún hito tiene Limit Date después del fin del CPM del item."
+    : fueraDeCpm.length > 0
+      ? `🔁 No se recuperó: ${fueraDeCpm.map((h) => `"${h.name}"`).join(", ")} qued${fueraDeCpm.length > 1 ? "aron" : "ó"} con Limit Date después del fin del CPM del item.`
+      : "🔁 No se recuperó: falta el fin del CPM propio del item para poder verificarlo.";
   return (
     <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
-      {resumen && (
-        <div
-          className="px-3 py-1.5 text-[0.76rem] font-semibold"
-          style={{ background: "var(--bg-hover)", color: recuperado === true ? "var(--ok)" : recuperado === false ? "var(--bad)" : "var(--text-secondary)" }}
-        >
-          {resumen}
-        </div>
-      )}
+      <div
+        className="px-3 py-1.5 text-[0.76rem] font-semibold"
+        style={{ background: "var(--bg-hover)", color: recuperado ? "var(--ok)" : "var(--bad)" }}
+      >
+        {resumen}
+      </div>
       <table className="w-full text-left text-[0.76rem]">
         <thead>
           <tr style={{ background: "var(--bg-hover)" }}>
             <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Hito</th>
+            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Status</th>
             <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline</th>
             <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Entrega</th>
           </tr>
         </thead>
         <tbody>
           {hitos.length === 0 ? (
-            <tr><td colSpan={3} className="px-3 py-1.5 text-[var(--text-disabled)]">Sin hitos en este item.</td></tr>
-          ) : hitos.map((h, i) => (
-            <tr key={h.id} className="border-t" style={{ borderColor: "var(--border)", background: i === primerAtrasoIdx ? "var(--bad-bg)" : undefined }}>
+            <tr><td colSpan={4} className="px-3 py-1.5 text-[var(--text-disabled)]">Sin hitos en este item.</td></tr>
+          ) : hitos.map((h) => (
+            <tr key={h.id} className="border-t" style={{ borderColor: "var(--border)", background: fueraDeCpmIds.has(h.id) ? "var(--bad-bg)" : undefined }}>
               <td className="px-3 py-1.5 text-[var(--text-primary)]">{h.name}</td>
+              <td className="px-3 py-1.5 text-[var(--text-secondary)]">{h.status || <span className="text-[var(--text-disabled)]">—</span>}</td>
               <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(h.deadline)}</td>
               <td className="px-3 py-1.5">
                 {h.entrega === "late" ? <Pill tone="bad" small>✕ Atraso</Pill>
