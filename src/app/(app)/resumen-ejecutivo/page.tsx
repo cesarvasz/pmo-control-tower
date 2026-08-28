@@ -24,7 +24,6 @@ import {
 } from "@/lib/portfolioSummary";
 import { HEALTH_CFG } from "@/lib/health";
 import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
-import ResponsibleSelect from "@/components/ResponsibleSelect";
 import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 const fmtDays = (n: number) => `${n} día${Math.abs(n) === 1 ? "" : "s"}`;
@@ -520,6 +519,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             rows={overdue.map(({ u, daysLate }) => ({
               id: u.id, name: u.name, grupo: u.grupo,
               dateLabel: fmtDate(u.deadline),
+              responsible: u.responsible,
               tag: `${fmtDays(daysLate)} de atraso`,
               tone: "bad" as const,
             }))}
@@ -542,13 +542,11 @@ interface PhaseTimelineRow {
   hasDates: boolean;
   barStart: number | null; barEnd: number | null;
   overdueEnd: number | null; // fin del segmento de atraso (hasta hoy), si aplica
-  milestones: { id: string; name: string; date: Date; isDone: boolean; isLate: boolean }[];
+  milestones: { id: string; name: string; date: Date; isDone: boolean; isLate: boolean; responsible: string }[];
 }
 
 function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummary[]; units: WorkUnit[]; estimatedFinish: Date | null }) {
   const [nowMs] = useState(() => Date.now()); // "hoy" fijado al montar (evita impureza en render)
-  const { data } = useData();
-  const delayAttributions = data?.delayAttributions;
 
   const domain = useMemo(() => {
     const dates: number[] = [nowMs];
@@ -580,7 +578,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
       if (!d) return;
       if (u.deadline) barDates.push(u.deadline.getTime());
       if (u.actualEnd) barDates.push(u.actualEnd.getTime());
-      milestones.push({ id: u.id, name: u.name, date: d, isDone: u.status === "Done", isLate: u.status !== "Done" && u.estado === "ATRASADO" });
+      milestones.push({ id: u.id, name: u.name, date: d, isDone: u.status === "Done", isLate: u.status !== "Done" && u.estado === "ATRASADO", responsible: u.responsible });
     });
     const hasDates = barDates.length > 0;
     const barStart = hasDates ? Math.min(...barDates) : null;
@@ -656,12 +654,11 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                   {/* Hitos individuales */}
                   {r.milestones.map((m) => {
                     const color = m.isDone ? "var(--ok)" : m.isLate ? "var(--bad)" : "var(--text-muted)";
-                    const responsible = m.isLate ? (delayAttributions?.[m.id]?.responsible || "Sin asignar") : null;
                     return (
                       <div
                         key={m.id}
                         className="absolute rounded-[2px]"
-                        title={`${m.name} · ${fmtDate(m.date)} · ${m.isDone ? "Cumplido" : m.isLate ? "Atrasado" : "Pendiente"}${responsible ? ` · Responsable: ${responsible}` : ""}`}
+                        title={`${m.name} · ${fmtDate(m.date)} · ${m.isDone ? "Cumplido" : m.isLate ? "Atrasado" : "Pendiente"}${m.responsible ? ` · A cargo: ${m.responsible}` : ""}`}
                         style={{
                           left: `${pct(m.date)}%`, top: -3, width: 9, height: 9, transform: "translateX(-4.5px) rotate(45deg)",
                           background: m.isDone || m.isLate ? color : "var(--bg-surface)",
@@ -681,7 +678,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
 }
 
 // ── Lista compacta de hitos (próximos / atrasados) ──────────────────────
-interface MilestoneRow { id: string; name: string; grupo: string; dateLabel: string; tag: string; tone: "neutral" | "bad" }
+interface MilestoneRow { id: string; name: string; grupo: string; dateLabel: string; responsible?: string; tag: string; tone: "neutral" | "bad" }
 function MilestoneList({ title, empty, rows }: { title: string; empty: string; rows: MilestoneRow[] }) {
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
@@ -694,17 +691,17 @@ function MilestoneList({ title, empty, rows }: { title: string; empty: string; r
             <div key={r.id} className="flex items-center justify-between gap-3 border-b pb-2.5 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
               <div className="min-w-0">
                 <div className="truncate text-[0.8rem] font-medium text-[var(--text-primary)]" title={r.name}>{r.name}</div>
-                <div className="truncate text-[0.68rem] text-[var(--text-muted)]" title={r.grupo}>{r.grupo} · {r.dateLabel}</div>
+                <div className="truncate text-[0.68rem] text-[var(--text-muted)]" title={r.grupo}>
+                  {r.grupo} · {r.dateLabel}
+                  {r.responsible && <> · A cargo: <span className="text-[var(--text-secondary)]">{r.responsible}</span></>}
+                </div>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-1">
-                <span
-                  className="rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
-                  style={{ color: r.tone === "bad" ? "var(--bad)" : "var(--text-secondary)", background: r.tone === "bad" ? "var(--bad-bg)" : "var(--bg-hover)" }}
-                >
-                  {r.tag}
-                </span>
-                {r.tone === "bad" && <ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes />}
-              </div>
+              <span
+                className="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
+                style={{ color: r.tone === "bad" ? "var(--bad)" : "var(--text-secondary)", background: r.tone === "bad" ? "var(--bad-bg)" : "var(--bg-hover)" }}
+              >
+                {r.tag}
+              </span>
             </div>
           ))}
         </div>

@@ -22,6 +22,16 @@ describe("flattenBoardUnits", () => {
     expect(units.every((u) => u.grupo === "Launch | Desarrollo")).toBe(true);
   });
 
+  it("trae el responsable (dueño de la tarea) del hito/item, no una atribución de atraso", () => {
+    const items = [
+      item({ id: "i1", grupo: "Fase", responsible: "PM Item", subitems: [sub({ id: "s1", responsible: "Dev Hito" })] }),
+      item({ id: "i2", grupo: "Fase", responsible: "PM Suelto" }),
+    ];
+    const units = flattenBoardUnits(items);
+    expect(units.find((u) => u.id === "s1")?.responsible).toBe("Dev Hito");
+    expect(units.find((u) => u.id === "i2")?.responsible).toBe("PM Suelto");
+  });
+
   it("usa el item mismo cuando no tiene subitems", () => {
     const items = [item({ id: "i1", name: "Item suelto", grupo: "Valuación" })];
     const units = flattenBoardUnits(items);

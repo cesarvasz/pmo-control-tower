@@ -18,6 +18,10 @@ export interface WorkUnit {
   deadline: Date | null;
   actualEnd: Date | null; // fecha real de cierre (Actual End del hito / End Date del item)
   entrega: "on-time" | "late" | null;
+  /** Quién está a cargo de la tarea (columna "Responsible" de Monday). NO es la
+   *  atribución manual de responsable del ATRASO (delayAttributions/ResponsibleSelect,
+   *  que es para efectos de KPI) — esto es simplemente el dueño operativo del hito/step. */
+  responsible: string;
 }
 
 export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
@@ -25,10 +29,10 @@ export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
   for (const it of items) {
     if (it.subitems.length > 0) {
       for (const s of it.subitems) {
-        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, entrega: s.entrega });
+        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, entrega: s.entrega, responsible: s.responsible });
       }
     } else {
-      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, entrega: it.entrega });
+      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, entrega: it.entrega, responsible: it.responsible });
     }
   }
   return out;
