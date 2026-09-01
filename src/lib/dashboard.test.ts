@@ -500,6 +500,22 @@ describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
     const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Working on it" })];
     expect(buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], {})).toEqual([]);
   });
+
+  it("allDone: REQ siempre true (ya está CERRADO); Proyecto sigue a calcItemCalidad (habilita calificar el responsable)", () => {
+    const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO", onTime: onTime("on-time") })];
+    const projs = [
+      proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", deadline: CPM_FIN }), // sin subitems, Done → allDone true
+      proj({ id: "p2", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Working on it", deadline: CPM_FIN,
+        subitems: [
+          sub({ id: "h1", name: "h1", deadline: null, status: "Done", entrega: null }),      // qualifies (al menos un hito Done)
+          sub({ id: "h2", name: "h2", deadline: null, status: "Working on it", entrega: null }), // pero NO todos Done
+        ] }),
+    ];
+    const rows = buildReprocesoRows(reqs, projs, [board({ id: "b1", pm: "Luis" })], {});
+    expect(rows.find((r) => r.id === "r1")).toMatchObject({ allDone: true });
+    expect(rows.find((r) => r.id === "p1")).toMatchObject({ allDone: true });
+    expect(rows.find((r) => r.id === "p2")).toMatchObject({ allDone: false });
+  });
 });
 
 describe("calcReprocesoCascade (diagnóstico de recuperación: hito atrasado vs. veredicto del step)", () => {
@@ -596,6 +612,35 @@ describe("calcItemCalidad (veredicto progresivo de un item — no exige que est�
   it("qualifies: no Done, con al menos un hito Done → true", () => {
     expect(calcItemCalidad(proj({ status: "Working on it", subitems: [hito("h1", null, "Done")] })).qualifies).toBe(true);
   });
+
+  // allDone habilita la calificación del responsable (el otro 50% de la nota) en la
+  // UI — solo cuando el item ya cerró del todo, porque antes "recuperado" todavía
+  // puede cambiar (ver reprocesoResponsibleCell en calidad-cumplimiento/page.tsx).
+  describe("allDone (habilita calificar el responsable — item ya cerró del todo)", () => {
+    it("todos los hitos Done → true, sin importar el status del item padre", () => {
+      const p = proj({ status: "Working on it", deadline: CPM_FIN, subitems: [hito("h1", null, "Done"), hito("h2", null, "Done")] });
+      expect(calcItemCalidad(p).allDone).toBe(true);
+    });
+
+    it("al menos un hito NO Done (aunque esté dentro del CPM) → false", () => {
+      const p = proj({ status: "Working on it", deadline: CPM_FIN,
+        subitems: [hito("h1", null, "Done"), hito("h2", new Date(2026, 0, 20), "Working on it")] });
+      expect(calcItemCalidad(p).allDone).toBe(false);
+    });
+
+    it("sin subitems: allDone sigue el status del item mismo", () => {
+      expect(calcItemCalidad(proj({ status: "Done" })).allDone).toBe(true);
+      expect(calcItemCalidad(proj({ status: "Working on it" })).allDone).toBe(false);
+    });
+
+    it("un hito ya fuera de CPM pero aún no Done → allDone false (aunque recuperado ya sea false)", () => {
+      const p = proj({ status: "Working on it", deadline: CPM_FIN,
+        subitems: [hito("h1", new Date(2026, 1, 5), "Working on it")] });
+      const c = calcItemCalidad(p);
+      expect(c.recuperado).toBe(false);
+      expect(c.allDone).toBe(false);
+    });
+  });
 });
 
 describe("calcItemNota (nota 0/50/100: responsable + recuperado)", () => {
@@ -639,6 +684,15 @@ describe("calidadUnits (unidad = ITEM, no hito; ver calcItemCalidad para el vere
       status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [hito("h1", new Date(2026, 1, 5))] });
     expect(calidadUnits([recuperado])[0]).toMatchObject({ id: "d1", recuperado: true });
     expect(calidadUnits([noRecuperado])[0]).toMatchObject({ id: "d2", recuperado: false });
+  });
+
+  it("propaga allDone desde calcItemCalidad (habilita calificar el responsable en la UI)", () => {
+    const cerrado = proj({ id: "d1", name: "Desarrollo por iteraciones (Hitos)", boardId: "b1", grupo: "Launch",
+      status: "Done", deadline: CPM_FIN, subitems: [hito("h1", CPM_INI, "Done")] });
+    const enCurso = proj({ id: "d2", name: "Desarrollo por iteraciones (Hitos)", boardId: "b2", grupo: "Launch",
+      status: "Working on it", deadline: CPM_FIN, subitems: [hito("h1", CPM_INI, "Done"), hito("h2", CPM_INI, "Working on it")] });
+    expect(calidadUnits([cerrado])[0]).toMatchObject({ id: "d1", allDone: true });
+    expect(calidadUnits([enCurso])[0]).toMatchObject({ id: "d2", allDone: false });
   });
 
   it("plantilla nueva, item sin subitems: solo genera unidad si está Done (fallback, caso raro)", () => {

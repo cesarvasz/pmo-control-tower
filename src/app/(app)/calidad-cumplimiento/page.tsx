@@ -171,6 +171,29 @@ function cpmCell(start: Date | null, end: Date | null) {
   return <>{start ? fmtDate(start) : "—"} – {end ? fmtDate(end) : "—"}</>;
 }
 
+// Celda "Responsable" de una fila de Reproceso — SOLO se puede calificar (el otro
+// 50% de la nota, ver calcItemNota) cuando el item de Proyecto ya cerró del todo
+// (r.allDone: todos sus hitos Done). Mientras siga en curso, "recuperado" todavía
+// puede cambiar (un hito pendiente puede reprogramarse fuera del CPM más adelante),
+// así que calificar (o recalificar) antes sería prematuro. REQ (allDone siempre
+// true) no se ve afectado — su regla de siempre sigue intacta. Si ya había un
+// responsable asignado de antes, se sigue mostrando (de solo lectura) en vez de
+// ocultarlo — el candado bloquea CAMBIARLO, no verlo.
+function reprocesoResponsibleCell(r: { id: string; unitKind: "req" | "step"; allDone: boolean; verdict: "clean" | "reproceso" }, reproceso: DelayMap) {
+  const locked = r.unitKind === "step" && !r.allDone;
+  if (locked && !reproceso[r.id]?.responsible) {
+    return (
+      <span
+        className="inline-block text-[0.62rem] font-semibold text-[var(--text-disabled)]"
+        title="Aún no se puede calificar: faltan hitos del item por cerrar. El CPM todavía se puede recuperar (o perder) mientras siga en curso."
+      >
+        🔒 Pendiente de cierre
+      </span>
+    );
+  }
+  return <ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} readOnly={locked} />;
+}
+
 // Desde este cambio la unidad es la FASE de Proyecto (board+grupo), no el hito
 // individual: un solo responsable por fase, y el acordeón de abajo muestra
 // SOLO los steps/hitos que salieron atrasados dentro de esa fase (solo lectura,
@@ -562,7 +585,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
                                 : r.nota === 0 ? <Pill tone="bad">✕ {r.nota}%</Pill>
                                 : <Pill tone="warn">⚠ {r.nota}%</Pill>}
                             </td>
-                            <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} /></td>
+                            <td onClick={(e) => e.stopPropagation()}>{reprocesoResponsibleCell(r, reproceso)}</td>
                           </tr>
                           {abierta && (
                             <tr>

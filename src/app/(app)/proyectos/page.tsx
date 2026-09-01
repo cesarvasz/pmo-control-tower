@@ -293,6 +293,8 @@ function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, li
 // sin bypass automático) + 50% por "recuperado" (ningún hito con Limit Date después
 // del fin del CPM del item — ver calcItemCalidad/hitosFueraDeCpm; solo se verifica
 // el fin, no el inicio — ver el comentario de hitosFueraDeCpm para el porqué).
+// SOLO INFORMATIVA acá: la calificación (asignar responsable de reproceso) se hace
+// ÚNICAMENTE en /calidad-cumplimiento — el dropdown se pasa en modo readOnly.
 function reprocesoCell(nota: number, itemId: string, recuperado: boolean, cpmFin: string) {
   const tone = nota === 100 ? "ok" : nota === 0 ? "bad" : "warn";
   const icon = nota === 100 ? "✓" : nota === 0 ? "✕" : "⚠";
@@ -302,16 +304,17 @@ function reprocesoCell(nota: number, itemId: string, recuperado: boolean, cpmFin
   return (
     <div className="flex flex-col items-start gap-0.5">
       <Pill tone={tone} small>{icon} {nota}%</Pill>
-      <ResponsibleSelect itemId={itemId} kind="reproceso" emptyPenalizes={nota !== 100} />
+      <ResponsibleSelect itemId={itemId} kind="reproceso" emptyPenalizes={nota !== 100} readOnly />
       {badge}
     </div>
   );
 }
 
-// Celda "Calidad" de un HITO — SOLO LECTURA: el dropdown vive en el item padre, el
-// hito solo informa si él mismo salió a tiempo (o sigue pendiente), y si su Limit
-// Date quedó después del fin del CPM del item (fueraDeCpm). Se muestra únicamente
-// bajo un item que mide Calidad (ver stepMideCalidad en Row).
+// Celda "Calidad" de un HITO — SOLO LECTURA: el dropdown vive en el item padre (y ese
+// también es solo lectura acá), el hito solo informa si él mismo salió a tiempo (o
+// sigue pendiente), y si su Limit Date quedó después del fin del CPM del item
+// (fueraDeCpm). Se muestra únicamente bajo un item que mide Calidad (ver
+// stepMideCalidad en Row).
 function hitoCalidadReadOnly(entrega: "on-time" | "late" | null, fueraDeCpm: boolean) {
   const pill = !entrega
     ? <span className="text-[var(--text-disabled)]">— pendiente</span>
@@ -563,8 +566,9 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                             {grupo || "Sin grupo"}
                           </span>
                           {/* Atraso de la fase — un responsable para toda la fase. Calidad ya no va
-                              acá: se asigna por fila (step o hito, según la plantilla — ver columna
-                              "Calidad" y desarrolloStep más abajo). */}
+                              acá: se muestra por fila (step o hito, según la plantilla — ver columna
+                              "Calidad" y desarrolloStep más abajo), pero solo se CALIFICA en
+                              /calidad-cumplimiento (acá el dropdown es readOnly). */}
                           <div className="ml-auto flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1.5">
                               <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Atraso</span>
@@ -618,6 +622,8 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   // lib/dashboard). Plantilla vieja (desarrolloStepId definido): SOLO ese step
   // mide; los demás checkpoints de la fase no aportan nada. Plantilla nueva (sin
   // ese step): CADA step de la fase mide. Sus hitos quedan de solo lectura.
+  // Acá es SOLO informativa (ver reprocesoCell/hitoCalidadReadOnly): la calificación
+  // se hace únicamente en /calidad-cumplimiento.
   const inFase3 = isFase3(r.grupo);
   const stepMideCalidad = inFase3 && (desarrolloStepId ? desarrolloStepId === r.id : true);
   const calc = stepMideCalidad ? calcItemCalidad(r) : null;

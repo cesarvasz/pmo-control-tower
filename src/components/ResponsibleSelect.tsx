@@ -16,11 +16,16 @@ import { hasAction } from "@/lib/permissions";
 import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES } from "@/lib/delay";
 import type { AttributionKind, DelayResponsible } from "@/types";
 
-export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
+export default function ResponsibleSelect({ itemId, kind, emptyPenalizes, readOnly }: {
   itemId: string;
   kind: AttributionKind;
   /** ¿Un valor vacío penaliza la métrica de ESTE ítem? (delay: siempre; reproceso: solo REQ cerrados) */
   emptyPenalizes?: boolean;
+  /** Fuerza la vista de solo lectura sin importar el permiso — para páginas donde
+   *  esta atribución se muestra como información pero solo se califica en otra
+   *  pantalla (ej. Reproceso en /proyectos: solo lectura; se califica en
+   *  /calidad-cumplimiento). */
+  readOnly?: boolean;
 }) {
   const { me } = useMe();
   const { data, setAttribution, refresh } = useData();
@@ -28,7 +33,7 @@ export default function ResponsibleSelect({ itemId, kind, emptyPenalizes }: {
 
   // Ambos dropdowns (Entrega/atraso y Reproceso) solo los EDITA un Admin. Los
   // no-admin no ven el dropdown; ven el responsable asignado como texto (abajo).
-  const canEdit = hasAction(me?.permissions, "manage_users");
+  const canEdit = !readOnly && hasAction(me?.permissions, "manage_users");
 
   const map = kind === "delay" ? data?.delayAttributions : data?.reprocesoAttributions;
   const current = map?.[itemId]?.responsible ?? "";

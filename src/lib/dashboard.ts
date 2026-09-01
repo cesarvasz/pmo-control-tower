@@ -408,6 +408,12 @@ export interface CalidadUnit {
   /** Hitos cuyo Limit Date cae después del fin del CPM del item — por qué no se
    *  recuperó (ver hitosFueraDeCpm). Vacío si `recuperado` es true. */
   fueraDeCpm: PendingCalidadItem[];
+  /** true = el item ya cerró del todo (todos sus hitos Done; si no tiene hitos, el
+   *  item mismo está Done). Habilita la calificación del responsable (el otro 50%
+   *  de la nota, ver calcItemNota) — mientras el item siga en curso, `recuperado`
+   *  todavía puede cambiar (un hito pendiente puede reprogramarse fuera del CPM
+   *  más adelante), así que calificar antes sería prematuro. */
+  allDone: boolean;
 }
 
 type CalidadGroup = { boardId: string; boardName: string; grupo: string; pm: string; steps: ProjItem[] };
@@ -480,6 +486,9 @@ export interface ItemCalidad {
   pendingAtrasados: PendingCalidadItem[];
   fueraDeCpm: PendingCalidadItem[];
   qualifies: boolean;
+  /** true = el item ya cerró del todo (todos sus hitos Done; si no tiene hitos, el
+   *  item mismo está Done) — ver CalidadUnit.allDone para el porqué. */
+  allDone: boolean;
 }
 
 export function calcItemCalidad(step: ProjItem): ItemCalidad {
@@ -491,7 +500,10 @@ export function calcItemCalidad(step: ProjItem): ItemCalidad {
   const recuperado = step.deadline != null && fueraDeCpm.length === 0;
   const doneAny = step.subitems.some((s) => s.status === "Done");
   const qualifies = step.status === "Done" || doneAny || pendingAtrasados.length > 0;
-  return { recuperado, cascade, pendingAtrasados, fueraDeCpm, qualifies };
+  const allDone = step.subitems.length > 0
+    ? step.subitems.every((s) => s.status === "Done")
+    : step.status === "Done";
+  return { recuperado, cascade, pendingAtrasados, fueraDeCpm, qualifies, allDone };
 }
 
 /** Resuelve las unidades de Calidad de TODOS los proyectos: agrupa los steps de Fase 3
@@ -511,7 +523,7 @@ export function calidadUnits(projs: ProjItem[]): CalidadUnit[] {
         boardId: g.boardId, boardName: g.boardName, grupo: g.grupo, status: step.status,
         deadline: step.deadline, startDate: step.startDate, actualEnd: step.endDate,
         recuperado: calc.recuperado, cascade: calc.cascade,
-        pendingAtrasados: calc.pendingAtrasados, fueraDeCpm: calc.fueraDeCpm,
+        pendingAtrasados: calc.pendingAtrasados, fueraDeCpm: calc.fueraDeCpm, allDone: calc.allDone,
       });
     }
   }
@@ -825,6 +837,12 @@ export interface ReprocesoRow {
   /** Solo unitKind "step": hitos cuyo Limit Date cae después del fin del CPM del item —
    *  por qué no se recuperó. Vacío en "req". */
   fueraDeCpm: PendingCalidadItem[];
+  /** ¿Se puede calificar el responsable (el otro 50% de la nota) ahora mismo? REQ:
+   *  siempre true (ya está CERRADO, ver el filtro de buildReprocesoRows). Proyecto:
+   *  ver CalidadUnit.allDone — solo cuando el item ya cerró del todo, porque antes
+   *  "recuperado" todavía puede cambiar. La UI debe deshabilitar el dropdown de
+   *  responsable cuando esto es false. */
+  allDone: boolean;
 }
 
 /** Un hito (subitem) de un step de Proyecto, con su propio veredicto de entrega —
@@ -877,7 +895,7 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
       projCode: "", projName: "", fase: r.grupo, pm: r.pm, status: r.estado, deadline: r.deadline,
       startDate: r.inicioReq ?? r.inicio, actualEnd: ultimaFase?.actual ?? null,
       verdict: reqNota === 100 ? "clean" : "reproceso", nota: reqNota, phaseDetails: r.onTime.phases,
-      itemsDone: [], totalDone: 0, recuperado: null, cascade: null, pendingAtrasados: [], fueraDeCpm: [],
+      itemsDone: [], totalDone: 0, recuperado: null, cascade: null, pendingAtrasados: [], fueraDeCpm: [], allDone: true,
     });
   }
   for (const u of calidadUnits(projs)) {
@@ -892,6 +910,7 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
       itemsDone: u.cascade?.hitos.filter((h) => h.entrega != null) ?? [],
       totalDone: u.cascade?.hitos.filter((h) => h.entrega != null).length ?? 0,
       recuperado: u.recuperado, cascade: u.cascade, pendingAtrasados: u.pendingAtrasados, fueraDeCpm: u.fueraDeCpm,
+      allDone: u.allDone,
     });
   }
   return rows;
