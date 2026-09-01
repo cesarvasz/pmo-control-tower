@@ -22,6 +22,12 @@ export interface WorkUnit {
    *  atribución manual de responsable del ATRASO (delayAttributions/ResponsibleSelect,
    *  que es para efectos de KPI) — esto es simplemente el dueño operativo del hito/step. */
   responsible: string;
+  /** Item (step) padre al que pertenece esta unidad — para fases con varios steps en
+   *  paralelo (ver Fase 3 en PhaseTimeline, que divide su fila por step en vez de una
+   *  sola para toda la fase). Si el item no tiene subitems, stepId/stepName son los
+   *  del item mismo (trivial: es su propio step). */
+  stepId: string;
+  stepName: string;
 }
 
 export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
@@ -29,10 +35,10 @@ export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
   for (const it of items) {
     if (it.subitems.length > 0) {
       for (const s of it.subitems) {
-        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, entrega: s.entrega, responsible: s.responsible });
+        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, entrega: s.entrega, responsible: s.responsible, stepId: it.id, stepName: it.name });
       }
     } else {
-      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, entrega: it.entrega, responsible: it.responsible });
+      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, entrega: it.entrega, responsible: it.responsible, stepId: it.id, stepName: it.name });
     }
   }
   return out;

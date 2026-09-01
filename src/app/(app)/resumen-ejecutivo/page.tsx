@@ -9,11 +9,13 @@
 // espera. Toda la lógica de agregación vive en lib/portfolioSummary.ts y
 // lib/projSummary.ts (puras, con tests) — esta página solo arma la presentación.
 
-import { Suspense, useMemo, useState } from "react";
+import { Fragment, Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
+import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { classifyDev } from "@/lib/devTimeline";
 import {
   buildProjectSummary, flattenBoardUnits, type PhaseSummary, type ProjectSummary, type WorkUnit,
 } from "@/lib/projSummary";
@@ -547,6 +549,14 @@ interface PhaseTimelineRow {
 
 function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummary[]; units: WorkUnit[]; estimatedFinish: Date | null }) {
   const [nowMs] = useState(() => Date.now()); // "hoy" fijado al montar (evita impureza en render)
+  // Fases 3 (por grupo) actualmente expandidas — set en vez de un solo booleano
+  // por si un board llegara a tener más de un grupo "Launch" a la vez.
+  const [openFase3, setOpenFase3] = useState<Set<string>>(new Set());
+  const toggleFase3 = (grupo: string) => setOpenFase3((s) => {
+    const n = new Set(s);
+    if (n.has(grupo)) n.delete(grupo); else n.add(grupo);
+    return n;
+  });
 
   const domain = useMemo(() => {
     const dates: number[] = [nowMs];
@@ -564,13 +574,16 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
   const ticks = monthTicks(domain.min, domain.max);
   const todayX = pct(new Date(nowMs));
   const estX = estimatedFinish ? pct(estimatedFinish) : null;
-  const chartMinWidth = 190 + Math.max(ticks.length, 3) * 92;
+  // El eje ocupa el 100% del ancho disponible (nunca hay scroll horizontal): con
+  // proyectos largos (muchos meses) se saltan etiquetas de mes para que no se
+  // amontonen, pero la línea vertical de cada mes se sigue dibujando siempre.
+  const MAX_MONTH_LABELS = 8;
+  const labelStep = Math.max(1, Math.ceil(ticks.length / MAX_MONTH_LABELS));
 
   if (!phases.length) return <EmptyRow msg="Este proyecto no tiene fases." />;
 
-  const rows: PhaseTimelineRow[] = phases.map((p) => {
-    const cfg = PHASE_CFG[phaseState(p)];
-    const list = units.filter((u) => u.grupo === p.grupo);
+  const buildRow = (phase: PhaseSummary, list: WorkUnit[]): PhaseTimelineRow => {
+    const cfg = PHASE_CFG[phaseState(phase)];
     const barDates: number[] = [];
     const milestones: PhaseTimelineRow["milestones"] = [];
     list.forEach((u) => {
@@ -583,95 +596,259 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
     const hasDates = barDates.length > 0;
     const barStart = hasDates ? Math.min(...barDates) : null;
     const barEnd = hasDates ? Math.max(...barDates) : null;
-    const notDone = p.total === 0 || p.done < p.total;
+    const notDone = phase.total === 0 || phase.done < phase.total;
     const overdueEnd = hasDates && notDone && barEnd! < nowMs ? nowMs : null;
-    return { phase: p, cfg, hasDates, barStart, barEnd, overdueEnd, milestones };
-  });
+    return { phase, cfg, hasDates, barStart, barEnd, overdueEnd, milestones };
+  };
+
+  // Fase 3 (Launch) — ver isFase3/isDesarrolloPorIteracionesStep en lib/dashboard
+  // (mismo criterio que ya usa Calidad, calidadUnits/stepsQueMidenCalidad):
+  //   · Plantilla vieja ("Launch | Desarrollo"): existe el step "Desarrollo por
+  //     iteraciones (Hitos)...". Ese step es la ÚNICA fuente real de hitos — los
+  //     otros checkpoints de la fase (Análisis técnico, Value Gate, Agenda BAT/UAT
+  //     CKU) son controles de fecha redundantes sobre los MISMOS hitos, no
+  //     entregables aparte. Se muestra un renglón POR HITO (subitem de ese step),
+  //     ignorando los demás checkpoints.
+  //   · Plantilla nueva ("Launch | Lanzamiento", sin ese step): cada item de la
+  //     fase es su propio entregable en paralelo — un renglón POR ITEM (step), con
+  //     sus hitos agregados en un solo rango.
+  // Se usa tanto para el mini-Gantt colapsado (una línea fina por renglón) como
+  // para el panel expandible al hacer click.
+  const fase3StepRowsFor = (grupo: string): PhaseTimelineRow[] => {
+    const list = units.filter((u) => u.grupo === grupo);
+
+    const desarrolloUnits = list.filter((u) => isDesarrolloPorIteracionesStep(u.stepName));
+    if (desarrolloUnits.length > 0) {
+      return desarrolloUnits.map((u) => {
+        const hitoPhase: PhaseSummary = {
+          grupo: u.name,
+          total: 1,
+          done: u.status === "Done" ? 1 : 0,
+          offTrack: u.status !== "Done" && u.estado === "ATRASADO",
+          started: classifyDev(u.status) !== "future",
+        };
+        return buildRow(hitoPhase, [u]);
+      });
+    }
+
+    const stepOrder: string[] = [];
+    const byStep = new Map<string, WorkUnit[]>();
+    for (const u of list) {
+      if (!byStep.has(u.stepId)) { stepOrder.push(u.stepId); byStep.set(u.stepId, []); }
+      byStep.get(u.stepId)!.push(u);
+    }
+    return stepOrder.map((stepId) => {
+      const stepUnits = byStep.get(stepId)!;
+      const stepPhase: PhaseSummary = {
+        grupo: stepUnits[0].stepName,
+        total: stepUnits.length,
+        done: stepUnits.filter((u) => u.status === "Done").length,
+        offTrack: stepUnits.some((u) => u.status !== "Done" && u.estado === "ATRASADO"),
+        started: stepUnits.some((u) => classifyDev(u.status) !== "future"),
+      };
+      return buildRow(stepPhase, stepUnits);
+    });
+  };
+
+  // Fases 1, 2, 4 y 5: una sola fila con SOLO su rango (inicio→fin planificado +
+  // relleno de avance + atraso si sigue abierta) — sin diamantes por hito, para no
+  // saturar el timeline. Fase 3: la fila resumen reemplaza los diamantes por un
+  // mini-Gantt "dividido" (una línea fina por renglón — hito o step, según la
+  // plantilla, ver fase3StepRowsFor); un click expande el detalle debajo.
+  const rows: PhaseTimelineRow[] = phases.map((p) => buildRow(p, units.filter((u) => u.grupo === p.grupo)));
+
+  // Hover informativo (nativo, título de varias líneas — mismo patrón que ya usa
+  // el resto de la página) para cualquier barra/línea del timeline: nombre, estado,
+  // inicio y fin reales, y si sigue abierta pasado su rango, cuánto lleva de atraso.
+  const rowTooltip = (r: PhaseTimelineRow): string => {
+    const lines = [r.phase.grupo || "Sin grupo", `${r.cfg.icon} ${r.cfg.label} · ${r.phase.done}/${r.phase.total}`];
+    if (r.hasDates) {
+      lines.push(`Inicio: ${fmtDate(new Date(r.barStart!))}`);
+      lines.push(`${r.overdueEnd != null ? "Fin planificado" : "Fin"}: ${fmtDate(new Date(r.barEnd!))}`);
+      if (r.overdueEnd != null) {
+        const dias = businessDays(new Date(r.barEnd!), new Date(r.overdueEnd));
+        lines.push(`⚠ Sigue abierta, ${fmtDays(dias)} hábiles pasado su rango planificado`);
+      }
+    } else {
+      lines.push("Sin fechas planificadas");
+    }
+    return lines.join("\n");
+  };
 
   return (
-    <div className="mb-8 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
-      <div style={{ minWidth: chartMinWidth }}>
-        {/* Eje */}
+    <div className="mb-8 rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+      <div className="w-full">
+        {/* Eje — ocupa el ancho disponible; con muchos meses se saltan etiquetas
+            (labelStep) para que no se amontonen, pero la línea de cada mes queda. */}
         <div className="flex items-end border-b" style={{ borderColor: "var(--border)" }}>
           <div style={{ width: 190 }} className="shrink-0 px-3 py-2 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
             Fase
           </div>
           <div className="relative h-9 flex-1">
-            {ticks.map((t, i) => (
-              <div key={i} className="absolute top-0 h-full" style={{ left: `${pct(t.date)}%` }}>
-                <div className="h-full w-px" style={{ background: "var(--border)" }} />
-                <span className="absolute top-1 left-1 whitespace-nowrap text-[0.66rem] text-[var(--text-muted)]">{t.label}</span>
-              </div>
-            ))}
+            {ticks.map((t, i) => {
+              const x = pct(t.date);
+              // Cerca del borde derecho, la etiqueta crece hacia la IZQUIERDA del
+              // trazo (no hacia la derecha) para que no quede cortada/fuera del
+              // recuadro — el mes más reciente casi siempre cae en esa zona.
+              const nearRightEdge = x > 88;
+              return (
+                <div key={i} className="absolute top-0 h-full" style={{ left: `${x}%` }}>
+                  <div className="h-full w-px" style={{ background: "var(--border)" }} />
+                  {(i % labelStep === 0 || i === ticks.length - 1) && (
+                    <span
+                      className={`absolute top-1 whitespace-nowrap text-[0.66rem] text-[var(--text-muted)] ${nearRightEdge ? "right-1" : "left-1"}`}
+                    >
+                      {t.label}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Filas */}
-        {rows.map((r) => (
-          <div
-            key={r.phase.grupo}
-            className="flex items-stretch border-b transition-colors last:border-b-0 hover:bg-[var(--bg-hover)]"
-            style={{ borderColor: "var(--border)" }}
-          >
-            <div style={{ width: 190 }} className="shrink-0 px-3 py-2.5">
-              <div className="truncate text-[0.78rem] font-semibold text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
-              <div className="mt-0.5 flex items-center gap-1 text-[0.65rem] font-semibold" style={{ color: r.cfg.color }}>
-                {r.cfg.icon} {r.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
-              </div>
-            </div>
+        {rows.map((r, i) => {
+          const isF3 = isFase3(r.phase.grupo);
+          const steps = isF3 ? fase3StepRowsFor(r.phase.grupo) : [];
+          // Plantilla vieja: cada renglón es un HITO (subitem de "Desarrollo por
+          // iteraciones..."); plantilla nueva: cada renglón es un STEP (item).
+          const stepsWord = isF3 && units.some((u) => u.grupo === r.phase.grupo && isDesarrolloPorIteracionesStep(u.stepName)) ? "hito" : "step";
+          const isOpen = isF3 && openFase3.has(r.phase.grupo);
+          const laneMinHeight = isF3 ? Math.max(52, steps.length * 10 + 16) : 52;
+          return (
+            <Fragment key={`${r.phase.grupo}-${i}`}>
+              <div
+                className={`flex items-stretch border-b transition-colors last:border-b-0 hover:bg-[var(--bg-hover)] ${isF3 ? "cursor-pointer select-none" : ""}`}
+                style={{ borderColor: "var(--border)" }}
+                onClick={isF3 ? () => toggleFase3(r.phase.grupo) : undefined}
+              >
+                <div style={{ width: 190 }} className="shrink-0 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    {isF3 && (
+                      <span
+                        className="inline-block shrink-0 text-[0.6rem] text-[var(--accent)]"
+                        style={{ transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : undefined }}
+                      >▶</span>
+                    )}
+                    <div className="truncate text-[0.78rem] font-semibold text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1 text-[0.65rem] font-semibold" style={{ color: r.cfg.color }}>
+                    {r.cfg.icon} {r.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
+                    {isF3 && <span className="font-normal text-[var(--text-muted)]">· {steps.length} {stepsWord}{steps.length === 1 ? "" : "s"}</span>}
+                  </div>
+                </div>
 
-            <div className="relative flex-1" style={{ minHeight: 52 }}>
-              {ticks.map((t, i) => (
-                <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
-              ))}
-              {estX != null && (
-                <div className="absolute top-0 bottom-0" title="Cierre estimado (predictivo)" style={{ left: `${estX}%`, width: 2, background: "var(--warn)", opacity: 0.6 }} />
-              )}
-              <div className="absolute top-0 bottom-0" title="Hoy" style={{ left: `${todayX}%`, width: 2, background: "var(--accent)", opacity: 0.7 }} />
-
-              {!r.hasDates ? (
-                <div className="flex h-full items-center pl-2 text-[0.72rem] italic text-[var(--text-disabled)]">— sin fechas —</div>
-              ) : (
-                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
-                  {/* Rango planificado de la fase */}
-                  <div
-                    className="absolute h-2 rounded-full"
-                    style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max(pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!)), 0.6)}%`, background: "var(--bg-hover)", border: `1px solid ${r.cfg.color}` }}
-                  />
-                  {/* Relleno de avance (% de hitos Done) */}
-                  <div
-                    className="absolute h-2 rounded-full"
-                    style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max((pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!))) * (r.phase.total ? r.phase.done / r.phase.total : 0), r.phase.done > 0 ? 0.6 : 0)}%`, background: r.cfg.color }}
-                  />
-                  {/* Atraso: fin de la fase → hoy */}
-                  {r.overdueEnd != null && (
-                    <div
-                      className="absolute h-2 rounded-full"
-                      title="Sigue abierta, pasado su rango planificado"
-                      style={{ left: `${pct(new Date(r.barEnd!))}%`, width: `${Math.max(pct(new Date(r.overdueEnd))- pct(new Date(r.barEnd!)), 0.6)}%`, background: "var(--bad)", opacity: 0.55 }}
-                    />
+                <div className="relative flex-1" style={{ minHeight: laneMinHeight }}>
+                  {ticks.map((t, i) => (
+                    <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
+                  ))}
+                  {estX != null && (
+                    <div className="absolute top-0 bottom-0" title="Cierre estimado (predictivo)" style={{ left: `${estX}%`, width: 2, background: "var(--warn)", opacity: 0.6 }} />
                   )}
-                  {/* Hitos individuales */}
-                  {r.milestones.map((m) => {
-                    const color = m.isDone ? "var(--ok)" : m.isLate ? "var(--bad)" : "var(--text-muted)";
-                    return (
+                  <div className="absolute top-0 bottom-0" title="Hoy" style={{ left: `${todayX}%`, width: 2, background: "var(--accent)", opacity: 0.7 }} />
+
+                  {isF3 ? (
+                    // Mini-Gantt "dividido": una línea fina por step, cada una en su
+                    // propio rango — reemplaza los diamantes individuales por hito.
+                    // El área de hover es más alta que la línea visual (7px vs 3px)
+                    // para que sea fácil de "cazar" con el mouse.
+                    <div className="absolute inset-0 flex flex-col items-stretch justify-center gap-[3px] px-0 py-2">
+                      {steps.map((sr, si) => (
+                        <div key={`${sr.phase.grupo}-${si}`} className="relative flex h-[7px] shrink-0 items-center" title={rowTooltip(sr)}>
+                          {sr.hasDates ? (
+                            <div
+                              className="absolute h-[3px] rounded-full"
+                              style={{ left: `${pct(new Date(sr.barStart!))}%`, width: `${Math.max(pct(new Date(sr.barEnd!)) - pct(new Date(sr.barStart!)), 0.6)}%`, background: sr.cfg.color }}
+                            />
+                          ) : (
+                            <div className="absolute h-[3px] w-full rounded-full" style={{ background: "var(--border)", opacity: 0.4 }} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : !r.hasDates ? (
+                    <div className="flex h-full items-center pl-2 text-[0.72rem] italic text-[var(--text-disabled)]">— sin fechas —</div>
+                  ) : (
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+                      {/* Rango planificado de la fase — también el área de hover
+                          (inicio/fin/estado; ver rowTooltip). */}
                       <div
-                        key={m.id}
-                        className="absolute rounded-[2px]"
-                        title={`${m.name} · ${fmtDate(m.date)} · ${m.isDone ? "Cumplido" : m.isLate ? "Atrasado" : "Pendiente"}${m.responsible ? ` · A cargo: ${m.responsible}` : ""}`}
-                        style={{
-                          left: `${pct(m.date)}%`, top: -3, width: 9, height: 9, transform: "translateX(-4.5px) rotate(45deg)",
-                          background: m.isDone || m.isLate ? color : "var(--bg-surface)",
-                          border: `2px solid ${color}`, boxShadow: "0 0 0 2px var(--bg-surface)",
-                        }}
+                        className="absolute h-2 rounded-full"
+                        title={rowTooltip(r)}
+                        style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max(pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!)), 0.6)}%`, background: "var(--bg-hover)", border: `1px solid ${r.cfg.color}` }}
                       />
-                    );
-                  })}
+                      {/* Relleno de avance (% de hitos Done) */}
+                      <div
+                        className="pointer-events-none absolute h-2 rounded-full"
+                        style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max((pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!))) * (r.phase.total ? r.phase.done / r.phase.total : 0), r.phase.done > 0 ? 0.6 : 0)}%`, background: r.cfg.color }}
+                      />
+                      {/* Atraso: fin de la fase → hoy */}
+                      {r.overdueEnd != null && (
+                        <div
+                          className="absolute h-2 rounded-full"
+                          title={rowTooltip(r)}
+                          style={{ left: `${pct(new Date(r.barEnd!))}%`, width: `${Math.max(pct(new Date(r.overdueEnd))- pct(new Date(r.barEnd!)), 0.6)}%`, background: "var(--bad)", opacity: 0.55 }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Detalle expandible de Fase 3: un renglón por step, con su propio
+                  rango (inicio→fin) y si está atrasado o en tiempo — animación tipo
+                  acordeón (CSS grid-template-rows 0fr↔1fr, se adapta a cualquier
+                  cantidad de steps sin medir alturas a mano). */}
+              {isF3 && (
+                <div
+                  className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+                  style={{ gridTemplateRows: isOpen ? "1fr" : "0fr", opacity: isOpen ? 1 : 0 }}
+                >
+                  <div className="overflow-hidden" style={{ background: "var(--bg-hover)" }}>
+                    {steps.map((sr, si) => (
+                      <div key={`${sr.phase.grupo}-${si}`} className="flex items-stretch border-b last:border-b-0" style={{ borderColor: "var(--border-subtle)" }}>
+                        <div style={{ width: 190 }} className="shrink-0 py-2 pl-7 pr-3">
+                          <div className="truncate text-[0.72rem] font-medium text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
+                          <div className="mt-0.5 flex items-center gap-1 text-[0.62rem] font-semibold" style={{ color: sr.cfg.color }}>
+                            {sr.cfg.icon} {sr.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {sr.phase.done}/{sr.phase.total}</span>
+                          </div>
+                        </div>
+                        <div className="relative flex-1" style={{ minHeight: 36 }}>
+                          {ticks.map((t, ti) => (
+                            <div key={ti} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.35 }} />
+                          ))}
+                          {!sr.hasDates ? (
+                            <div className="flex h-full items-center pl-2 text-[0.68rem] italic text-[var(--text-disabled)]">— sin fechas —</div>
+                          ) : (
+                            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+                              <div
+                                className="absolute h-1.5 rounded-full"
+                                title={rowTooltip(sr)}
+                                style={{ left: `${pct(new Date(sr.barStart!))}%`, width: `${Math.max(pct(new Date(sr.barEnd!)) - pct(new Date(sr.barStart!)), 0.6)}%`, background: "var(--bg-surface)", border: `1px solid ${sr.cfg.color}` }}
+                              />
+                              <div
+                                className="pointer-events-none absolute h-1.5 rounded-full"
+                                style={{ left: `${pct(new Date(sr.barStart!))}%`, width: `${Math.max((pct(new Date(sr.barEnd!)) - pct(new Date(sr.barStart!))) * (sr.phase.total ? sr.phase.done / sr.phase.total : 0), sr.phase.done > 0 ? 0.6 : 0)}%`, background: sr.cfg.color }}
+                              />
+                              {sr.overdueEnd != null && (
+                                <div
+                                  className="absolute h-1.5 rounded-full"
+                                  title={rowTooltip(sr)}
+                                  style={{ left: `${pct(new Date(sr.barEnd!))}%`, width: `${Math.max(pct(new Date(sr.overdueEnd)) - pct(new Date(sr.barEnd!)), 0.6)}%`, background: "var(--bad)", opacity: 0.55 }}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
-        ))}
+            </Fragment>
+          );
+        })}
       </div>
     </div>
   );

@@ -37,6 +37,17 @@ describe("flattenBoardUnits", () => {
     const units = flattenBoardUnits(items);
     expect(units.map((u) => u.id)).toEqual(["i1"]);
   });
+
+  it("stepId/stepName: los hitos de un item apuntan al item padre; un item sin subitems apunta a sí mismo", () => {
+    const items = [
+      item({ id: "i1", name: "Desarrollo por iteraciones", grupo: "Launch", subitems: [sub({ id: "s1", name: "Hito 1" }), sub({ id: "s2", name: "Hito 2" })] }),
+      item({ id: "i2", name: "Item suelto", grupo: "Valuación" }),
+    ];
+    const units = flattenBoardUnits(items);
+    expect(units.find((u) => u.id === "s1")).toMatchObject({ stepId: "i1", stepName: "Desarrollo por iteraciones" });
+    expect(units.find((u) => u.id === "s2")).toMatchObject({ stepId: "i1", stepName: "Desarrollo por iteraciones" });
+    expect(units.find((u) => u.id === "i2")).toMatchObject({ stepId: "i2", stepName: "Item suelto" });
+  });
 });
 
 describe("calcProgress", () => {
