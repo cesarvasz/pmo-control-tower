@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  flattenBoardUnits, calcProgress, calcPlannedProgress, buildPhaseSummaries, calcDelaySummary, calcCompletionEstimate,
+  flattenBoardUnits, calcProgress, calcPlannedProgress, buildPhaseSummaries, groupFase3Units, calcDelaySummary, calcCompletionEstimate,
 } from "./projSummary";
 import { today } from "./business";
 import type { ProjItem, ProjSubitem } from "@/types";
@@ -48,20 +48,88 @@ describe("flattenBoardUnits", () => {
     expect(units.find((u) => u.id === "s2")).toMatchObject({ stepId: "i1", stepName: "Desarrollo por iteraciones" });
     expect(units.find((u) => u.id === "i2")).toMatchObject({ stepId: "i2", stepName: "Item suelto" });
   });
+
+  it("startDate/stepStartDate: startDate es el de la propia unidad (hito o item suelto); stepStartDate es el del item padre", () => {
+    const iniHito = daysFromToday(-30), iniItem = daysFromToday(-20), iniSuelto = daysFromToday(-10);
+    const items = [
+      item({ id: "i1", name: "Desarrollo por iteraciones", grupo: "Launch", startDate: iniItem, subitems: [sub({ id: "s1", name: "Hito 1", startDate: iniHito })] }),
+      item({ id: "i2", name: "Item suelto", grupo: "Valuación", startDate: iniSuelto }),
+    ];
+    const units = flattenBoardUnits(items);
+    expect(units.find((u) => u.id === "s1")).toMatchObject({ startDate: iniHito, stepStartDate: iniItem });
+    expect(units.find((u) => u.id === "i2")).toMatchObject({ startDate: iniSuelto, stepStartDate: iniSuelto });
+  });
 });
 
-describe("calcProgress", () => {
-  it("calcula % redondeado de unidades Done", () => {
-    const units = flattenBoardUnits([
-      item({ id: "1", status: "Done" }),
-      item({ id: "2", status: "Working on it" }),
-      item({ id: "3", status: "Working on it" }),
-    ]);
-    expect(calcProgress(units)).toEqual({ total: 3, done: 1, pct: 33 });
+describe("groupFase3Units (Fase 3: steps o hitos según la plantilla)", () => {
+  it("plantilla vieja: un grupo POR HITO del step \"Desarrollo por iteraciones...\", ignorando los demás checkpoints de la fase", () => {
+    const items = [
+      item({ id: "analisis", name: "Analisis técnico", grupo: "Launch | Desarrollo", status: "Done" }),
+      item({ id: "desarrollo", name: "Desarrollo por iteraciones (Hitos)", grupo: "Launch | Desarrollo", status: "Working on it",
+        subitems: [sub({ id: "h1", name: "Hito 1", status: "Done" }), sub({ id: "h2", name: "Hito 2", status: "Working on it" })] }),
+    ];
+    const units = flattenBoardUnits(items);
+    const groups = groupFase3Units(units, "Launch | Desarrollo");
+    expect(groups.map((g) => g.name)).toEqual(["Hito 1", "Hito 2"]);
+    expect(groups.every((g) => g.units.length === 1)).toBe(true);
+  });
+
+  it("plantilla nueva: un grupo POR ITEM (step) de la fase, con sus hitos agrupados", () => {
+    const items = [
+      item({ id: "poc", name: "POC", grupo: "Launch | Lanzamiento", subitems: [sub({ id: "h1", status: "Done" }), sub({ id: "h2", status: "Working on it" })] }),
+      item({ id: "xd", name: "xDocking", grupo: "Launch | Lanzamiento", subitems: [sub({ id: "h3", status: "Done" })] }),
+    ];
+    const units = flattenBoardUnits(items);
+    const groups = groupFase3Units(units, "Launch | Lanzamiento");
+    expect(groups.map((g) => g.name)).toEqual(["POC", "xDocking"]);
+    expect(groups.find((g) => g.name === "POC")?.units.length).toBe(2);
+  });
+});
+
+describe("calcProgress (avance ponderado: cada FASE pesa 1 unidad; Fase 3 se abre en sus steps/hitos, ver groupFase3Units)", () => {
+  it("sin Fase 3: cada fase pesa 1 unidad con su propia fracción done/total — no cuenta hitos sueltos", () => {
+    const items = [
+      item({ id: "1", grupo: "Valuación", status: "Done" }),
+      item({ id: "2", grupo: "Aprobación", status: "Working on it" }),
+    ];
+    const units = flattenBoardUnits(items);
+    const phases = buildPhaseSummaries(units);
+    // Valuación 1/1 (100%) · Aprobación 0/1 (0%) → promedio 50%, 1 de 2 unidades 100% completa
+    expect(calcProgress(units, phases)).toEqual({ total: 2, done: 1, pct: 50 });
+  });
+
+  it("una fase A MEDIAS aporta su fracción real (no binaria: ni 0% ni 100%)", () => {
+    const items = [
+      item({ id: "a", grupo: "Aprobación", subitems: [sub({ id: "h1", status: "Done" }), sub({ id: "h2" }), sub({ id: "h3" }), sub({ id: "h4" })] }),
+    ];
+    const units = flattenBoardUnits(items);
+    const phases = buildPhaseSummaries(units);
+    // 1 fase, 1/4 hitos Done → esa fase pesa 1 unidad con 25% de avance (no 0%)
+    expect(calcProgress(units, phases)).toEqual({ total: 1, done: 0, pct: 25 });
+  });
+
+  it("Fase 3 con 4 items (plantilla nueva): pesan como 4 unidades cada uno, no 1 sola para toda la fase — combinado con las otras 4 fases da 8 unidades en total", () => {
+    const items = [
+      item({ id: "v", grupo: "Valuación", status: "Done" }),
+      item({ id: "a", grupo: "Aprobación", status: "Done" }),
+      item({ id: "poc", name: "POC", grupo: "Launch | Lanzamiento", status: "Done" }),
+      item({ id: "xd", name: "xDocking", grupo: "Launch | Lanzamiento", status: "Done" }),
+      item({ id: "gps", name: "GPS", grupo: "Launch | Lanzamiento", status: "Working on it" }),
+      item({ id: "vid", name: "Video", grupo: "Launch | Lanzamiento", status: "Working on it" }),
+      item({ id: "o", grupo: "Operación", status: "Working on it" }),
+      item({ id: "r", grupo: "Revisión", status: "Working on it" }),
+    ];
+    const units = flattenBoardUnits(items);
+    const phases = buildPhaseSummaries(units);
+    // 4 fases (Valuación/Aprobación/Operación/Revisión) + 4 items de Fase 3 = 8 unidades
+    const result = calcProgress(units, phases);
+    expect(result.total).toBe(8);
+    expect(result.done).toBe(4); // Valuación, Aprobación, POC, xDocking → 100% completas
+    expect(result.pct).toBe(50); // (1+1+1+1+0+0+0+0)/8
   });
 
   it("lista vacía → 0%", () => {
-    expect(calcProgress([])).toEqual({ total: 0, done: 0, pct: 0 });
+    expect(calcProgress([], [])).toEqual({ total: 0, done: 0, pct: 0 });
   });
 });
 

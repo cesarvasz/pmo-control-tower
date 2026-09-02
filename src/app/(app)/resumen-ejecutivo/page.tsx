@@ -14,10 +14,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
-import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  buildProjectSummary, flattenBoardUnits, type PhaseSummary, type ProjectSummary, type WorkUnit,
+  buildProjectSummary, flattenBoardUnits, groupFase3Units, type PhaseSummary, type ProjectSummary, type WorkUnit,
 } from "@/lib/projSummary";
 import { countByResponsible } from "@/lib/delay";
 import {
@@ -417,6 +417,17 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
 }) {
   const summary = useMemo(() => buildProjectSummary(items), [items]);
   const health = useMemo(() => deriveBoardHealth(calcBoardMetrics(items, projItemBaselines)), [items, projItemBaselines]);
+  // Beneficio $ por etapa (Validación VPA / Aprobación VPB / Confirmación VPC) —
+  // misma fuente que el modal de Costo/Beneficio por PM (projStageAmounts), acá
+  // aplicada solo a los items de ESTE board. Acumulativa: Confirmación ⇒ también
+  // cuenta como Aprobación (a su valor aprobado / Business Case); una etapa no
+  // alcanzada queda undefined y fmtMoney la muestra como "—".
+  const stageAmounts = useMemo(() => projStageAmounts(items), [items]);
+  // Validado, para mostrar: si ya se aprobó (o confirmó), es el MISMO monto del
+  // Business Case que Validación habría mostrado — projStageAmounts solo llena
+  // `validacion` cuando esa es la etapa vigente, así que acá se completa con el
+  // de Aprobación para que la tarjeta no quede vacía una vez superada esa etapa.
+  const validadoBenefit = stageAmounts?.validacion?.benefit ?? stageAmounts?.aprobacion?.benefit;
   const { code, name } = splitBoardName(board.name);
   const healthCfg = health.healthStatus ? HEALTH_CFG[health.healthStatus] : null;
   const est = estimateMessage(summary);
@@ -510,6 +521,29 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             <span>Scope: <strong className="text-[var(--text-secondary)]">{health.scope !== null ? `${health.scope.toFixed(0)}%` : "—"}</strong></span>
           </div>
 
+          {/* Beneficio $ por etapa */}
+          <h3 className="mb-3 text-[0.95rem] font-bold text-[var(--text-primary)]">Beneficio $ por etapa</h3>
+          <div className="mb-8 grid grid-cols-3 gap-4">
+            <StatCard
+              value={fmtMoney(validadoBenefit)}
+              label="Validado (VPA)"
+              color={validadoBenefit ? "var(--ok)" : "var(--text-disabled)"}
+              valueSize="1.3rem"
+            />
+            <StatCard
+              value={fmtMoney(stageAmounts?.aprobacion?.benefit)}
+              label="Aprobado (VPB)"
+              color={stageAmounts?.aprobacion ? "var(--ok)" : "var(--text-disabled)"}
+              valueSize="1.3rem"
+            />
+            <StatCard
+              value={fmtMoney(stageAmounts?.confirmacion?.benefit)}
+              label="Confirmado (VPC)"
+              color={stageAmounts?.confirmacion ? "var(--ok)" : "var(--text-disabled)"}
+              valueSize="1.3rem"
+            />
+          </div>
+
           {/* Timeline por fase */}
           <h3 className="mb-3 text-[0.95rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
           <PhaseTimeline phases={summary.phases} units={summary.units} estimatedFinish={summary.completion.estimatedFinish} />
@@ -601,52 +635,36 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
     return { phase, cfg, hasDates, barStart, barEnd, overdueEnd, milestones };
   };
 
-  // Fase 3 (Launch) — ver isFase3/isDesarrolloPorIteracionesStep en lib/dashboard
-  // (mismo criterio que ya usa Calidad, calidadUnits/stepsQueMidenCalidad):
-  //   · Plantilla vieja ("Launch | Desarrollo"): existe el step "Desarrollo por
-  //     iteraciones (Hitos)...". Ese step es la ÚNICA fuente real de hitos — los
-  //     otros checkpoints de la fase (Análisis técnico, Value Gate, Agenda BAT/UAT
-  //     CKU) son controles de fecha redundantes sobre los MISMOS hitos, no
-  //     entregables aparte. Se muestra un renglón POR HITO (subitem de ese step),
-  //     ignorando los demás checkpoints.
-  //   · Plantilla nueva ("Launch | Lanzamiento", sin ese step): cada item de la
-  //     fase es su propio entregable en paralelo — un renglón POR ITEM (step), con
-  //     sus hitos agregados en un solo rango.
-  // Se usa tanto para el mini-Gantt colapsado (una línea fina por renglón) como
-  // para el panel expandible al hacer click.
+  // Fase 3 (Launch): agrupamiento en steps/hitos vía groupFase3Units (projSummary.ts
+  // — mismo criterio que ya usa Calidad, calidadUnits/stepsQueMidenCalidad, y
+  // reutilizado también por calcProgress para el Avance global). Acá solo se arma
+  // el renglón (bar/fechas) por grupo, ordenado ASCENDENTE por la fecha de inicio
+  // del CPM propio de cada uno (Start Date del hito, o del step) — sin esa fecha,
+  // al final. La fila resumen (colapsada) usa el rango agregado normal (`rows`),
+  // igual que el resto de las fases.
+  // Comparador explícito (no resta timestamps con Infinity: Infinity - Infinity
+  // da NaN, que hace el orden entre "sin fecha" indefinido) — sin fecha, al final.
+  const cmpStart = (a: Date | null, b: Date | null) => {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    return a.getTime() - b.getTime();
+  };
+  // Fecha de inicio "propia" de un grupo: la del hito mismo (grupos de 1 unidad,
+  // plantilla vieja) o la del step padre (grupos de varias, plantilla nueva).
+  const startOfGroup = (g: { units: WorkUnit[] }) =>
+    isDesarrolloPorIteracionesStep(g.units[0].stepName) ? g.units[0].startDate : g.units[0].stepStartDate;
   const fase3StepRowsFor = (grupo: string): PhaseTimelineRow[] => {
-    const list = units.filter((u) => u.grupo === grupo);
-
-    const desarrolloUnits = list.filter((u) => isDesarrolloPorIteracionesStep(u.stepName));
-    if (desarrolloUnits.length > 0) {
-      return desarrolloUnits.map((u) => {
-        const hitoPhase: PhaseSummary = {
-          grupo: u.name,
-          total: 1,
-          done: u.status === "Done" ? 1 : 0,
-          offTrack: u.status !== "Done" && u.estado === "ATRASADO",
-          started: classifyDev(u.status) !== "future",
-        };
-        return buildRow(hitoPhase, [u]);
-      });
-    }
-
-    const stepOrder: string[] = [];
-    const byStep = new Map<string, WorkUnit[]>();
-    for (const u of list) {
-      if (!byStep.has(u.stepId)) { stepOrder.push(u.stepId); byStep.set(u.stepId, []); }
-      byStep.get(u.stepId)!.push(u);
-    }
-    return stepOrder.map((stepId) => {
-      const stepUnits = byStep.get(stepId)!;
-      const stepPhase: PhaseSummary = {
-        grupo: stepUnits[0].stepName,
-        total: stepUnits.length,
-        done: stepUnits.filter((u) => u.status === "Done").length,
-        offTrack: stepUnits.some((u) => u.status !== "Done" && u.estado === "ATRASADO"),
-        started: stepUnits.some((u) => classifyDev(u.status) !== "future"),
+    const groups = groupFase3Units(units, grupo).sort((a, b) => cmpStart(startOfGroup(a), startOfGroup(b)));
+    return groups.map((g) => {
+      const phase: PhaseSummary = {
+        grupo: g.name,
+        total: g.units.length,
+        done: g.units.filter((u) => u.status === "Done").length,
+        offTrack: g.units.some((u) => u.status !== "Done" && u.estado === "ATRASADO"),
+        started: g.units.some((u) => classifyDev(u.status) !== "future"),
       };
-      return buildRow(stepPhase, stepUnits);
+      return buildRow(phase, g.units);
     });
   };
 
@@ -715,7 +733,6 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
           // iteraciones..."); plantilla nueva: cada renglón es un STEP (item).
           const stepsWord = isF3 && units.some((u) => u.grupo === r.phase.grupo && isDesarrolloPorIteracionesStep(u.stepName)) ? "hito" : "step";
           const isOpen = isF3 && openFase3.has(r.phase.grupo);
-          const laneMinHeight = isF3 ? Math.max(52, steps.length * 10 + 16) : 52;
           return (
             <Fragment key={`${r.phase.grupo}-${i}`}>
               <div
@@ -739,7 +756,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                   </div>
                 </div>
 
-                <div className="relative flex-1" style={{ minHeight: laneMinHeight }}>
+                <div className="relative flex-1" style={{ minHeight: 52 }}>
                   {ticks.map((t, i) => (
                     <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
                   ))}
@@ -748,26 +765,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                   )}
                   <div className="absolute top-0 bottom-0" title="Hoy" style={{ left: `${todayX}%`, width: 2, background: "var(--accent)", opacity: 0.7 }} />
 
-                  {isF3 ? (
-                    // Mini-Gantt "dividido": una línea fina por step, cada una en su
-                    // propio rango — reemplaza los diamantes individuales por hito.
-                    // El área de hover es más alta que la línea visual (7px vs 3px)
-                    // para que sea fácil de "cazar" con el mouse.
-                    <div className="absolute inset-0 flex flex-col items-stretch justify-center gap-[3px] px-0 py-2">
-                      {steps.map((sr, si) => (
-                        <div key={`${sr.phase.grupo}-${si}`} className="relative flex h-[7px] shrink-0 items-center" title={rowTooltip(sr)}>
-                          {sr.hasDates ? (
-                            <div
-                              className="absolute h-[3px] rounded-full"
-                              style={{ left: `${pct(new Date(sr.barStart!))}%`, width: `${Math.max(pct(new Date(sr.barEnd!)) - pct(new Date(sr.barStart!)), 0.6)}%`, background: sr.cfg.color }}
-                            />
-                          ) : (
-                            <div className="absolute h-[3px] w-full rounded-full" style={{ background: "var(--border)", opacity: 0.4 }} />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : !r.hasDates ? (
+                  {!r.hasDates ? (
                     <div className="flex h-full items-center pl-2 text-[0.72rem] italic text-[var(--text-disabled)]">— sin fechas —</div>
                   ) : (
                     <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">

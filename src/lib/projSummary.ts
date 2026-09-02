@@ -5,6 +5,7 @@
 
 import { addBusinessDays, businessDays, today } from "@/lib/business";
 import { classifyDev } from "@/lib/devTimeline";
+import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import type { ProjItem } from "@/types";
 
 /** Unidad de trabajo aplanada: el hito (subitem) si el item los tiene, o el item
@@ -17,6 +18,9 @@ export interface WorkUnit {
   estado: string; // ATRASADO | PARA HOY | EN TIEMPO
   deadline: Date | null;
   actualEnd: Date | null; // fecha real de cierre (Actual End del hito / End Date del item)
+  /** Fecha de inicio del CPM de ESTA unidad (Start Date del hito, o del item si no
+   *  tiene subitems). Para ordenar cronológicamente (ver Fase 3 en PhaseTimeline). */
+  startDate: Date | null;
   entrega: "on-time" | "late" | null;
   /** Quién está a cargo de la tarea (columna "Responsible" de Monday). NO es la
    *  atribución manual de responsable del ATRASO (delayAttributions/ResponsibleSelect,
@@ -28,6 +32,9 @@ export interface WorkUnit {
    *  del item mismo (trivial: es su propio step). */
   stepId: string;
   stepName: string;
+  /** Fecha de inicio del CPM del item (step) padre — no la de este hito. Igual a
+   *  `startDate` cuando el item no tiene subitems (es su propio step). */
+  stepStartDate: Date | null;
 }
 
 export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
@@ -35,22 +42,76 @@ export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
   for (const it of items) {
     if (it.subitems.length > 0) {
       for (const s of it.subitems) {
-        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, entrega: s.entrega, responsible: s.responsible, stepId: it.id, stepName: it.name });
+        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, startDate: s.startDate, entrega: s.entrega, responsible: s.responsible, stepId: it.id, stepName: it.name, stepStartDate: it.startDate });
       }
     } else {
-      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, entrega: it.entrega, responsible: it.responsible, stepId: it.id, stepName: it.name });
+      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, startDate: it.startDate, entrega: it.entrega, responsible: it.responsible, stepId: it.id, stepName: it.name, stepStartDate: it.startDate });
     }
   }
   return out;
 }
 
+// ── Fase 3: agrupamiento en sus unidades de medición ─────────────────────
+/** Una unidad de medición de Fase 3 — un step (item) o un hito (subitem de
+ *  "Desarrollo por iteraciones..."), según la plantilla del board. */
+export interface Fase3Group { name: string; units: WorkUnit[] }
+
+/** Agrupa los WorkUnit de la Fase 3 de un proyecto en sus unidades de medición
+ *  — ver isDesarrolloPorIteracionesStep en lib/dashboard (mismo criterio que
+ *  Calidad, calidadUnits/stepsQueMidenCalidad):
+ *    · Plantilla vieja ("Launch | Desarrollo", existe ese step): un grupo POR
+ *      HITO (subitem de ese step) — los demás checkpoints de la fase quedan
+ *      fuera, son controles de fecha redundantes sobre los MISMOS hitos.
+ *    · Plantilla nueva (sin ese step): un grupo POR ITEM (step) de la fase,
+ *      con sus hitos (subitems) agrupados.
+ *  Reutilizado tanto por PhaseTimeline (un renglón por grupo) como por el
+ *  avance global (cada grupo pesa como una fase más, ver calcProgress). */
+export function groupFase3Units(units: WorkUnit[], fase3Grupo: string): Fase3Group[] {
+  const list = units.filter((u) => u.grupo === fase3Grupo);
+
+  const desarrolloUnits = list.filter((u) => isDesarrolloPorIteracionesStep(u.stepName));
+  if (desarrolloUnits.length > 0) {
+    return desarrolloUnits.map((u) => ({ name: u.name, units: [u] }));
+  }
+
+  const order: string[] = [];
+  const byStep = new Map<string, WorkUnit[]>();
+  for (const u of list) {
+    if (!byStep.has(u.stepId)) { order.push(u.stepId); byStep.set(u.stepId, []); }
+    byStep.get(u.stepId)!.push(u);
+  }
+  return order.map((stepId) => {
+    const stepUnits = byStep.get(stepId)!;
+    return { name: stepUnits[0].stepName, units: stepUnits };
+  });
+}
+
 // ── Avance ──────────────────────────────────────────────────────────────
 export interface ProgressSummary { total: number; done: number; pct: number }
 
-export function calcProgress(units: WorkUnit[]): ProgressSummary {
-  const total = units.length;
-  const done = units.filter((u) => u.status === "Done").length;
-  return { total, done, pct: total ? Math.round((done / total) * 100) : 0 };
+/** Avance del proyecto: cada FASE pesa como UNA unidad, excepto Fase 3, que se
+ *  abre en sus propios steps/hitos (ver groupFase3Units) — cada uno de esos
+ *  pesa como una fase más (ej.: 4 fases + 4 items de Fase 3 = 8 unidades). El
+ *  aporte de cada unidad es su propia fracción done/total (no binario: una
+ *  fase o step a medio completar suma su avance real, no 0), y `pct` es el
+ *  promedio de esas fracciones — así ninguna unidad domina por tener más
+ *  hitos que otra. `done` cuenta unidades 100% completas (informativo). */
+export function calcProgress(units: WorkUnit[], phases: PhaseSummary[]): ProgressSummary {
+  const parts: { done: number; total: number }[] = [];
+  for (const p of phases) {
+    if (isFase3(p.grupo)) {
+      for (const g of groupFase3Units(units, p.grupo)) {
+        parts.push({ done: g.units.filter((u) => u.status === "Done").length, total: g.units.length });
+      }
+    } else {
+      parts.push({ done: p.done, total: p.total });
+    }
+  }
+  const total = parts.length;
+  if (!total) return { total: 0, done: 0, pct: 0 };
+  const sumFrac = parts.reduce((s, p) => s + (p.total ? p.done / p.total : 0), 0);
+  const fullyDone = parts.filter((p) => p.total > 0 && p.done === p.total).length;
+  return { total, done: fullyDone, pct: Math.round((sumFrac / total) * 100) };
 }
 
 /** % planificado a la fecha: fracción de hitos/steps que YA deberían estar Done
@@ -161,8 +222,8 @@ export interface ProjectSummary {
 
 export function buildProjectSummary(items: ProjItem[]): ProjectSummary {
   const units = flattenBoardUnits(items);
-  const progress = calcProgress(units);
   const phases = buildPhaseSummaries(units);
+  const progress = calcProgress(units, phases);
   const delay = calcDelaySummary(units);
   const completion = calcCompletionEstimate(units, delay.avgSlipDays);
   return { units, progress, phases, delay, completion };
