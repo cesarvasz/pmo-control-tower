@@ -127,6 +127,52 @@ describe("resolveProjStage (evaluación descendente Confirmación > Aprobación 
   });
 });
 
+// Plantilla "NEW" de boards de Proyectos (PM-010/011/012 — ver proj.ts): mismos hitos,
+// texto distinto. Sin un segundo Value Gate en Launch (un solo step "VPA APROBADO" cierra
+// Aprobación). Nombres tomados 1:1 de un board real (PM-011 | ROAD NEW🚛).
+describe("resolveProjStage (plantilla NEW: PM-010/011/012)", () => {
+  const bc = (cost = 0, benefit = 0): ProjItem =>
+    proj({ grupo: "Valuación | Formulación del proyecto", name: "Kick Off Project Meeting (Entregable Business Case redactado)", status: "Done", cost, benefit });
+  const valNew = (status: string): ProjItem =>
+    proj({ grupo: "Valuación | Formulación del proyecto", name: "VPA VALIDADO (Entregable Business Case validado por VPA)", status, cost: 0, benefit: 0 });
+  const cfo = (status: string): ProjItem =>
+    proj({ grupo: "Aprobación | Value Gate", name: "Plan de beneficios acordados con CFO", status, cost: 0, benefit: 0 });
+  const vgAprobNew = (status: string): ProjItem =>
+    proj({ grupo: "Aprobación | Value Gate", name: "VPA APROBADO (Entregable Business Case validado por Sponsor+VPA+PMO Mgr)", status, cost: 0, benefit: 0 });
+  const roiNew = (dias: 30 | 60 | 90, status: string, cost = 0, benefit = 0): ProjItem =>
+    proj({ grupo: "Revisión | Cierre ROI", name: `VPA CONFIRMADO a ${dias} dias (Compara Valor real contra BC)`, status, cost, benefit });
+
+  it("Validación con el texto 'VPA VALIDADO' (sin 'valida Business Case')", () => {
+    expect(resolveProjStage([bc(10, 100), valNew("Done")])).toEqual({ stage: "validacion", cost: 10, benefit: 100 });
+  });
+
+  it("Aprobación: CFO + VPA APROBADO Done, SIN un segundo gate en Launch", () => {
+    const items = [bc(10, 100), cfo("Done"), vgAprobNew("Done")];
+    expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 10, benefit: 100 });
+  });
+
+  it("Aprobación: si VPA APROBADO no está Done, cae a Validación", () => {
+    const items = [bc(1, 1), cfo("Done"), vgAprobNew("Working on it"), valNew("Done")];
+    expect(resolveProjStage(items)).toEqual({ stage: "validacion", cost: 1, benefit: 1 });
+  });
+
+  it("Confirmación con el texto 'VPA CONFIRMADO a N dias'", () => {
+    expect(resolveProjStage([roiNew(30, "Working on it", 1, 100)])).toEqual({ stage: "confirmacion", cost: 1, benefit: 100 });
+    expect(resolveProjStage([roiNew(30, "Done", 1, 100), roiNew(60, "Done", 2, 200)])).toEqual({ stage: "confirmacion", cost: 2, benefit: 200 });
+  });
+
+  it("caso real (PM-011 | ROAD NEW🚛): Validación y Aprobación Done, Confirmación aún en Future Steps → cae en Aprobación (antes daba null)", () => {
+    const items = [
+      bc(27, 360000),
+      valNew("Done"),
+      cfo("Done"),
+      vgAprobNew("Done"),
+      roiNew(30, "Future steps"), roiNew(60, "Future steps"), roiNew(90, "Future steps"),
+    ];
+    expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 27, benefit: 360000 });
+  });
+});
+
 describe("calcPmValue", () => {
   const reqs: ReqItem[] = [
     req({ pm: "Luis", grupo: "Desarrollo", benefitType: "HardSaving", costRH: 1000, costSft: 0, benefit: 5000, name: "R1" }),

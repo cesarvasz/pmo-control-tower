@@ -25,6 +25,15 @@ const isVgSigned = (name: string) => {
   return n.includes("value gate") && n.includes("firmado");
 };
 
+/** ¿El nombre (ya normalizado, o crudo — se normaliza aquí) contiene alguno de los needles?
+ *  Usado para aceptar el mismo step con el texto de CUALQUIERA de las dos plantillas de
+ *  boards de Proyectos: la "vieja" y la "nueva" (PM-010/011/012, con Cost $/Limit Date
+ *  fórmula — ver proj.ts). Miden el Beneficio $ igual; solo cambia cómo se llama el step. */
+const includesAny = (name: string, needles: string[]) => {
+  const n = norm(name);
+  return needles.some((needle) => n.includes(needle));
+};
+
 /** El Business Case (Benefit $ / Cost $) se redacta una sola vez, en el primer ítem
  *  de la fase Valuación — los steps de aprobación/gates no traen su propio monto. */
 const findBusinessCase = (items: ProjItem[]) =>
@@ -62,39 +71,53 @@ export function reqStage(r: { grupo: string }): PmValueStage | null {
   return null;
 }
 
-/** Validación VPA (Proyecto): step "VPA valida Business Case (Entregable Business Case
- *  validado por VPA)" Done, en la fase "Valuación | Formulación del proyecto".
+/** Validación VPA (Proyecto): step Done en la fase "Valuación | Formulación del proyecto"
+ *  que valida el Business Case — "VPA valida Business Case (Entregable Business Case
+ *  validado por VPA)" en la plantilla vieja, "VPA VALIDADO (Entregable Business Case
+ *  validado por VPA)" en la plantilla nueva (PM-010/011/012). Mismo hito, texto distinto.
  *  Beneficio/Costo = los del Business Case (Kick Off Project Meeting). */
 function evalValidacion(items: ProjItem[]): { cost: number; benefit: number } | null {
-  const step = items.find((it) => norm(it.grupo).includes("valuacion") && norm(it.name).includes("vpa valida business case"));
+  const step = items.find((it) => norm(it.grupo).includes("valuacion") && includesAny(it.name, ["vpa valida business case", "vpa validado"]));
   if (step?.status !== "Done") return null;
   const bc = findBusinessCase(items);
   return { cost: bc?.cost ?? 0, benefit: bc?.benefit ?? 0 };
 }
 
-/** Aprobación VPB (Proyecto): "Plan de beneficios acordados con CFO" Y el Value Gate (BC)
- *  Done en la fase "Aprobación | Value Gate", Y el Value Gate Done también en la fase
- *  "Launch | Desarrollo". Beneficio/Costo = los del Business Case (Kick Off Project Meeting). */
+/** Aprobación VPB (Proyecto): "Plan de beneficios acordados con CFO" Done (fase
+ *  "Aprobación | Value Gate") en las dos plantillas por igual, MÁS el/los gate(s) de
+ *  aprobación firmados — que también cambian de nombre entre plantillas:
+ *  · Plantilla vieja: Value Gate (BC) "firmado" Done en Aprobación Y OTRO Value Gate
+ *    "firmado" Done en Launch (dos gates separados).
+ *  · Plantilla nueva: un solo step "VPA APROBADO (Entregable Business Case validado por
+ *    Sponsor+VPA+PMO Mgr)" Done en Aprobación — no existe un segundo gate en Launch.
+ *  Beneficio/Costo = los del Business Case (Kick Off Project Meeting) en ambos casos. */
 function evalAprobacion(items: ProjItem[]): { cost: number; benefit: number } | null {
   const cfo = items.find((it) => norm(it.grupo).includes("aprobacion") && norm(it.name).includes("plan de beneficios acordados con cfo"));
-  const vgAprob = items.find((it) => norm(it.grupo).includes("aprobacion") && isVgSigned(it.name));
-  const vgLaunch = items.find((it) => norm(it.grupo).includes("launch") && isVgSigned(it.name));
-  if (cfo?.status !== "Done" || vgAprob?.status !== "Done" || vgLaunch?.status !== "Done") return null;
+  if (cfo?.status !== "Done") return null;
+
+  const vgAprobOld = items.find((it) => norm(it.grupo).includes("aprobacion") && isVgSigned(it.name));
+  const vgLaunchOld = items.find((it) => norm(it.grupo).includes("launch") && isVgSigned(it.name));
+  const vgAprobNew = items.find((it) => norm(it.grupo).includes("aprobacion") && norm(it.name).includes("vpa aprobado"));
+
+  const gatesOk = (vgAprobOld?.status === "Done" && vgLaunchOld?.status === "Done") || vgAprobNew?.status === "Done";
+  if (!gatesOk) return null;
+
   const bc = findBusinessCase(items);
   return { cost: bc?.cost ?? 0, benefit: bc?.benefit ?? 0 };
 }
 
-/** Confirmación VPC (Proyecto): los 3 steps "VPA Recopila datos a 30/60/90 días
- *  (Compara Valor real contra BC)", en la fase "Revisión | Cierre ROI". Cascada:
- *  si un step está en "Working on it" (medición en curso) se usa ESE beneficio;
- *  si ya no hay ninguno en curso (todos los que existen están Done) se usa el más
- *  reciente (90 > 60 > 30). null si no hay ningún step en Working on it ni Done. */
+/** Confirmación VPC (Proyecto): los 3 steps de medición real en la fase "Revisión |
+ *  Cierre ROI" — "VPA Recopila datos a 30/60/90 días (Compara Valor real contra BC)" en
+ *  la plantilla vieja, "VPA CONFIRMADO a 30/60/90 días (Compara Valor real contra BC)"
+ *  en la nueva. Cascada: si un step está en "Working on it" (medición en curso) se usa
+ *  ESE beneficio; si ya no hay ninguno en curso (todos los que existen están Done) se usa
+ *  el más reciente (90 > 60 > 30). null si no hay ningún step en Working on it ni Done. */
 function evalConfirmacion(items: ProjItem[]): { cost: number; benefit: number } | null {
-  const step = (needle: string) =>
-    items.find((it) => norm(it.grupo).includes("cierre roi") && norm(it.name).includes(needle));
-  const d30 = step("recopila datos a 30 dias");
-  const d60 = step("recopila datos a 60 dias");
-  const d90 = step("recopila datos a 90 dias");
+  const step = (dias: 30 | 60 | 90) =>
+    items.find((it) => norm(it.grupo).includes("cierre roi") && includesAny(it.name, [`recopila datos a ${dias} dias`, `confirmado a ${dias} dias`]));
+  const d30 = step(30);
+  const d60 = step(60);
+  const d90 = step(90);
   const wip = [d30, d60, d90].find((s) => s?.status === "Working on it");   // en curso → ese
   if (wip) return { cost: wip.cost, benefit: wip.benefit };
   const done = [d90, d60, d30].find((s) => s?.status === "Done");           // todos Done → el más reciente
