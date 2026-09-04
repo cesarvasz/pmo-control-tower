@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName } from "./proj";
+import { calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards } from "./proj";
 import { today } from "./business";
 import type { MondayColumnValue, MondayItem, MondaySubitem } from "@/types";
 
@@ -129,5 +129,39 @@ describe("projProcess", () => {
     ])]);
     expect(r.startDate).toEqual(new Date(2026, 2, 1));
     expect(r.subitems[0].startDate).toEqual(new Date(2026, 3, 2));
+  });
+});
+
+describe("projEnrichBoards", () => {
+  const iniPM003 = { estrategia: "Digitalización", sponsor: "Ana Ana", cku: "CKU-1", benefitType: "HardSaving" };
+  const iniLookup = new Map([["ducafast 2.0 gt", iniPM003]]);
+
+  it("PM-013 no tiene Iniciativa propia: toma Estrategia/Sponsor/CKU de PM-003, pero NO su Benefit Type", () => {
+    const boards = [
+      { id: "b003", name: "PM-003 | DUCAfast 2.0 GT" },
+      { id: "b013", name: "PM-013 | Proyecto Sin Iniciativa" },
+    ];
+    const [pm003, pm013] = projEnrichBoards(boards, [], iniLookup);
+
+    expect(pm003).toMatchObject({ estrategia: "Digitalización", sponsor: "Ana Ana", cku: "CKU-1", benefitType: "HardSaving" });
+    expect(pm013.estrategia).toBe("Digitalización");
+    expect(pm013.sponsor).toBe("Ana Ana");
+    expect(pm013.cku).toBe("CKU-1");
+    // Benefit Type NO entra en la excepción: PM-013 no matchea ninguna Iniciativa por su cuenta.
+    expect(pm013.benefitType).toBe("");
+  });
+
+  it("si el board de PM-003 no está presente, PM-013 no rompe: campos vacíos como cualquier board sin Iniciativa", () => {
+    const boards = [{ id: "b013", name: "PM-013 | Proyecto Sin Iniciativa" }];
+    const [pm013] = projEnrichBoards(boards, [], iniLookup);
+    expect(pm013.estrategia).toBe("");
+    expect(pm013.sponsor).toBe("");
+    expect(pm013.cku).toBe("");
+  });
+
+  it("la excepción de Sponsor de DUCAfast SV sigue funcionando", () => {
+    const boards = [{ id: "bsv", name: "PM-099 | DUCAfast SV" }];
+    const [r] = projEnrichBoards(boards, [], new Map());
+    expect(r.sponsor).toBe("Javier Claros");
   });
 });

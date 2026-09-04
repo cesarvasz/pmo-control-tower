@@ -207,10 +207,10 @@ describe("calcCompletionEstimate", () => {
     expect(c.estimatedFinish).toEqual(new Date(2026, 0, 20));
   });
 
-  it("con pendientes y sin atraso histórico → estimatedFinish = plannedFinish", () => {
+  it("con pendientes y sin atraso histórico → estimatedFinish = fin planificado de Fase 4 (Operación)", () => {
     const units = flattenBoardUnits([
-      item({ id: "1", status: "Done", endDate: daysFromToday(-5) }),
-      item({ id: "2", status: "Working on it", deadline: daysFromToday(10) }),
+      item({ id: "1", grupo: "Operación", status: "Done", endDate: daysFromToday(-5) }),
+      item({ id: "2", grupo: "Operación", status: "Working on it", deadline: daysFromToday(10) }),
     ]);
     const c = calcCompletionEstimate(units, 0);
     expect(c.plannedFinish).toEqual(daysFromToday(10));
@@ -218,15 +218,41 @@ describe("calcCompletionEstimate", () => {
     expect(c.scheduleSlipDays).toBe(0);
   });
 
+  it("ignora deadlines de otras fases: solo cuenta Fase 4 (Operación), aunque otra fase venza después", () => {
+    const units = flattenBoardUnits([
+      item({ id: "1", grupo: "Launch | Desarrollo", status: "Working on it", deadline: daysFromToday(30) }),
+      item({ id: "2", grupo: "Operación", status: "Working on it", deadline: daysFromToday(10) }),
+      item({ id: "3", grupo: "Revisión", status: "Working on it", deadline: daysFromToday(60) }),
+    ]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.plannedFinish).toEqual(daysFromToday(10));
+  });
+
+  it("toma el deadline de Fase 4 aunque ya esté Done (es el plan, no lo pendiente)", () => {
+    const units = flattenBoardUnits([
+      item({ id: "1", grupo: "Operación", status: "Done", deadline: daysFromToday(10), endDate: daysFromToday(9) }),
+      item({ id: "2", grupo: "Launch | Desarrollo", status: "Working on it", deadline: daysFromToday(5) }),
+    ]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.plannedFinish).toEqual(daysFromToday(10));
+  });
+
   it("plan ya vencido → arranca desde hoy y le suma el atraso promedio", () => {
-    const units = flattenBoardUnits([item({ id: "1", status: "Working on it", deadline: daysFromToday(-15) })]);
+    const units = flattenBoardUnits([item({ id: "1", grupo: "Operación", status: "Working on it", deadline: daysFromToday(-15) })]);
     const c = calcCompletionEstimate(units, 4);
     expect(c.scheduleSlipDays).toBeGreaterThan(0);
     expect(c.estimatedFinish!.getTime()).toBeGreaterThan(today().getTime());
   });
 
-  it("sin ningún deadline pendiente → no hay estimado posible", () => {
-    const units = flattenBoardUnits([item({ id: "1", status: "Working on it", deadline: null })]);
+  it("sin ningún deadline en Fase 4 → no hay estimado posible", () => {
+    const units = flattenBoardUnits([item({ id: "1", grupo: "Operación", status: "Working on it", deadline: null })]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.plannedFinish).toBeNull();
+    expect(c.estimatedFinish).toBeNull();
+  });
+
+  it("sin ningún item en Fase 4 (board sin esa fase todavía) → no hay estimado posible", () => {
+    const units = flattenBoardUnits([item({ id: "1", grupo: "Launch | Desarrollo", status: "Working on it", deadline: daysFromToday(10) })]);
     const c = calcCompletionEstimate(units, 0);
     expect(c.plannedFinish).toBeNull();
     expect(c.estimatedFinish).toBeNull();

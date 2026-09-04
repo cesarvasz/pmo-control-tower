@@ -386,6 +386,12 @@ export const projPhaseKey = (boardId: string, grupo: string) => `${boardId}::${g
  *  nos da el orden de los grupos, solo su nombre). */
 export const isFase3 = (grupo: string): boolean => (grupo ?? "").trim().toLowerCase().startsWith("launch");
 
+/** Fase 4 = Operación — el checkpoint administrativo que sigue a Launch (ver
+ *  comentario de isFase3 arriba: Valuación(1) → Aprobación(2) → Launch(3) →
+ *  Operación(4) → Revisión(5)). Se acentúa "Operación" en los boards reales,
+ *  por eso se normaliza (sin acentos) antes de comparar. */
+export const isFase4 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("operacion");
+
 // La plantilla "vieja" de Fase 3 tiene siempre 4 steps fijos que son CHECKPOINTS, no
 // entregables ("Analisis técnico...", "Value Gate (BC)...", "Agenda BAT/UAT CKU" y
 // "Desarrollo por iteraciones (Hitos) / Entrega(s) CKU") — el mismo hito real aparece

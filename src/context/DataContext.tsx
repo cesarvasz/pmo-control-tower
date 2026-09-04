@@ -28,6 +28,9 @@ interface DataContextValue {
   /** Actualiza localmente (optimista) el responsable de una atribución (atraso o
    *  reproceso). responsible null → quita la asignación. La persistencia la hace el caller. */
   setAttribution: (kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => void;
+  /** Actualiza localmente (optimista) el Responsable/Motivo de un atraso (tabla
+   *  Atrasos). Ambos vacíos → quita el detalle. La persistencia la hace el caller. */
+  setAtrasoDetalle: (itemId: string, responsable: string, motivo: string) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -82,7 +85,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       const reminderMap = buildReminderMap(raw.reminderLog ?? []);
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, directorio, estrategiaMap, reminderMap, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, atrasoDetalles: raw.atrasoDetalles ?? {}, directorio, estrategiaMap, reminderMap, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
@@ -102,6 +105,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Actualización optimista del detalle de un atraso (tabla Atrasos); evita un refetch completo.
+  const setAtrasoDetalle = useCallback((itemId: string, responsable: string, motivo: string) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const map = { ...prev.atrasoDetalles };
+      if (responsable || motivo) map[itemId] = { responsable, motivo, at: new Date().toISOString() };
+      else delete map[itemId];
+      return { ...prev, atrasoDetalles: map };
+    });
+  }, []);
+
   // Carga inicial una sola vez, cuando hay sesión. Los datos NO se refrescan solos:
   // solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
   useEffect(() => {
@@ -118,7 +132,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, loading, error, refresh, setAttribution }}>
+    <DataContext.Provider value={{ data, loading, error, refresh, setAttribution, setAtrasoDetalle }}>
       {children}
     </DataContext.Provider>
   );

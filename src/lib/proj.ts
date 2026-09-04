@@ -313,6 +313,30 @@ const BOARD_INI_ALIAS_BY_ID: Record<string, string> = {
   "18427168172": "DUCAfast Regional",  // PM-012 DUCAfast Reg⚡
 };
 
+/** Resuelve la Iniciativa de un board: match exacto por nombre, luego por
+ *  prefijo, luego por alias explícito — la misma cadena que projEnrichBoards
+ *  aplica a cada board, extraída para poder resolverla también para un board
+ *  DISTINTO al que se está enriqueciendo (ver excepción PM-013 más abajo). */
+function resolverIniDeBoard(
+  board: { id: string; name: string },
+  iniLookup: Map<string, IniLookupVal>,
+): IniLookupVal | undefined {
+  const key = normName(stripPmPrefix(board.name));
+  let ini = iniLookup.get(key);
+  if (!ini) {
+    for (const [iniKey, val] of iniLookup) {
+      if (iniKey.length > 4 && key.startsWith(iniKey)) { ini = val; break; }
+    }
+  }
+  if (!ini && BOARD_INI_ALIAS_BY_ID[board.id]) {
+    ini = iniLookup.get(normName(BOARD_INI_ALIAS_BY_ID[board.id]));
+  }
+  return ini;
+}
+
+/** Código de board (ej. "PM-013") sin espacios y en mayúsculas, para comparar. */
+const boardCode = (boardName: string) => splitBoardName(boardName).code.trim().toUpperCase();
+
 export function projEnrichBoards(
   boards: { id: string; name: string }[],
   projData: ProjItem[],
@@ -322,20 +346,30 @@ export function projEnrichBoards(
   projData.forEach((item) => {
     if (!(item.boardId in boardResp)) boardResp[item.boardId] = item.resp || item.pm || item.responsible || "";
   });
+
+  // Excepción única: PM-013 no tiene Iniciativa propia en el board de
+  // Iniciativas (no tiene la fuente base que alimenta a los demás proyectos),
+  // así que Estrategia, Sponsor y CKU se toman de la Iniciativa de PM-003 —
+  // es el mismo negocio y comparte esos tres datos. Benefit Type NO entra en
+  // esta excepción: sigue su resolución normal (propia de PM-013, vacía si no
+  // hay match, igual que cualquier otro board sin Iniciativa).
+  const boardPM003 = boards.find((b) => boardCode(b.name) === "PM-003");
+  const iniPM003 = boardPM003 ? resolverIniDeBoard(boardPM003, iniLookup) : undefined;
+
   return boards.map((b) => {
     const key = normName(stripPmPrefix(b.name));
-    // Match exacto; si no, fallback por prefijo (ej. "Producto Terrestre MX" → "Producto Terrestre").
-    let ini = iniLookup.get(key);
-    if (!ini) {
-      for (const [iniKey, val] of iniLookup) {
-        if (iniKey.length > 4 && key.startsWith(iniKey)) { ini = val; break; }
-      }
-    }
-    if (!ini && BOARD_INI_ALIAS_BY_ID[b.id]) {
-      ini = iniLookup.get(normName(BOARD_INI_ALIAS_BY_ID[b.id]));
-    }
+    const ini = resolverIniDeBoard(b, iniLookup);
+    const iniCompartida = boardCode(b.name) === "PM-013" && iniPM003 ? iniPM003 : ini;
+
     // Excepción única: el Sponsor de "DUCAfast SV" siempre es Javier Claros.
-    const sponsor = key.includes("ducafast sv") ? "Javier Claros" : (ini?.sponsor || "");
-    return { ...b, pm: boardResp[b.id] || "", estrategia: ini?.estrategia || "", sponsor, cku: ini?.cku || "", benefitType: ini?.benefitType || "" };
+    const sponsor = key.includes("ducafast sv") ? "Javier Claros" : (iniCompartida?.sponsor || "");
+    return {
+      ...b,
+      pm: boardResp[b.id] || "",
+      estrategia: iniCompartida?.estrategia || "",
+      sponsor,
+      cku: iniCompartida?.cku || "",
+      benefitType: ini?.benefitType || "",
+    };
   });
 }

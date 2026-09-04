@@ -146,6 +146,19 @@ export interface DelayAttribution {
 /** Tipos de atribución persistidos por ítem, cada uno en su colección Firestore. */
 export type AttributionKind = "delay" | "reproceso";
 
+// ── Detalle de un atraso (tabla "Atrasos" del Resumen Ejecutivo) ───────────
+// Documentación libre de un step atrasado/stuck (tabla Atrasos): un ROL
+// (mismo catálogo DELAY_RESPONSIBLES que usa ResponsibleSelect para
+// Entrega/atraso y Reproceso — VPA/CKU/PM/Sponsor/Desarrollador/BRM) y un
+// texto explicando el motivo. Editable por cualquier usuario con acceso a la
+// página Resumen Ejecutivo (no requiere ser Admin).
+export interface AtrasoDetalle {
+  responsable?: string; // rol — ver DELAY_RESPONSIBLES en lib/delay.ts
+  motivo?: string;      // texto libre
+  by?: string;          // correo de quien lo guardó
+  at?: string;           // ISO timestamp
+}
+
 /** Payload completo que devuelve `GET /api/dashboard`. */
 export interface DashboardRaw {
   iniItems: MondayItem[];
@@ -161,6 +174,7 @@ export interface DashboardRaw {
   npsRecords: NpsRecord[]; // respuestas de encuestas (Firestore) para el NPS
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Firestore)
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Firestore)
+  atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Firestore) — tabla Atrasos
   reminderLog: ReminderEnvio[]; // registro de correos "Sin Valor Def" enviados por Apps Script
   fetchedAt: string;
 }
@@ -387,6 +401,7 @@ export interface DashboardData {
   npsRecords: NpsRecord[];     // respuestas crudas para NPS por PM
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso
+  atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso — tabla Atrasos
   directorio: DirectorioEntry[];
   /** nombre-normalizado de Estrategia → { U Neg, País }. */
   estrategiaMap: Map<string, EstrategiaInfo>;

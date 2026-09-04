@@ -5,8 +5,75 @@
 
 import { addBusinessDays, businessDays, today } from "@/lib/business";
 import { classifyDev } from "@/lib/devTimeline";
-import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { isFase3, isFase4, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import type { ProjItem } from "@/types";
+
+/** "Stuck" no tiene un enum en el origen (Monday): es un valor de texto libre
+ *  en la columna Status, igual que "Working on it"/"Done". */
+const isStuck = (status: string) => status.trim().toLowerCase() === "stuck";
+const enScope = (status: string, estado: string) => status !== "Done" && (estado === "ATRASADO" || isStuck(status));
+
+/** Un step (item de Fase 3) atrasado/Stuck — nunca uno de sus hitos por
+ *  separado. Devuelve null si el step no está en scope. Reutilizado por la
+ *  tabla Atrasos en pantalla (resumen-ejecutivo/page.tsx) y por el PDF
+ *  (ProjectPdfReport.tsx) — misma fuente para que ambos siempre coincidan. */
+export interface StepAtraso {
+  id: string; name: string; grupo: string;
+  deadline: Date | null; responsible: string;
+  daysLate: number | null; stuck: boolean;
+  /** Cuántos hitos del step están en scope (0 si el step no tiene hitos —
+   *  se evaluó por su propio status). */
+  nHitos: number;
+}
+export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
+  if (it.subitems.length > 0) {
+    // Los hitos son la fuente real de status cuando existen (mismo criterio
+    // que WorkUnit arriba) — el status propio del item padre no se usa. El
+    // step se muestra con el peor atraso entre sus hitos en scope.
+    const tardios = it.subitems.filter((s) => enScope(s.status, s.estado));
+    if (tardios.length === 0) return null;
+    let peorDeadline: Date | null = null, peorDias = -Infinity;
+    for (const s of tardios) {
+      const dias = s.deadline ? businessDays(s.deadline, hoy) : -Infinity;
+      if (dias > peorDias) { peorDias = dias; peorDeadline = s.deadline; }
+    }
+    return {
+      id: it.id, name: it.name, grupo: it.grupo,
+      deadline: peorDeadline, responsible: it.responsible,
+      daysLate: peorDeadline ? peorDias : null,
+      stuck: tardios.some((s) => isStuck(s.status)),
+      nHitos: tardios.length,
+    };
+  }
+  if (!enScope(it.status, it.estado)) return null;
+  return {
+    id: it.id, name: it.name, grupo: it.grupo,
+    deadline: it.deadline, responsible: it.responsible,
+    daysLate: it.deadline ? businessDays(it.deadline, hoy) : null,
+    stuck: isStuck(it.status),
+    nHitos: 0,
+  };
+}
+
+/** Días hábiles de atraso, SIN doble contar días traslapados entre varios
+ *  steps atrasados a la vez: cada step aporta el rango [deadline, hoy], esos
+ *  rangos se UNEN (mismo patrón de merge de intervalos que costoClonacion en
+ *  lib/clonaciones.ts) antes de contar días hábiles, así que si dos steps
+ *  comparten los mismos 5 días de atraso, cuentan una sola vez. */
+export function diasAtrasoSinTraslape(deadlines: Date[], hoy: Date): number {
+  if (deadlines.length === 0) return 0;
+  const ranges = [...deadlines].sort((a, b) => a.getTime() - b.getTime()).map((d) => ({ start: d, end: hoy }));
+  const merged: { start: Date; end: Date }[] = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r.start.getTime() <= last.end.getTime()) {
+      if (r.end.getTime() > last.end.getTime()) last.end = r.end;
+    } else {
+      merged.push({ ...r });
+    }
+  }
+  return merged.reduce((sum, r) => sum + businessDays(r.start, r.end), 0);
+}
 
 /** Unidad de trabajo aplanada: el hito (subitem) si el item los tiene, o el item
  *  mismo si no — evita doble conteo (mismo criterio que "subOffTrack" en /proyectos). */
@@ -134,6 +201,16 @@ export interface PhaseSummary {
   started: boolean;  // algún hito/step ya salió de "Future Steps/Not Started" (o está Done)
 }
 
+/** Estado de una fase para el stepper/Gantt (pantalla y PDF, ver
+ *  resumen-ejecutivo/page.tsx y components/ProjectPdfReport.tsx). */
+export type PhaseState = "done" | "off-track" | "current" | "pending";
+export function phaseState(p: PhaseSummary): PhaseState {
+  if (p.total > 0 && p.done === p.total) return "done";
+  if (p.offTrack) return "off-track";
+  if (p.started) return "current";
+  return "pending";
+}
+
 /** classifyDev clasifica cualquier status de Monday en future/working/done — se
  *  reutiliza aquí solo para detectar "aún no iniciado" (no es lógica de desarrollo). */
 export function buildPhaseSummaries(units: WorkUnit[]): PhaseSummary[] {
@@ -176,17 +253,23 @@ export function calcDelaySummary(units: WorkUnit[]): DelaySummary {
 export interface CompletionEstimate {
   isComplete: boolean;
   actualFinish: Date | null;     // ya terminó: fecha real del último cierre
-  plannedFinish: Date | null;    // deadline más tardío entre lo pendiente (el plan)
+  /** Deadline más tardío entre TODOS los hitos/steps de Fase 4 (Operación) —
+   *  el plan de cierre operativo. Fase 5 (Revisión) es administrativa y no
+   *  cuenta: el proyecto "termina" cuando cierra Operación, no cuando cierra
+   *  el papeleo de Revisión. Se toma de TODOS los de Fase 4 (Done o no), no
+   *  solo los pendientes, porque el deadline es el plan, no lo que falta. */
+  plannedFinish: Date | null;
   estimatedFinish: Date | null;  // predicción: el plan (o hoy, si ya venció) + el atraso promedio observado
-  scheduleSlipDays: number;      // días hábiles ya vencidos del propio deadline del proyecto (0 si aún no llega)
+  scheduleSlipDays: number;      // días hábiles ya vencidos de Fase 4 (0 si aún no llega)
 }
 
 /**
- * Estimado PREDICTIVO de cierre: parte del deadline más tardío entre lo pendiente
- * (el plan); si ese plan ya venció, arranca desde hoy. A ese punto le suma el atraso
- * promedio (días hábiles) que este mismo proyecto ya mostró en sus hitos entregados
- * con atraso (avgSlipDays de calcDelaySummary) — una proyección simple por tendencia,
- * no una fecha inventada. Sin evidencia de atraso (avgSlipDays=0), el estimado es el plan.
+ * Estimado PREDICTIVO de cierre: parte del fin planificado de Fase 4 (Operación,
+ * ver plannedFinish); si ese plan ya venció, arranca desde hoy. A ese punto le suma
+ * el atraso promedio (días hábiles) que este mismo proyecto ya mostró en sus hitos
+ * entregados con atraso (avgSlipDays de calcDelaySummary) — una proyección simple
+ * por tendencia, no una fecha inventada. Sin evidencia de atraso (avgSlipDays=0),
+ * el estimado es el plan.
  */
 export function calcCompletionEstimate(units: WorkUnit[], avgSlipDays: number): CompletionEstimate {
   const t = today();
@@ -198,11 +281,11 @@ export function calcCompletionEstimate(units: WorkUnit[], avgSlipDays: number): 
     return { isComplete: true, actualFinish, plannedFinish: null, estimatedFinish: actualFinish, scheduleSlipDays: 0 };
   }
 
-  const deadlines = pending.map((u) => u.deadline).filter((d): d is Date => d !== null);
-  if (!deadlines.length) {
+  const fase4Deadlines = units.filter((u) => isFase4(u.grupo)).map((u) => u.deadline).filter((d): d is Date => d !== null);
+  if (!fase4Deadlines.length) {
     return { isComplete: false, actualFinish: null, plannedFinish: null, estimatedFinish: null, scheduleSlipDays: 0 };
   }
-  const plannedFinish = new Date(Math.max(...deadlines.map((d) => d.getTime())));
+  const plannedFinish = new Date(Math.max(...fase4Deadlines.map((d) => d.getTime())));
 
   const scheduleSlipDays = plannedFinish < t ? businessDays(plannedFinish, t) : 0;
   const base = scheduleSlipDays > 0 ? t : plannedFinish;

@@ -331,4 +331,50 @@ table.pmo.grouped tbody tr:hover td { background: var(--bg-hover); }
 .viz-seg:hover { filter: brightness(1.12); }
 .viz-seg--first { border-radius: 2px 0 0 2px; }
 .viz-seg--last  { border-radius: 0 4px 4px 0; }
+
 .viz-seg--only  { border-radius: 2px 4px 4px 2px; }
+
+/* ── Impresión / PDF (botón "Descargar PDF" en Resumen Ejecutivo — usa
+   window.print(), así que "Guardar como PDF" del navegador sale limpio) ──
+   Los navegadores quitan colores de fondo al imprimir por defecto (ahorro de
+   tinta); acá se fuerza a conservarlos, porque las tarjetas KPI y las barras
+   del Gantt comunican estado por color. Ocultar sidebar/topbar/controles
+   interactivos se resuelve con la utilidad print:hidden de Tailwind
+   directamente en cada componente (ver layout.tsx, resumen-ejecutivo/page.tsx,
+   AtrasoDetalleEditor.tsx).
+
+   El reporte de detalle de proyecto (ProjectDetailView) pide caber en UNA
+   hoja A4 VERTICAL: como casi todo el tamaño de letra y espaciado de esta
+   app está en rem (relativo a la raíz <html>, no al elemento más cercano),
+   achicar la raíz durante la impresión encoge el reporte casi completo de un
+   solo golpe — solo los pocos anchos/altos del Gantt en píxeles fijos
+   (inline style) necesitan su propio ajuste, con !important porque un
+   estilo inline le gana a una clase normal. Se activa SOLO con la clase
+   print-report-active que ProjectDetailView pone en <html> mientras está
+   montado (ver su useEffect), para no afectar la impresión de ninguna otra
+   página. El factor de encogido (62%) y los anchos/altos de abajo son un
+   punto de partida razonable, no una medida exacta — no hay forma de probar
+   la paginación real de un PDF sin verlo impreso; ajústalos si algo queda
+   apretado o sobra espacio. */
+@media print {
+  * { print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+
+  @page { size: A4 portrait; margin: 8mm; }
+
+  html.print-report-active { font-size: 62%; }
+
+  /* Fila de tarjetas (KPI + Valor $/ROI/Payback, todo en una sola fila — ver
+     resumen-ejecutivo/page.tsx): siempre en una sola fila al imprimir, sin
+     importar cuántas columnas use el layout responsivo en pantalla — el
+     número de columnas coincide con la cantidad real de tarjetas (8). */
+  html.print-report-active .report-kpis { grid-template-columns: repeat(8, 1fr) !important; gap: 0.3rem !important; }
+
+  /* Gantt: columna de fase y alto de fila más compactos que en pantalla — el
+     texto ya se agrandó ahí (para que se lea completo, sin truncar) así que
+     hay margen para achicarlo en papel sin perder legibilidad. Columna más
+     angosta que en el intento landscape anterior porque en vertical el ancho
+     disponible para el eje de tiempo es bastante menor. */
+  html.print-report-active .gantt-phase-col { width: 110px !important; }
+  html.print-report-active .gantt-row-track { min-height: 20px !important; }
+  html.print-report-active .gantt-subrow-track { min-height: 16px !important; }
+}

@@ -46,6 +46,14 @@ interface StatCardProps {
   active?: boolean;
   onClick?: () => void;
   valueSize?: string;
+  /** "top" pone la etiqueta arriba del valor; por defecto ("bottom") va abajo,
+   *  como siempre. */
+  labelPosition?: "top" | "bottom";
+  /** Centra el contenido (valor + etiqueta) vertical y horizontalmente dentro
+   *  de la tarjeta — para filas donde el grid estira todas las tarjetas a la
+   *  altura de la más alta (ej. una fecha larga) y se quiere que el contenido
+   *  de las demás quede parejo, no pegado arriba. */
+  centered?: boolean;
 }
 
 export function StatCard({
@@ -56,11 +64,23 @@ export function StatCard({
   active,
   onClick,
   valueSize = "2.2rem",
+  labelPosition = "bottom",
+  centered = false,
 }: StatCardProps) {
+  const valueEl = (
+    <div style={{ fontSize: valueSize, fontWeight: 700, lineHeight: 1, color: color ?? "var(--card-value-total)" }}>
+      {value}
+    </div>
+  );
+  const labelEl = (
+    <div className={`text-[0.75rem] uppercase tracking-wide text-[var(--text-secondary)] ${labelPosition === "top" ? "mb-1.5" : "mt-1.5"}`}>
+      {label}
+    </div>
+  );
   return (
     <div
       onClick={onClick}
-      className={`rounded-xl border p-[18px] text-center transition-transform ${
+      className={`rounded-xl border p-[18px] text-center transition-transform ${centered ? "flex flex-col items-center justify-center" : ""} ${
         onClick ? "cursor-pointer hover:-translate-y-0.5" : ""
       }`}
       style={{
@@ -69,12 +89,7 @@ export function StatCard({
         boxShadow: active ? `0 0 0 2px ${color ?? "var(--accent)"}` : undefined,
       }}
     >
-      <div style={{ fontSize: valueSize, fontWeight: 700, lineHeight: 1, color: color ?? "var(--card-value-total)" }}>
-        {value}
-      </div>
-      <div className="mt-1.5 text-[0.75rem] uppercase tracking-wide text-[var(--text-secondary)]">
-        {label}
-      </div>
+      {labelPosition === "top" ? <>{labelEl}{valueEl}</> : <>{valueEl}{labelEl}</>}
     </div>
   );
 }

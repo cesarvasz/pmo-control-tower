@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AttributionKind, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
+import type { AtrasoDetalle, AttributionKind, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -98,6 +98,29 @@ export async function saveAttribution(kind: AttributionKind, itemId: string, res
 export async function deleteAttribution(kind: AttributionKind, itemId: string): Promise<void> {
   const db = getAdminDb();
   await db.collection(ATTRIBUTION_COLL[kind]).doc(itemId).delete();
+}
+
+// ── Detalle de atraso (tabla "Atrasos" del Resumen Ejecutivo) ────────────
+// Distinto de ATTRIBUTION_COLL: aquí el "responsable" es una PERSONA del
+// Directorio RH (texto libre elegido de un dropdown), no un rol fijo, y se
+// acompaña de un motivo. Editable por cualquiera con acceso a la página
+// (el POST /api/atraso-detalle lo gatea con requirePage, no requireAction).
+export async function getAtrasoDetalles(): Promise<Record<string, AtrasoDetalle>> {
+  const db = getAdminDb();
+  const snap = await db.collection("atraso_detalles").get();
+  const result: Record<string, AtrasoDetalle> = {};
+  snap.forEach((doc) => { result[doc.id] = doc.data() as AtrasoDetalle; });
+  return result;
+}
+
+export async function saveAtrasoDetalle(itemId: string, responsable: string, motivo: string, by: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("atraso_detalles").doc(itemId).set({ responsable, motivo, by, at: new Date().toISOString() });
+}
+
+export async function deleteAtrasoDetalle(itemId: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("atraso_detalles").doc(itemId).delete();
 }
 
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {

@@ -26,7 +26,7 @@ function RefreshOverlay() {
   if (!loading || !data) return null;
   return (
     <div
-      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4"
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 print:hidden"
       style={{ background: "var(--bg-base)" }}
       role="status"
       aria-live="polite"
@@ -87,13 +87,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex">
       <RefreshOverlay />
-      <Sidebar
-        mobileOpen={mobileSidebarOpen}
-        onClose={() => setMobileSidebarOpen(false)}
-      />
-      <div className="flex h-screen min-w-0 flex-1 flex-col overflow-y-auto">
-        <Topbar onMenuClick={() => setMobileSidebarOpen(true)} />
-        <main className="px-4 py-4 md:px-8 md:py-7">
+      <div className="print:hidden">
+        <Sidebar
+          mobileOpen={mobileSidebarOpen}
+          onClose={() => setMobileSidebarOpen(false)}
+        />
+      </div>
+      <div className="flex h-screen min-w-0 flex-1 flex-col overflow-y-auto print:h-auto print:overflow-visible">
+        <div className="print:hidden">
+          <Topbar onMenuClick={() => setMobileSidebarOpen(true)} />
+        </div>
+        <main className="px-4 py-4 md:px-8 md:py-7 print:p-0">
           {allowed ? (
             <ErrorBoundary key={pathname}>{children}</ErrorBoundary>
           ) : (

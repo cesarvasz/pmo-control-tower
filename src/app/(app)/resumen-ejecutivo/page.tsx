@@ -9,7 +9,7 @@
 // espera. Toda la lógica de agregación vive en lib/portfolioSummary.ts y
 // lib/projSummary.ts (puras, con tests) — esta página solo arma la presentación.
 
-import { Fragment, Suspense, useMemo, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
@@ -17,7 +17,8 @@ import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj"
 import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  buildProjectSummary, flattenBoardUnits, groupFase3Units, type PhaseSummary, type ProjectSummary, type WorkUnit,
+  buildProjectSummary, diasAtrasoSinTraslape, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
+  type PhaseSummary, type PhaseState, type ProjectSummary, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { countByResponsible } from "@/lib/delay";
 import {
@@ -25,22 +26,14 @@ import {
   type PortfolioProjectRow, type CrossRisk,
 } from "@/lib/portfolioSummary";
 import { HEALTH_CFG } from "@/lib/health";
+import { addMonth, monthTicks, startOfMonth } from "@/lib/dateAxis";
 import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
+import AtrasoDetalleEditor from "@/components/AtrasoDetalleEditor";
+import ProjectPdfReport from "@/components/ProjectPdfReport";
+import { downloadElementAsPdf } from "@/lib/pdf";
 import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 const fmtDays = (n: number) => `${n} día${Math.abs(n) === 1 ? "" : "s"}`;
-
-// ── Eje de tiempo (compartido por PhaseTimeline) ──
-const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
-const addMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 1);
-function monthTicks(min: Date, max: Date): { date: Date; label: string }[] {
-  const ticks: { date: Date; label: string }[] = [];
-  for (let d = startOfMonth(min); d <= max; d = addMonth(d)) {
-    ticks.push({ date: new Date(d), label: `${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
-  }
-  return ticks;
-}
 
 const SEVERITY_CFG: Record<"high" | "medium" | "low", { color: string; bg: string; label: string }> = {
   high:   { color: "var(--bad)",  bg: "var(--bad-bg)",  label: "Crítico" },
@@ -345,19 +338,20 @@ function SectionHeader({ n, title }: { n: number; title: string }) {
 // ═══════════════════════════════════════════════════════════════════════
 // VISTA 2 — Detalle de proyecto
 // ═══════════════════════════════════════════════════════════════════════
-function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch }: {
+function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onDownloadPdf, downloadingPdf }: {
   projectName: string; allBoards: ProjBoard[]; currentId: string; onBack: () => void; onSwitch: (id: string) => void;
+  onDownloadPdf: () => void; downloadingPdf: boolean;
 }) {
   return (
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <nav className="flex items-center gap-2 text-[0.82rem]" aria-label="Breadcrumb">
-        <button type="button" onClick={onBack} className="font-semibold text-[var(--accent-light)] transition-colors hover:underline">
+        <button type="button" onClick={onBack} className="font-semibold text-[var(--accent-light)] transition-colors hover:underline print:hidden">
           Resumen Ejecutivo
         </button>
-        <span className="text-[var(--text-disabled)]">/</span>
+        <span className="text-[var(--text-disabled)] print:hidden">/</span>
         <span className="font-semibold text-[var(--text-primary)]">{projectName}</span>
       </nav>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
         <label htmlFor="project-switch" className="text-[0.68rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Cambiar proyecto</label>
         <select
           id="project-switch"
@@ -371,23 +365,25 @@ function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch }: {
             return <option key={b.id} value={b.id}>{code ? `${code} · ${name}` : name}</option>;
           })}
         </select>
+        <button
+          type="button"
+          onClick={onDownloadPdf}
+          disabled={downloadingPdf}
+          className="rounded-lg border px-3 py-1.5 text-[0.78rem] font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60"
+          style={{ borderColor: "var(--border)" }}
+        >
+          {downloadingPdf ? "Generando…" : "↓ Descargar PDF"}
+        </button>
       </div>
     </div>
   );
 }
 
 // ── Estado de una fase (para el stepper) ────────────────────────────────
-type PhaseState = "done" | "off-track" | "current" | "pending";
-function phaseState(p: PhaseSummary): PhaseState {
-  if (p.total > 0 && p.done === p.total) return "done";
-  if (p.offTrack) return "off-track";
-  if (p.started) return "current";
-  return "pending";
-}
 const PHASE_CFG: Record<PhaseState, { color: string; bg: string; icon: string; label: string }> = {
   done:        { color: "var(--ok)",           bg: "var(--health-on-track-bg)",  icon: "✓", label: "Completada" },
   "off-track": { color: "var(--bad)",          bg: "var(--health-off-track-bg)", icon: "✕", label: "Atrasada" },
-  current:     { color: "var(--accent)",       bg: "var(--bg-accent-soft)",      icon: "●", label: "En curso" },
+  current:     { color: "var(--accent)",       bg: "var(--warn-bg)",             icon: "●", label: "En curso" },
   pending:     { color: "var(--text-disabled)", bg: "var(--bg-hover)",           icon: "○", label: "Pendiente" },
 };
 
@@ -401,8 +397,8 @@ function estimateMessage(summary: ProjectSummary): { icon: string; color: string
     return { icon: "—", color: "var(--text-muted)", text: "No hay fechas planificadas suficientes en Monday para estimar un cierre." };
   }
   const base = completion.scheduleSlipDays > 0
-    ? `El plan original vencía el ${fmtDate(completion.plannedFinish)} y ya acumula ${fmtDays(completion.scheduleSlipDays)} hábiles de atraso.`
-    : `Según el plan, el hito más tardío vence el ${fmtDate(completion.plannedFinish)}.`;
+    ? `Fase 4 (Operación) vencía el ${fmtDate(completion.plannedFinish)} y ya acumula ${fmtDays(completion.scheduleSlipDays)} hábiles de atraso.`
+    : `Según el plan, Fase 4 (Operación) cierra el ${fmtDate(completion.plannedFinish)}.`;
   const hasTrend = delay.avgSlipDays > 0;
   const trend = hasTrend
     ? ` Este proyecto ya entregó ${delay.lateDoneCount} hito${delay.lateDoneCount === 1 ? "" : "s"} con atraso (promedio de ${fmtDays(delay.avgSlipDays)} hábiles). Si la tendencia se mantiene, el cierre proyectado es el ${fmtDate(completion.estimatedFinish)}.`
@@ -415,35 +411,90 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   board: ProjBoard; items: ProjItem[]; projItemBaselines: Record<string, ProjItemBaseline>;
   allBoards: ProjBoard[]; onBack: () => void; onSwitch: (id: string) => void;
 }) {
+  // Marca <html> mientras esta vista está montada: el CSS de impresión (ver
+  // globals.css) solo encoge el reporte a una hoja A4 cuando esta clase está
+  // presente — así no afecta el print de cualquier otra página de la app.
+  useEffect(() => {
+    document.documentElement.classList.add("print-report-active");
+    return () => document.documentElement.classList.remove("print-report-active");
+  }, []);
+
   const summary = useMemo(() => buildProjectSummary(items), [items]);
   const health = useMemo(() => deriveBoardHealth(calcBoardMetrics(items, projItemBaselines)), [items, projItemBaselines]);
-  // Beneficio $ por etapa (Validación VPA / Aprobación VPB / Confirmación VPC) —
-  // misma fuente que el modal de Costo/Beneficio por PM (projStageAmounts), acá
-  // aplicada solo a los items de ESTE board. Acumulativa: Confirmación ⇒ también
-  // cuenta como Aprobación (a su valor aprobado / Business Case); una etapa no
-  // alcanzada queda undefined y fmtMoney la muestra como "—".
+  // Beneficio $ / Costo $ (Validación / Aprobación / Confirmación) — misma
+  // fuente que el modal de Costo/Beneficio por PM (projStageAmounts), acá
+  // aplicada solo a los items de ESTE board. Acumulativa: Confirmación ⇒
+  // también cuenta como Aprobación (a su valor aprobado / Business Case).
   const stageAmounts = useMemo(() => projStageAmounts(items), [items]);
-  // Validado, para mostrar: si ya se aprobó (o confirmó), es el MISMO monto del
-  // Business Case que Validación habría mostrado — projStageAmounts solo llena
-  // `validacion` cuando esa es la etapa vigente, así que acá se completa con el
-  // de Aprobación para que la tarjeta no quede vacía una vez superada esa etapa.
-  const validadoBenefit = stageAmounts?.validacion?.benefit ?? stageAmounts?.aprobacion?.benefit;
+  // Costo del proyecto: el del Business Case (Aprobación), que se mantiene
+  // aun confirmado — se completa hacia atrás con Validación si aún no se
+  // aprueba, para que la tarjeta no quede vacía.
+  const costoProyecto = stageAmounts?.aprobacion?.cost ?? stageAmounts?.validacion?.cost;
+  // Beneficio $ (tarjeta) y base de ROI/Payback: el MEJOR beneficio conocido
+  // (Confirmado > Aprobado > Validado) — mismas fórmulas que ProjectReportModal
+  // (ROI %, Payback en meses).
+  const beneficioParaRoi = stageAmounts?.confirmacion?.benefit ?? stageAmounts?.aprobacion?.benefit ?? stageAmounts?.validacion?.benefit;
+  // Valor $ (tarjeta): Beneficio − Costo. Solo se muestra si se conocen AMBOS
+  // (no se asume 0 en el que falte, para no inflar/deflar el neto).
+  const valorProyecto = costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
+  const roi = costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
+  const payback = costoProyecto && beneficioParaRoi && beneficioParaRoi > 0 ? costoProyecto / (beneficioParaRoi / 12) : null;
   const { code, name } = splitBoardName(board.name);
   const healthCfg = health.healthStatus ? HEALTH_CFG[health.healthStatus] : null;
   const est = estimateMessage(summary);
 
-  const overdue = useMemo(() => {
+  // Atrasos: STEPS de Fase 3 (Launch/Desarrollo) atrasados o en Stuck — una
+  // fila por step, nunca una por hito. Un step sin hitos usa su propio
+  // Status/Deadline; un step CON hitos se marca atrasado si CUALQUIERA de sus
+  // hitos lo está (los hitos son la fuente real de status cuando existen —
+  // mismo criterio que WorkUnit en projSummary.ts), y se muestra con el peor
+  // atraso entre ellos, sin desglosar cada hito en su propia fila.
+  const atrasos = useMemo(() => {
     const t = today();
-    return summary.units
-      .filter((u) => u.status !== "Done" && u.estado === "ATRASADO" && u.deadline)
-      .map((u) => ({ u, daysLate: businessDays(u.deadline!, t) }))
-      .sort((a, b) => b.daysLate - a.daysLate)
-      .slice(0, 6);
-  }, [summary.units]);
+    return items
+      .filter((it) => isFase3(it.grupo))
+      .map((it) => evaluarStepAtraso(it, t))
+      .filter((x): x is StepAtraso => x !== null)
+      .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
+  }, [items]);
+  // Días hábiles de atraso de TODOS los steps de Fase 3 en scope, sin doble
+  // contar días traslapados entre ellos (ver diasAtrasoSinTraslape) — para la
+  // tarjeta "Atraso actual".
+  const totalDiasAtrasoFase3 = useMemo(() => {
+    const t = today();
+    return diasAtrasoSinTraslape(atrasos.map((a) => a.deadline).filter((d): d is Date => d !== null), t);
+  }, [atrasos]);
+
+  // PDF: NO es un window.print() de la página — ProjectPdfReport (oculto,
+  // fuera de pantalla) arma un layout propio a tamaño de hoja A4 vertical, que
+  // se captura y empaqueta en un PDF real vía lib/pdf.ts (descarga directa).
+  const pdfRef = useRef<HTMLDivElement>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const handleDownloadPdf = async () => {
+    if (!pdfRef.current || downloadingPdf) return;
+    setDownloadingPdf(true);
+    try {
+      await downloadElementAsPdf(pdfRef.current, `${code ? `${code}-` : ""}${name}.pdf`);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
 
   return (
     <div>
-      <Breadcrumb projectName={name} allBoards={allBoards} currentId={board.id} onBack={onBack} onSwitch={onSwitch} />
+      <Breadcrumb
+        projectName={name} allBoards={allBoards} currentId={board.id} onBack={onBack} onSwitch={onSwitch}
+        onDownloadPdf={handleDownloadPdf} downloadingPdf={downloadingPdf}
+      />
+      <ProjectPdfReport
+        ref={pdfRef}
+        board={board} code={code} name={name} summary={summary} health={health}
+        healthLabel={healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
+        healthColor={healthCfg?.color}
+        atrasos={atrasos} totalDiasAtrasoFase3={totalDiasAtrasoFase3}
+        valorProyecto={valorProyecto} roi={roi} payback={payback}
+        estimateColor={est.color}
+      />
 
       {items.length === 0 ? (
         <EmptyRow msg="Este proyecto no tiene items en Monday." />
@@ -473,74 +524,54 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             {board.estrategia && <span>Estrategia: <strong className="text-[var(--text-primary)]">{board.estrategia}</strong></span>}
           </div>
 
-          {/* KPIs */}
-          <div className="mb-2 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            <StatCard value={`${summary.progress.pct}%`} label="Avance" />
+          {/* KPIs + Beneficio $ — una sola fila de tarjetas */}
+          <div className="report-kpis mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8 print:break-inside-avoid">
+            <StatCard labelPosition="top" centered value={`${summary.progress.pct}%`} label="Avance" />
             <StatCard
+              labelPosition="top" centered
               value={healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
-              label={`Salud${health.healthIndex !== null ? ` · VEM ${Math.round(health.healthIndex * 100)}%` : ""}`}
+              label={`Salud${health.healthIndex !== null ? ` · EVM ${Math.round(health.healthIndex * 100)}%` : ""}`}
               color={healthCfg?.color}
               borderColor={healthCfg?.color}
               valueSize="1.25rem"
             />
             <StatCard
-              value={summary.delay.overdueCount > 0 ? fmtDays(summary.delay.worstOverdueDays) : "Sin atrasos"}
-              label={summary.delay.overdueCount > 0 ? `Atraso actual · ${summary.delay.overdueCount} hito${summary.delay.overdueCount === 1 ? "" : "s"}` : "Atraso actual"}
-              color={summary.delay.overdueCount > 0 ? "var(--bad)" : "var(--ok)"}
-              borderColor={summary.delay.overdueCount > 0 ? "var(--bad)" : undefined}
+              labelPosition="top" centered
+              value={atrasos.length > 0 ? fmtDays(totalDiasAtrasoFase3) : "Sin atrasos"}
+              label={atrasos.length > 0 ? `Atraso actual · ${atrasos.length}` : "Atraso actual"}
+              color={atrasos.length > 0 ? "var(--bad)" : "var(--ok)"}
+              borderColor={atrasos.length > 0 ? "var(--bad)" : undefined}
               valueSize="1.4rem"
             />
-            <StatCard value={fmtDate(summary.completion.plannedFinish)} label="Fecha planificada" valueSize="1.2rem" />
+            <StatCard labelPosition="top" centered value={fmtDate(summary.completion.plannedFinish)} label="Fecha planificada" valueSize="1.2rem" />
             <StatCard
+              labelPosition="top" centered
               value={fmtDate(summary.completion.estimatedFinish)}
               label="Estimado de cierre (predictivo)"
               color={est.color}
               borderColor={est.color}
               valueSize="1.2rem"
             />
-          </div>
-
-          {/* Barra de avance global */}
-          <div className="mb-6 h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${summary.progress.pct}%`, background: healthCfg?.color ?? "var(--accent)" }} />
-          </div>
-
-          {/* Explicación del estimado */}
-          <div className="mb-3 rounded-xl border p-4 text-[0.82rem] leading-relaxed" style={{ borderColor: est.color, background: "var(--bg-surface)", color: "var(--text-secondary)" }}>
-            <span className="mr-1.5">{est.icon}</span>
-            {est.text}
-          </div>
-
-          {/* Presupuesto (EVM), compacto */}
-          <div className="mb-8 flex flex-wrap gap-x-6 gap-y-1.5 text-[0.75rem] text-[var(--text-muted)]">
-            <span>EV: <strong style={{ color: "#10b981" }}>{health.ev ? fmtMoney(health.ev) : "$0"}</strong></span>
-            <span>PV: <strong style={{ color: "#f59e0b" }}>{health.pv ? fmtMoney(health.pv) : "$0"}</strong></span>
-            <span>AC: <strong style={{ color: "#94a3b8" }}>{health.ac ? fmtMoney(health.ac) : "$0"}</strong></span>
-            <span>SPI: <strong className="text-[var(--text-secondary)]">{health.spi !== null ? health.spi.toFixed(2) : "—"}</strong></span>
-            <span>CPI: <strong className="text-[var(--text-secondary)]">{health.cpi !== null ? health.cpi.toFixed(2) : "—"}</strong></span>
-            <span>Scope: <strong className="text-[var(--text-secondary)]">{health.scope !== null ? `${health.scope.toFixed(0)}%` : "—"}</strong></span>
-          </div>
-
-          {/* Beneficio $ por etapa */}
-          <h3 className="mb-3 text-[0.95rem] font-bold text-[var(--text-primary)]">Beneficio $ por etapa</h3>
-          <div className="mb-8 grid grid-cols-3 gap-4">
             <StatCard
-              value={fmtMoney(validadoBenefit)}
-              label="Validado (VPA)"
-              color={validadoBenefit ? "var(--ok)" : "var(--text-disabled)"}
-              valueSize="1.3rem"
+              labelPosition="top" centered
+              value={fmtMoney(valorProyecto)}
+              label="Valor $"
+              color={valorProyecto !== null ? (valorProyecto >= 0 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)"}
+              valueSize="1.2rem"
             />
             <StatCard
-              value={fmtMoney(stageAmounts?.aprobacion?.benefit)}
-              label="Aprobado (VPB)"
-              color={stageAmounts?.aprobacion ? "var(--ok)" : "var(--text-disabled)"}
-              valueSize="1.3rem"
+              labelPosition="top" centered
+              value={roi !== null ? `${Math.round(roi)}%` : "—"}
+              label="ROI"
+              color={roi !== null ? (roi >= 0 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)"}
+              valueSize="1.2rem"
             />
             <StatCard
-              value={fmtMoney(stageAmounts?.confirmacion?.benefit)}
-              label="Confirmado (VPC)"
-              color={stageAmounts?.confirmacion ? "var(--ok)" : "var(--text-disabled)"}
-              valueSize="1.3rem"
+              labelPosition="top" centered
+              value={payback !== null ? `${payback.toFixed(1)} meses` : "—"}
+              label="Payback"
+              color={payback !== null ? "var(--text-secondary)" : "var(--text-disabled)"}
+              valueSize="1.2rem"
             />
           </div>
 
@@ -548,16 +579,17 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
           <h3 className="mb-3 text-[0.95rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
           <PhaseTimeline phases={summary.phases} units={summary.units} estimatedFinish={summary.completion.estimatedFinish} />
 
-          {/* Hitos atrasados */}
-          <MilestoneList
-            title="Hitos atrasados"
-            empty="Sin hitos atrasados. 🎉"
-            rows={overdue.map(({ u, daysLate }) => ({
-              id: u.id, name: u.name, grupo: u.grupo,
-              dateLabel: fmtDate(u.deadline),
-              responsible: u.responsible,
-              tag: `${fmtDays(daysLate)} de atraso`,
-              tone: "bad" as const,
+          {/* Atrasos: steps de Fase 3 atrasados o Stuck (una fila por step) */}
+          <AtrasosList
+            rows={atrasos.map((a) => ({
+              id: a.id, name: a.name,
+              dateLabel: fmtDate(a.deadline),
+              responsible: a.responsible,
+              tag: [
+                a.daysLate != null && a.daysLate > 0 ? `${fmtDays(a.daysLate)} de atraso` : null,
+                a.stuck ? "Stuck" : null,
+                a.nHitos > 0 ? `${a.nHitos} hito${a.nHitos === 1 ? "" : "s"}` : null,
+              ].filter(Boolean).join(" · ") || "Atrasado",
             }))}
           />
         </>
@@ -699,7 +731,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
         {/* Eje — ocupa el ancho disponible; con muchos meses se saltan etiquetas
             (labelStep) para que no se amontonen, pero la línea de cada mes queda. */}
         <div className="flex items-end border-b" style={{ borderColor: "var(--border)" }}>
-          <div style={{ width: 190 }} className="shrink-0 px-3 py-2 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+          <div style={{ width: 260 }} className="gantt-phase-col shrink-0 px-3 py-2 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
             Fase
           </div>
           <div className="relative h-9 flex-1">
@@ -740,7 +772,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                 style={{ borderColor: "var(--border)" }}
                 onClick={isF3 ? () => toggleFase3(r.phase.grupo) : undefined}
               >
-                <div style={{ width: 190 }} className="shrink-0 px-3 py-2.5">
+                <div style={{ width: 260, background: r.cfg.bg }} className="gantt-phase-col shrink-0 px-3 py-2.5">
                   <div className="flex items-center gap-1.5">
                     {isF3 && (
                       <span
@@ -748,7 +780,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                         style={{ transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : undefined }}
                       >▶</span>
                     )}
-                    <div className="truncate text-[0.78rem] font-semibold text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
+                    <div className="text-[0.92rem] font-semibold leading-tight text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
                   </div>
                   <div className="mt-0.5 flex items-center gap-1 text-[0.65rem] font-semibold" style={{ color: r.cfg.color }}>
                     {r.cfg.icon} {r.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
@@ -756,7 +788,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                   </div>
                 </div>
 
-                <div className="relative flex-1" style={{ minHeight: 52 }}>
+                <div className="gantt-row-track relative flex-1" style={{ minHeight: 52 }}>
                   {ticks.map((t, i) => (
                     <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
                   ))}
@@ -797,22 +829,25 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
               {/* Detalle expandible de Fase 3: un renglón por step, con su propio
                   rango (inicio→fin) y si está atrasado o en tiempo — animación tipo
                   acordeón (CSS grid-template-rows 0fr↔1fr, se adapta a cualquier
-                  cantidad de steps sin medir alturas a mano). */}
+                  cantidad de steps sin medir alturas a mano). print:hidden: en el
+                  PDF de una hoja no cabe el desglose por hito — la fila resumen de
+                  la fase ya lo dice (offTrack/done/total), sin importar si en
+                  pantalla estaba expandido o no. */}
               {isF3 && (
                 <div
-                  className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+                  className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out print:hidden"
                   style={{ gridTemplateRows: isOpen ? "1fr" : "0fr", opacity: isOpen ? 1 : 0 }}
                 >
                   <div className="overflow-hidden" style={{ background: "var(--bg-hover)" }}>
                     {steps.map((sr, si) => (
                       <div key={`${sr.phase.grupo}-${si}`} className="flex items-stretch border-b last:border-b-0" style={{ borderColor: "var(--border-subtle)" }}>
-                        <div style={{ width: 190 }} className="shrink-0 py-2 pl-7 pr-3">
-                          <div className="truncate text-[0.72rem] font-medium text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
+                        <div style={{ width: 260, background: sr.cfg.bg }} className="gantt-phase-col shrink-0 py-2 pl-7 pr-3">
+                          <div className="text-[0.82rem] font-medium leading-tight text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
                           <div className="mt-0.5 flex items-center gap-1 text-[0.62rem] font-semibold" style={{ color: sr.cfg.color }}>
                             {sr.cfg.icon} {sr.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {sr.phase.done}/{sr.phase.total}</span>
                           </div>
                         </div>
-                        <div className="relative flex-1" style={{ minHeight: 36 }}>
+                        <div className="gantt-subrow-track relative flex-1" style={{ minHeight: 36 }}>
                           {ticks.map((t, ti) => (
                             <div key={ti} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.35 }} />
                           ))}
@@ -877,6 +912,46 @@ function MilestoneList({ title, empty, rows }: { title: string; empty: string; r
               >
                 {r.tag}
               </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Atrasos: hitos/steps de Fase 3 atrasados o Stuck, con Responsable/Motivo ──
+// editables (Firestore, ver AtrasoDetalleEditor). Distinta de MilestoneList
+// porque cada fila necesita espacio para los dos controles de edición.
+interface AtrasoRow { id: string; name: string; dateLabel: string; responsible?: string; tag: string }
+function AtrasosList({ rows }: { rows: AtrasoRow[] }) {
+  return (
+    <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+      <h4 className="mb-3 text-[0.85rem] font-bold text-[var(--text-primary)]">Atrasos</h4>
+      {rows.length === 0 ? (
+        <div className="py-4 text-center text-[0.78rem] text-[var(--text-muted)]">Sin atrasos. 🎉</div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {rows.map((r) => (
+            <div key={r.id} className="border-b pb-3 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-[0.8rem] font-medium text-[var(--text-primary)]" title={r.name}>{r.name}</div>
+                  <div className="truncate text-[0.68rem] text-[var(--text-muted)]">
+                    {r.dateLabel}
+                    {r.responsible && <> · A cargo: <span className="text-[var(--text-secondary)]">{r.responsible}</span></>}
+                  </div>
+                </div>
+                <span
+                  className="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
+                  style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
+                >
+                  {r.tag}
+                </span>
+              </div>
+              <div className="mt-2">
+                <AtrasoDetalleEditor itemId={r.id} />
+              </div>
             </div>
           ))}
         </div>
