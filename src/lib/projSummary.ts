@@ -25,6 +25,10 @@ export interface StepAtraso {
    *  se evaluó por su propio status). */
   nHitos: number;
 }
+
+/** % de los atrasos actuales atribuibles a un rol ("Responsable atraso", ver
+ *  AtrasoDetalleEditor) — reutilizado por la tabla en pantalla y por el PDF. */
+export interface Responsabilidad { label: string; pct: number }
 export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
   if (it.subitems.length > 0) {
     // Los hitos son la fuente real de status cuando existen (mismo criterio
@@ -201,14 +205,27 @@ export interface PhaseSummary {
   started: boolean;  // algún hito/step ya salió de "Future Steps/Not Started" (o está Done)
 }
 
-/** Estado de una fase para el stepper/Gantt (pantalla y PDF, ver
- *  resumen-ejecutivo/page.tsx y components/ProjectPdfReport.tsx). */
-export type PhaseState = "done" | "off-track" | "current" | "pending";
-export function phaseState(p: PhaseSummary): PhaseState {
+/** Estado VISUAL de una fase para el stepper/Gantt (pantalla y PDF, ver
+ *  resumen-ejecutivo/page.tsx y components/ProjectPdfReport.tsx) — solo 3
+ *  colores: verde (completada), ámbar (la fase actual, sin importar si
+ *  además está atrasada) y gris (todo lo demás, incluida una fase atrasada
+ *  que YA NO es la actual). El texto "Atrasada" se decide aparte con
+ *  `p.offTrack` (ver el label que arma cada consumidor) — el color ya no
+ *  distingue atrasada de pendiente, para no competir visualmente con el
+ *  ámbar de "en curso". */
+export type PhaseState = "done" | "current" | "pending";
+export function phaseState(p: PhaseSummary, isCurrent: boolean): PhaseState {
   if (p.total > 0 && p.done === p.total) return "done";
-  if (p.offTrack) return "off-track";
-  if (p.started) return "current";
-  return "pending";
+  return isCurrent ? "current" : "pending";
+}
+
+/** Índice de la fase "actual": la primera (en orden) que NO está 100%
+ *  completa — la que bloquea el avance, sin importar si una fase posterior
+ *  ya tiene actividad en paralelo. -1 si todas están completas (o no hay
+ *  fases). Sirve tanto para las 5 fases de nivel superior como, aparte, para
+ *  los steps dentro de Fase 3 (ver fase3StepRowsFor en resumen-ejecutivo). */
+export function currentPhaseIndex(phases: PhaseSummary[]): number {
+  return phases.findIndex((p) => !(p.total > 0 && p.done === p.total));
 }
 
 /** classifyDev clasifica cualquier status de Monday en future/working/done — se

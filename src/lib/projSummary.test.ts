@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   flattenBoardUnits, calcProgress, calcPlannedProgress, buildPhaseSummaries, groupFase3Units, calcDelaySummary, calcCompletionEstimate,
+  currentPhaseIndex, phaseState, type PhaseSummary,
 } from "./projSummary";
 import { today } from "./business";
 import type { ProjItem, ProjSubitem } from "@/types";
@@ -164,6 +165,34 @@ describe("buildPhaseSummaries", () => {
   it("fase con todo en Future Steps → started=false", () => {
     const units = flattenBoardUnits([item({ id: "1", grupo: "Operación", status: "Future Steps" })]);
     expect(buildPhaseSummaries(units)[0].started).toBe(false);
+  });
+});
+
+describe("currentPhaseIndex / phaseState", () => {
+  const done: PhaseSummary = { grupo: "Valuación", total: 2, done: 2, offTrack: false, started: true };
+  const offTrackNotCurrent: PhaseSummary = { grupo: "Aprobación", total: 2, done: 0, offTrack: true, started: true };
+  const pending: PhaseSummary = { grupo: "Operación", total: 3, done: 0, offTrack: false, started: false };
+
+  it("la fase actual es la PRIMERA no completada, aunque esté atrasada", () => {
+    expect(currentPhaseIndex([done, offTrackNotCurrent, pending])).toBe(1);
+  });
+
+  it("todas completas → -1 (no hay fase actual)", () => {
+    expect(currentPhaseIndex([done, { ...done, grupo: "Aprobación" }])).toBe(-1);
+  });
+
+  it("una fase atrasada que YA NO es la actual → estado 'pending' (gris), no un estado propio de atraso", () => {
+    // offTrackNotCurrent es el índice 0 acá — pero isCurrent=false porque ya se decidió
+    // en otro lado (ej. una fase posterior es la que bloquea el avance real).
+    expect(phaseState(offTrackNotCurrent, false)).toBe("pending");
+  });
+
+  it("la fase actual siempre da 'current' aunque esté atrasada", () => {
+    expect(phaseState(offTrackNotCurrent, true)).toBe("current");
+  });
+
+  it("una fase completa da 'done' sin importar isCurrent", () => {
+    expect(phaseState(done, true)).toBe("done");
   });
 });
 

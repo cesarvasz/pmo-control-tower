@@ -25,10 +25,13 @@
 // puede pasar a una segunda línea (whiteSpace normal) con el contenedor
 // recortando por altura si de plano no cabe — nunca a la mitad de una letra.
 
-import { forwardRef, useState } from "react";
+import { forwardRef, useState, type ReactNode } from "react";
 import { fmtDate, fmtMoney } from "@/lib/business";
 import { addMonth, monthTicks, startOfMonth } from "@/lib/dateAxis";
-import { phaseState, type PhaseSummary, type ProjectSummary, type StepAtraso, type WorkUnit } from "@/lib/projSummary";
+import {
+  currentPhaseIndex, phaseState,
+  type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
+} from "@/lib/projSummary";
 import type { BoardHealthData } from "@/lib/proj";
 import type { ProjBoard } from "@/types";
 
@@ -54,14 +57,20 @@ const C = {
   disabledBg: "#f1f5f9",
 };
 
-const PHASE_PDF_CFG: Record<ReturnType<typeof phaseState>, { color: string; bg: string; label: string }> = {
-  done:        { color: C.ok,   bg: C.okBg,       label: "Completada" },
-  "off-track": { color: C.bad,  bg: C.badBg,      label: "Atrasada" },
-  // "En curso" = la fase donde va el proyecto actualmente — ámbar suave, solo
-  // para ubicarla (no es una alerta como "Atrasada").
-  current:     { color: C.warn, bg: C.warnBg,     label: "En curso" },
-  pending:     { color: C.textMuted, bg: C.disabledBg, label: "Pendiente" },
+// Solo 3 colores (mismo criterio que en pantalla, ver resumen-ejecutivo/
+// page.tsx): verde completada, ámbar la fase actual (aunque esté atrasada),
+// gris todo lo demás — una fase atrasada que ya NO es la actual también es
+// gris, el texto "Atrasada" se decide aparte (ver phaseLabel).
+const PHASE_PDF_CFG: Record<ReturnType<typeof phaseState>, { color: string; bg: string }> = {
+  done:    { color: C.ok,   bg: C.okBg },
+  current: { color: C.warn, bg: C.warnBg },
+  pending: { color: C.textMuted, bg: C.disabledBg },
 };
+function phaseLabel(p: PhaseSummary, isCurrent: boolean): string {
+  if (p.total > 0 && p.done === p.total) return "Completada";
+  if (p.offTrack) return "Atrasada";
+  return isCurrent ? "En curso" : "Pendiente";
+}
 
 function fmtMoneyOrDash(n: number | null | undefined): string {
   return n ? fmtMoney(n) : "—";
@@ -73,7 +82,7 @@ function fmtMoneyOrDash(n: number | null | undefined): string {
 // 4×2 cada tarjeta tiene más del doble de ancho.
 const KPI_H = 104;
 
-interface Card { value: string; label: string; color?: string }
+interface Card { value: ReactNode; label: string; color?: string }
 
 function KpiCard({ value, label, color }: Card) {
   return (
@@ -120,11 +129,11 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
   const span = Math.max(max - min, 1);
   const pct = (t: number) => Math.max(0, Math.min(100, ((t - min) / span) * 100));
   const ticks = monthTicks(new Date(min), new Date(max));
-  const labelStep = Math.max(1, Math.ceil(ticks.length / 6));
   const axisW = CONTENT_W - PHASE_COL_W;
   const rowH = Math.max(24, Math.min(48, (GANTT_H - 16) / phases.length));
   const estX = estimatedFinish ? pct(estimatedFinish.getTime()) : null;
   const todayX = pct(now);
+  const curIdx = currentPhaseIndex(phases);
 
   return (
     <div style={{ height: GANTT_H, overflow: "hidden", border: `1px solid ${C.border}`, borderRadius: 8 }}>
@@ -132,7 +141,7 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
       <div style={{ display: "flex", height: 16, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ width: PHASE_COL_W, flexShrink: 0 }} />
         <div style={{ position: "relative", width: axisW }}>
-          {ticks.map((t, i) => (i % labelStep === 0 || i === ticks.length - 1) && (
+          {ticks.map((t, i) => (
             <span key={i} style={{ position: "absolute", left: `${pct(t.date.getTime())}%`, top: 1, fontSize: 7, lineHeight: 1.3, color: C.textMuted, whiteSpace: "nowrap" }}>
               {t.label}
             </span>
@@ -141,8 +150,9 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
       </div>
       {/* Filas */}
       {phases.map((p, i) => {
-        const st = phaseState(p);
-        const cfg = PHASE_PDF_CFG[st];
+        const isCurrent = i === curIdx;
+        const cfg = PHASE_PDF_CFG[phaseState(p, isCurrent)];
+        const label = phaseLabel(p, isCurrent);
         const r = ranges[i];
         const notDone = p.total === 0 || p.done < p.total;
         const overdueEnd = r && notDone && r.end < now ? now : null;
@@ -150,7 +160,7 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
           <div key={`${p.grupo}-${i}`} style={{ display: "flex", height: rowH, borderBottom: i === phases.length - 1 ? "none" : `1px solid ${C.border}` }}>
             <div style={{ width: PHASE_COL_W, flexShrink: 0, background: cfg.bg, display: "flex", flexDirection: "column", justifyContent: "center", padding: "3px 8px", overflow: "hidden" }}>
               <div style={{ fontSize: 9, fontWeight: 700, color: C.text, lineHeight: 1.2, whiteSpace: "normal", wordBreak: "break-word" }}>{p.grupo || "Sin grupo"}</div>
-              <div style={{ fontSize: 7, fontWeight: 600, color: cfg.color, lineHeight: 1.3, marginTop: 1 }}>{cfg.label} · {p.done}/{p.total}</div>
+              <div style={{ fontSize: 7, fontWeight: 600, color: cfg.color, lineHeight: 1.3, marginTop: 1 }}>{label} · {p.done}/{p.total}</div>
             </div>
             <div style={{ position: "relative", width: axisW }}>
               {estX != null && <div style={{ position: "absolute", top: 0, bottom: 0, left: `${estX}%`, width: 1, background: C.warn, opacity: 0.6 }} />}
@@ -172,9 +182,37 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
   );
 }
 
+// ── % de responsabilidad por rol (ver Responsabilidad en lib/projSummary.ts) —
+// un solo color (rojo), a diferencia de la versión en pantalla que usa la
+// paleta por rol: acá es solo un dato de apoyo, no hace falta diferenciar
+// visualmente cada rol en un reporte de una página.
+const RESP_H = 22;
+function ResponsabilidadRow({ items }: { items: Responsabilidad[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div style={{ height: RESP_H, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, overflow: "hidden" }}>
+      {items.map((r) => (
+        <span
+          key={r.label}
+          style={{ fontSize: 8.5, fontWeight: 700, lineHeight: 1.3, color: C.bad, background: C.badBg, borderRadius: 999, padding: "3px 8px", whiteSpace: "nowrap" }}
+        >
+          {r.label} {r.pct}%
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── Atrasos: solo fecha límite y responsable (sin la fase — acá todos son
 // de Fase 3, es redundante repetirla en cada fila) ───────────────────────
-const ATRASOS_ROW_H = 34;
+// Filas en flujo de bloque simple (sin flexbox ni minHeight en la fila): el
+// flexbox con centrado vertical + minHeight resultó NO confiable en
+// html2canvas (mide línea/caja distinto al navegador y seguía recortando la
+// segunda línea a la mitad). Apilar dos <div> normales, uno debajo del otro,
+// es el modo de layout que html2canvas renderiza mejor — el badge de días se
+// posiciona con position:absolute en vez de flex justify-content, y el
+// padding-right de la fila le deja espacio para no encimarse con el texto.
+const ATRASOS_ROW_H = 40; // estimado para el recorte de "+N más", no una altura real de CSS
 
 function AtrasosSection({ rows, maxHeight }: { rows: StepAtraso[]; maxHeight: number }) {
   const maxRows = Math.max(1, Math.floor(maxHeight / ATRASOS_ROW_H));
@@ -184,23 +222,16 @@ function AtrasosSection({ rows, maxHeight }: { rows: StepAtraso[]; maxHeight: nu
     return <div style={{ height: 40, display: "flex", alignItems: "center", color: C.ok, fontSize: 11, fontWeight: 600 }}>Sin atrasos 🎉</div>;
   }
   return (
-    // El límite de altura del BLOQUE completo (maxHeight+overflow) sí es
-    // seguro — recorta filas enteras. Lo que NO debe recortarse es CADA fila
-    // individualmente: html2canvas mide el alto de línea con su propia
-    // métrica (distinta a la del navegador) y con una altura fija + overflow
-    // por fila, esa segunda línea (fecha/responsable) quedaba más alta de lo
-    // calculado y se cortaba a la mitad. minHeight (no height) deja que cada
-    // fila crezca lo que su contenido realmente necesite.
+    // El límite de altura del BLOQUE completo (maxHeight+overflow) recorta
+    // filas ENTERAS si de plano no caben todas — nunca a la mitad de una.
     <div style={{ maxHeight, overflow: "hidden" }}>
       {shown.map((a) => (
-        <div key={a.id} style={{ minHeight: ATRASOS_ROW_H, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottom: `1px solid ${C.border}`, padding: "4px 0" }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 600, color: C.text, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden" }}>{a.name}</div>
-            <div style={{ fontSize: 8, color: C.textMuted, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden" }}>
-              {fmtDate(a.deadline)}{a.responsible ? ` · A cargo: ${a.responsible}` : ""}
-            </div>
+        <div key={a.id} style={{ position: "relative", borderBottom: `1px solid ${C.border}`, padding: "6px 62px 6px 0" }}>
+          <div style={{ fontSize: 9.5, fontWeight: 600, color: C.text, lineHeight: 1.5, whiteSpace: "nowrap", overflow: "hidden" }}>{a.name}</div>
+          <div style={{ fontSize: 8, color: C.textMuted, lineHeight: 1.5, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden" }}>
+            {fmtDate(a.deadline)}{a.responsible ? ` · A cargo: ${a.responsible}` : ""}
           </div>
-          <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 700, color: C.bad, background: C.badBg, borderRadius: 999, padding: "2px 7px", lineHeight: 1.4, whiteSpace: "nowrap" }}>
+          <span style={{ position: "absolute", top: 6, right: 0, fontSize: 8, fontWeight: 700, color: C.bad, background: C.badBg, borderRadius: 999, padding: "3px 8px", lineHeight: 1.3, whiteSpace: "nowrap" }}>
             {a.daysLate != null && a.daysLate > 0 ? `${a.daysLate}d` : a.stuck ? "Stuck" : "Atrasado"}
           </span>
         </div>
@@ -223,6 +254,8 @@ export interface ProjectPdfReportProps {
   healthColor?: string;
   atrasos: StepAtraso[];
   totalDiasAtrasoFase3: number;
+  avancePlanificado: number;
+  responsabilidadAtraso: Responsabilidad[];
   valorProyecto: number | null;
   roi: number | null;
   payback: number | null;
@@ -230,12 +263,28 @@ export interface ProjectPdfReportProps {
 }
 
 const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(function ProjectPdfReport(
-  { board, code, name, summary, health, healthLabel, healthColor, atrasos, totalDiasAtrasoFase3, valorProyecto, roi, payback, estimateColor },
+  {
+    board, code, name, summary, health, healthLabel, healthColor, atrasos, totalDiasAtrasoFase3, avancePlanificado,
+    responsabilidadAtraso, valorProyecto, roi, payback, estimateColor,
+  },
   ref,
 ) {
   const [now] = useState(() => Date.now()); // "hoy" fijado al montar (evita impureza en render)
+  // SPI (simplificado): Avance real / Avance planificado — mismo criterio que
+  // en pantalla (ver resumen-ejecutivo/page.tsx). Sin plan aún → null.
+  const spi = avancePlanificado > 0 ? Math.round((summary.progress.pct / avancePlanificado) * 100) : null;
   const kpis: Card[] = [
-    { value: `${summary.progress.pct}%`, label: "Avance" },
+    {
+      label: "Avance / Plan",
+      value: (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+          <span>{summary.progress.pct}% / {avancePlanificado}%</span>
+          <span style={{ fontSize: 10, fontWeight: 800, lineHeight: 1.2, color: spi !== null ? (spi >= 90 ? C.ok : C.bad) : C.disabled }}>
+            SPI {spi !== null ? `${spi}%` : "—"}
+          </span>
+        </div>
+      ),
+    },
     { value: healthLabel, label: `Salud${health.healthIndex !== null ? ` · EVM ${Math.round(health.healthIndex * 100)}%` : ""}`, color: healthColor },
     { value: atrasos.length > 0 ? `${totalDiasAtrasoFase3}d` : "Sin atrasos", label: atrasos.length > 0 ? `Atraso actual · ${atrasos.length}` : "Atraso actual", color: atrasos.length > 0 ? C.bad : C.ok },
     { value: fmtDate(summary.completion.plannedFinish), label: "Fecha planificada" },
@@ -245,7 +294,8 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
     { value: payback !== null ? `${payback.toFixed(1)}m` : "—", label: "Payback" },
   ];
 
-  const atrasosMaxH = PAGE_H - MARGIN * 2 - 68 - (KPI_H + 16) - 24 - GANTT_H - 24 - 16;
+  const respH = responsabilidadAtraso.length > 0 ? RESP_H + 6 : 0;
+  const atrasosMaxH = PAGE_H - MARGIN * 2 - 68 - (KPI_H + 16) - 24 - GANTT_H - 24 - respH - 16;
 
   return (
     <div
@@ -290,6 +340,11 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
 
       {/* Atrasos */}
       <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, color: C.text, margin: "10px 0 6px" }}>Atrasos</div>
+      {responsabilidadAtraso.length > 0 && (
+        <div style={{ marginBottom: 6 }}>
+          <ResponsabilidadRow items={responsabilidadAtraso} />
+        </div>
+      )}
       <AtrasosSection rows={atrasos} maxHeight={atrasosMaxH} />
 
       {/* Footer */}

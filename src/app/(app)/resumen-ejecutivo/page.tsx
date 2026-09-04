@@ -17,10 +17,10 @@ import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj"
 import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  buildProjectSummary, diasAtrasoSinTraslape, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
-  type PhaseSummary, type PhaseState, type ProjectSummary, type StepAtraso, type WorkUnit,
+  buildProjectSummary, calcPlannedProgress, currentPhaseIndex, diasAtrasoSinTraslape, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
+  type PhaseSummary, type PhaseState, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
-import { countByResponsible } from "@/lib/delay";
+import { countByResponsible, RESPONSIBLE_COLOR } from "@/lib/delay";
 import {
   buildPortfolioRows, calcPortfolioTotals, topCriticalProjects, buildCrossRisks,
   type PortfolioProjectRow, type CrossRisk,
@@ -380,12 +380,23 @@ function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onDow
 }
 
 // ── Estado de una fase (para el stepper) ────────────────────────────────
-const PHASE_CFG: Record<PhaseState, { color: string; bg: string; icon: string; label: string }> = {
-  done:        { color: "var(--ok)",           bg: "var(--health-on-track-bg)",  icon: "✓", label: "Completada" },
-  "off-track": { color: "var(--bad)",          bg: "var(--health-off-track-bg)", icon: "✕", label: "Atrasada" },
-  current:     { color: "var(--accent)",       bg: "var(--warn-bg)",             icon: "●", label: "En curso" },
-  pending:     { color: "var(--text-disabled)", bg: "var(--bg-hover)",           icon: "○", label: "Pendiente" },
+// Solo 3 colores: verde (completada), ámbar (la fase actual — la que
+// "bloquea" el avance, ver currentPhaseIndex en lib/projSummary.ts) y gris
+// para todo lo demás, INCLUYENDO una fase atrasada que ya no es la actual —
+// el texto "Atrasada" se sigue mostrando (ver phaseLabel), pero ya no compite
+// en rojo contra el ámbar de "en curso".
+const PHASE_CFG: Record<PhaseState, { color: string; bg: string; icon: string }> = {
+  done:    { color: "var(--ok)",            bg: "var(--health-on-track-bg)", icon: "✓" },
+  current: { color: "var(--warn)",          bg: "var(--warn-bg)",            icon: "●" },
+  pending: { color: "var(--text-disabled)", bg: "var(--bg-hover)",           icon: "○" },
 };
+/** Texto de estado de una fase — independiente del color (ver PHASE_CFG):
+ *  "Atrasada" se muestra para CUALQUIER fase con offTrack, sea o no la actual. */
+function phaseLabel(p: PhaseSummary, isCurrent: boolean): string {
+  if (p.total > 0 && p.done === p.total) return "Completada";
+  if (p.offTrack) return "Atrasada";
+  return isCurrent ? "En curso" : "Pendiente";
+}
 
 // ── Mensaje explicativo del estimado (para que sea legible sin leer números) ──
 function estimateMessage(summary: ProjectSummary): { icon: string; color: string; text: string } {
@@ -439,6 +450,15 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   const valorProyecto = costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
   const roi = costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
   const payback = costoProyecto && beneficioParaRoi && beneficioParaRoi > 0 ? costoProyecto / (beneficioParaRoi / 12) : null;
+  // Avance planificado: % de hitos/steps que YA deberían estar Done según su
+  // propio deadline (venció o es Done), sin importar si en verdad lo están —
+  // lo que deberíamos llevar avanzado a la fecha según el plan, sin restarle
+  // los atrasos actuales. Comparado con el Avance real da la brecha física.
+  const avancePlanificado = calcPlannedProgress(summary.units);
+  // SPI (simplificado): Avance real / Avance planificado — mide si vamos más
+  // rápido o más lento que el plan, no en dólares (EV/PV) sino en % físico.
+  // Sin plan aún (avancePlanificado=0) no hay contra qué comparar → null.
+  const spi = avancePlanificado > 0 ? Math.round((summary.progress.pct / avancePlanificado) * 100) : null;
   const { code, name } = splitBoardName(board.name);
   const healthCfg = health.healthStatus ? HEALTH_CFG[health.healthStatus] : null;
   const est = estimateMessage(summary);
@@ -464,6 +484,23 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
     const t = today();
     return diasAtrasoSinTraslape(atrasos.map((a) => a.deadline).filter((d): d is Date => d !== null), t);
   }, [atrasos]);
+  // % de responsabilidad del atraso (rol asignado en "Responsable atraso", ver
+  // AtrasoDetalleEditor) sobre el TOTAL de atrasos actuales — uno sin asignar
+  // cuenta como "Sin asignar". Calculado acá (no dentro de AtrasosList) para
+  // reutilizarlo también en el PDF.
+  const { data } = useData();
+  const atrasoDetalles = data?.atrasoDetalles;
+  const responsabilidadAtraso = useMemo(() => {
+    if (atrasos.length === 0) return [];
+    const counts: Record<string, number> = {};
+    for (const a of atrasos) {
+      const resp = atrasoDetalles?.[a.id]?.responsable || "Sin asignar";
+      counts[resp] = (counts[resp] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .map(([label, n]) => ({ label, pct: Math.round((n / atrasos.length) * 100) }))
+      .sort((a, b) => b.pct - a.pct || a.label.localeCompare(b.label));
+  }, [atrasos, atrasoDetalles]);
 
   // PDF: NO es un window.print() de la página — ProjectPdfReport (oculto,
   // fuera de pantalla) arma un layout propio a tamaño de hoja A4 vertical, que
@@ -491,7 +528,8 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
         board={board} code={code} name={name} summary={summary} health={health}
         healthLabel={healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
         healthColor={healthCfg?.color}
-        atrasos={atrasos} totalDiasAtrasoFase3={totalDiasAtrasoFase3}
+        atrasos={atrasos} totalDiasAtrasoFase3={totalDiasAtrasoFase3} avancePlanificado={avancePlanificado}
+        responsabilidadAtraso={responsabilidadAtraso}
         valorProyecto={valorProyecto} roi={roi} payback={payback}
         estimateColor={est.color}
       />
@@ -526,7 +564,22 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
 
           {/* KPIs + Beneficio $ — una sola fila de tarjetas */}
           <div className="report-kpis mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8 print:break-inside-avoid">
-            <StatCard labelPosition="top" centered value={`${summary.progress.pct}%`} label="Avance" />
+            <StatCard
+              labelPosition="top" centered
+              label="Avance / Plan"
+              valueSize="1.15rem"
+              value={
+                <div className="flex flex-col items-center gap-0.5">
+                  <span>{summary.progress.pct}% / {avancePlanificado}%</span>
+                  <span
+                    className="text-[0.72em] font-extrabold"
+                    style={{ color: spi !== null ? (spi >= 90 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)" }}
+                  >
+                    SPI {spi !== null ? `${spi}%` : "—"}
+                  </span>
+                </div>
+              }
+            />
             <StatCard
               labelPosition="top" centered
               value={healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
@@ -591,6 +644,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
                 a.nHitos > 0 ? `${a.nHitos} hito${a.nHitos === 1 ? "" : "s"}` : null,
               ].filter(Boolean).join(" · ") || "Atrasado",
             }))}
+            responsabilidad={responsabilidadAtraso}
           />
         </>
       )}
@@ -607,6 +661,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
 interface PhaseTimelineRow {
   phase: PhaseSummary;
   cfg: (typeof PHASE_CFG)[PhaseState];
+  label: string;
   hasDates: boolean;
   barStart: number | null; barEnd: number | null;
   overdueEnd: number | null; // fin del segmento de atraso (hasta hoy), si aplica
@@ -640,16 +695,12 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
   const ticks = monthTicks(domain.min, domain.max);
   const todayX = pct(new Date(nowMs));
   const estX = estimatedFinish ? pct(estimatedFinish) : null;
-  // El eje ocupa el 100% del ancho disponible (nunca hay scroll horizontal): con
-  // proyectos largos (muchos meses) se saltan etiquetas de mes para que no se
-  // amontonen, pero la línea vertical de cada mes se sigue dibujando siempre.
-  const MAX_MONTH_LABELS = 8;
-  const labelStep = Math.max(1, Math.ceil(ticks.length / MAX_MONTH_LABELS));
 
   if (!phases.length) return <EmptyRow msg="Este proyecto no tiene fases." />;
 
-  const buildRow = (phase: PhaseSummary, list: WorkUnit[]): PhaseTimelineRow => {
-    const cfg = PHASE_CFG[phaseState(phase)];
+  const buildRow = (phase: PhaseSummary, list: WorkUnit[], isCurrent: boolean): PhaseTimelineRow => {
+    const cfg = PHASE_CFG[phaseState(phase, isCurrent)];
+    const label = phaseLabel(phase, isCurrent);
     const barDates: number[] = [];
     const milestones: PhaseTimelineRow["milestones"] = [];
     list.forEach((u) => {
@@ -664,7 +715,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
     const barEnd = hasDates ? Math.max(...barDates) : null;
     const notDone = phase.total === 0 || phase.done < phase.total;
     const overdueEnd = hasDates && notDone && barEnd! < nowMs ? nowMs : null;
-    return { phase, cfg, hasDates, barStart, barEnd, overdueEnd, milestones };
+    return { phase, cfg, label, hasDates, barStart, barEnd, overdueEnd, milestones };
   };
 
   // Fase 3 (Launch): agrupamiento en steps/hitos vía groupFase3Units (projSummary.ts
@@ -688,16 +739,18 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
     isDesarrolloPorIteracionesStep(g.units[0].stepName) ? g.units[0].startDate : g.units[0].stepStartDate;
   const fase3StepRowsFor = (grupo: string): PhaseTimelineRow[] => {
     const groups = groupFase3Units(units, grupo).sort((a, b) => cmpStart(startOfGroup(a), startOfGroup(b)));
-    return groups.map((g) => {
-      const phase: PhaseSummary = {
-        grupo: g.name,
-        total: g.units.length,
-        done: g.units.filter((u) => u.status === "Done").length,
-        offTrack: g.units.some((u) => u.status !== "Done" && u.estado === "ATRASADO"),
-        started: g.units.some((u) => classifyDev(u.status) !== "future"),
-      };
-      return buildRow(phase, g.units);
-    });
+    const stepPhases: PhaseSummary[] = groups.map((g) => ({
+      grupo: g.name,
+      total: g.units.length,
+      done: g.units.filter((u) => u.status === "Done").length,
+      offTrack: g.units.some((u) => u.status !== "Done" && u.estado === "ATRASADO"),
+      started: g.units.some((u) => classifyDev(u.status) !== "future"),
+    }));
+    // El step "actual" dentro de Fase 3 se decide POR SEPARADO del resto de
+    // fases de nivel superior (ver currentPhaseIndex) — es el primer step sin
+    // terminar de ESTE grupo, no de las 5 fases del proyecto.
+    const curStepIdx = currentPhaseIndex(stepPhases);
+    return groups.map((g, i) => buildRow(stepPhases[i], g.units, i === curStepIdx));
   };
 
   // Fases 1, 2, 4 y 5: una sola fila con SOLO su rango (inicio→fin planificado +
@@ -705,13 +758,14 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
   // saturar el timeline. Fase 3: la fila resumen reemplaza los diamantes por un
   // mini-Gantt "dividido" (una línea fina por renglón — hito o step, según la
   // plantilla, ver fase3StepRowsFor); un click expande el detalle debajo.
-  const rows: PhaseTimelineRow[] = phases.map((p) => buildRow(p, units.filter((u) => u.grupo === p.grupo)));
+  const curPhaseIdx = currentPhaseIndex(phases);
+  const rows: PhaseTimelineRow[] = phases.map((p, i) => buildRow(p, units.filter((u) => u.grupo === p.grupo), i === curPhaseIdx));
 
   // Hover informativo (nativo, título de varias líneas — mismo patrón que ya usa
   // el resto de la página) para cualquier barra/línea del timeline: nombre, estado,
   // inicio y fin reales, y si sigue abierta pasado su rango, cuánto lleva de atraso.
   const rowTooltip = (r: PhaseTimelineRow): string => {
-    const lines = [r.phase.grupo || "Sin grupo", `${r.cfg.icon} ${r.cfg.label} · ${r.phase.done}/${r.phase.total}`];
+    const lines = [r.phase.grupo || "Sin grupo", `${r.cfg.icon} ${r.label} · ${r.phase.done}/${r.phase.total}`];
     if (r.hasDates) {
       lines.push(`Inicio: ${fmtDate(new Date(r.barStart!))}`);
       lines.push(`${r.overdueEnd != null ? "Fin planificado" : "Fin"}: ${fmtDate(new Date(r.barEnd!))}`);
@@ -728,8 +782,8 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
   return (
     <div className="mb-8 rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
       <div className="w-full">
-        {/* Eje — ocupa el ancho disponible; con muchos meses se saltan etiquetas
-            (labelStep) para que no se amontonen, pero la línea de cada mes queda. */}
+        {/* Eje — ocupa el ancho disponible; se muestran TODOS los meses (sin saltar
+            etiquetas), aunque el proyecto sea largo. */}
         <div className="flex items-end border-b" style={{ borderColor: "var(--border)" }}>
           <div style={{ width: 260 }} className="gantt-phase-col shrink-0 px-3 py-2 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
             Fase
@@ -744,13 +798,11 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
               return (
                 <div key={i} className="absolute top-0 h-full" style={{ left: `${x}%` }}>
                   <div className="h-full w-px" style={{ background: "var(--border)" }} />
-                  {(i % labelStep === 0 || i === ticks.length - 1) && (
-                    <span
-                      className={`absolute top-1 whitespace-nowrap text-[0.66rem] text-[var(--text-muted)] ${nearRightEdge ? "right-1" : "left-1"}`}
-                    >
-                      {t.label}
-                    </span>
-                  )}
+                  <span
+                    className={`absolute top-1 whitespace-nowrap text-[0.66rem] text-[var(--text-muted)] ${nearRightEdge ? "right-1" : "left-1"}`}
+                  >
+                    {t.label}
+                  </span>
                 </div>
               );
             })}
@@ -783,7 +835,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                     <div className="text-[0.92rem] font-semibold leading-tight text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
                   </div>
                   <div className="mt-0.5 flex items-center gap-1 text-[0.65rem] font-semibold" style={{ color: r.cfg.color }}>
-                    {r.cfg.icon} {r.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
+                    {r.cfg.icon} {r.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
                     {isF3 && <span className="font-normal text-[var(--text-muted)]">· {steps.length} {stepsWord}{steps.length === 1 ? "" : "s"}</span>}
                   </div>
                 </div>
@@ -844,7 +896,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                         <div style={{ width: 260, background: sr.cfg.bg }} className="gantt-phase-col shrink-0 py-2 pl-7 pr-3">
                           <div className="text-[0.82rem] font-medium leading-tight text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
                           <div className="mt-0.5 flex items-center gap-1 text-[0.62rem] font-semibold" style={{ color: sr.cfg.color }}>
-                            {sr.cfg.icon} {sr.cfg.label} <span className="font-normal text-[var(--text-muted)]">· {sr.phase.done}/{sr.phase.total}</span>
+                            {sr.cfg.icon} {sr.label} <span className="font-normal text-[var(--text-muted)]">· {sr.phase.done}/{sr.phase.total}</span>
                           </div>
                         </div>
                         <div className="gantt-subrow-track relative flex-1" style={{ minHeight: 36 }}>
@@ -924,32 +976,49 @@ function MilestoneList({ title, empty, rows }: { title: string; empty: string; r
 // editables (Firestore, ver AtrasoDetalleEditor). Distinta de MilestoneList
 // porque cada fila necesita espacio para los dos controles de edición.
 interface AtrasoRow { id: string; name: string; dateLabel: string; responsible?: string; tag: string }
-function AtrasosList({ rows }: { rows: AtrasoRow[] }) {
+function AtrasosList({ rows, responsabilidad }: { rows: AtrasoRow[]; responsabilidad: Responsabilidad[] }) {
   return (
-    <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
-      <h4 className="mb-3 text-[0.85rem] font-bold text-[var(--text-primary)]">Atrasos</h4>
+    <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+      <h4 className="mb-4 text-[1.05rem] font-bold text-[var(--text-primary)]">Atrasos</h4>
+      {responsabilidad.length > 0 && (
+        <div className="viz-resp mb-4 flex flex-wrap items-center gap-2">
+          {responsabilidad.map((r) => {
+            const color = RESPONSIBLE_COLOR[r.label] ?? RESPONSIBLE_COLOR["Sin asignar"];
+            return (
+              <span
+                key={r.label}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.8rem] font-semibold"
+                style={{ color, background: color + "22" }}
+              >
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
+                {r.label} {r.pct}%
+              </span>
+            );
+          })}
+        </div>
+      )}
       {rows.length === 0 ? (
-        <div className="py-4 text-center text-[0.78rem] text-[var(--text-muted)]">Sin atrasos. 🎉</div>
+        <div className="py-4 text-center text-[0.9rem] text-[var(--text-muted)]">Sin atrasos. 🎉</div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {rows.map((r) => (
-            <div key={r.id} className="border-b pb-3 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
+            <div key={r.id} className="border-b pb-4 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[0.8rem] font-medium text-[var(--text-primary)]" title={r.name}>{r.name}</div>
-                  <div className="truncate text-[0.68rem] text-[var(--text-muted)]">
+                  <div className="truncate text-[0.98rem] font-semibold text-[var(--text-primary)]" title={r.name}>{r.name}</div>
+                  <div className="truncate text-[0.82rem] text-[var(--text-muted)]">
                     {r.dateLabel}
                     {r.responsible && <> · A cargo: <span className="text-[var(--text-secondary)]">{r.responsible}</span></>}
                   </div>
                 </div>
                 <span
-                  className="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
+                  className="shrink-0 rounded-full px-2.5 py-1 text-[0.8rem] font-semibold"
                   style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
                 >
                   {r.tag}
                 </span>
               </div>
-              <div className="mt-2">
+              <div className="mt-2.5">
                 <AtrasoDetalleEditor itemId={r.id} />
               </div>
             </div>

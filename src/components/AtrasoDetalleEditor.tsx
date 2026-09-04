@@ -55,13 +55,13 @@ export default function AtrasoDetalleEditor({ itemId }: { itemId: string }) {
     <div onClick={(e) => e.stopPropagation()}>
       {/* Controles editables — no imprimen: un <select>/<input> no se ve bien
           en PDF y no es interactivo ahí. Ver el texto plano de abajo. */}
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
+      <div className="flex flex-wrap items-center gap-2.5 print:hidden">
         <select
           value={detalle?.responsable ?? ""}
           onChange={onResponsableChange}
           title="Responsable del atraso"
-          className="cursor-pointer rounded border bg-transparent px-1.5 py-1 text-[0.68rem]"
-          style={{ borderColor: "var(--border)", color: detalle?.responsable ? "var(--text-secondary)" : "var(--text-muted)", minWidth: 150 }}
+          className="cursor-pointer rounded-lg border bg-transparent px-2.5 py-1.5 text-[0.85rem]"
+          style={{ borderColor: "var(--border)", color: detalle?.responsable ? "var(--text-secondary)" : "var(--text-muted)", minWidth: 170 }}
         >
           <option value="">Responsable atraso…</option>
           {DELAY_RESPONSIBLES.map((r) => (
@@ -76,13 +76,13 @@ export default function AtrasoDetalleEditor({ itemId }: { itemId: string }) {
           placeholder="Motivo de atraso…"
           maxLength={MAX_LEN}
           title="Motivo de atraso"
-          className="min-w-[180px] flex-1 rounded border bg-transparent px-1.5 py-1 text-[0.68rem]"
+          className="min-w-[200px] flex-1 rounded-lg border bg-transparent px-2.5 py-1.5 text-[0.85rem]"
           style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
         />
       </div>
       {/* Solo en impresión: mismo dato, como texto — oculto en pantalla. */}
       {(detalle?.responsable || detalle?.motivo) && (
-        <div className="hidden text-[0.7rem] text-[var(--text-secondary)] print:block">
+        <div className="hidden text-[0.85rem] text-[var(--text-secondary)] print:block">
           {detalle?.responsable && <>Responsable atraso: <strong>{detalle.responsable}</strong></>}
           {detalle?.responsable && detalle?.motivo && " · "}
           {detalle?.motivo && <>Motivo: {detalle.motivo}</>}
