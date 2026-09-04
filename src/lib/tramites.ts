@@ -425,8 +425,8 @@ export const UTILIZACION_OBJETIVO = 0.95;
  * Tramo Ducafast del ciclo: de Creado a Creación Pre-DUCA. Es la parte que la
  * operación efectivamente trabaja; la revisión del analista y la firma van
  * después. Se usa como corchete informativo sobre la barra del ciclo (ver
- * GRUPOS_ETAPAS) y como alcance fijo del Informe anual (lib/informe.ts), que
- * no tiene el filtro interactivo de "Tiempo". El acordeón "Costo por
+ * GRUPOS_ETAPAS) y como alcance fijo del Reporte Ducafast (lib/reporteDucafast.ts),
+ * que no tiene el filtro interactivo de "Tiempo". El acordeón "Costo por
  * expediente" del reporte interactivo YA NO lo usa: sigue el mismo alcance
  * que el resto del reporte (el filtro global de "Tiempo"), para cuadrar con
  * Capacidad instalada.

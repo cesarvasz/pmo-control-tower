@@ -17,7 +17,7 @@ import BarraCiclo from "@/components/tramites/BarraCiclo";
 import TimelineMeses from "@/components/tramites/TimelineMeses";
 import CostoUnitario from "@/components/tramites/CostoUnitario";
 import CapacidadInstalada from "@/components/tramites/CapacidadInstalada";
-import Informe from "@/components/tramites/Informe";
+import ReporteDucafast from "@/components/tramites/ReporteDucafast";
 import { fmtHHMMSS, enDiasHabiles } from "@/lib/horario";
 import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
@@ -147,9 +147,9 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
     />
   );
 
-  // El informe sustituye al tablero en lugar de abrirse encima: se presenta a
-  // dirección y va sobre TODOS los Files del año, no sobre el recorte.
-  if (informe) return <Informe exps={todos} onCerrar={() => setInforme(false)} />;
+  // El reporte sustituye al tablero en lugar de abrirse encima: se presenta a
+  // dirección y va sobre TODOS los Files (Mesa 2), no sobre el recorte de filtros.
+  if (informe) return <ReporteDucafast exps={todos} onCerrar={() => setInforme(false)} />;
 
   return (
     <div>
@@ -160,7 +160,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
         <button onClick={() => setInforme(true)}
           className="ml-auto rounded-lg border px-3.5 py-1.5 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
           style={{ borderColor: "var(--accent)", color: "var(--accent-light)" }}>
-          📄 Informe
+          📄 Reporte Ducafast
         </button>
       </SectionHeader>
 
