@@ -25,6 +25,8 @@ const num0 = (n: number) => Math.round(n).toLocaleString("en-US");
 const barra = (frac: number, color: string) =>
   `<span class="bar"><i style="width:${Math.max(0, Math.min(1, frac)) * 100}%;background:${color}"></i></span>`;
 
+const marca = (m: MesDucafast) => (m.parcial ? ' <span class="ast">*</span>' : "");
+
 export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const generado = new Date().toLocaleDateString("es-GT", { day: "2-digit", month: "long", year: "numeric" });
   const { meses, totales: t } = rep;
@@ -38,6 +40,9 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const multiploTiempo = t.minutosDuca > 0 ? t.minutosNod / t.minutosDuca : 0;
   const metaMensual = t.metaPorCapturar / meses.length;
   const rango = `${esc(primero.label)} – ${esc(ultimo.label)}`;
+  const mesesParciales = meses.filter((m) => m.parcial);
+  const hayParcial = mesesParciales.length > 0;
+  const marcaTexto = esc(mesesParciales.map((m) => m.label).join(", "));
 
   const kpis = `
     <div class="kpis">
@@ -56,7 +61,7 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const maxFiles = Math.max(1, ...meses.map((m) => m.totalFiles));
   const filasVolumen = meses.map((m) => `
     <tr>
-      <td>${esc(m.label)}</td>
+      <td>${esc(m.label)}${marca(m)}</td>
       <td class="n destacado">${num0(m.duca.files)}</td>
       <td class="n">${num0(m.nod.files)}</td>
       <td class="n">${barra(m.totalFiles / maxFiles, "#888780")}</td>
@@ -66,7 +71,7 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const maxCosto = Math.max(1, ...meses.flatMap((m) => [m.duca.costoFile, m.nod.costoFile]));
   const filasCosto = meses.map((m) => `
     <tr>
-      <td>${esc(m.label)}</td>
+      <td>${esc(m.label)}${marca(m)}</td>
       <td class="n destacado">${usd2(m.duca.costoFile)}</td>
       <td class="n">${usd2(m.nod.costoFile)}</td>
       <td class="n">${barra(m.nod.costoFile / maxCosto, "#eb6834")}</td>
@@ -75,7 +80,7 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const maxTiempo = Math.max(1, ...meses.flatMap((m) => [m.duca.minutosFile, m.nod.minutosFile]));
   const filasTiempo = meses.map((m) => `
     <tr>
-      <td>${esc(m.label)}</td>
+      <td>${esc(m.label)}${marca(m)}</td>
       <td class="n destacado">${min1(m.duca.minutosFile)}</td>
       <td class="n">${min1(m.nod.minutosFile)}</td>
       <td class="n">${barra(m.nod.minutosFile / maxTiempo, "#eb6834")}</td>
@@ -84,7 +89,7 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const maxAhorro = Math.max(1, ...meses.map((m) => m.ahorroGenerado));
   const filasAhorro = meses.map((m) => `
     <tr>
-      <td>${esc(m.label)}</td>
+      <td>${esc(m.label)}${marca(m)}</td>
       <td class="n">${usd0(m.duca.costoFile * m.duca.files)}</td>
       <td class="n">${usd0(m.nod.costoFile * m.duca.files)}</td>
       <td class="n destacado">${usd0(m.ahorroGenerado)}</td>
@@ -94,7 +99,7 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const maxMeta = Math.max(1, ...meses.flatMap((m) => [m.ahorroGenerado, m.metaPorCapturar]));
   const filasMeta = meses.map((m) => `
     <tr>
-      <td>${esc(m.label)}</td>
+      <td>${esc(m.label)}${marca(m)}</td>
       <td class="n">${usd0(m.ahorroGenerado)}</td>
       <td class="n destacado">${usd0(m.metaPorCapturar)}</td>
       <td class="n">${barra(m.metaPorCapturar / maxMeta, "#2a78d6")}</td>
@@ -103,7 +108,7 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const maxFte = Math.max(0.01, ...meses.flatMap((m) => [m.fteHoy, m.fteEscenario]));
   const filasFte = meses.map((m) => `
     <tr>
-      <td>${esc(m.label)}</td>
+      <td>${esc(m.label)}${marca(m)}</td>
       <td class="n">${m.fteHoy.toFixed(2)}</td>
       <td class="n destacado" style="color:#2f8f6f">${m.fteEscenario.toFixed(2)}</td>
       <td class="n" style="color:#2f8f6f">${(m.fteEscenario - m.fteHoy).toFixed(2)}</td>
@@ -113,7 +118,7 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const capacidadProm = meses.reduce((s, m) => s + m.capacidadInstalada, 0) / meses.length;
   const filasIndicadores = meses.map((m, i) => `
     <tr${i % 2 === 1 ? ' class="alt"' : ""}>
-      <td>${esc(m.label)}</td>
+      <td>${esc(m.label)}${marca(m)}</td>
       <td class="n">${num0(m.capacidadInstalada)}</td>
       <td class="n">${num0(m.totalFiles)} · ${pct1(m.pctDucafast)}</td>
       <td class="n">${usd2(m.costoMezclado)}</td>
@@ -125,10 +130,10 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
   const maxMezclado = Math.max(1, ...meses.map((m) => m.costoMezclado));
   const maxCapacidad = Math.max(1, ...meses.map((m) => m.filesPorCapacidad));
   const filasMezclado = meses.map((m) => `
-    <tr><td>${esc(m.label)}</td><td class="n">${usd2(m.costoMezclado)}</td>
+    <tr><td>${esc(m.label)}${marca(m)}</td><td class="n">${usd2(m.costoMezclado)}</td>
       <td class="n">${barra(m.costoMezclado / maxMezclado, "#888780")}</td></tr>`).join("");
   const filasCapacidadUso = meses.map((m: MesDucafast) => `
-    <tr><td>${esc(m.label)}</td><td class="n">${m.filesPorCapacidad.toFixed(1)}</td>
+    <tr><td>${esc(m.label)}${marca(m)}</td><td class="n">${m.filesPorCapacidad.toFixed(1)}</td>
       <td class="n">${barra(m.filesPorCapacidad / maxCapacidad, "#888780")}</td></tr>`).join("");
 
   const cuerpo = `
@@ -206,6 +211,8 @@ export function construirHtmlReporteDucafast(rep: ReporteDucafast): string {
       </div>
     </section>
 
+    ${hayParcial ? `<p class="pie">${marcaTexto} va${mesesParciales.length === 1 ? "" : "n"} a medias: el mes todavía no termina, así que sus cifras son provisionales y pueden cambiar.</p>` : ""}
+
     <p class="metodo">
       Promedios ponderados por volumen de files, nunca como promedio simple de los ${meses.length} meses.
       Tiempos convertidos de hh:mm:ss a minutos decimales. La meta de ahorro asume que cada file sin
@@ -257,6 +264,8 @@ function envolver(cuerpo: string, rango = "", generado = ""): string {
   .dos > table { flex: 1; }
   .metodo { font-size: 7.5px; color: #6b6a66; line-height: 1.5; margin-top: 14px; padding-top: 7px; border-top: 1px solid #e1e0d9; }
   .vacio { color: #6b6a66; font-style: italic; }
+  .ast { color: #6b6a66; }
+  .pie { font-size: 8px; color: #6b6a66; line-height: 1.45; margin: 10px 0 0; }
 </style></head>
 <body>
   <div class="cab">

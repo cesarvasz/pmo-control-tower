@@ -64,6 +64,8 @@ export interface MesDucafast {
   horasNod: number;
   fteHoy: number;
   fteEscenario: number;
+  /** true si es el mes calendario en curso — sus cifras van a medias. */
+  parcial: boolean;
 }
 
 export interface ReporteDucafastTotales {
@@ -113,12 +115,10 @@ function medirGrupoMes(sub: Expediente[]): GrupoMesDucafast {
 }
 
 /** Meses ("YYYY-MM") con datos de Mesa 2, del más antiguo al más reciente,
- *  excluyendo el mes en curso (va a medias) y quedándose con los últimos N. */
-function mesesAMostrar(exps: Expediente[], hoy: Date): string[] {
-  const mesActual = mesDe(hoy);
-  const claves = [...new Set(exps.map((e) => e.mes).filter(Boolean))]
-    .filter((m) => m !== mesActual)
-    .sort();
+ *  quedándose con los últimos N. Incluye el mes en curso si ya tiene datos
+ *  (se marca `parcial` en MesDucafast — sus cifras van a medias). */
+function mesesAMostrar(exps: Expediente[]): string[] {
+  const claves = [...new Set(exps.map((e) => e.mes).filter(Boolean))].sort();
   return claves.slice(-MESES_A_MOSTRAR);
 }
 
@@ -152,7 +152,8 @@ function calcularTotales(meses: MesDucafast[]): ReporteDucafastTotales {
 
 export function construirReporteDucafast(todos: Expediente[], hoy: Date = new Date()): ReporteDucafast {
   const mesa2 = todos.filter((e) => e.mesas.includes(MESA_REPORTE));
-  const claves = mesesAMostrar(mesa2, hoy);
+  const claves = mesesAMostrar(mesa2);
+  const mesActual = mesDe(hoy);
 
   const meses: MesDucafast[] = claves.map((clave) => {
     const del = mesa2.filter((e) => e.mes === clave);
@@ -176,6 +177,7 @@ export function construirReporteDucafast(todos: Expediente[], hoy: Date = new Da
       horasDuca, horasNod,
       fteHoy: (horasDuca + horasNod) / HORAS_MES_REPORTE,
       fteEscenario: (totalFiles * duca.minutosFile) / 60 / HORAS_MES_REPORTE,
+      parcial: clave === mesActual,
     };
   });
 

@@ -32,14 +32,25 @@ describe("construirReporteDucafast — alcance (Mesa 2, meses, con/sin Ducafast)
     expect(total).toBe(1);
   });
 
-  it("excluye el mes en curso (va a medias) y conserva como mucho los últimos 6", () => {
+  it("conserva como mucho los últimos 6 meses, incluido el mes en curso", () => {
     const meses = ["2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"];
     const exps = construirExpedientes(
       meses.map((m, i) => fila({ c807_file: `F${i}`, Creado: `${m}-05T08:00:00` })),
     );
     const r = construirReporteDucafast(exps, HOY);
     expect(r.meses).toHaveLength(6);
-    expect(r.meses.map((m) => m.clave)).toEqual(["2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05"]);
+    expect(r.meses.map((m) => m.clave)).toEqual(["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"]);
+  });
+
+  it("marca `parcial` solo el mes calendario en curso", () => {
+    const exps = construirExpedientes([
+      fila({ c807_file: "A", Creado: "2026-05-05T08:00:00" }),
+      fila({ c807_file: "B", Creado: "2026-06-05T08:00:00" }),
+    ]);
+    const r = construirReporteDucafast(exps, HOY);
+    const [mayo, junio] = r.meses;
+    expect(mayo.parcial).toBe(false);
+    expect(junio.parcial).toBe(true);
   });
 
   it("separa Ducafast de no-Ducafast dentro del mismo mes", () => {

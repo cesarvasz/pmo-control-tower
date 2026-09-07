@@ -66,6 +66,7 @@ export default function ReporteDucafast({ exps, onCerrar }: { exps: Expediente[]
   const reduccionCosto = t.costoFileNod > 0 ? 1 - t.costoFileDuca / t.costoFileNod : 0;
   const multiploTiempo = t.minutosDuca > 0 ? t.minutosNod / t.minutosDuca : 0;
   const metaMensual = t.metaPorCapturar / meses.length;
+  const hayParcial = meses.some((m) => m.parcial);
 
   return (
     <div style={{ color: COLOR.texto, fontFamily: "-apple-system, 'Segoe UI', Roboto, Arial, sans-serif" }}>
@@ -87,6 +88,13 @@ export default function ReporteDucafast({ exps, onCerrar }: { exps: Expediente[]
           </div>
         ))}
       </div>
+
+      {hayParcial && (
+        <p className="mt-2 text-[0.68rem] leading-relaxed" style={{ color: COLOR.textoSecundario }}>
+          * {meses.filter((m) => m.parcial).map((m) => m.label).join(", ")} va{meses.filter((m) => m.parcial).length === 1 ? "" : "n"} a medias:
+          el mes todavía no termina, así que sus cifras son provisionales y pueden cambiar.
+        </p>
+      )}
 
       {/* ── 1. Volumen de files por mes ── */}
       <Seccion n={1} titulo="Volumen de files por mes"
@@ -313,7 +321,7 @@ function ParDeBarras({ meses, a, b, etiquetaPar, lineaPromedio }: {
                     );
                   })}
                 </div>
-                <span className="mt-1.5 whitespace-nowrap text-[0.68rem]" style={{ color: COLOR.textoSecundario }}>{m.label}</span>
+                <span className="mt-1.5 whitespace-nowrap text-[0.68rem]" style={{ color: COLOR.textoSecundario }}>{m.label}{m.parcial && "*"}</span>
               </div>
             );
           })}
@@ -340,7 +348,7 @@ function BarraSimple({ meses, valor, formato, color }: {
                 <span className="mb-0.5 whitespace-nowrap text-[0.62rem] font-bold" style={{ color: COLOR.texto }}>{formato(v)}</span>
                 <div className="w-full rounded-t-sm" style={{ height: Math.max(2, (v / max) * (ALTO_BARRAS - 20)), background: color }} />
               </div>
-              <span className="mt-1.5 whitespace-nowrap text-[0.66rem]" style={{ color: COLOR.textoSecundario }}>{m.label}</span>
+              <span className="mt-1.5 whitespace-nowrap text-[0.66rem]" style={{ color: COLOR.textoSecundario }}>{m.label}{m.parcial && "*"}</span>
             </div>
           );
         })}
@@ -396,7 +404,7 @@ function GraficaLineas({ meses, a, b, formato, yMax, relleno }: {
             </g>
           ))}
           {meses.map((m, i) => (
-            <text key={m.clave} x={x(i)} y={ALTO - 4} textAnchor="middle" fontSize={10} fill={COLOR.textoSecundario}>{m.label}</text>
+            <text key={m.clave} x={x(i)} y={ALTO - 4} textAnchor="middle" fontSize={10} fill={COLOR.textoSecundario}>{m.label}{m.parcial ? "*" : ""}</text>
           ))}
         </svg>
       </div>
@@ -426,7 +434,7 @@ function TablaIndicadores({ meses, totales: t }: { meses: MesDucafast[]; totales
         <tbody>
           {meses.map((m, i) => (
             <tr key={m.clave} style={{ background: i % 2 === 1 ? "#faf9f5" : undefined }}>
-              <td className="px-3 py-1.5">{m.label}</td>
+              <td className="px-3 py-1.5">{m.label}{m.parcial && "*"}</td>
               <td className={td}>{num0(m.capacidadInstalada)}</td>
               <td className={td}>{num0(m.totalFiles)} · {pct1(m.pctDucafast)}</td>
               <td className={td}>{usd2(m.costoMezclado)}</td>
