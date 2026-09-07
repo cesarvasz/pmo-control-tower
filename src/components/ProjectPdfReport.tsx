@@ -25,11 +25,13 @@
 // puede pasar a una segunda línea (whiteSpace normal) con el contenedor
 // recortando por altura si de plano no cabe — nunca a la mitad de una letra.
 
-import { forwardRef, useState, type ReactNode } from "react";
+import { forwardRef, useMemo, useState, type ReactNode } from "react";
 import { fmtDate, fmtMoney } from "@/lib/business";
 import { addMonth, monthTicks, startOfMonth } from "@/lib/dateAxis";
+import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { classifyDev } from "@/lib/devTimeline";
 import {
-  currentPhaseIndex, phaseState,
+  currentPhaseIndex, enScope, groupFase3Units, phaseState,
   type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import type { BoardHealthData } from "@/lib/proj";
@@ -66,6 +68,11 @@ const PHASE_PDF_CFG: Record<ReturnType<typeof phaseState>, { color: string; bg: 
   current: { color: C.warn, bg: C.warnBg },
   pending: { color: C.textMuted, bg: C.disabledBg },
 };
+// Rojo SOLO para los steps del desglose de Fase 3 (ver buildGanttRows/indent) —
+// mismo criterio que en pantalla (resumen-ejecutivo/page.tsx, FASE3_LATE_CFG):
+// un step realmente atrasado (mismo dato que la tabla de Atrasos, ver enScope)
+// pesa más que estar "en curso". Las otras 4 fases mantienen los 3 colores.
+const FASE3_LATE_PDF_CFG = { color: C.bad, bg: C.badBg };
 function phaseLabel(p: PhaseSummary, isCurrent: boolean): string {
   if (p.total > 0 && p.done === p.total) return "Completada";
   if (p.offTrack) return "Atrasada";
@@ -103,24 +110,82 @@ function KpiCard({ value, label, color }: Card) {
   );
 }
 
-// ── Gantt (línea de tiempo por fase) ────────────────────────────────────
-const GANTT_H = 236;
+// ── Gantt (línea de tiempo por fase, con Fase 3 SIEMPRE expandida en sus
+// steps/hitos — ver buildGanttRows) ─────────────────────────────────────
+const GANTT_AXIS_H = 16;
 const PHASE_COL_W = 190;
 
-function phaseRange(phase: PhaseSummary, units: WorkUnit[]): { start: number; end: number } | null {
-  const dates: number[] = [];
-  units.filter((u) => u.grupo === phase.grupo).forEach((u) => {
-    if (u.deadline) dates.push(u.deadline.getTime());
-    if (u.actualEnd) dates.push(u.actualEnd.getTime());
+/** Una fila del Gantt: o bien una de las 5 fases del proyecto (`indent`
+ *  false), o bien uno de los steps/hitos DENTRO de Fase 3 (`indent` true,
+ *  justo debajo de la fila resumen de esa fase) — mismo desglose y mismo
+ *  criterio de atraso (enScope) que ya usa la tabla de Atrasos y el Gantt en
+ *  pantalla (ver fase3StepRowsFor en resumen-ejecutivo/page.tsx), para que
+ *  el PDF muestre la MISMA información, solo que siempre "abierta" (el PDF
+ *  no tiene interacción de clic para expandir/colapsar). */
+interface GanttRow { grupo: string; total: number; done: number; offTrack: boolean; started: boolean; isCurrent: boolean; indent: boolean; units: WorkUnit[] }
+
+const cmpStart = (a: Date | null, b: Date | null) => {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a.getTime() - b.getTime();
+};
+const startOfGroup = (g: { units: WorkUnit[] }) =>
+  isDesarrolloPorIteracionesStep(g.units[0].stepName) ? g.units[0].startDate : g.units[0].stepStartDate;
+
+function buildGanttRows(phases: PhaseSummary[], units: WorkUnit[]): GanttRow[] {
+  const curPhaseIdx = currentPhaseIndex(phases);
+  const rows: GanttRow[] = [];
+  phases.forEach((p, i) => {
+    rows.push({ grupo: p.grupo || "Sin grupo", total: p.total, done: p.done, offTrack: p.offTrack, started: p.started, isCurrent: i === curPhaseIdx, indent: false, units: units.filter((u) => u.grupo === p.grupo) });
+    if (!isFase3(p.grupo)) return;
+    const groups = groupFase3Units(units, p.grupo).sort((a, b) => cmpStart(startOfGroup(a), startOfGroup(b)));
+    if (groups.length <= 1) return; // nada que desglosar aparte de la fila resumen
+    const stepPhases = groups.map((g) => ({
+      grupo: g.name, total: g.units.length,
+      done: g.units.filter((u) => u.status === "Done").length,
+      offTrack: g.units.some((u) => enScope(u.status, u.estado, u.deadline)),
+      started: g.units.some((u) => classifyDev(u.status) !== "future"),
+      units: g.units,
+    }));
+    const curStepIdx = currentPhaseIndex(stepPhases);
+    stepPhases.forEach((sp, si) => {
+      rows.push({ grupo: sp.grupo, total: sp.total, done: sp.done, offTrack: sp.offTrack, started: sp.started, isCurrent: si === curStepIdx, indent: true, units: sp.units });
+    });
   });
-  return dates.length ? { start: Math.min(...dates), end: Math.max(...dates) } : null;
+  return rows;
 }
 
-function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSummary[]; units: WorkUnit[]; estimatedFinish: Date | null; now: number }) {
-  if (!phases.length) {
-    return <div style={{ height: GANTT_H, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, fontSize: 11 }}>Sin fases</div>;
+/** Altura de fila según cuántas filas hay en total (con Fase 3 expandida
+ *  pueden ser bastantes más de 5) — más filas, más compacta cada una, para
+ *  que el reporte siga cabiendo en una sola hoja (ver comentario arriba del
+ *  archivo). Con 5 filas (sin desglose) da lo mismo que antes (44px). */
+function ganttRowHeight(n: number): number {
+  if (n <= 5) return 44;
+  if (n <= 8) return 32;
+  if (n <= 12) return 24;
+  if (n <= 18) return 18;
+  return 14;
+}
+
+function ganttSectionHeight(rows: GanttRow[]): number {
+  return GANTT_AXIS_H + Math.max(1, rows.length) * ganttRowHeight(rows.length);
+}
+
+function GanttSection({ rows, estimatedFinish, now }: { rows: GanttRow[]; estimatedFinish: Date | null; now: number }) {
+  const height = ganttSectionHeight(rows);
+  if (!rows.length) {
+    return <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: C.textMuted, fontSize: 11 }}>Sin fases</div>;
   }
-  const ranges = phases.map((p) => phaseRange(p, units));
+  const rowH = ganttRowHeight(rows.length);
+  const ranges = rows.map((r) => {
+    const dates: number[] = [];
+    r.units.forEach((u) => {
+      if (u.deadline) dates.push(u.deadline.getTime());
+      if (u.actualEnd) dates.push(u.actualEnd.getTime());
+    });
+    return dates.length ? { start: Math.min(...dates), end: Math.max(...dates) } : null;
+  });
   const allDates: number[] = [now];
   ranges.forEach((r) => { if (r) { allDates.push(r.start, r.end); } });
   if (estimatedFinish) allDates.push(estimatedFinish.getTime());
@@ -130,15 +195,14 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
   const pct = (t: number) => Math.max(0, Math.min(100, ((t - min) / span) * 100));
   const ticks = monthTicks(new Date(min), new Date(max));
   const axisW = CONTENT_W - PHASE_COL_W;
-  const rowH = Math.max(24, Math.min(48, (GANTT_H - 16) / phases.length));
   const estX = estimatedFinish ? pct(estimatedFinish.getTime()) : null;
   const todayX = pct(now);
-  const curIdx = currentPhaseIndex(phases);
+  const fontScale = rowH < 24 ? 0.85 : 1;
 
   return (
-    <div style={{ height: GANTT_H, overflow: "hidden", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+    <div style={{ height, overflow: "hidden", border: `1px solid ${C.border}`, borderRadius: 8 }}>
       {/* Eje de meses */}
-      <div style={{ display: "flex", height: 16, borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", height: GANTT_AXIS_H, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ width: PHASE_COL_W, flexShrink: 0 }} />
         <div style={{ position: "relative", width: axisW }}>
           {ticks.map((t, i) => (
@@ -149,18 +213,17 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
         </div>
       </div>
       {/* Filas */}
-      {phases.map((p, i) => {
-        const isCurrent = i === curIdx;
-        const cfg = PHASE_PDF_CFG[phaseState(p, isCurrent)];
-        const label = phaseLabel(p, isCurrent);
+      {rows.map((row, i) => {
+        const cfg = row.indent && row.offTrack ? FASE3_LATE_PDF_CFG : PHASE_PDF_CFG[phaseState(row, row.isCurrent)];
+        const label = phaseLabel(row, row.isCurrent);
         const r = ranges[i];
-        const notDone = p.total === 0 || p.done < p.total;
+        const notDone = row.total === 0 || row.done < row.total;
         const overdueEnd = r && notDone && r.end < now ? now : null;
         return (
-          <div key={`${p.grupo}-${i}`} style={{ display: "flex", height: rowH, borderBottom: i === phases.length - 1 ? "none" : `1px solid ${C.border}` }}>
-            <div style={{ width: PHASE_COL_W, flexShrink: 0, background: cfg.bg, display: "flex", flexDirection: "column", justifyContent: "center", padding: "3px 8px", overflow: "hidden" }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: C.text, lineHeight: 1.2, whiteSpace: "normal", wordBreak: "break-word" }}>{p.grupo || "Sin grupo"}</div>
-              <div style={{ fontSize: 7, fontWeight: 600, color: cfg.color, lineHeight: 1.3, marginTop: 1 }}>{label} · {p.done}/{p.total}</div>
+          <div key={`${row.grupo}-${i}`} style={{ display: "flex", height: rowH, borderBottom: i === rows.length - 1 ? "none" : `1px solid ${C.border}` }}>
+            <div style={{ width: PHASE_COL_W, flexShrink: 0, background: cfg.bg, display: "flex", flexDirection: "column", justifyContent: "center", padding: row.indent ? "2px 8px 2px 18px" : "3px 8px", overflow: "hidden" }}>
+              <div style={{ fontSize: (row.indent ? 8 : 9) * fontScale, fontWeight: row.indent ? 600 : 700, color: C.text, lineHeight: 1.2, whiteSpace: "normal", wordBreak: "break-word" }}>{row.grupo}</div>
+              <div style={{ fontSize: 7 * fontScale, fontWeight: 600, color: cfg.color, lineHeight: 1.3, marginTop: 1 }}>{label} · {row.done}/{row.total}</div>
             </div>
             <div style={{ position: "relative", width: axisW }}>
               {estX != null && <div style={{ position: "absolute", top: 0, bottom: 0, left: `${estX}%`, width: 1, background: C.warn, opacity: 0.6 }} />}
@@ -168,7 +231,7 @@ function GanttSection({ phases, units, estimatedFinish, now }: { phases: PhaseSu
               {r && (
                 <div style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", left: 0, right: 0, height: 6 }}>
                   <div style={{ position: "absolute", height: 6, borderRadius: 3, left: `${pct(r.start)}%`, width: `${Math.max(pct(r.end) - pct(r.start), 0.8)}%`, background: "#fff", border: `1px solid ${cfg.color}` }} />
-                  <div style={{ position: "absolute", height: 6, borderRadius: 3, left: `${pct(r.start)}%`, width: `${Math.max((pct(r.end) - pct(r.start)) * (p.total ? p.done / p.total : 0), p.done > 0 ? 0.8 : 0)}%`, background: cfg.color }} />
+                  <div style={{ position: "absolute", height: 6, borderRadius: 3, left: `${pct(r.start)}%`, width: `${Math.max((pct(r.end) - pct(r.start)) * (row.total ? row.done / row.total : 0), row.done > 0 ? 0.8 : 0)}%`, background: cfg.color }} />
                   {overdueEnd != null && (
                     <div style={{ position: "absolute", height: 6, borderRadius: 3, left: `${pct(r.end)}%`, width: `${Math.max(pct(overdueEnd) - pct(r.end), 0.8)}%`, background: C.bad, opacity: 0.55 }} />
                   )}
@@ -315,8 +378,15 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
     { value: payback !== null ? `${payback.toFixed(1)}m` : "—", label: "Payback" },
   ];
 
+  // Fase 3 SIEMPRE expandida en sus steps/hitos (a diferencia de pantalla, el
+  // PDF no tiene clic para expandir/colapsar) — ver buildGanttRows. El Gantt
+  // crece según cuántas filas salgan, y el bloque de Atrasos se achica en la
+  // misma medida (ver ganttSectionHeight) para seguir cabiendo en una hoja.
+  const ganttRows = useMemo(() => buildGanttRows(summary.phases, summary.units), [summary.phases, summary.units]);
+  const ganttH = ganttSectionHeight(ganttRows);
+
   const respH = responsabilidadAtraso.length > 0 ? RESP_H + 6 : 0;
-  const atrasosMaxH = PAGE_H - MARGIN * 2 - 68 - (KPI_H + 16) - 24 - GANTT_H - 24 - respH - 16;
+  const atrasosMaxH = PAGE_H - MARGIN * 2 - 68 - (KPI_H + 16) - 24 - ganttH - 24 - respH - 16;
 
   return (
     <div
@@ -357,7 +427,7 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
 
       {/* Gantt */}
       <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, color: C.text, marginBottom: 6 }}>Línea de tiempo del proyecto</div>
-      <GanttSection phases={summary.phases} units={summary.units} estimatedFinish={summary.completion.estimatedFinish} now={now} />
+      <GanttSection rows={ganttRows} estimatedFinish={summary.completion.estimatedFinish} now={now} />
 
       {/* Atrasos */}
       <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, color: C.text, margin: "10px 0 6px" }}>Atrasos</div>
