@@ -2,17 +2,7 @@
 
 import { fmtDate } from "@/lib/business";
 import Modal from "@/components/Modal";
-
-/** Acción del VPA unificada (proyecto o REQ) para el resumen y el detalle. */
-export interface VpaAction {
-  id: string;
-  source: "PM" | "REQ";
-  title: string;
-  subtitle: string;
-  estado: string;
-  deadline: Date | null;
-  done: boolean;
-}
+import type { VpaAction } from "@/lib/vpaActions";
 
 interface Cfg { color: string; icon: string; label: string; rank: number }
 

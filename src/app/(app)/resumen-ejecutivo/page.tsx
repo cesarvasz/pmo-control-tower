@@ -26,6 +26,7 @@ import {
   type PortfolioProjectRow, type CrossRisk,
 } from "@/lib/portfolioSummary";
 import { HEALTH_CFG } from "@/lib/health";
+import { VALOR_STAGES, valorProgress } from "@/lib/valorStepper";
 import { addMonth, monthTicks, startOfMonth } from "@/lib/dateAxis";
 import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
 import AtrasoDetalleEditor from "@/components/AtrasoDetalleEditor";
@@ -380,24 +381,19 @@ function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onDow
 }
 
 // ── Estado de una fase (para el stepper) ────────────────────────────────
-// Solo 3 colores: verde (completada), ámbar (la fase actual — la que
-// "bloquea" el avance, ver currentPhaseIndex en lib/projSummary.ts) y gris
-// para todo lo demás, INCLUYENDO una fase atrasada que ya no es la actual —
-// el texto "Atrasada" se sigue mostrando (ver phaseLabel), pero ya no compite
-// en rojo contra el ámbar de "en curso".
+// 4 colores: verde (completada), ROJO (atrasada — cualquier fase, o cualquier
+// step de Fase 3, con un item atrasado / en Stuck, mismo criterio que la tabla
+// de Atrasos, ver enScope), ámbar (la fase actual que "bloquea" el avance, ver
+// currentPhaseIndex) y gris (pendiente). El rojo tiene prioridad sobre el
+// ámbar: si la fase actual además está atrasada, se pinta roja (ver buildRow).
 const PHASE_CFG: Record<PhaseState, { color: string; bg: string; icon: string }> = {
   done:    { color: "var(--ok)",            bg: "var(--health-on-track-bg)", icon: "✓" },
   current: { color: "var(--warn)",          bg: "var(--warn-bg)",            icon: "●" },
   pending: { color: "var(--text-disabled)", bg: "var(--bg-hover)",           icon: "○" },
 };
-/** Rojo para un step/hito de Fase 3 realmente atrasado (mismo criterio que la
- *  tabla de Atrasos, ver enScope) — SOLO dentro del desglose de Fase 3
- *  (fase3StepRowsFor); las otras 4 fases siguen con los 3 colores de arriba
- *  (ver el comentario de PHASE_CFG: ahí el rojo se sacó a propósito para no
- *  competir con el ámbar de "en curso"). Acá sí importa marcarlo: pesa más
- *  que estar "en curso", porque es justo lo que hace que el proyecto se
- *  atrase. */
-const FASE3_LATE_CFG = { color: "var(--bad)", bg: "var(--bad-bg)", icon: "⚠" };
+/** Config roja para una fase (o step de Fase 3) con `offTrack` — se aplica en
+ *  buildRow con prioridad sobre PHASE_CFG. */
+const LATE_CFG = { color: "var(--bad)", bg: "var(--bad-bg)", icon: "⚠" };
 /** Texto de estado de una fase — independiente del color (ver PHASE_CFG):
  *  "Atrasada" se muestra para CUALQUIER fase con offTrack, sea o no la actual. */
 function phaseLabel(p: PhaseSummary, isCurrent: boolean): string {
@@ -470,6 +466,22 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   const { code, name } = splitBoardName(board.name);
   const healthCfg = health.healthStatus ? HEALTH_CFG[health.healthStatus] : null;
   const est = estimateMessage(summary);
+  // Etapa VALOR actual (para el stepper del encabezado, ver lib/valorStepper.ts).
+  const valor = useMemo(() => valorProgress(summary.phases), [summary.phases]);
+  // Días de deslizamiento del cierre estimado vs el plan (para la tarjeta
+  // "Cierre estimado"): la diferencia real plan→estimado, o el atraso ya
+  // vencido de Fase 4 si aún no hay estimado más allá del plan.
+  const { plannedFinish, estimatedFinish } = summary.completion;
+  const slipVsPlan = plannedFinish && estimatedFinish && estimatedFinish > plannedFinish
+    ? businessDays(plannedFinish, estimatedFinish)
+    : summary.completion.scheduleSlipDays;
+  // Rango de meses del proyecto (subtítulo de la línea de tiempo).
+  const mesesLabel = useMemo(() => {
+    const ds = summary.units.flatMap((u) => [u.startDate, u.deadline, u.actualEnd]).filter((d): d is Date => d != null);
+    if (!ds.length) return "";
+    const f = (d: Date) => d.toLocaleDateString("es-GT", { month: "long", year: "numeric" });
+    return `${f(new Date(Math.min(...ds.map((d) => d.getTime()))))} – ${f(new Date(Math.max(...ds.map((d) => d.getTime()))))}`;
+  }, [summary.units]);
 
   // Atrasos: STEPS de Fase 3 (Launch/Desarrollo) atrasados o en Stuck — una
   // fila por step, nunca una por hito. Un step sin hitos usa su propio
@@ -536,6 +548,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
         healthColor={healthCfg?.color}
         atrasos={atrasos} avancePlanificado={avancePlanificado}
         responsabilidadAtraso={responsabilidadAtraso}
+        atrasoDetalles={atrasoDetalles}
         valorProyecto={valorProyecto} roi={roi} payback={payback}
         estimateColor={est.color}
       />
@@ -544,120 +557,107 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
         <EmptyRow msg="Este proyecto no tiene items en Monday." />
       ) : (
         <>
-          {/* Encabezado del proyecto */}
-          <div className="mb-5 flex flex-wrap items-center gap-2.5">
-            {code && (
-              <span className="rounded-full px-2.5 py-1 text-[0.7rem] font-bold uppercase tracking-wide" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-                {code}
-              </span>
-            )}
-            <h2 className="text-3xl font-bold text-[var(--text-primary)]">{name}</h2>
-            {board.benefitType && (
-              <span
-                className="rounded-full px-2 py-0.5 text-[0.7rem] font-semibold"
-                style={{ color: board.benefitType === "HardSaving" ? "#10b981" : "#8b5cf6", background: (board.benefitType === "HardSaving" ? "#10b981" : "#8b5cf6") + "22" }}
-              >
-                {board.benefitType}
-              </span>
-            )}
+          {/* Encabezado tipo reporte ejecutivo (logo + stepper VALOR) */}
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4 border-b-2 pb-3" style={{ borderColor: "var(--text-primary)" }}>
+            <div className="flex items-center gap-3">
+              <img src="/pmo-logo.png" alt="PMO" className="h-9 w-auto" />
+              <div>
+                <div className="text-[0.62rem] font-bold uppercase tracking-[0.15em] text-[var(--text-muted)]">Reporte Proyecto</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {code && <span className="text-[1.3rem] font-extrabold text-[var(--text-muted)]">{code}</span>}
+                  <h2 className="text-[1.3rem] font-extrabold text-[var(--text-primary)]">{name}</h2>
+                  <span className="text-[var(--warn)]">⚡</span>
+                  {board.benefitType && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[0.7rem] font-semibold"
+                      style={{ color: board.benefitType === "HardSaving" ? "#10b981" : "#8b5cf6", background: (board.benefitType === "HardSaving" ? "#10b981" : "#8b5cf6") + "22" }}
+                    >
+                      {board.benefitType}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[0.72rem] text-[var(--text-muted)]">Generado el {fmtDate(today())}</div>
+              </div>
+            </div>
+            <ValorStepperScreen current={valor.current} allDone={valor.allDone} />
           </div>
-          <div className="mb-6 flex flex-wrap gap-x-6 gap-y-1.5 text-[1.05rem] text-[var(--text-secondary)]">
+          <div className="mb-6 flex flex-wrap gap-x-6 gap-y-1.5 text-[0.95rem] text-[var(--text-secondary)]">
             {board.pm && <span>PM: <strong className="text-[var(--text-primary)]">{board.pm}</strong></span>}
             {board.sponsor && <span>Sponsor: <strong className="text-[var(--text-primary)]">{board.sponsor}</strong></span>}
             {board.cku && <span>CKU: <strong className="text-[var(--text-primary)]">{board.cku}</strong></span>}
             {board.estrategia && <span>Estrategia: <strong className="text-[var(--text-primary)]">{board.estrategia}</strong></span>}
           </div>
 
-          {/* KPIs + Beneficio $ — una sola fila de tarjetas */}
-          <div className="report-kpis mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8 print:break-inside-avoid">
-            <StatCard
-              labelPosition="top" centered
-              label="Avance / Plan"
-              valueSize="1.15rem"
-              value={
-                <div className="flex flex-col items-center gap-0.5">
-                  <span>{summary.progress.pct}% / {avancePlanificado}%</span>
-                  <span
-                    className="text-[0.72em] font-extrabold"
-                    style={{ color: spi !== null ? (spi >= 90 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)" }}
-                  >
-                    SPI {spi !== null ? `${spi}%` : "—"}
-                  </span>
-                </div>
-              }
+          {/* KPIs — fila única de 8 tarjetas con color semántico (ver diseño del PDF) */}
+          <div className="report-kpis mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 print:break-inside-avoid">
+            <KpiTile
+              label="Avance vs Plan"
+              value={`${summary.progress.pct}% / ${avancePlanificado}%`}
+              sub={`SPI ${spi !== null ? (spi / 100).toFixed(2) : "—"}`}
+              color={spi !== null ? (spi >= 90 ? "var(--ok)" : spi >= 75 ? "var(--warn)" : "var(--bad)") : "var(--text-disabled)"}
+              tint={spi !== null && spi < 75 ? "var(--health-off-track-bg)" : undefined}
             />
-            <StatCard
-              labelPosition="top" centered
-              value={healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
-              label={`Salud${health.healthIndex !== null ? ` · EVM ${Math.round(health.healthIndex * 100)}%` : ""}`}
+            <KpiTile
+              label="Salud (EVM)"
+              value={health.healthIndex !== null ? `${Math.round(health.healthIndex * 100)}%` : healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
+              sub={health.healthIndex !== null && healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : undefined}
               color={healthCfg?.color}
-              borderColor={healthCfg?.color}
-              valueSize="1.25rem"
+              tint={health.healthStatus === "off-track" ? "var(--health-off-track-bg)" : health.healthStatus === "in-risk" ? "var(--health-in-risk-bg)" : health.healthStatus === "on-track" ? "var(--health-on-track-bg)" : undefined}
             />
-            <StatCard
-              labelPosition="top" centered
+            <KpiTile
               label="Atraso actual"
-              valueSize="1.4rem"
-              value={
-                atrasos.length > 0 ? (
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span>{atrasoActualDias}d hábiles</span>
-                    <span className="text-[0.72em] font-normal" style={{ color: "var(--text-muted)" }}>
-                      {atrasos.length} step{atrasos.length === 1 ? "" : "s"} atrasado{atrasos.length === 1 ? "" : "s"}
-                    </span>
-                  </div>
-                ) : "Sin atrasos"
-              }
+              value={atrasos.length > 0 ? `${atrasoActualDias} d hábiles` : "Sin atrasos"}
+              sub={atrasos.length > 0 ? `${atrasos.length} step${atrasos.length === 1 ? "" : "s"} atrasado${atrasos.length === 1 ? "" : "s"}` : undefined}
               color={atrasos.length > 0 ? "var(--bad)" : "var(--ok)"}
-              borderColor={atrasos.length > 0 ? "var(--bad)" : undefined}
+              tint={atrasos.length > 0 ? "var(--health-off-track-bg)" : undefined}
             />
-            <StatCard labelPosition="top" centered value={fmtDate(summary.completion.plannedFinish)} label="Fecha planificada" valueSize="1.2rem" />
-            <StatCard
-              labelPosition="top" centered
+            <KpiTile label="Fecha cierre plan" value={fmtDate(summary.completion.plannedFinish)} color="var(--text-secondary)" />
+            <KpiTile
+              label="Cierre estimado"
               value={fmtDate(summary.completion.estimatedFinish)}
-              label="Estimado de cierre (predictivo)"
+              sub={slipVsPlan > 0 ? `+${slipVsPlan} días vs plan` : summary.completion.plannedFinish ? "en fecha" : undefined}
               color={est.color}
-              borderColor={est.color}
-              valueSize="1.2rem"
+              tint={slipVsPlan > 0 ? "var(--health-in-risk-bg)" : undefined}
             />
-            <StatCard
-              labelPosition="top" centered
+            <KpiTile
+              label="Valor generado"
               value={fmtMoney(valorProyecto)}
-              label="Valor $"
               color={valorProyecto !== null ? (valorProyecto >= 0 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)"}
-              valueSize="1.2rem"
+              tint={valorProyecto !== null && valorProyecto >= 0 ? "var(--ok-bg)" : undefined}
             />
-            <StatCard
-              labelPosition="top" centered
-              value={roi !== null ? `${Math.round(roi)}%` : "—"}
+            <KpiTile
               label="ROI"
+              value={roi !== null ? `${Math.round(roi).toLocaleString("en-US")}%` : "—"}
+              sub={roi !== null ? "Retorno inversión" : undefined}
               color={roi !== null ? (roi >= 0 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)"}
-              valueSize="1.2rem"
+              tint={roi !== null && roi >= 0 ? "var(--ok-bg)" : undefined}
             />
-            <StatCard
-              labelPosition="top" centered
-              value={payback !== null ? `${payback.toFixed(1)} meses` : "—"}
+            <KpiTile
               label="Payback"
+              value={payback !== null ? `${payback.toFixed(1)} meses` : "—"}
               color={payback !== null ? "var(--text-secondary)" : "var(--text-disabled)"}
-              valueSize="1.2rem"
             />
           </div>
 
-          {/* Timeline por fase */}
-          <h3 className="mb-4 text-[1.4rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
+          {/* Línea de tiempo del proyecto */}
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 className="text-[1.4rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
+            {mesesLabel && <span className="text-[0.78rem] text-[var(--text-muted)]">Fases VALOR y entregables de Launch · {mesesLabel}</span>}
+          </div>
+          <GanttLegendScreen hoy={fmtDate(today())} />
           <PhaseTimeline phases={summary.phases} units={summary.units} estimatedFinish={summary.completion.estimatedFinish} />
 
-          {/* Atrasos: steps de Fase 3 atrasados o Stuck (una fila por step) */}
-          <AtrasosList
+          {/* Causas de atraso: steps de Fase 3 atrasados o Stuck (una fila por step) */}
+          <CausasDeAtraso
             rows={atrasos.map((a) => ({
               id: a.id, name: a.name,
-              dateLabel: fmtDate(a.deadline),
-              responsible: a.responsible,
-              tag: [
-                a.daysLate != null && a.daysLate > 0 ? `${fmtDays(a.daysLate)} de atraso` : null,
+              sub: [
+                a.nHitos > 0 ? `${a.nHitos} actividad${a.nHitos === 1 ? "" : "es"}` : null,
                 a.stuck ? "Stuck" : null,
-                a.nHitos > 0 ? `${a.nHitos} hito${a.nHitos === 1 ? "" : "s"}` : null,
-              ].filter(Boolean).join(" · ") || "Atrasado",
+                `comprometido ${fmtDate(a.deadline)}`,
+              ].filter(Boolean).join(" · "),
+              responsible: a.responsible,
+              badge: a.daysLate != null && a.daysLate > 0 ? `${a.daysLate} d` : a.stuck ? "Stuck" : "Atrasado",
             }))}
             responsabilidad={responsabilidadAtraso}
           />
@@ -714,7 +714,10 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
   if (!phases.length) return <EmptyRow msg="Este proyecto no tiene fases." />;
 
   const buildRow = (phase: PhaseSummary, list: WorkUnit[], isCurrent: boolean): PhaseTimelineRow => {
-    const cfg = PHASE_CFG[phaseState(phase, isCurrent)];
+    // Rojo si la fase (o step de Fase 3) tiene algún item atrasado / en Stuck
+    // — prioridad sobre el ámbar de "en curso" (ver PHASE_CFG). offTrack ya
+    // implica que no está completa (enScope exige status !== "Done").
+    const cfg = phase.offTrack ? LATE_CFG : PHASE_CFG[phaseState(phase, isCurrent)];
     const label = phaseLabel(phase, isCurrent);
     const barDates: number[] = [];
     const milestones: PhaseTimelineRow["milestones"] = [];
@@ -769,12 +772,8 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
     // fases de nivel superior (ver currentPhaseIndex) — es el primer step sin
     // terminar de ESTE grupo, no de las 5 fases del proyecto.
     const curStepIdx = currentPhaseIndex(stepPhases);
-    return groups.map((g, i) => {
-      const row = buildRow(stepPhases[i], g.units, i === curStepIdx);
-      // Rojo SOLO acá (desglose de Fase 3): un step realmente atrasado pesa
-      // más visualmente que estar "en curso" — ver FASE3_LATE_CFG.
-      return stepPhases[i].offTrack ? { ...row, cfg: FASE3_LATE_CFG } : row;
-    });
+    // buildRow ya pinta de rojo cualquier step con offTrack (ver LATE_CFG).
+    return groups.map((g, i) => buildRow(stepPhases[i], g.units, i === curStepIdx));
   };
 
   // Fases 1, 2, 4 y 5: una sola fila con SOLO su rango (inicio→fin planificado +
@@ -848,10 +847,10 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
             <Fragment key={`${r.phase.grupo}-${i}`}>
               <div
                 className={`flex items-stretch border-b transition-colors last:border-b-0 hover:bg-[var(--bg-hover)] ${isF3 ? "cursor-pointer select-none" : ""}`}
-                style={{ borderColor: "var(--border)" }}
+                style={{ borderColor: "var(--border)", minHeight: 66 }}
                 onClick={isF3 ? () => toggleFase3(r.phase.grupo) : undefined}
               >
-                <div style={{ width: 290, background: r.cfg.bg }} className="gantt-phase-col shrink-0 px-3 py-2.5">
+                <div style={{ width: 290, background: r.cfg.bg }} className="gantt-phase-col flex shrink-0 flex-col justify-center gap-1 px-3 py-2.5">
                   <div className="flex items-center gap-1.5">
                     {isF3 && (
                       <span
@@ -859,15 +858,15 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                         style={{ transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : undefined }}
                       >▶</span>
                     )}
-                    <div className="text-[1.1rem] font-semibold leading-tight text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
+                    <div className="text-[1.05rem] font-semibold leading-snug text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
                   </div>
-                  <div className="mt-1 flex items-center gap-1 text-[0.8rem] font-semibold" style={{ color: r.cfg.color }}>
+                  <div className="flex flex-wrap items-center gap-x-1 text-[0.8rem] font-semibold leading-snug" style={{ color: r.cfg.color }}>
                     {r.cfg.icon} {r.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
                     {isF3 && <span className="font-normal text-[var(--text-muted)]">· {steps.length} {stepsWord}{steps.length === 1 ? "" : "s"}</span>}
                   </div>
                 </div>
 
-                <div className="gantt-row-track relative flex-1" style={{ minHeight: 58 }}>
+                <div className="gantt-row-track relative flex-1" style={{ minHeight: 66 }}>
                   {ticks.map((t, i) => (
                     <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
                   ))}
@@ -919,14 +918,14 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                 >
                   <div className="overflow-hidden" style={{ background: "var(--bg-hover)" }}>
                     {steps.map((sr, si) => (
-                      <div key={`${sr.phase.grupo}-${si}`} className="flex items-stretch border-b last:border-b-0" style={{ borderColor: "var(--border-subtle)" }}>
-                        <div style={{ width: 290, background: sr.cfg.bg }} className="gantt-phase-col shrink-0 py-2 pl-7 pr-3">
-                          <div className="text-[0.95rem] font-medium leading-tight text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
-                          <div className="mt-0.5 flex items-center gap-1 text-[0.72rem] font-semibold" style={{ color: sr.cfg.color }}>
+                      <div key={`${sr.phase.grupo}-${si}`} className="flex items-stretch border-b last:border-b-0" style={{ borderColor: "var(--border-subtle)", minHeight: 50 }}>
+                        <div style={{ width: 290, background: sr.cfg.bg }} className="gantt-phase-col flex shrink-0 flex-col justify-center gap-0.5 py-2 pl-7 pr-3">
+                          <div className="text-[0.95rem] font-medium leading-snug text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
+                          <div className="flex flex-wrap items-center gap-x-1 text-[0.72rem] font-semibold leading-snug" style={{ color: sr.cfg.color }}>
                             {sr.cfg.icon} {sr.label} <span className="font-normal text-[var(--text-muted)]">· {sr.phase.done}/{sr.phase.total}</span>
                           </div>
                         </div>
-                        <div className="gantt-subrow-track relative flex-1" style={{ minHeight: 42 }}>
+                        <div className="gantt-subrow-track relative flex-1" style={{ minHeight: 50 }}>
                           {ticks.map((t, ti) => (
                             <div key={ti} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.35 }} />
                           ))}
@@ -966,88 +965,162 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
   );
 }
 
-// ── Lista compacta de hitos (próximos / atrasados) ──────────────────────
-interface MilestoneRow { id: string; name: string; grupo: string; dateLabel: string; responsible?: string; tag: string; tone: "neutral" | "bad" }
-function MilestoneList({ title, empty, rows }: { title: string; empty: string; rows: MilestoneRow[] }) {
+// ── Encabezado: stepper VALOR (Valuación · Aprobación · Launch · Operación ·
+// Revisión) — misma lógica pura que el PDF (ver lib/valorStepper.ts). ──────
+const BRAND_GREEN = "#2f8f3e";
+function ValorStepperScreen({ current, allDone }: { current: number; allDone: boolean }) {
   return (
-    <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
-      <h4 className="mb-3 text-[0.85rem] font-bold text-[var(--text-primary)]">{title}</h4>
-      {rows.length === 0 ? (
-        <div className="py-4 text-center text-[0.78rem] text-[var(--text-muted)]">{empty}</div>
-      ) : (
-        <div className="flex flex-col gap-2.5">
-          {rows.map((r) => (
-            <div key={r.id} className="flex items-center justify-between gap-3 border-b pb-2.5 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
-              <div className="min-w-0">
-                <div className="truncate text-[0.8rem] font-medium text-[var(--text-primary)]" title={r.name}>{r.name}</div>
-                <div className="truncate text-[0.68rem] text-[var(--text-muted)]" title={r.grupo}>
-                  {r.grupo} · {r.dateLabel}
-                  {r.responsible && <> · A cargo: <span className="text-[var(--text-secondary)]">{r.responsible}</span></>}
+    <div className="flex items-start print:scale-90 print:origin-top-right">
+      {VALOR_STAGES.map((s, i) => {
+        const done = allDone || i < current;
+        const active = !allDone && i === current;
+        const on = active || done;
+        return (
+          <div key={s.key} className="flex items-start">
+            <div className="flex w-[52px] flex-col items-center">
+              {/* Círculo y letra en capas separadas: la letra (sin borde) se
+                  centra con lineHeight = alto de la caja y nunca queda recortada. */}
+              <div className="relative h-6 w-6">
+                <div
+                  className="absolute inset-0 rounded-full border-[1.5px]"
+                  style={{
+                    borderColor: on ? BRAND_GREEN : "var(--text-disabled)",
+                    background: on ? BRAND_GREEN : "transparent",
+                  }}
+                />
+                <div
+                  className="absolute inset-0 text-center text-[0.62rem] font-bold"
+                  style={{ lineHeight: "24px", color: on ? "#fff" : "var(--text-disabled)" }}
+                >
+                  {s.key}
                 </div>
               </div>
               <span
-                className="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
-                style={{ color: r.tone === "bad" ? "var(--bad)" : "var(--text-secondary)", background: r.tone === "bad" ? "var(--bad-bg)" : "var(--bg-hover)" }}
+                className="mt-1 text-center text-[0.6rem] leading-tight"
+                style={{ color: active ? "var(--text-primary)" : "var(--text-muted)", fontWeight: active ? 700 : 400 }}
               >
-                {r.tag}
+                {s.label}
               </span>
             </div>
-          ))}
-        </div>
-      )}
+            {i < VALOR_STAGES.length - 1 && (
+              <div className="mt-3 h-0.5 w-4" style={{ background: i < current || allDone ? BRAND_GREEN : "var(--border)" }} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// ── Atrasos: hitos/steps de Fase 3 atrasados o Stuck, con Responsable/Motivo ──
-// editables (Firestore, ver AtrasoDetalleEditor). Distinta de MilestoneList
-// porque cada fila necesita espacio para los dos controles de edición.
-interface AtrasoRow { id: string; name: string; dateLabel: string; responsible?: string; tag: string }
-function AtrasosList({ rows, responsabilidad }: { rows: AtrasoRow[]; responsabilidad: Responsabilidad[] }) {
+// ── Tarjeta KPI del reporte: etiqueta arriba, valor grande, sub opcional, y
+// una franja de color semántico a la izquierda + fondo tenue del mismo tono. ──
+function KpiTile({ label, value, sub, color, tint }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; color?: string; tint?: string;
+}) {
   return (
-    <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
-      <h4 className="mb-4 text-[1.15rem] font-bold text-[var(--text-primary)]">Atrasos</h4>
-      {responsabilidad.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          {responsabilidad.map((r) => (
-            <span
-              key={r.label}
-              className="inline-flex items-center rounded-full px-3 py-1 text-[0.85rem] font-semibold"
-              style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
+    <div
+      className="rounded-xl border p-3"
+      style={{ borderColor: "var(--border)", borderLeft: `3px solid ${color ?? "var(--border)"}`, background: tint ?? "var(--bg-surface)" }}
+    >
+      <div className="text-[0.62rem] font-bold uppercase tracking-wide text-[var(--text-secondary)]">{label}</div>
+      <div className="mt-1 text-[1.15rem] font-extrabold leading-tight" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
+      {sub && <div className="mt-0.5 text-[0.65rem] font-semibold text-[var(--text-muted)]">{sub}</div>}
+    </div>
+  );
+}
+
+// ── Leyenda de la línea de tiempo ──────────────────────────────────────
+function GanttLegendScreen({ hoy }: { hoy: string }) {
+  const item = (sw: React.ReactNode, txt: string) => (
+    <span className="inline-flex items-center gap-1.5">{sw}<span>{txt}</span></span>
+  );
+  const bar = (style: React.CSSProperties) => <span className="inline-block h-2 w-3.5 rounded-sm" style={style} />;
+  return (
+    <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.68rem] text-[var(--text-secondary)]">
+      {item(bar({ background: "var(--ok)" }), "Completada")}
+      {item(bar({ background: "var(--warn)" }), "En curso")}
+      {item(bar({ background: "var(--bad)", opacity: 0.55 }), "Atrasada (sobretiempo)")}
+      {item(bar({ border: "1px solid var(--text-muted)" }), "Pendiente")}
+      {item(<span className="inline-block h-1.5 w-1.5 rotate-45 border" style={{ borderColor: "var(--text-secondary)" }} />, "Hito")}
+      {item(<span className="inline-block h-3 w-0.5" style={{ background: "var(--accent)" }} />, `Hoy · ${hoy}`)}
+      {item(<span className="inline-block h-3 w-0.5" style={{ background: "var(--warn)" }} />, "Cierre estimado")}
+    </div>
+  );
+}
+
+// ── Distribución de responsabilidad del atraso: barra apilada + leyenda ──
+const ROLE_PALETTE = ["#6366f1", "#3b82f6", "#8b5cf6", "#0ea5e9", "#ec4899", "#14b8a6"];
+const roleColor = (label: string, i: number) =>
+  /sin asignar/i.test(label) ? "var(--text-muted)" : ROLE_PALETTE[i % ROLE_PALETTE.length];
+
+function ResponsabilidadDistScreen({ items }: { items: Responsabilidad[] }) {
+  return (
+    <div className="h-fit rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+      <h4 className="mb-3 text-[0.9rem] font-bold text-[var(--text-primary)]">Distribución de responsabilidad</h4>
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
+        {items.map((r, i) => (
+          <div key={r.label} style={{ width: `${r.pct}%`, background: roleColor(r.label, i) }} />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-col gap-1.5">
+        {items.map((r, i) => (
+          <div key={r.label} className="flex items-center gap-2 text-[0.78rem]">
+            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: roleColor(r.label, i) }} />
+            <span className="text-[var(--text-secondary)]">{r.label} · <strong className="text-[var(--text-primary)]">{r.pct}%</strong></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Causas de atraso: steps/hitos de Fase 3 atrasados o Stuck, en formato de
+// tabla (Entregable · A cargo · Atraso · Responsable · Motivo). Responsable y
+// Motivo siguen editables (Firestore, ver AtrasoDetalleEditor). ──────────────
+interface CausaRow { id: string; name: string; sub: string; responsible?: string; badge: string }
+function CausasDeAtraso({ rows, responsabilidad }: { rows: CausaRow[]; responsabilidad: Responsabilidad[] }) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_260px] print:grid-cols-[1fr_220px]">
+      <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+        <h4 className="mb-3 text-[1.05rem] font-bold text-[var(--text-primary)]">Causas de atraso</h4>
+        {rows.length === 0 ? (
+          <div className="py-4 text-center text-[0.9rem] text-[var(--text-muted)]">Sin atrasos. 🎉</div>
+        ) : (
+          <>
+            <div
+              className="hidden gap-3 border-b pb-2 text-[0.6rem] font-bold uppercase tracking-wide text-[var(--text-muted)] sm:grid sm:grid-cols-[1.6fr_0.9fr_auto]"
+              style={{ borderColor: "var(--border-subtle)" }}
             >
-              {r.label} {r.pct}%
-            </span>
-          ))}
-        </div>
-      )}
-      {rows.length === 0 ? (
-        <div className="py-4 text-center text-[0.9rem] text-[var(--text-muted)]">Sin atrasos. 🎉</div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {rows.map((r) => (
-            <div key={r.id} className="border-b pb-4 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <div className="truncate text-[1.08rem] font-semibold text-[var(--text-primary)]" title={r.name}>{r.name}</div>
-                  <span
-                    className="shrink-0 rounded-full px-2.5 py-1 text-[0.85rem] font-semibold"
-                    style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
-                  >
-                    {r.tag}
-                  </span>
-                </div>
-                <div className="truncate text-[0.92rem] text-[var(--text-muted)]">
-                  {r.dateLabel}
-                  {r.responsible && <> · A cargo: <span className="text-[var(--text-secondary)]">{r.responsible}</span></>}
-                </div>
-              </div>
-              <div className="mt-2.5">
-                <AtrasoDetalleEditor itemId={r.id} />
-              </div>
+              <span>Entregable</span><span>A cargo</span><span>Atraso</span>
             </div>
-          ))}
-        </div>
-      )}
+            <div className="flex flex-col">
+              {rows.map((r) => (
+                <div key={r.id} className="border-b py-3 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
+                  <div className="grid items-start gap-3 sm:grid-cols-[1.6fr_0.9fr_auto]">
+                    <div className="min-w-0">
+                      <div className="text-[0.95rem] font-semibold text-[var(--text-primary)]" title={r.name}>{r.name}</div>
+                      <div className="text-[0.72rem] text-[var(--text-muted)]">{r.sub}</div>
+                    </div>
+                    <div className="text-[0.8rem] text-[var(--text-secondary)]">
+                      <span className="text-[var(--text-muted)] sm:hidden">A cargo: </span>{r.responsible || "—"}
+                    </div>
+                    <span
+                      className="justify-self-start rounded-full px-2.5 py-1 text-[0.75rem] font-bold"
+                      style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
+                    >
+                      {r.badge}
+                    </span>
+                  </div>
+                  <div className="mt-2.5">
+                    <AtrasoDetalleEditor itemId={r.id} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+      {responsabilidad.length > 0 && <ResponsabilidadDistScreen items={responsabilidad} />}
     </div>
   );
 }

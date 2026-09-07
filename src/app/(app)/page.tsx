@@ -18,12 +18,13 @@ import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, Re
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 import NpsRangesModal from "@/components/NpsRangesModal";
-import ValueGateModal, { type VpaAction } from "@/components/ValueGateModal";
+import ValueGateModal from "@/components/ValueGateModal";
 import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
 import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
 import EntregaDetailModal from "@/components/EntregaDetailModal";
 import { computeKpi, kpiColorFor } from "@/lib/kpi";
+import { buildVpaActions } from "@/lib/vpaActions";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -46,15 +47,6 @@ const fmtMoneyShort = (n: number | null | undefined): string => {
 };
 
 const INI_HEALTH_CFG = HEALTH_CFG;
-
-// Detección del item Value Gate (BC): "Firmado y aprobado (Sponsor+VPA+PMO Mgr)" en la
-// fase Aprobación, o "Actualizado y firmado (Sponsor+VPA+PMO Mgr)" en Launch | Desarrollo.
-// Se usa para las acciones del VPA.
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-const isValueGate = (name: string) => {
-  const n = norm(name);
-  return n.includes("value gate") && n.includes("firmado");
-};
 
 export default function ControlTowerPage() {
   const { data, loading, error } = useData();
@@ -175,45 +167,10 @@ function ControlTower({ data }: { data: DashboardData }) {
   const totalCost = colAgg.totalCost;
 
   // ── VPA Actions ──
-  // Acciones que debe realizar el VPA, con visibilidad de su estado:
-  //  · Proyectos: steps "VPA valida Business Case…" / "Entregable Business Case
-  //    validado por VPA" (fase 1 y 3), "Plan de beneficios acordados con CFO", el
-  //    Value Gate (BC) — "Firmado y aprobado" (Aprobación) o "Actualizado y firmado"
-  //    (Launch | Desarrollo) —, los 3 "VPA Recopila datos a 30/60/90 días (Compara
-  //    Valor real contra BC)" (Cierre ROI) y el "Informe ejecutivo de valor al
-  //    sponsor", en Working on it (o Done, en el detalle).
-  //  · REQ: ítems en fase 2 (Aprobación) y fase 6 (Revisión ROI / "Cierre ROI").
-  const isVgStep = (name: string) => {
-    const n = norm(name);
-    return n.includes("vpa valida business case")
-      || n.includes("business case validado por vpa")
-      || n.includes("plan de beneficios acordados con cfo")
-      || n.includes("recopila datos a 30 dias")
-      || n.includes("recopila datos a 60 dias")
-      || n.includes("recopila datos a 90 dias")
-      || n.includes("informe ejecutivo de valor al sponsor")
-      || isValueGate(name);
-  };
-  const vpaProj: VpaAction[] = proj
-    .filter((r) => isVgStep(r.name) && (r.status === "Working on it" || r.status === "Done"))
-    .map((r) => ({
-      id: `pm-${r.id}`, source: "PM", title: r.boardName,
-      subtitle: `${r.name} · ${r.grupo}`, estado: r.estado, deadline: r.deadline,
-      done: r.status === "Done",
-    }));
-  // REQ: fase 2 (Aprobación) y fase 6 (Revisión ROI — grupo normalizado "Cierre ROI").
-  const REQ_VPA_FASE: Record<string, string> = {
-    "Aprobación": "REQ · Aprobación (fase 2)",
-    "Cierre ROI": "REQ · Revisión ROI (fase 6)",
-  };
-  const vpaReq: VpaAction[] = req
-    .filter((r) => r.grupo in REQ_VPA_FASE)
-    .map((r) => ({
-      id: `req-${r.id}`, source: "REQ", title: r.name,
-      subtitle: REQ_VPA_FASE[r.grupo], estado: r.estado, deadline: r.deadline,
-      done: false,
-    }));
-  const vpaActions = [...vpaProj, ...vpaReq];
+  // Acciones que debe realizar el VPA, con visibilidad de su estado — toda la
+  // lógica (qué steps de Proyecto / qué fases de REQ cuentan) vive en
+  // lib/vpaActions.ts (pura, con test).
+  const vpaActions = buildVpaActions(proj, req);
   const vpaPending = vpaActions.filter((a) => !a.done);
   const vgEnTiempo = vpaPending.filter((a) => a.estado === "EN TIEMPO").length;
   const vgHoy      = vpaPending.filter((a) => a.estado === "PARA HOY").length;
