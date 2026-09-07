@@ -227,8 +227,15 @@ function AtrasosSection({ rows, maxHeight }: { rows: StepAtraso[]; maxHeight: nu
     <div style={{ maxHeight, overflow: "hidden" }}>
       {shown.map((a) => (
         <div key={a.id} style={{ position: "relative", borderBottom: `1px solid ${C.border}`, padding: "6px 62px 6px 0" }}>
-          <div style={{ fontSize: 9.5, fontWeight: 600, color: C.text, lineHeight: 1.5, whiteSpace: "nowrap", overflow: "hidden" }}>{a.name}</div>
-          <div style={{ fontSize: 8, color: C.textMuted, lineHeight: 1.5, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden" }}>
+          {/* SIN overflow:hidden en estas dos líneas: estuvo puesto acá desde el
+              principio (salvaguarda horizontal, con whiteSpace:nowrap de sobra) y
+              sobrevivió a los dos rediseños anteriores de la fila — era la causa
+              real del recorte: html2canvas calcula el alto de esta caja con su
+              propia métrica de línea, y si le queda corta, ese overflow corta el
+              texto a la mitad verticalmente. Ya hay ancho de sobra (ver el padding
+              derecho reservado para el badge), así que no hace falta. */}
+          <div style={{ fontSize: 9.5, fontWeight: 600, color: C.text, lineHeight: 1.5, whiteSpace: "nowrap" }}>{a.name}</div>
+          <div style={{ fontSize: 8, color: C.textMuted, lineHeight: 1.5, marginTop: 2, whiteSpace: "nowrap" }}>
             {fmtDate(a.deadline)}{a.responsible ? ` · A cargo: ${a.responsible}` : ""}
           </div>
           <span style={{ position: "absolute", top: 6, right: 0, fontSize: 8, fontWeight: 700, color: C.bad, background: C.badBg, borderRadius: 999, padding: "3px 8px", lineHeight: 1.3, whiteSpace: "nowrap" }}>
@@ -253,7 +260,6 @@ export interface ProjectPdfReportProps {
   healthLabel: string;
   healthColor?: string;
   atrasos: StepAtraso[];
-  totalDiasAtrasoFase3: number;
   avancePlanificado: number;
   responsabilidadAtraso: Responsabilidad[];
   valorProyecto: number | null;
@@ -264,7 +270,7 @@ export interface ProjectPdfReportProps {
 
 const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(function ProjectPdfReport(
   {
-    board, code, name, summary, health, healthLabel, healthColor, atrasos, totalDiasAtrasoFase3, avancePlanificado,
+    board, code, name, summary, health, healthLabel, healthColor, atrasos, avancePlanificado,
     responsabilidadAtraso, valorProyecto, roi, payback, estimateColor,
   },
   ref,
@@ -286,7 +292,7 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
       ),
     },
     { value: healthLabel, label: `Salud${health.healthIndex !== null ? ` · EVM ${Math.round(health.healthIndex * 100)}%` : ""}`, color: healthColor },
-    { value: atrasos.length > 0 ? `${totalDiasAtrasoFase3}d` : "Sin atrasos", label: atrasos.length > 0 ? `Atraso actual · ${atrasos.length}` : "Atraso actual", color: atrasos.length > 0 ? C.bad : C.ok },
+    { value: atrasos.length > 0 ? atrasos.length : "Sin atrasos", label: "Atraso actual", color: atrasos.length > 0 ? C.bad : C.ok },
     { value: fmtDate(summary.completion.plannedFinish), label: "Fecha planificada" },
     { value: fmtDate(summary.completion.estimatedFinish), label: "Estimado de cierre", color: estimateColor },
     { value: fmtMoneyOrDash(valorProyecto), label: "Valor $", color: valorProyecto !== null && valorProyecto !== undefined ? (valorProyecto >= 0 ? C.ok : C.bad) : C.disabled },

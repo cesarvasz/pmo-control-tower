@@ -11,7 +11,13 @@ import type { ProjItem } from "@/types";
 /** "Stuck" no tiene un enum en el origen (Monday): es un valor de texto libre
  *  en la columna Status, igual que "Working on it"/"Done". */
 const isStuck = (status: string) => status.trim().toLowerCase() === "stuck";
-const enScope = (status: string, estado: string) => status !== "Done" && (estado === "ATRASADO" || isStuck(status));
+/** Un hito/step sin CPM ni Limit Date cae en estado "ATRASADO" por defecto
+ *  (calcProjEstado(null), ver proj.ts) — eso NO significa que su fecha ya
+ *  pasó, sino que no tiene fecha. Por eso, fuera de Stuck, solo entra en
+ *  scope si de verdad tiene un deadline resuelto (mismo criterio que
+ *  calcDelaySummary, que ya exige `deadline !== null`). */
+const enScope = (status: string, estado: string, deadline: Date | null) =>
+  status !== "Done" && ((estado === "ATRASADO" && deadline !== null) || isStuck(status));
 
 /** Un step (item de Fase 3) atrasado/Stuck — nunca uno de sus hitos por
  *  separado. Devuelve null si el step no está en scope. Reutilizado por la
@@ -34,7 +40,7 @@ export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
     // Los hitos son la fuente real de status cuando existen (mismo criterio
     // que WorkUnit arriba) — el status propio del item padre no se usa. El
     // step se muestra con el peor atraso entre sus hitos en scope.
-    const tardios = it.subitems.filter((s) => enScope(s.status, s.estado));
+    const tardios = it.subitems.filter((s) => enScope(s.status, s.estado, s.deadline));
     if (tardios.length === 0) return null;
     let peorDeadline: Date | null = null, peorDias = -Infinity;
     for (const s of tardios) {
@@ -49,7 +55,7 @@ export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
       nHitos: tardios.length,
     };
   }
-  if (!enScope(it.status, it.estado)) return null;
+  if (!enScope(it.status, it.estado, it.deadline)) return null;
   return {
     id: it.id, name: it.name, grupo: it.grupo,
     deadline: it.deadline, responsible: it.responsible,
@@ -57,26 +63,6 @@ export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
     stuck: isStuck(it.status),
     nHitos: 0,
   };
-}
-
-/** Días hábiles de atraso, SIN doble contar días traslapados entre varios
- *  steps atrasados a la vez: cada step aporta el rango [deadline, hoy], esos
- *  rangos se UNEN (mismo patrón de merge de intervalos que costoClonacion en
- *  lib/clonaciones.ts) antes de contar días hábiles, así que si dos steps
- *  comparten los mismos 5 días de atraso, cuentan una sola vez. */
-export function diasAtrasoSinTraslape(deadlines: Date[], hoy: Date): number {
-  if (deadlines.length === 0) return 0;
-  const ranges = [...deadlines].sort((a, b) => a.getTime() - b.getTime()).map((d) => ({ start: d, end: hoy }));
-  const merged: { start: Date; end: Date }[] = [];
-  for (const r of ranges) {
-    const last = merged[merged.length - 1];
-    if (last && r.start.getTime() <= last.end.getTime()) {
-      if (r.end.getTime() > last.end.getTime()) last.end = r.end;
-    } else {
-      merged.push({ ...r });
-    }
-  }
-  return merged.reduce((sum, r) => sum + businessDays(r.start, r.end), 0);
 }
 
 /** Unidad de trabajo aplanada: el hito (subitem) si el item los tiene, o el item

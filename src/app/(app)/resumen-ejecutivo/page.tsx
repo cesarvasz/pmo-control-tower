@@ -17,10 +17,10 @@ import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj"
 import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  buildProjectSummary, calcPlannedProgress, currentPhaseIndex, diasAtrasoSinTraslape, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
+  buildProjectSummary, calcPlannedProgress, currentPhaseIndex, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
   type PhaseSummary, type PhaseState, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
-import { countByResponsible, RESPONSIBLE_COLOR } from "@/lib/delay";
+import { countByResponsible } from "@/lib/delay";
 import {
   buildPortfolioRows, calcPortfolioTotals, topCriticalProjects, buildCrossRisks,
   type PortfolioProjectRow, type CrossRisk,
@@ -477,13 +477,6 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
       .filter((x): x is StepAtraso => x !== null)
       .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
   }, [items]);
-  // Días hábiles de atraso de TODOS los steps de Fase 3 en scope, sin doble
-  // contar días traslapados entre ellos (ver diasAtrasoSinTraslape) — para la
-  // tarjeta "Atraso actual".
-  const totalDiasAtrasoFase3 = useMemo(() => {
-    const t = today();
-    return diasAtrasoSinTraslape(atrasos.map((a) => a.deadline).filter((d): d is Date => d !== null), t);
-  }, [atrasos]);
   // % de responsabilidad del atraso (rol asignado en "Responsable atraso", ver
   // AtrasoDetalleEditor) sobre el TOTAL de atrasos actuales — uno sin asignar
   // cuenta como "Sin asignar". Calculado acá (no dentro de AtrasosList) para
@@ -528,7 +521,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
         board={board} code={code} name={name} summary={summary} health={health}
         healthLabel={healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
         healthColor={healthCfg?.color}
-        atrasos={atrasos} totalDiasAtrasoFase3={totalDiasAtrasoFase3} avancePlanificado={avancePlanificado}
+        atrasos={atrasos} avancePlanificado={avancePlanificado}
         responsabilidadAtraso={responsabilidadAtraso}
         valorProyecto={valorProyecto} roi={roi} payback={payback}
         estimateColor={est.color}
@@ -545,7 +538,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
                 {code}
               </span>
             )}
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">{name}</h2>
+            <h2 className="text-3xl font-bold text-[var(--text-primary)]">{name}</h2>
             {board.benefitType && (
               <span
                 className="rounded-full px-2 py-0.5 text-[0.7rem] font-semibold"
@@ -555,7 +548,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
               </span>
             )}
           </div>
-          <div className="mb-6 flex flex-wrap gap-x-6 gap-y-1 text-[0.8rem] text-[var(--text-secondary)]">
+          <div className="mb-6 flex flex-wrap gap-x-6 gap-y-1.5 text-[1.05rem] text-[var(--text-secondary)]">
             {board.pm && <span>PM: <strong className="text-[var(--text-primary)]">{board.pm}</strong></span>}
             {board.sponsor && <span>Sponsor: <strong className="text-[var(--text-primary)]">{board.sponsor}</strong></span>}
             {board.cku && <span>CKU: <strong className="text-[var(--text-primary)]">{board.cku}</strong></span>}
@@ -590,8 +583,8 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             />
             <StatCard
               labelPosition="top" centered
-              value={atrasos.length > 0 ? fmtDays(totalDiasAtrasoFase3) : "Sin atrasos"}
-              label={atrasos.length > 0 ? `Atraso actual · ${atrasos.length}` : "Atraso actual"}
+              value={atrasos.length > 0 ? atrasos.length : "Sin atrasos"}
+              label="Atraso actual"
               color={atrasos.length > 0 ? "var(--bad)" : "var(--ok)"}
               borderColor={atrasos.length > 0 ? "var(--bad)" : undefined}
               valueSize="1.4rem"
@@ -629,7 +622,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
           </div>
 
           {/* Timeline por fase */}
-          <h3 className="mb-3 text-[0.95rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
+          <h3 className="mb-4 text-[1.4rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
           <PhaseTimeline phases={summary.phases} units={summary.units} estimatedFinish={summary.completion.estimatedFinish} />
 
           {/* Atrasos: steps de Fase 3 atrasados o Stuck (una fila por step) */}
@@ -785,10 +778,10 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
         {/* Eje — ocupa el ancho disponible; se muestran TODOS los meses (sin saltar
             etiquetas), aunque el proyecto sea largo. */}
         <div className="flex items-end border-b" style={{ borderColor: "var(--border)" }}>
-          <div style={{ width: 260 }} className="gantt-phase-col shrink-0 px-3 py-2 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+          <div style={{ width: 290 }} className="gantt-phase-col shrink-0 px-3 py-2 text-[0.68rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
             Fase
           </div>
-          <div className="relative h-9 flex-1">
+          <div className="relative h-6 flex-1">
             {ticks.map((t, i) => {
               const x = pct(t.date);
               // Cerca del borde derecho, la etiqueta crece hacia la IZQUIERDA del
@@ -798,8 +791,11 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
               return (
                 <div key={i} className="absolute top-0 h-full" style={{ left: `${x}%` }}>
                   <div className="h-full w-px" style={{ background: "var(--border)" }} />
+                  {/* Etiquetas de mes chicas a propósito: son solo referencia del eje,
+                      así queda más espacio/peso visual para el contenido de cada fila
+                      (nombre y estado), que es lo que de verdad hay que leer. */}
                   <span
-                    className={`absolute top-1 whitespace-nowrap text-[0.66rem] text-[var(--text-muted)] ${nearRightEdge ? "right-1" : "left-1"}`}
+                    className={`absolute top-0.5 whitespace-nowrap text-[0.56rem] text-[var(--text-muted)] ${nearRightEdge ? "right-1" : "left-1"}`}
                   >
                     {t.label}
                   </span>
@@ -824,7 +820,7 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                 style={{ borderColor: "var(--border)" }}
                 onClick={isF3 ? () => toggleFase3(r.phase.grupo) : undefined}
               >
-                <div style={{ width: 260, background: r.cfg.bg }} className="gantt-phase-col shrink-0 px-3 py-2.5">
+                <div style={{ width: 290, background: r.cfg.bg }} className="gantt-phase-col shrink-0 px-3 py-2.5">
                   <div className="flex items-center gap-1.5">
                     {isF3 && (
                       <span
@@ -832,15 +828,15 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                         style={{ transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : undefined }}
                       >▶</span>
                     )}
-                    <div className="text-[0.92rem] font-semibold leading-tight text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
+                    <div className="text-[1.1rem] font-semibold leading-tight text-[var(--text-primary)]" title={r.phase.grupo}>{r.phase.grupo || "Sin grupo"}</div>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-1 text-[0.65rem] font-semibold" style={{ color: r.cfg.color }}>
+                  <div className="mt-1 flex items-center gap-1 text-[0.8rem] font-semibold" style={{ color: r.cfg.color }}>
                     {r.cfg.icon} {r.label} <span className="font-normal text-[var(--text-muted)]">· {r.phase.done}/{r.phase.total}</span>
                     {isF3 && <span className="font-normal text-[var(--text-muted)]">· {steps.length} {stepsWord}{steps.length === 1 ? "" : "s"}</span>}
                   </div>
                 </div>
 
-                <div className="gantt-row-track relative flex-1" style={{ minHeight: 52 }}>
+                <div className="gantt-row-track relative flex-1" style={{ minHeight: 58 }}>
                   {ticks.map((t, i) => (
                     <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
                   ))}
@@ -893,13 +889,13 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                   <div className="overflow-hidden" style={{ background: "var(--bg-hover)" }}>
                     {steps.map((sr, si) => (
                       <div key={`${sr.phase.grupo}-${si}`} className="flex items-stretch border-b last:border-b-0" style={{ borderColor: "var(--border-subtle)" }}>
-                        <div style={{ width: 260, background: sr.cfg.bg }} className="gantt-phase-col shrink-0 py-2 pl-7 pr-3">
-                          <div className="text-[0.82rem] font-medium leading-tight text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
-                          <div className="mt-0.5 flex items-center gap-1 text-[0.62rem] font-semibold" style={{ color: sr.cfg.color }}>
+                        <div style={{ width: 290, background: sr.cfg.bg }} className="gantt-phase-col shrink-0 py-2 pl-7 pr-3">
+                          <div className="text-[0.95rem] font-medium leading-tight text-[var(--text-secondary)]" title={sr.phase.grupo}>{sr.phase.grupo}</div>
+                          <div className="mt-0.5 flex items-center gap-1 text-[0.72rem] font-semibold" style={{ color: sr.cfg.color }}>
                             {sr.cfg.icon} {sr.label} <span className="font-normal text-[var(--text-muted)]">· {sr.phase.done}/{sr.phase.total}</span>
                           </div>
                         </div>
-                        <div className="gantt-subrow-track relative flex-1" style={{ minHeight: 36 }}>
+                        <div className="gantt-subrow-track relative flex-1" style={{ minHeight: 42 }}>
                           {ticks.map((t, ti) => (
                             <div key={ti} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.35 }} />
                           ))}
@@ -979,22 +975,18 @@ interface AtrasoRow { id: string; name: string; dateLabel: string; responsible?:
 function AtrasosList({ rows, responsabilidad }: { rows: AtrasoRow[]; responsabilidad: Responsabilidad[] }) {
   return (
     <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
-      <h4 className="mb-4 text-[1.05rem] font-bold text-[var(--text-primary)]">Atrasos</h4>
+      <h4 className="mb-4 text-[1.15rem] font-bold text-[var(--text-primary)]">Atrasos</h4>
       {responsabilidad.length > 0 && (
-        <div className="viz-resp mb-4 flex flex-wrap items-center gap-2">
-          {responsabilidad.map((r) => {
-            const color = RESPONSIBLE_COLOR[r.label] ?? RESPONSIBLE_COLOR["Sin asignar"];
-            return (
-              <span
-                key={r.label}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.8rem] font-semibold"
-                style={{ color, background: color + "22" }}
-              >
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
-                {r.label} {r.pct}%
-              </span>
-            );
-          })}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {responsabilidad.map((r) => (
+            <span
+              key={r.label}
+              className="inline-flex items-center rounded-full px-3 py-1 text-[0.85rem] font-semibold"
+              style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
+            >
+              {r.label} {r.pct}%
+            </span>
+          ))}
         </div>
       )}
       {rows.length === 0 ? (
@@ -1003,20 +995,20 @@ function AtrasosList({ rows, responsabilidad }: { rows: AtrasoRow[]; responsabil
         <div className="flex flex-col gap-4">
           {rows.map((r) => (
             <div key={r.id} className="border-b pb-4 last:border-b-0 last:pb-0" style={{ borderColor: "var(--border-subtle)" }}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[0.98rem] font-semibold text-[var(--text-primary)]" title={r.name}>{r.name}</div>
-                  <div className="truncate text-[0.82rem] text-[var(--text-muted)]">
-                    {r.dateLabel}
-                    {r.responsible && <> · A cargo: <span className="text-[var(--text-secondary)]">{r.responsible}</span></>}
-                  </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="truncate text-[1.08rem] font-semibold text-[var(--text-primary)]" title={r.name}>{r.name}</div>
+                  <span
+                    className="shrink-0 rounded-full px-2.5 py-1 text-[0.85rem] font-semibold"
+                    style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
+                  >
+                    {r.tag}
+                  </span>
                 </div>
-                <span
-                  className="shrink-0 rounded-full px-2.5 py-1 text-[0.8rem] font-semibold"
-                  style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
-                >
-                  {r.tag}
-                </span>
+                <div className="truncate text-[0.92rem] text-[var(--text-muted)]">
+                  {r.dateLabel}
+                  {r.responsible && <> · A cargo: <span className="text-[var(--text-secondary)]">{r.responsible}</span></>}
+                </div>
               </div>
               <div className="mt-2.5">
                 <AtrasoDetalleEditor itemId={r.id} />
