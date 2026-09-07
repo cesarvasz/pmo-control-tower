@@ -477,6 +477,11 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
       .filter((x): x is StepAtraso => x !== null)
       .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
   }, [items]);
+  // "Atraso actual" (tarjeta) = el atraso del PEOR step, no la suma de todos —
+  // si un step lleva 11 días hábiles y otro 5, el proyecto está 11 días atrasado
+  // (el camino crítico lo marca el que más tarda), no 16. atrasos ya viene
+  // ordenado desc. por daysLate (días hábiles, ver evaluarStepAtraso).
+  const peorAtrasoDias = atrasos[0]?.daysLate ?? 0;
   // % de responsabilidad del atraso (rol asignado en "Responsable atraso", ver
   // AtrasoDetalleEditor) sobre el TOTAL de atrasos actuales — uno sin asignar
   // cuenta como "Sin asignar". Calculado acá (no dentro de AtrasosList) para
@@ -583,11 +588,20 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             />
             <StatCard
               labelPosition="top" centered
-              value={atrasos.length > 0 ? atrasos.length : "Sin atrasos"}
               label="Atraso actual"
+              valueSize="1.4rem"
+              value={
+                atrasos.length > 0 ? (
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span>{peorAtrasoDias}d hábiles</span>
+                    <span className="text-[0.72em] font-normal" style={{ color: "var(--text-muted)" }}>
+                      {atrasos.length} step{atrasos.length === 1 ? "" : "s"} atrasado{atrasos.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ) : "Sin atrasos"
+              }
               color={atrasos.length > 0 ? "var(--bad)" : "var(--ok)"}
               borderColor={atrasos.length > 0 ? "var(--bad)" : undefined}
-              valueSize="1.4rem"
             />
             <StatCard labelPosition="top" centered value={fmtDate(summary.completion.plannedFinish)} label="Fecha planificada" valueSize="1.2rem" />
             <StatCard

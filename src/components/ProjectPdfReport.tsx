@@ -279,6 +279,10 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
   // SPI (simplificado): Avance real / Avance planificado — mismo criterio que
   // en pantalla (ver resumen-ejecutivo/page.tsx). Sin plan aún → null.
   const spi = avancePlanificado > 0 ? Math.round((summary.progress.pct / avancePlanificado) * 100) : null;
+  // "Atraso actual" = el atraso del PEOR step (días hábiles), no la suma de
+  // todos — mismo criterio que la tarjeta en pantalla (ver resumen-ejecutivo/
+  // page.tsx). atrasos ya viene ordenado desc. por daysLate.
+  const peorAtrasoDias = atrasos[0]?.daysLate ?? 0;
   const kpis: Card[] = [
     {
       label: "Avance / Plan",
@@ -292,7 +296,18 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
       ),
     },
     { value: healthLabel, label: `Salud${health.healthIndex !== null ? ` · EVM ${Math.round(health.healthIndex * 100)}%` : ""}`, color: healthColor },
-    { value: atrasos.length > 0 ? atrasos.length : "Sin atrasos", label: "Atraso actual", color: atrasos.length > 0 ? C.bad : C.ok },
+    {
+      value: atrasos.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+          <span>{peorAtrasoDias}d hábiles</span>
+          <span style={{ fontSize: 10, fontWeight: 400, color: C.textMuted }}>
+            {atrasos.length} step{atrasos.length === 1 ? "" : "s"} atrasado{atrasos.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      ) : "Sin atrasos",
+      label: "Atraso actual",
+      color: atrasos.length > 0 ? C.bad : C.ok,
+    },
     { value: fmtDate(summary.completion.plannedFinish), label: "Fecha planificada" },
     { value: fmtDate(summary.completion.estimatedFinish), label: "Estimado de cierre", color: estimateColor },
     { value: fmtMoneyOrDash(valorProyecto), label: "Valor $", color: valorProyecto !== null && valorProyecto !== undefined ? (valorProyecto >= 0 ? C.ok : C.bad) : C.disabled },
