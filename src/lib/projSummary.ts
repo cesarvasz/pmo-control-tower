@@ -15,8 +15,12 @@ const isStuck = (status: string) => status.trim().toLowerCase() === "stuck";
  *  (calcProjEstado(null), ver proj.ts) — eso NO significa que su fecha ya
  *  pasó, sino que no tiene fecha. Por eso, fuera de Stuck, solo entra en
  *  scope si de verdad tiene un deadline resuelto (mismo criterio que
- *  calcDelaySummary, que ya exige `deadline !== null`). */
-const enScope = (status: string, estado: string, deadline: Date | null) =>
+ *  calcDelaySummary, que ya exige `deadline !== null`). Exportada: es el
+ *  MISMO criterio que debe usar cualquier "offTrack" que se muestre junto a
+ *  la tabla de Atrasos (buildPhaseSummaries acá abajo, y fase3StepRowsFor en
+ *  resumen-ejecutivo/page.tsx) — si no, un step puede verse "Atrasada" en un
+ *  lado y no aparecer en el otro (ej.: un step Future Steps sin fecha). */
+export const enScope = (status: string, estado: string, deadline: Date | null) =>
   status !== "Done" && ((estado === "ATRASADO" && deadline !== null) || isStuck(status));
 
 /** Un step (item de Fase 3) atrasado/Stuck — nunca uno de sus hitos por
@@ -245,7 +249,7 @@ export function buildPhaseSummaries(units: WorkUnit[]): PhaseSummary[] {
   return order.map((grupo) => {
     const list = map.get(grupo)!;
     const done = list.filter((u) => u.status === "Done").length;
-    const offTrack = list.some((u) => u.status !== "Done" && u.estado === "ATRASADO");
+    const offTrack = list.some((u) => enScope(u.status, u.estado, u.deadline));
     const started = list.some((u) => classifyDev(u.status) !== "future");
     return { grupo, total: list.length, done, offTrack, started };
   });

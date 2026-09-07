@@ -172,13 +172,21 @@ describe("buildPhaseSummaries", () => {
   it("agrupa por grupo, en orden de aparición, con done/offTrack/started", () => {
     const units = flattenBoardUnits([
       item({ id: "1", grupo: "Valuación", status: "Done", estado: "EN TIEMPO" }),
-      item({ id: "2", grupo: "Aprobación", status: "Working on it", estado: "ATRASADO" }),
+      item({ id: "2", grupo: "Aprobación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-3) }),
       item({ id: "3", grupo: "Aprobación", status: "Future Steps", estado: "EN TIEMPO" }),
     ]);
     const phases = buildPhaseSummaries(units);
     expect(phases.map((p) => p.grupo)).toEqual(["Valuación", "Aprobación"]);
     expect(phases[0]).toMatchObject({ total: 1, done: 1, offTrack: false, started: true });
     expect(phases[1]).toMatchObject({ total: 2, done: 0, offTrack: true, started: true });
+  });
+
+  it("un item ATRASADO sin deadline (Future Steps sin CPM) NO cuenta como offTrack — evita el falso positivo que no aparecería en la tabla de Atrasos", () => {
+    const units = flattenBoardUnits([
+      item({ id: "1", grupo: "Launch", status: "Future Steps", estado: "ATRASADO", deadline: null }),
+    ]);
+    const phases = buildPhaseSummaries(units);
+    expect(phases[0]).toMatchObject({ offTrack: false });
   });
 
   it("fase con todo en Future Steps → started=false", () => {

@@ -17,7 +17,7 @@ import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj"
 import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  buildProjectSummary, calcPlannedProgress, currentPhaseIndex, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
+  buildProjectSummary, calcPlannedProgress, currentPhaseIndex, enScope, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
   type PhaseSummary, type PhaseState, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { countByResponsible } from "@/lib/delay";
@@ -390,6 +390,14 @@ const PHASE_CFG: Record<PhaseState, { color: string; bg: string; icon: string }>
   current: { color: "var(--warn)",          bg: "var(--warn-bg)",            icon: "●" },
   pending: { color: "var(--text-disabled)", bg: "var(--bg-hover)",           icon: "○" },
 };
+/** Rojo para un step/hito de Fase 3 realmente atrasado (mismo criterio que la
+ *  tabla de Atrasos, ver enScope) — SOLO dentro del desglose de Fase 3
+ *  (fase3StepRowsFor); las otras 4 fases siguen con los 3 colores de arriba
+ *  (ver el comentario de PHASE_CFG: ahí el rojo se sacó a propósito para no
+ *  competir con el ámbar de "en curso"). Acá sí importa marcarlo: pesa más
+ *  que estar "en curso", porque es justo lo que hace que el proyecto se
+ *  atrase. */
+const FASE3_LATE_CFG = { color: "var(--bad)", bg: "var(--bad-bg)", icon: "⚠" };
 /** Texto de estado de una fase — independiente del color (ver PHASE_CFG):
  *  "Atrasada" se muestra para CUALQUIER fase con offTrack, sea o no la actual. */
 function phaseLabel(p: PhaseSummary, isCurrent: boolean): string {
@@ -750,14 +758,23 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
       grupo: g.name,
       total: g.units.length,
       done: g.units.filter((u) => u.status === "Done").length,
-      offTrack: g.units.some((u) => u.status !== "Done" && u.estado === "ATRASADO"),
+      // MISMO criterio que la tabla de Atrasos (enScope, ver projSummary.ts):
+      // un step Future Steps sin CPM/deadline cae en estado "ATRASADO" por
+      // defecto (no tiene fecha, no significa que ya venció) y NO debe
+      // marcarse atrasado acá si tampoco aparece en esa tabla.
+      offTrack: g.units.some((u) => enScope(u.status, u.estado, u.deadline)),
       started: g.units.some((u) => classifyDev(u.status) !== "future"),
     }));
     // El step "actual" dentro de Fase 3 se decide POR SEPARADO del resto de
     // fases de nivel superior (ver currentPhaseIndex) — es el primer step sin
     // terminar de ESTE grupo, no de las 5 fases del proyecto.
     const curStepIdx = currentPhaseIndex(stepPhases);
-    return groups.map((g, i) => buildRow(stepPhases[i], g.units, i === curStepIdx));
+    return groups.map((g, i) => {
+      const row = buildRow(stepPhases[i], g.units, i === curStepIdx);
+      // Rojo SOLO acá (desglose de Fase 3): un step realmente atrasado pesa
+      // más visualmente que estar "en curso" — ver FASE3_LATE_CFG.
+      return stepPhases[i].offTrack ? { ...row, cfg: FASE3_LATE_CFG } : row;
+    });
   };
 
   // Fases 1, 2, 4 y 5: una sola fila con SOLO su rango (inicio→fin planificado +
