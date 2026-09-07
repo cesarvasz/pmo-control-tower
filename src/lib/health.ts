@@ -16,6 +16,30 @@ export function calcVem(spi: number | null, cpi: number | null, scope01: number 
   return (spi + cpi + scope01) / 3;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// NOTA EVM (equipo y por PM) — promedio PONDERADO de las 3 fuentes
+// ─────────────────────────────────────────────────────────────────────
+/** Peso de cada fuente en la nota EVM. Proyectos manda porque ahí está el
+ *  grueso del valor y del trabajo medible; las Iniciativas son señal
+ *  temprana (poca plata comprometida todavía). Suman 1. */
+export const EVM_WEIGHTS = { ini: 0.10, req: 0.20, proj: 0.70 } as const;
+
+/**
+ * Nota EVM (0–1) = promedio ponderado de las sub-notas de Iniciativas, REQ y
+ * Proyectos (ver EVM_WEIGHTS). Una fuente sin datos (null) NO cuenta y su peso
+ * se reparte a prorrata entre las presentes, así la nota sigue en escala 0–1
+ * aunque un PM no tenga REQ o proyectos. null si no hay ninguna fuente.
+ */
+export function weightedEvm(parts: { ini: number | null; req: number | null; proj: number | null }): number | null {
+  const present: { v: number; w: number }[] = [];
+  if (parts.ini !== null)  present.push({ v: parts.ini,  w: EVM_WEIGHTS.ini });
+  if (parts.req !== null)  present.push({ v: parts.req,  w: EVM_WEIGHTS.req });
+  if (parts.proj !== null) present.push({ v: parts.proj, w: EVM_WEIGHTS.proj });
+  if (present.length === 0) return null;
+  const wSum = present.reduce((s, p) => s + p.w, 0);
+  return present.reduce((s, p) => s + p.v * p.w, 0) / wSum;
+}
+
 /** Deriva el estado de salud a partir de un índice VEM (0–1). */
 export function healthStatusFromIndex(index: number | null): HealthStatus | null {
   if (index === null) return null;

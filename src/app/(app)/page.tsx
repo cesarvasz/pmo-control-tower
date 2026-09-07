@@ -11,7 +11,7 @@ import {
   buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
+import { healthStatusFromIndex, weightedEvm, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -110,8 +110,9 @@ function ControlTower({ data }: { data: DashboardData }) {
   const boardHIs = boardsWithHealth.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
   const teamProjHealth = boardHIs.length > 0 ? boardHIs.reduce((a, b) => a + b, 0) / boardHIs.length : null;
 
-  const vemParts = [teamIniHealth, teamReqHealth, teamProjHealth].filter((v): v is number => v != null);
-  const teamVem = vemParts.length > 0 ? vemParts.reduce((a, b) => a + b, 0) / vemParts.length : null;
+  // Nota EVM del equipo: promedio PONDERADO Iniciativas 10% · REQ 20% · Proyectos 70%
+  // (ver EVM_WEIGHTS / weightedEvm en lib/health.ts).
+  const teamVem = weightedEvm({ ini: teamIniHealth, req: teamReqHealth, proj: teamProjHealth });
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
   // Estado del equipo = peor estado entre los PMs: si un PM está Off Track, el EVM del equipo es Off Track. El % sigue siendo el promedio.
   const pmStatuses = allPMs.map((pm) => pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap));
@@ -257,10 +258,13 @@ function ControlTower({ data }: { data: DashboardData }) {
             <div className="mt-2 flex justify-center">
               <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.72rem] font-bold" style={{ color: hColor, background: hBg }}>{hIcon} {hLabel}</span>
             </div>
-            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]">
-              {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}%</span>}
-              {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}%</span>}
-              {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}%</span>}
+            <div
+              className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]"
+              title="Nota EVM ponderada: Iniciativas 10% · REQ 20% · Proyectos 70%"
+            >
+              {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}% <span className="font-normal opacity-70">·10%</span></span>}
+              {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}% <span className="font-normal opacity-70">·20%</span></span>}
+              {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}% <span className="font-normal opacity-70">·70%</span></span>}
             </div>
           </div>
 
@@ -561,8 +565,14 @@ function PMPortfolioCard({
 
   const ihc = INI_HEALTH_CFG[iniHealth.status];
 
-  const pmEvmParts = ([iniHealth.index, reqAvgVem, pmProjAvgHI] as (number | null)[]).filter((v): v is number => v != null);
-  const pmEvmRaw = pmEvmParts.length > 0 ? pmEvmParts.reduce((a, b) => a + b, 0) / pmEvmParts.length : null;
+  // Nota EVM del PM: mismo ponderado que el del equipo (Iniciativas 10% · REQ 20%
+  // · Proyectos 70%, ver weightedEvm). Sin iniciativas, ese 10% se reparte entre
+  // REQ y Proyectos (no un 1.0 gratis).
+  const pmEvmRaw = weightedEvm({
+    ini: iniHealth.total > 0 ? iniHealth.index : null,
+    req: reqAvgVem,
+    proj: pmProjAvgHI,
+  });
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
 
   // KPI del PM: mismo cálculo ponderado que el del equipo, con las métricas del PM
@@ -626,7 +636,7 @@ function PMPortfolioCard({
         const repColor = pmReprocesoPct === null ? "#6b7280" : pmReprocesoPct >= 90 ? "var(--ok)" : pmReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
         const npsLabel = npsCfg(pmNps.nps)?.label;
         const metrics: { label: string; value: string; color: string; onClick?: () => void; title: string; sub?: string }[] = [
-          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · promedio de Iniciativas, REQ y Proyectos" },
+          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · ponderado Iniciativas 10% · REQ 20% · Proyectos 70%" },
           { label: "Beneficio", value: fmtMoneyShort(pmBenefitDisplay), color: "var(--ok)", onClick: () => setShowValue(true), title: `Beneficio HardSaving (Aprobación VPB): ${fmtMoney(pmBenefitDisplay)} · clic para ver el detalle` },
           { label: "Calidad de Entrega", value: pmReprocesoPct !== null ? `${pmReprocesoPct}%` : "—", color: repColor, title: "Calidad de Entrega · % de unidades limpias sin reproceso imputable al PM" },
           { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "s/d", color: entColor, onClick: () => setShowEntregaDetail(true), title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal} · clic para ver el detalle` },

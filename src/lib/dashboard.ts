@@ -5,7 +5,7 @@
 
 import { today } from "@/lib/business";
 import { calcIniPMHealth } from "@/lib/ini";
-import { healthStatusFromIndex, type HealthStatus } from "@/lib/health";
+import { healthStatusFromIndex, weightedEvm, type HealthStatus } from "@/lib/health";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
@@ -990,8 +990,14 @@ export function calcPmMetrics(
   const pmProjHIs = pmProjBoards.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
   const pmProjAvgHI = pmProjHIs.length > 0 ? pmProjHIs.reduce((a, b) => a + b, 0) / pmProjHIs.length : null;
 
-  const evmParts = ([iniHealth.index, reqAvgVem, pmProjAvgHI] as (number | null)[]).filter((v): v is number => v != null);
-  const evmRaw = evmParts.length > 0 ? evmParts.reduce((a, b) => a + b, 0) / evmParts.length : null;
+  // Nota EVM del PM: promedio PONDERADO Iniciativas 10% · REQ 20% · Proyectos 70%
+  // (ver weightedEvm / EVM_WEIGHTS en lib/health.ts). Sin iniciativas ese 10% se
+  // reparte entre REQ y Proyectos.
+  const evmRaw = weightedEvm({
+    ini: iniHealth.total > 0 ? iniHealth.index : null,
+    req: reqAvgVem,
+    proj: pmProjAvgHI,
+  });
   const evmPct = evmRaw !== null ? Math.round(evmRaw * 100) : null;
 
   const nps = calcNpsFromRecords(npsRecords, pm);

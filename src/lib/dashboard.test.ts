@@ -898,6 +898,31 @@ describe("calidadProjectStatus (trayectoria de Calidad por proyecto: Done + pend
 });
 
 describe("calcPmMetrics", () => {
+  it("EVM del PM = promedio ponderado (INI 10% · REQ 20% · Proyectos 70%) y eso alimenta el KPI", () => {
+    // 1 board 100% Done y en tiempo → healthIndex 1 (Proyectos = 1.0)
+    const projBoards = [board({ id: "b1", pm: "Luis" })];
+    const projItems = [
+      proj({ boardId: "b1", id: "p1", name: "x", grupo: "Launch", status: "Done", estado: "EN TIEMPO", cost: 100,
+        subitems: [] }),
+    ];
+    const bhm = buildBoardHealthMap(projItems, projBoards, {});
+    // 1 REQ con VEM 0.5 (REQ = 0.5). Sin iniciativas → ese 10% se reparte.
+    const reqs = [req({ id: "r1", pm: "Luis", estado: "EN PROCESO", grupo: "Desarrollo", vem: 0.5, onTime: onTime("n/a") })];
+
+    const m = calcPmMetrics("Luis", [], reqs, projItems, projBoards, bhm, new Map(), []);
+
+    // weightedEvm({ ini: null, req: 0.5, proj: 1 }) = (0.5·0.2 + 1·0.7) / (0.2 + 0.7) = 0.8/0.9
+    expect(m.evmRaw).toBeCloseTo(0.8 / 0.9, 10);
+    expect(m.evmPct).toBe(89);
+
+    // El componente EVM del KPI (peso 30, meta 100%) usa ese mismo valor.
+    const evmComp = m.kpi.components.find((c) => c.key === "evm")!;
+    expect(evmComp.weight).toBe(30);
+    expect(evmComp.logro).toBeCloseTo(0.8 / 0.9, 10);
+    expect(evmComp.real).toBe("89%");
+    expect(evmComp.logro * evmComp.weight).toBeCloseTo((0.8 / 0.9) * 30, 6);
+  });
+
   it("Reproceso (5º componente): PM y sin asignar penalizan, ≠PM excusa; afecta el KPI", () => {
     const reqs = [
       req({ id: "r1", pm: "Luis", estado: "CERRADO", onTime: onTime("n/a") }),
