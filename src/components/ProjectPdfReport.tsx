@@ -36,7 +36,12 @@ import {
   calcAtrasoActualDias, currentPhaseIndex, enScope, groupFase3Units, phaseState,
   type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
-import { VALOR_STAGES, valorProgress } from "@/lib/valorStepper";
+import { VALOR_STAGES, valorLateStages, valorProgress, valorStageOf } from "@/lib/valorStepper";
+import {
+  BAND_COLOR, BOLT_PATH, CARD_BG, CRITICAL, CRITICAL_BG, GOOD, GOOD_BG, GRID, INK,
+  INK_MUTED, INK_SEC, NAVY, NEUTRAL, NEUTRAL_BG, NEUTRAL_LINE, ROLE_PALETTE, SURFACE,
+  TONE, VIOLET, WARNING, WARNING_BG, WARNING_FILL, spiTone, type Tone,
+} from "@/lib/reportTheme";
 import type { BoardHealthData } from "@/lib/proj";
 import type { AtrasoDetalle, ProjBoard } from "@/types";
 
@@ -45,47 +50,66 @@ const PAGE_H = 1123;
 const MARGIN = 30;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
+// Paleta FIJA del "Status Ejecutivo" — espejo de lib/reportTheme.ts (que a su
+// vez copia la skill `status-pdf`). Los alias cortos (`C.text`, `C.ok`…) se
+// mantienen para no reescribir cada sitio de uso; los valores ya son los del
+// spec (dataviz).
 const C = {
-  text: "#0f172a",
-  textSecondary: "#475569",
-  textMuted: "#94a3b8",
-  border: "#e2e8f0",
-  borderStrong: "#cbd5e1",
-  cardBg: "#f8fafc",
-  ok: "#059669",
-  okBg: "#ecfdf5",
-  bad: "#dc2626",
-  badBg: "#fef2f2",
-  warn: "#b45309",
-  warnBg: "#fffbeb",
-  accent: "#4f46e5",
-  accentBg: "#eef2ff",
-  disabled: "#94a3b8",
-  disabledBg: "#f1f5f9",
-  brand: "#2f8f3e",
+  text: INK,
+  textSecondary: INK_SEC,
+  textMuted: INK_MUTED,
+  border: GRID,
+  borderStrong: NEUTRAL_LINE,
+  cardBg: CARD_BG,
+  ok: GOOD,
+  okBg: GOOD_BG,
+  bad: CRITICAL,
+  badBg: CRITICAL_BG,
+  warn: WARNING,
+  warnFill: WARNING_FILL,
+  warnBg: WARNING_BG,
+  accent: VIOLET,
+  accentBg: "#ecebf7",
+  disabled: NEUTRAL,
+  disabledBg: NEUTRAL_BG,
+  brand: GOOD,
+  navy: NAVY,
 };
 
 // Colores del stacked bar de "Distribución de responsabilidad" — "Sin asignar"
-// siempre gris; el resto cicla una paleta estable ordenada por % (ver
-// ResponsabilidadDist).
-const ROLE_PALETTE = ["#6366f1", "#3b82f6", "#8b5cf6", "#0ea5e9", "#ec4899", "#14b8a6"];
+// siempre gris; el resto cicla la paleta categórica del spec (violeta/azul…).
 function roleColor(label: string, i: number): string {
   if (/sin asignar/i.test(label)) return C.textMuted;
   return ROLE_PALETTE[i % ROLE_PALETTE.length];
+}
+
+// Rayo del encabezado (mismo path que la skill), relleno ámbar.
+function Bolt({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={WARNING_FILL} xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0, display: "block" }}>
+      <path d={BOLT_PATH} />
+    </svg>
+  );
+}
+
+const STAGE_LETTER = ["V", "A", "L", "O", "R"] as const;
+function bandOf(grupo: string): (typeof STAGE_LETTER)[number] | null {
+  const s = valorStageOf(grupo);
+  return s >= 0 ? STAGE_LETTER[s] : null;
 }
 
 // 4 colores (mismo criterio que en pantalla, ver resumen-ejecutivo/page.tsx):
 // verde completada, ROJO atrasada (cualquier fase o step de Fase 3 con un item
 // atrasado / en Stuck), ámbar la fase actual, gris pendiente. El rojo tiene
 // prioridad sobre el ámbar (ver el cfg de cada fila en GanttSection).
-const PHASE_PDF_CFG: Record<ReturnType<typeof phaseState>, { color: string; bg: string }> = {
-  done:    { color: C.ok,   bg: C.okBg },
-  current: { color: C.warn, bg: C.warnBg },
-  pending: { color: C.textMuted, bg: C.disabledBg },
+const PHASE_PDF_CFG: Record<ReturnType<typeof phaseState>, { color: string; bg: string; fill: string }> = {
+  done:    { color: C.ok,   bg: C.okBg,   fill: C.ok },
+  current: { color: C.warn, bg: C.warnBg, fill: C.warnFill },
+  pending: { color: C.textMuted, bg: C.disabledBg, fill: C.textMuted },
 };
 // Rojo para cualquier fila (fase o step de Fase 3) con offTrack — mismo dato
 // que la tabla de Atrasos (ver enScope). Se aplica con prioridad sobre PHASE_PDF_CFG.
-const LATE_PDF_CFG = { color: C.bad, bg: C.badBg };
+const LATE_PDF_CFG = { color: C.bad, bg: C.badBg, fill: C.bad };
 function phaseLabel(p: PhaseSummary, isCurrent: boolean): string {
   if (p.total > 0 && p.done === p.total) return "Completada";
   if (p.offTrack) return "Atrasada";
@@ -97,14 +121,17 @@ function fmtMoneyOrDash(n: number | null | undefined): string {
 }
 
 // ── Encabezado: stepper VALOR (5 etapas) ────────────────────────────────
-function ValorStepper({ current, allDone }: { current: number; allDone: boolean }) {
+// Diseño fijo (skill `status-pdf`): etapas pasadas verde, la actual ámbar,
+// las futuras gris; una etapa con alguna fase atrasada (`lateStages`) se
+// encierra en rojo y su nombre va rojo/negrita.
+function ValorStepper({ current, allDone, lateStages }: { current: number; allDone: boolean; lateStages: Set<number> }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 0 }}>
       {VALOR_STAGES.map((s, i) => {
-        const done = allDone || i < current;
+        const passed = allDone || i < current;
         const active = !allDone && i === current;
-        const on = active || done;
-        const dotColor = on ? C.brand : C.textMuted;
+        const late = lateStages.has(i);
+        const dotBg = passed ? C.ok : active ? C.warnFill : C.borderStrong;
         return (
           <div key={s.key} style={{ display: "flex", alignItems: "flex-start" }}>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 46 }}>
@@ -115,25 +142,24 @@ function ValorStepper({ current, allDone }: { current: number; allDone: boolean 
                 <div
                   style={{
                     position: "absolute", inset: 0, borderRadius: 999, boxSizing: "border-box",
-                    border: `1.5px solid ${dotColor}`, background: on ? C.brand : "#fff",
+                    background: dotBg, border: late ? `2px solid ${C.bad}` : "none",
                   }}
                 />
                 <div
                   style={{
                     position: "absolute", inset: 0, textAlign: "center",
-                    fontSize: 8.5, fontWeight: 700, lineHeight: "16px",
-                    color: on ? "#fff" : C.textMuted,
+                    fontSize: 8.5, fontWeight: 700, lineHeight: "16px", color: "#fff",
                   }}
                 >
                   {s.key}
                 </div>
               </div>
-              <div style={{ fontSize: 6, lineHeight: 1.3, marginTop: 2, color: active ? C.text : C.textMuted, fontWeight: active ? 700 : 400, whiteSpace: "nowrap" }}>
+              <div style={{ fontSize: 6, lineHeight: 1.3, marginTop: 2, color: late ? C.bad : active ? C.text : C.textMuted, fontWeight: late || active ? 700 : 400, whiteSpace: "nowrap" }}>
                 {s.label}
               </div>
             </div>
             {i < VALOR_STAGES.length - 1 && (
-              <div style={{ width: 12, height: 1.5, marginTop: 7.5, background: i < current || allDone ? C.brand : C.border }} />
+              <div style={{ width: 12, height: 1.5, marginTop: 7.5, background: i < current || allDone ? C.ok : C.border }} />
             )}
           </div>
         );
@@ -143,25 +169,32 @@ function ValorStepper({ current, allDone }: { current: number; allDone: boolean 
 }
 
 // ── KPI: fila única de 8 tarjetas con color semántico ───────────────────
+// Diseño fijo (skill `status-pdf`): barra de color ARRIBA (ancho completo) +
+// fondo tenue del tono; la tarjeta "Salud (EVM)" es la excepción — se pinta
+// llena del color del estado, con texto blanco (`solid`).
 const KPI_H = 76;
 
-interface Card { value: ReactNode; sub?: string; label: string; color?: string; tint?: string }
+interface Card { value: ReactNode; sub?: string; label: string; tone: Tone; solid?: boolean }
 
-function KpiCard({ value, sub, label, color, tint }: Card) {
-  return (
-    <div
-      style={{
-        minWidth: 0, borderRadius: 7, border: `1px solid ${C.border}`,
-        borderLeft: `3px solid ${color ?? C.borderStrong}`, background: tint ?? "#fff",
-        padding: "6px 7px", display: "flex", flexDirection: "column", justifyContent: "center",
-        gap: 3, overflow: "hidden",
-      }}
-    >
-      <div style={{ fontSize: 6.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: C.textSecondary, lineHeight: 1.25 }}>
-        {label}
+function KpiCard({ value, sub, label, tone, solid }: Card) {
+  const t = TONE[tone];
+  if (solid) {
+    return (
+      <div style={{ minWidth: 0, borderRadius: 7, background: t.fg, padding: "8px 8px 9px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 3, overflow: "hidden" }}>
+        <div style={{ fontSize: 6.1, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: "#ffffffcc", lineHeight: 1.2 }}>{label}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 800, color: "#ffffff", lineHeight: 1.15 }}>{value}</div>
+        {sub && <div style={{ fontSize: 6.5, fontWeight: 600, color: "#ffffffe0", lineHeight: 1.2 }}>{sub}</div>}
       </div>
-      <div style={{ fontSize: 11.5, fontWeight: 800, color: color ?? C.text, lineHeight: 1.15 }}>{value}</div>
-      {sub && <div style={{ fontSize: 6.5, fontWeight: 600, color: C.textMuted, lineHeight: 1.2 }}>{sub}</div>}
+    );
+  }
+  return (
+    <div style={{ minWidth: 0, borderRadius: 7, border: `1px solid ${t.fg}55`, background: t.bg, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div style={{ height: 4, flexShrink: 0, background: t.fg }} />
+      <div style={{ flex: 1, padding: "6px 8px 7px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 3 }}>
+        <div style={{ fontSize: 6.1, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: C.textMuted, lineHeight: 1.2 }}>{label}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 800, color: tone === "neutral" ? C.text : t.fg, lineHeight: 1.15 }}>{value}</div>
+        {sub && <div style={{ fontSize: 6.5, fontWeight: 600, color: C.textMuted, lineHeight: 1.2 }}>{sub}</div>}
+      </div>
     </div>
   );
 }
@@ -171,7 +204,7 @@ function KpiCard({ value, sub, label, color, tint }: Card) {
 const GANTT_AXIS_H = 15;
 const PHASE_COL_W = 168;
 
-interface GanttRow { grupo: string; total: number; done: number; offTrack: boolean; started: boolean; isCurrent: boolean; indent: boolean; units: WorkUnit[] }
+interface GanttRow { grupo: string; total: number; done: number; offTrack: boolean; started: boolean; isCurrent: boolean; indent: boolean; band: (typeof STAGE_LETTER)[number] | null; units: WorkUnit[] }
 
 const cmpStart = (a: Date | null, b: Date | null) => {
   if (a == null && b == null) return 0;
@@ -186,7 +219,7 @@ function buildGanttRows(phases: PhaseSummary[], units: WorkUnit[]): GanttRow[] {
   const curPhaseIdx = currentPhaseIndex(phases);
   const rows: GanttRow[] = [];
   phases.forEach((p, i) => {
-    rows.push({ grupo: p.grupo || "Sin grupo", total: p.total, done: p.done, offTrack: p.offTrack, started: p.started, isCurrent: i === curPhaseIdx, indent: false, units: units.filter((u) => u.grupo === p.grupo) });
+    rows.push({ grupo: p.grupo || "Sin grupo", total: p.total, done: p.done, offTrack: p.offTrack, started: p.started, isCurrent: i === curPhaseIdx, indent: false, band: bandOf(p.grupo), units: units.filter((u) => u.grupo === p.grupo) });
     if (!isFase3(p.grupo)) return;
     const groups = groupFase3Units(units, p.grupo).sort((a, b) => cmpStart(startOfGroup(a), startOfGroup(b)));
     if (groups.length <= 1) return;
@@ -199,7 +232,7 @@ function buildGanttRows(phases: PhaseSummary[], units: WorkUnit[]): GanttRow[] {
     }));
     const curStepIdx = currentPhaseIndex(stepPhases);
     stepPhases.forEach((sp, si) => {
-      rows.push({ grupo: sp.grupo, total: sp.total, done: sp.done, offTrack: sp.offTrack, started: sp.started, isCurrent: si === curStepIdx, indent: true, units: sp.units });
+      rows.push({ grupo: sp.grupo, total: sp.total, done: sp.done, offTrack: sp.offTrack, started: sp.started, isCurrent: si === curStepIdx, indent: true, band: null, units: sp.units });
     });
   });
   return rows;
@@ -275,7 +308,12 @@ function GanttSection({ rows, estimatedFinish, plannedFinish, now }: {
         return (
           <div key={`${row.grupo}-${i}`} style={{ display: "flex", height: rowH, borderBottom: i === rows.length - 1 ? "none" : `1px solid ${C.border}` }}>
             <div style={{ width: PHASE_COL_W, flexShrink: 0, background: cfg.bg, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, padding: row.indent ? "3px 8px 3px 18px" : "3px 8px", overflow: "hidden" }}>
-              <div style={{ fontSize: (row.indent ? 8 : 9) * fontScale, fontWeight: row.indent ? 600 : 700, color: C.text, lineHeight: 1.12, whiteSpace: "normal", wordBreak: "break-word" }}>{row.grupo}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {!row.indent && row.band && (
+                  <span style={{ width: 6, height: 6, borderRadius: 2, background: BAND_COLOR[row.band], flexShrink: 0 }} />
+                )}
+                <div style={{ fontSize: (row.indent ? 8 : 9) * fontScale, fontWeight: row.indent ? 600 : 700, color: C.text, lineHeight: 1.12, whiteSpace: "normal", wordBreak: "break-word" }}>{row.grupo}</div>
+              </div>
               <div style={{ fontSize: 6.5 * fontScale, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.2, color: cfg.color, lineHeight: 1.15 }}>
                 {label} · {row.done}/{row.total}
               </div>
@@ -285,11 +323,11 @@ function GanttSection({ rows, estimatedFinish, plannedFinish, now }: {
                 <div key={ti} style={{ position: "absolute", top: 0, bottom: 0, left: `${pct(t.date.getTime())}%`, width: 1, background: C.border, opacity: 0.5 }} />
               ))}
               {planX != null && <div style={{ position: "absolute", top: 0, bottom: 0, left: `${planX}%`, width: 1, background: HATCH, backgroundColor: C.warn, opacity: 0.8 }} />}
-              <div style={{ position: "absolute", top: 0, bottom: 0, left: `${todayX}%`, width: 1.5, background: C.text, opacity: 0.7 }} />
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: `${todayX}%`, width: 1.5, background: C.navy, opacity: 0.85 }} />
               {r && (
                 <div style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", left: 0, right: 0, height: barH }}>
-                  <div style={{ position: "absolute", height: barH, borderRadius: 3, left: `${pct(r.start)}%`, width: `${Math.max(pct(r.end) - pct(r.start), 0.8)}%`, background: "#fff", border: `1px solid ${cfg.color}` }} />
-                  <div style={{ position: "absolute", height: barH, borderRadius: 3, left: `${pct(r.start)}%`, width: `${Math.max((pct(r.end) - pct(r.start)) * (row.total ? row.done / row.total : 0), row.done > 0 ? 0.8 : 0)}%`, background: cfg.color }} />
+                  <div style={{ position: "absolute", height: barH, borderRadius: 3, left: `${pct(r.start)}%`, width: `${Math.max(pct(r.end) - pct(r.start), 0.8)}%`, background: SURFACE, border: `1px solid ${cfg.color}` }} />
+                  <div style={{ position: "absolute", height: barH, borderRadius: 3, left: `${pct(r.start)}%`, width: `${Math.max((pct(r.end) - pct(r.start)) * (row.total ? row.done / row.total : 0), row.done > 0 ? 0.8 : 0)}%`, background: cfg.fill }} />
                   {overdueEnd != null && (
                     <div style={{ position: "absolute", height: barH, borderRadius: 3, left: `${pct(r.end)}%`, width: `${Math.max(pct(overdueEnd) - pct(r.end), 0.8)}%`, background: HATCH, backgroundColor: C.badBg, border: `1px solid ${C.bad}` }} />
                   )}
@@ -328,11 +366,11 @@ function GanttLegend({ hoy, plan }: { hoy: string; plan: string }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 6.5, color: C.textSecondary, lineHeight: 1.4, marginBottom: 4 }}>
       {legendItem(<span style={swatchStyle({ bg: C.ok })} />, "Completada")}
-      {legendItem(<span style={swatchStyle({ bg: C.warn })} />, "En curso")}
+      {legendItem(<span style={swatchStyle({ bg: C.warnFill })} />, "En curso")}
       {legendItem(<span style={swatchStyle({ hatch: true, border: C.bad })} />, "Atrasada (rayado = sobretiempo)")}
-      {legendItem(<span style={swatchStyle({ bg: "#fff", border: C.textMuted })} />, "Pendiente")}
-      {legendItem(<span style={{ display: "inline-block", width: 6, height: 6, transform: "rotate(45deg)", border: `1px solid ${C.textSecondary}` }} />, "Hito")}
-      {legendItem(<span style={{ display: "inline-block", width: 1.5, height: 8, background: C.text }} />, `Hoy · ${hoy}`)}
+      {legendItem(<span style={swatchStyle({ bg: SURFACE, border: C.borderStrong })} />, "Pendiente")}
+      {legendItem(<span style={{ display: "inline-block", width: 6, height: 6, transform: "rotate(45deg)", border: `1px solid ${C.borderStrong}` }} />, "Hito")}
+      {legendItem(<span style={{ display: "inline-block", width: 1.5, height: 8, background: C.navy }} />, `Hoy · ${hoy}`)}
       {legendItem(<span style={{ display: "inline-block", width: 1.5, height: 8, background: C.warn }} />, `Fecha planificada · ${plan}`)}
     </div>
   );
@@ -343,7 +381,7 @@ function ResponsabilidadDist({ items }: { items: Responsabilidad[] }) {
   if (items.length === 0) return null;
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", background: C.cardBg }}>
-      <div style={{ fontSize: 8.5, fontWeight: 700, color: C.text, marginBottom: 6 }}>Distribución de responsabilidad</div>
+      <div style={{ fontSize: 8.5, fontWeight: 700, color: C.navy, marginBottom: 6 }}>Distribución de responsabilidad</div>
       <div style={{ display: "flex", width: "100%", height: 10, borderRadius: 999, overflow: "hidden", background: C.disabledBg }}>
         {items.map((r, i) => (
           <div key={r.label} style={{ width: `${r.pct}%`, background: roleColor(r.label, i) }} />
@@ -428,7 +466,6 @@ export interface ProjectPdfReportProps {
   summary: ProjectSummary;
   health: BoardHealthData;
   healthLabel: string;
-  healthColor?: string;
   atrasos: StepAtraso[];
   avancePlanificado: number;
   responsabilidadAtraso: Responsabilidad[];
@@ -436,13 +473,12 @@ export interface ProjectPdfReportProps {
   valorProyecto: number | null;
   roi: number | null;
   payback: number | null;
-  estimateColor: string;
 }
 
 const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(function ProjectPdfReport(
   {
-    board, code, name, summary, health, healthLabel, healthColor, atrasos, avancePlanificado,
-    responsabilidadAtraso, atrasoDetalles, valorProyecto, roi, payback, estimateColor,
+    board, code, name, summary, health, healthLabel, atrasos, avancePlanificado,
+    responsabilidadAtraso, atrasoDetalles, valorProyecto, roi, payback,
   },
   ref,
 ) {
@@ -457,51 +493,50 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
   const healthPct = health.healthIndex !== null ? `${Math.round(health.healthIndex * 100)}%` : null;
   const valor = valorProyecto;
   const valorProg = valorProgress(summary.phases);
+  const valorLate = useMemo(() => valorLateStages(summary.phases), [summary.phases]);
+  const healthTone: Tone = health.healthStatus === "off-track" ? "crit"
+    : health.healthStatus === "in-risk" ? "warn"
+    : health.healthStatus === "on-track" ? "good" : "neutral";
 
   const kpis: Card[] = [
     {
       label: "Avance vs Plan",
       value: `${summary.progress.pct}% / ${avancePlanificado}%`,
       sub: `SPI ${spi !== null ? spi.toFixed(2) : "—"}`,
-      color: spi !== null ? (spi >= 0.9 ? C.ok : spi >= 0.75 ? C.warn : C.bad) : C.disabled,
-      tint: spi !== null && spi < 0.75 ? C.badBg : undefined,
+      tone: spiTone(spi),
     },
     {
       label: "Salud (EVM)",
       value: healthPct ?? healthLabel,
       sub: healthPct ? healthLabel : undefined,
-      color: healthColor,
-      tint: health.healthStatus === "off-track" ? C.badBg : health.healthStatus === "in-risk" ? C.warnBg : health.healthStatus === "on-track" ? C.okBg : undefined,
+      tone: healthTone,
+      solid: true,
     },
     {
       label: "Atraso actual",
       value: atrasos.length > 0 ? `${atrasoActualDias} d hábiles` : "Sin atrasos",
       sub: atrasos.length > 0 ? `${atrasos.length} step${atrasos.length === 1 ? "" : "s"} atrasado${atrasos.length === 1 ? "" : "s"}` : undefined,
-      color: atrasos.length > 0 ? C.bad : C.ok,
-      tint: atrasos.length > 0 ? C.badBg : undefined,
+      tone: atrasos.length > 0 ? "crit" : "good",
     },
-    { label: "Fecha cierre plan", value: fmtDate(plannedFinish), color: C.textSecondary },
+    { label: "Fecha cierre plan", value: fmtDate(plannedFinish), tone: "neutral" },
     {
       label: "Cierre estimado",
       value: fmtDate(estimatedFinish),
       sub: slipVsPlan > 0 ? `+${slipVsPlan} días vs plan` : plannedFinish ? "en fecha" : undefined,
-      color: estimateColor,
-      tint: slipVsPlan > 0 ? C.warnBg : undefined,
+      tone: slipVsPlan > 0 ? "warn" : plannedFinish ? "good" : "neutral",
     },
     {
       label: "Valor generado",
       value: fmtMoneyOrDash(valor),
-      color: valor != null ? (valor >= 0 ? C.ok : C.bad) : C.disabled,
-      tint: valor != null && valor >= 0 ? C.okBg : undefined,
+      tone: valor != null ? (valor >= 0 ? "good" : "crit") : "neutral",
     },
     {
       label: "ROI",
       value: roi !== null ? `${Math.round(roi).toLocaleString("en-US")}%` : "—",
       sub: roi !== null ? "Retorno inversión" : undefined,
-      color: roi !== null ? (roi >= 0 ? C.ok : C.bad) : C.disabled,
-      tint: roi !== null && roi >= 0 ? C.okBg : undefined,
+      tone: roi !== null ? (roi >= 0 ? "good" : "crit") : "neutral",
     },
-    { label: "Payback", value: payback !== null ? `${payback.toFixed(1)} meses` : "—", color: C.textSecondary },
+    { label: "Payback", value: payback !== null ? `${payback.toFixed(1)} meses` : "—", tone: "neutral" },
   ];
 
   const ganttRows = useMemo(() => buildGanttRows(summary.phases, summary.units), [summary.phases, summary.units]);
@@ -529,25 +564,26 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
       ref={ref}
       style={{
         position: "fixed", left: -10000, top: 0, width: PAGE_W, height: PAGE_H,
-        background: "#ffffff", color: C.text, fontFamily: "Arial, Helvetica, sans-serif",
+        background: SURFACE, color: C.text, fontFamily: "Arial, Helvetica, sans-serif",
         padding: MARGIN, boxSizing: "border-box", overflow: "hidden",
       }}
     >
       {/* Encabezado */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, paddingBottom: 8, borderBottom: `2px solid ${C.text}` }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, paddingBottom: 8, borderBottom: `2px solid ${C.navy}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <img src="/pmo-logo.png" alt="" style={{ height: 26, width: "auto", flexShrink: 0 }} crossOrigin="anonymous" />
+          <img src="/pmo-logo.png" alt="" style={{ height: 30, width: "auto", flexShrink: 0 }} crossOrigin="anonymous" />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 7, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: C.textMuted }}>Reporte Proyecto</div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: C.text, lineHeight: 1.2, marginTop: 1 }}>
-              {code && <span style={{ color: C.textMuted, fontWeight: 700 }}>{code} </span>}
-              {name} <span style={{ color: C.warn }}>⚡</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, lineHeight: 1.1, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 7, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.1, color: C.textMuted, paddingRight: 8, borderRight: `1px solid ${C.border}` }}>Reporte Proyecto</span>
+              {code && <span style={{ fontSize: 15, fontWeight: 800, color: C.navy, letterSpacing: 0.2 }}>{code}</span>}
+              <span style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{name}</span>
+              <Bolt />
+              <span style={{ fontSize: 8, color: C.textSecondary, fontWeight: 500 }}>Generado el {fmtDate(new Date())}</span>
             </div>
-            <div style={{ fontSize: 7.5, color: C.textMuted, marginTop: 1 }}>Generado el {fmtDate(new Date())}</div>
           </div>
         </div>
         <div style={{ flexShrink: 0 }}>
-          <ValorStepper current={valorProg.current} allDone={valorProg.allDone} />
+          <ValorStepper current={valorProg.current} allDone={valorProg.allDone} lateStages={valorLate} />
         </div>
       </div>
       <div style={{ marginTop: 6, fontSize: 8.5, lineHeight: 1.4, color: C.textSecondary, display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -564,14 +600,14 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
 
       {/* Timeline */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: C.text }}>Línea de tiempo del proyecto</div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: C.navy }}>Línea de tiempo del proyecto</div>
         {mesesLabel && <div style={{ fontSize: 7.5, color: C.textMuted }}>Fases VALOR y entregables de Launch · {mesesLabel}</div>}
       </div>
       <GanttLegend hoy={fmtDate(new Date(now))} plan={fmtDate(plannedFinish)} />
       <GanttSection rows={ganttRows} estimatedFinish={estimatedFinish} plannedFinish={plannedFinish} now={now} />
 
       {/* Causas de atraso */}
-      <div style={{ fontSize: 12, fontWeight: 800, color: C.text, margin: "12px 0 6px" }}>Causas de atraso</div>
+      <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, margin: "12px 0 6px" }}>Causas de atraso</div>
       <div style={{ display: "grid", gridTemplateColumns: responsabilidadAtraso.length > 0 ? "1fr 200px" : "1fr", gap: 14, alignItems: "start" }}>
         <CausasTable rows={atrasos} detalleDe={detalleDe} maxHeight={Math.max(causasMaxH, 80)} />
         <ResponsabilidadDist items={responsabilidadAtraso} />

@@ -43,7 +43,12 @@
   --health-neutral-bg:   #1f293788;
 }
 
-:root[data-theme="light"] {
+/* `[data-theme="light"]` (sin `:root`) también, para forzar tema claro en un
+   subárbol aislado sin importar el tema global — lo usa el reporte por
+   proyecto del Resumen Ejecutivo, que debe verse igual que su PDF. Simétrico
+   con `[data-theme="dark"]` de arriba. */
+:root[data-theme="light"],
+[data-theme="light"] {
   --bg-base: #f0f2fa;
   --bg-surface: #ffffff;
   --bg-sidebar: #f8f9fd;

@@ -43,3 +43,16 @@ export function valorProgress(phases: PhaseSummary[]): { current: number; allDon
   for (let i = idx - 1; i >= 0 && stage === -1; i--) stage = valorStageOf(phases[i].grupo);
   return { current: stage === -1 ? Math.min(idx, 4) : stage, allDone: false };
 }
+
+/** Índices (0–4) de las etapas VALOR que tienen al menos una fase `offTrack` —
+ *  el stepper del encabezado las encierra en rojo (ver el spec de la skill
+ *  `status-pdf`: `late_bands`). */
+export function valorLateStages(phases: PhaseSummary[]): Set<number> {
+  const late = new Set<number>();
+  for (const p of phases) {
+    if (!p.offTrack) continue;
+    const s = valorStageOf(p.grupo);
+    if (s >= 0) late.add(s);
+  }
+  return late;
+}

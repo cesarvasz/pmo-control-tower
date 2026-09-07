@@ -18,7 +18,7 @@ import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib
 import { classifyDev } from "@/lib/devTimeline";
 import {
   buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, currentPhaseIndex, enScope, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
-  type PhaseSummary, type PhaseState, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
+  type PhaseSummary, type PhaseState, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { countByResponsible } from "@/lib/delay";
 import {
@@ -26,7 +26,12 @@ import {
   type PortfolioProjectRow, type CrossRisk,
 } from "@/lib/portfolioSummary";
 import { HEALTH_CFG } from "@/lib/health";
-import { VALOR_STAGES, valorProgress } from "@/lib/valorStepper";
+import { VALOR_STAGES, valorLateStages, valorProgress } from "@/lib/valorStepper";
+import {
+  BOLT_PATH, CARD_BG, CRITICAL, CRITICAL_BG, GOOD, GOOD_BG, GRID, INK, INK_MUTED,
+  INK_SEC, NAVY, NEUTRAL_BG, NEUTRAL_LINE, ROLE_PALETTE, SURFACE, TONE, WARNING,
+  WARNING_BG, WARNING_FILL, spiTone, type Tone,
+} from "@/lib/reportTheme";
 import { addMonth, monthTicks, startOfMonth } from "@/lib/dateAxis";
 import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
 import AtrasoDetalleEditor from "@/components/AtrasoDetalleEditor";
@@ -386,40 +391,23 @@ function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onDow
 // de Atrasos, ver enScope), ámbar (la fase actual que "bloquea" el avance, ver
 // currentPhaseIndex) y gris (pendiente). El rojo tiene prioridad sobre el
 // ámbar: si la fase actual además está atrasada, se pinta roja (ver buildRow).
-const PHASE_CFG: Record<PhaseState, { color: string; bg: string; icon: string }> = {
-  done:    { color: "var(--ok)",            bg: "var(--health-on-track-bg)", icon: "✓" },
-  current: { color: "var(--warn)",          bg: "var(--warn-bg)",            icon: "●" },
-  pending: { color: "var(--text-disabled)", bg: "var(--bg-hover)",           icon: "○" },
+// Colores del spec del "Status Ejecutivo" (ver lib/reportTheme.ts) — mismos
+// que el PDF. `fill` = relleno de la barra de avance (la actual va ámbar
+// sólido); `color` = trazo/etiqueta; `bg` = tinte de la celda de fase.
+const PHASE_CFG: Record<PhaseState, { color: string; bg: string; fill: string; icon: string }> = {
+  done:    { color: GOOD,          bg: GOOD_BG,     fill: GOOD,         icon: "✓" },
+  current: { color: WARNING,       bg: WARNING_BG,  fill: WARNING_FILL, icon: "●" },
+  pending: { color: INK_MUTED,     bg: NEUTRAL_BG,  fill: INK_MUTED,    icon: "○" },
 };
 /** Config roja para una fase (o step de Fase 3) con `offTrack` — se aplica en
  *  buildRow con prioridad sobre PHASE_CFG. */
-const LATE_CFG = { color: "var(--bad)", bg: "var(--bad-bg)", icon: "⚠" };
+const LATE_CFG = { color: CRITICAL, bg: CRITICAL_BG, fill: CRITICAL, icon: "⚠" };
 /** Texto de estado de una fase — independiente del color (ver PHASE_CFG):
  *  "Atrasada" se muestra para CUALQUIER fase con offTrack, sea o no la actual. */
 function phaseLabel(p: PhaseSummary, isCurrent: boolean): string {
   if (p.total > 0 && p.done === p.total) return "Completada";
   if (p.offTrack) return "Atrasada";
   return isCurrent ? "En curso" : "Pendiente";
-}
-
-// ── Mensaje explicativo del estimado (para que sea legible sin leer números) ──
-function estimateMessage(summary: ProjectSummary): { icon: string; color: string; text: string } {
-  const { completion, delay } = summary;
-  if (completion.isComplete) {
-    return { icon: "✅", color: "var(--ok)", text: `Proyecto completado el ${fmtDate(completion.actualFinish)}.` };
-  }
-  if (!completion.plannedFinish) {
-    return { icon: "—", color: "var(--text-muted)", text: "No hay fechas planificadas suficientes en Monday para estimar un cierre." };
-  }
-  const base = completion.scheduleSlipDays > 0
-    ? `Fase 4 (Operación) vencía el ${fmtDate(completion.plannedFinish)} y ya acumula ${fmtDays(completion.scheduleSlipDays)} hábiles de atraso.`
-    : `Según el plan, Fase 4 (Operación) cierra el ${fmtDate(completion.plannedFinish)}.`;
-  const hasTrend = delay.avgSlipDays > 0;
-  const trend = hasTrend
-    ? ` Este proyecto ya entregó ${delay.lateDoneCount} hito${delay.lateDoneCount === 1 ? "" : "s"} con atraso (promedio de ${fmtDays(delay.avgSlipDays)} hábiles). Si la tendencia se mantiene, el cierre proyectado es el ${fmtDate(completion.estimatedFinish)}.`
-    : " Sin atrasos históricos registrados en este proyecto, así que el estimado coincide con el plan.";
-  const warn = hasTrend || completion.scheduleSlipDays > 0;
-  return { icon: warn ? "📈" : "🟢", color: warn ? "var(--warn)" : "var(--ok)", text: base + trend };
 }
 
 function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack, onSwitch }: {
@@ -465,9 +453,12 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   const spi = avancePlanificado > 0 ? Math.round((summary.progress.pct / avancePlanificado) * 100) : null;
   const { code, name } = splitBoardName(board.name);
   const healthCfg = health.healthStatus ? HEALTH_CFG[health.healthStatus] : null;
-  const est = estimateMessage(summary);
-  // Etapa VALOR actual (para el stepper del encabezado, ver lib/valorStepper.ts).
+  const healthTone: Tone = health.healthStatus === "off-track" ? "crit"
+    : health.healthStatus === "in-risk" ? "warn"
+    : health.healthStatus === "on-track" ? "good" : "neutral";
+  // Etapa VALOR actual + bandas en atraso (stepper del encabezado, ver lib/valorStepper.ts).
   const valor = useMemo(() => valorProgress(summary.phases), [summary.phases]);
+  const valorLate = useMemo(() => valorLateStages(summary.phases), [summary.phases]);
   // Días de deslizamiento del cierre estimado vs el plan (para la tarjeta
   // "Cierre estimado"): la diferencia real plan→estimado, o el atraso ya
   // vencido de Fase 4 si aún no hay estimado más allá del plan.
@@ -545,28 +536,28 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
         ref={pdfRef}
         board={board} code={code} name={name} summary={summary} health={health}
         healthLabel={healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
-        healthColor={healthCfg?.color}
         atrasos={atrasos} avancePlanificado={avancePlanificado}
         responsabilidadAtraso={responsabilidadAtraso}
         atrasoDetalles={atrasoDetalles}
         valorProyecto={valorProyecto} roi={roi} payback={payback}
-        estimateColor={est.color}
       />
 
       {items.length === 0 ? (
         <EmptyRow msg="Este proyecto no tiene items en Monday." />
       ) : (
-        <>
+        // Isla de tema CLARO fijo: el reporte en pantalla debe verse igual que
+        // su PDF (paleta del spec `status-pdf`), sin importar el tema global.
+        <div data-theme="light" className="rounded-2xl p-5 sm:p-7" style={{ background: SURFACE, color: INK, border: `1px solid ${GRID}` }}>
           {/* Encabezado tipo reporte ejecutivo (logo + stepper VALOR) */}
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-4 border-b-2 pb-3" style={{ borderColor: "var(--text-primary)" }}>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4 border-b-2 pb-3" style={{ borderColor: NAVY }}>
             <div className="flex items-center gap-3">
               <img src="/pmo-logo.png" alt="PMO" className="h-9 w-auto" />
               <div>
-                <div className="text-[0.62rem] font-bold uppercase tracking-[0.15em] text-[var(--text-muted)]">Reporte Proyecto</div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {code && <span className="text-[1.3rem] font-extrabold text-[var(--text-muted)]">{code}</span>}
-                  <h2 className="text-[1.3rem] font-extrabold text-[var(--text-primary)]">{name}</h2>
-                  <span className="text-[var(--warn)]">⚡</span>
+                  <span className="border-r pr-2 text-[0.62rem] font-bold uppercase tracking-[0.15em]" style={{ color: INK_MUTED, borderColor: GRID }}>Reporte Proyecto</span>
+                  {code && <span className="text-[1.3rem] font-extrabold" style={{ color: NAVY }}>{code}</span>}
+                  <h2 className="text-[1.3rem] font-extrabold" style={{ color: INK }}>{name}</h2>
+                  <BoltIcon />
                   {board.benefitType && (
                     <span
                       className="rounded-full px-2 py-0.5 text-[0.7rem] font-semibold"
@@ -576,10 +567,10 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
                     </span>
                   )}
                 </div>
-                <div className="text-[0.72rem] text-[var(--text-muted)]">Generado el {fmtDate(today())}</div>
+                <div className="mt-0.5 text-[0.72rem]" style={{ color: INK_MUTED }}>Generado el {fmtDate(today())}</div>
               </div>
             </div>
-            <ValorStepperScreen current={valor.current} allDone={valor.allDone} />
+            <ValorStepperScreen current={valor.current} allDone={valor.allDone} lateStages={valorLate} />
           </div>
           <div className="mb-6 flex flex-wrap gap-x-6 gap-y-1.5 text-[0.95rem] text-[var(--text-secondary)]">
             {board.pm && <span>PM: <strong className="text-[var(--text-primary)]">{board.pm}</strong></span>}
@@ -588,60 +579,55 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             {board.estrategia && <span>Estrategia: <strong className="text-[var(--text-primary)]">{board.estrategia}</strong></span>}
           </div>
 
-          {/* KPIs — fila única de 8 tarjetas con color semántico (ver diseño del PDF) */}
+          {/* KPIs — fila única de 8 tarjetas con color semántico (mismo diseño que el PDF) */}
           <div className="report-kpis mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 print:break-inside-avoid">
             <KpiTile
               label="Avance vs Plan"
               value={`${summary.progress.pct}% / ${avancePlanificado}%`}
               sub={`SPI ${spi !== null ? (spi / 100).toFixed(2) : "—"}`}
-              color={spi !== null ? (spi >= 90 ? "var(--ok)" : spi >= 75 ? "var(--warn)" : "var(--bad)") : "var(--text-disabled)"}
-              tint={spi !== null && spi < 75 ? "var(--health-off-track-bg)" : undefined}
+              tone={spiTone(spi === null ? null : spi / 100)}
             />
             <KpiTile
               label="Salud (EVM)"
               value={health.healthIndex !== null ? `${Math.round(health.healthIndex * 100)}%` : healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : "—"}
               sub={health.healthIndex !== null && healthCfg ? `${healthCfg.icon} ${healthCfg.label}` : undefined}
-              color={healthCfg?.color}
-              tint={health.healthStatus === "off-track" ? "var(--health-off-track-bg)" : health.healthStatus === "in-risk" ? "var(--health-in-risk-bg)" : health.healthStatus === "on-track" ? "var(--health-on-track-bg)" : undefined}
+              tone={healthTone}
+              solid
             />
             <KpiTile
               label="Atraso actual"
               value={atrasos.length > 0 ? `${atrasoActualDias} d hábiles` : "Sin atrasos"}
               sub={atrasos.length > 0 ? `${atrasos.length} step${atrasos.length === 1 ? "" : "s"} atrasado${atrasos.length === 1 ? "" : "s"}` : undefined}
-              color={atrasos.length > 0 ? "var(--bad)" : "var(--ok)"}
-              tint={atrasos.length > 0 ? "var(--health-off-track-bg)" : undefined}
+              tone={atrasos.length > 0 ? "crit" : "good"}
             />
-            <KpiTile label="Fecha cierre plan" value={fmtDate(summary.completion.plannedFinish)} color="var(--text-secondary)" />
+            <KpiTile label="Fecha cierre plan" value={fmtDate(summary.completion.plannedFinish)} tone="neutral" />
             <KpiTile
               label="Cierre estimado"
               value={fmtDate(summary.completion.estimatedFinish)}
               sub={slipVsPlan > 0 ? `+${slipVsPlan} días vs plan` : summary.completion.plannedFinish ? "en fecha" : undefined}
-              color={est.color}
-              tint={slipVsPlan > 0 ? "var(--health-in-risk-bg)" : undefined}
+              tone={slipVsPlan > 0 ? "warn" : summary.completion.plannedFinish ? "good" : "neutral"}
             />
             <KpiTile
               label="Valor generado"
               value={fmtMoney(valorProyecto)}
-              color={valorProyecto !== null ? (valorProyecto >= 0 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)"}
-              tint={valorProyecto !== null && valorProyecto >= 0 ? "var(--ok-bg)" : undefined}
+              tone={valorProyecto !== null ? (valorProyecto >= 0 ? "good" : "crit") : "neutral"}
             />
             <KpiTile
               label="ROI"
               value={roi !== null ? `${Math.round(roi).toLocaleString("en-US")}%` : "—"}
               sub={roi !== null ? "Retorno inversión" : undefined}
-              color={roi !== null ? (roi >= 0 ? "var(--ok)" : "var(--bad)") : "var(--text-disabled)"}
-              tint={roi !== null && roi >= 0 ? "var(--ok-bg)" : undefined}
+              tone={roi !== null ? (roi >= 0 ? "good" : "crit") : "neutral"}
             />
             <KpiTile
               label="Payback"
               value={payback !== null ? `${payback.toFixed(1)} meses` : "—"}
-              color={payback !== null ? "var(--text-secondary)" : "var(--text-disabled)"}
+              tone="neutral"
             />
           </div>
 
           {/* Línea de tiempo del proyecto */}
           <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h3 className="text-[1.4rem] font-bold text-[var(--text-primary)]">Línea de tiempo del proyecto</h3>
+            <h3 className="text-[1.4rem] font-bold" style={{ color: NAVY }}>Línea de tiempo del proyecto</h3>
             {mesesLabel && <span className="text-[0.78rem] text-[var(--text-muted)]">Fases VALOR y entregables de Launch · {mesesLabel}</span>}
           </div>
           <GanttLegendScreen hoy={fmtDate(today())} />
@@ -661,7 +647,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             }))}
             responsabilidad={responsabilidadAtraso}
           />
-        </>
+        </div>
       )}
     </div>
   );
@@ -871,9 +857,9 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                     <div key={i} className="absolute top-0 bottom-0 w-px" style={{ left: `${pct(t.date)}%`, background: "var(--border)", opacity: 0.5 }} />
                   ))}
                   {estX != null && (
-                    <div className="absolute top-0 bottom-0" title="Cierre estimado (predictivo)" style={{ left: `${estX}%`, width: 2, background: "var(--warn)", opacity: 0.6 }} />
+                    <div className="absolute top-0 bottom-0" title="Cierre estimado (predictivo)" style={{ left: `${estX}%`, width: 2, background: WARNING, opacity: 0.7 }} />
                   )}
-                  <div className="absolute top-0 bottom-0" title="Hoy" style={{ left: `${todayX}%`, width: 2, background: "var(--accent)", opacity: 0.7 }} />
+                  <div className="absolute top-0 bottom-0" title="Hoy" style={{ left: `${todayX}%`, width: 2, background: NAVY, opacity: 0.85 }} />
 
                   {!r.hasDates ? (
                     <div className="flex h-full items-center pl-2 text-[0.72rem] italic text-[var(--text-disabled)]">— sin fechas —</div>
@@ -889,14 +875,14 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                       {/* Relleno de avance (% de hitos Done) */}
                       <div
                         className="pointer-events-none absolute h-2 rounded-full"
-                        style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max((pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!))) * (r.phase.total ? r.phase.done / r.phase.total : 0), r.phase.done > 0 ? 0.6 : 0)}%`, background: r.cfg.color }}
+                        style={{ left: `${pct(new Date(r.barStart!))}%`, width: `${Math.max((pct(new Date(r.barEnd!)) - pct(new Date(r.barStart!))) * (r.phase.total ? r.phase.done / r.phase.total : 0), r.phase.done > 0 ? 0.6 : 0)}%`, background: r.cfg.fill }}
                       />
                       {/* Atraso: fin de la fase → hoy */}
                       {r.overdueEnd != null && (
                         <div
                           className="absolute h-2 rounded-full"
                           title={rowTooltip(r)}
-                          style={{ left: `${pct(new Date(r.barEnd!))}%`, width: `${Math.max(pct(new Date(r.overdueEnd))- pct(new Date(r.barEnd!)), 0.6)}%`, background: "var(--bad)", opacity: 0.55 }}
+                          style={{ left: `${pct(new Date(r.barEnd!))}%`, width: `${Math.max(pct(new Date(r.overdueEnd))- pct(new Date(r.barEnd!)), 0.6)}%`, background: CRITICAL, opacity: 0.5 }}
                         />
                       )}
                     </div>
@@ -940,13 +926,13 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
                               />
                               <div
                                 className="pointer-events-none absolute h-1.5 rounded-full"
-                                style={{ left: `${pct(new Date(sr.barStart!))}%`, width: `${Math.max((pct(new Date(sr.barEnd!)) - pct(new Date(sr.barStart!))) * (sr.phase.total ? sr.phase.done / sr.phase.total : 0), sr.phase.done > 0 ? 0.6 : 0)}%`, background: sr.cfg.color }}
+                                style={{ left: `${pct(new Date(sr.barStart!))}%`, width: `${Math.max((pct(new Date(sr.barEnd!)) - pct(new Date(sr.barStart!))) * (sr.phase.total ? sr.phase.done / sr.phase.total : 0), sr.phase.done > 0 ? 0.6 : 0)}%`, background: sr.cfg.fill }}
                               />
                               {sr.overdueEnd != null && (
                                 <div
                                   className="absolute h-1.5 rounded-full"
                                   title={rowTooltip(sr)}
-                                  style={{ left: `${pct(new Date(sr.barEnd!))}%`, width: `${Math.max(pct(new Date(sr.overdueEnd)) - pct(new Date(sr.barEnd!)), 0.6)}%`, background: "var(--bad)", opacity: 0.55 }}
+                                  style={{ left: `${pct(new Date(sr.barEnd!))}%`, width: `${Math.max(pct(new Date(sr.overdueEnd)) - pct(new Date(sr.barEnd!)), 0.6)}%`, background: CRITICAL, opacity: 0.5 }}
                                 />
                               )}
                             </div>
@@ -965,16 +951,27 @@ function PhaseTimeline({ phases, units, estimatedFinish }: { phases: PhaseSummar
   );
 }
 
+// ── Rayo del encabezado (mismo path que el PDF / la skill), relleno ámbar ──
+function BoltIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={WARNING_FILL} aria-hidden style={{ flexShrink: 0 }}>
+      <path d={BOLT_PATH} />
+    </svg>
+  );
+}
+
 // ── Encabezado: stepper VALOR (Valuación · Aprobación · Launch · Operación ·
-// Revisión) — misma lógica pura que el PDF (ver lib/valorStepper.ts). ──────
-const BRAND_GREEN = "#2f8f3e";
-function ValorStepperScreen({ current, allDone }: { current: number; allDone: boolean }) {
+// Revisión) — misma lógica y diseño fijo que el PDF (ver lib/valorStepper.ts y
+// lib/reportTheme.ts): pasadas verde, la actual ámbar, futuras gris; una etapa
+// con alguna fase atrasada (`lateStages`) se encierra en rojo. ──────
+function ValorStepperScreen({ current, allDone, lateStages }: { current: number; allDone: boolean; lateStages: Set<number> }) {
   return (
     <div className="flex items-start print:scale-90 print:origin-top-right">
       {VALOR_STAGES.map((s, i) => {
-        const done = allDone || i < current;
+        const passed = allDone || i < current;
         const active = !allDone && i === current;
-        const on = active || done;
+        const late = lateStages.has(i);
+        const dotBg = passed ? GOOD : active ? WARNING_FILL : NEUTRAL_LINE;
         return (
           <div key={s.key} className="flex items-start">
             <div className="flex w-[52px] flex-col items-center">
@@ -982,28 +979,25 @@ function ValorStepperScreen({ current, allDone }: { current: number; allDone: bo
                   centra con lineHeight = alto de la caja y nunca queda recortada. */}
               <div className="relative h-6 w-6">
                 <div
-                  className="absolute inset-0 rounded-full border-[1.5px]"
-                  style={{
-                    borderColor: on ? BRAND_GREEN : "var(--text-disabled)",
-                    background: on ? BRAND_GREEN : "transparent",
-                  }}
+                  className="absolute inset-0 rounded-full"
+                  style={{ background: dotBg, border: late ? `2px solid ${CRITICAL}` : "none" }}
                 />
                 <div
                   className="absolute inset-0 text-center text-[0.62rem] font-bold"
-                  style={{ lineHeight: "24px", color: on ? "#fff" : "var(--text-disabled)" }}
+                  style={{ lineHeight: "24px", color: "#fff" }}
                 >
                   {s.key}
                 </div>
               </div>
               <span
                 className="mt-1 text-center text-[0.6rem] leading-tight"
-                style={{ color: active ? "var(--text-primary)" : "var(--text-muted)", fontWeight: active ? 700 : 400 }}
+                style={{ color: late ? CRITICAL : active ? INK : INK_MUTED, fontWeight: late || active ? 700 : 400 }}
               >
                 {s.label}
               </span>
             </div>
             {i < VALOR_STAGES.length - 1 && (
-              <div className="mt-3 h-0.5 w-4" style={{ background: i < current || allDone ? BRAND_GREEN : "var(--border)" }} />
+              <div className="mt-3 h-0.5 w-4" style={{ background: i < current || allDone ? GOOD : GRID }} />
             )}
           </div>
         );
@@ -1012,52 +1006,63 @@ function ValorStepperScreen({ current, allDone }: { current: number; allDone: bo
   );
 }
 
-// ── Tarjeta KPI del reporte: etiqueta arriba, valor grande, sub opcional, y
-// una franja de color semántico a la izquierda + fondo tenue del mismo tono. ──
-function KpiTile({ label, value, sub, color, tint }: {
-  label: string; value: React.ReactNode; sub?: React.ReactNode; color?: string; tint?: string;
+// ── Tarjeta KPI del reporte: diseño fijo del "Status Ejecutivo" (mismo que el
+// PDF, ver components/ProjectPdfReport.tsx) — barra de color ARRIBA + fondo
+// tenue del tono; `solid` pinta la tarjeta llena (tarjeta "Salud (EVM)"). ──
+function KpiTile({ label, value, sub, tone, solid }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; tone: Tone; solid?: boolean;
 }) {
+  const t = TONE[tone];
+  if (solid) {
+    return (
+      <div className="flex flex-col justify-center gap-1 overflow-hidden rounded-xl p-3" style={{ background: t.fg }}>
+        <div className="text-[0.62rem] font-bold uppercase tracking-wide" style={{ color: "#ffffffcc" }}>{label}</div>
+        <div className="text-[1.15rem] font-extrabold leading-tight" style={{ color: "#fff" }}>{value}</div>
+        {sub && <div className="text-[0.65rem] font-semibold" style={{ color: "#ffffffe0" }}>{sub}</div>}
+      </div>
+    );
+  }
   return (
-    <div
-      className="rounded-xl border p-3"
-      style={{ borderColor: "var(--border)", borderLeft: `3px solid ${color ?? "var(--border)"}`, background: tint ?? "var(--bg-surface)" }}
-    >
-      <div className="text-[0.62rem] font-bold uppercase tracking-wide text-[var(--text-secondary)]">{label}</div>
-      <div className="mt-1 text-[1.15rem] font-extrabold leading-tight" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
-      {sub && <div className="mt-0.5 text-[0.65rem] font-semibold text-[var(--text-muted)]">{sub}</div>}
+    <div className="flex flex-col overflow-hidden rounded-xl" style={{ border: `1px solid ${t.fg}55`, background: t.bg }}>
+      <div className="h-1 w-full shrink-0" style={{ background: t.fg }} />
+      <div className="flex flex-1 flex-col justify-center gap-1 p-3">
+        <div className="text-[0.62rem] font-bold uppercase tracking-wide" style={{ color: INK_MUTED }}>{label}</div>
+        <div className="text-[1.15rem] font-extrabold leading-tight" style={{ color: tone === "neutral" ? INK : t.fg }}>{value}</div>
+        {sub && <div className="text-[0.65rem] font-semibold" style={{ color: INK_MUTED }}>{sub}</div>}
+      </div>
     </div>
   );
 }
 
-// ── Leyenda de la línea de tiempo ──────────────────────────────────────
+// ── Leyenda de la línea de tiempo (colores fijos del spec) ─────────────
 function GanttLegendScreen({ hoy }: { hoy: string }) {
   const item = (sw: React.ReactNode, txt: string) => (
     <span className="inline-flex items-center gap-1.5">{sw}<span>{txt}</span></span>
   );
   const bar = (style: React.CSSProperties) => <span className="inline-block h-2 w-3.5 rounded-sm" style={style} />;
   return (
-    <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.68rem] text-[var(--text-secondary)]">
-      {item(bar({ background: "var(--ok)" }), "Completada")}
-      {item(bar({ background: "var(--warn)" }), "En curso")}
-      {item(bar({ background: "var(--bad)", opacity: 0.55 }), "Atrasada (sobretiempo)")}
-      {item(bar({ border: "1px solid var(--text-muted)" }), "Pendiente")}
-      {item(<span className="inline-block h-1.5 w-1.5 rotate-45 border" style={{ borderColor: "var(--text-secondary)" }} />, "Hito")}
-      {item(<span className="inline-block h-3 w-0.5" style={{ background: "var(--accent)" }} />, `Hoy · ${hoy}`)}
-      {item(<span className="inline-block h-3 w-0.5" style={{ background: "var(--warn)" }} />, "Cierre estimado")}
+    <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.68rem]" style={{ color: INK_SEC }}>
+      {item(bar({ background: GOOD }), "Completada")}
+      {item(bar({ background: WARNING_FILL }), "En curso")}
+      {item(bar({ background: CRITICAL, opacity: 0.55 }), "Atrasada (sobretiempo)")}
+      {item(bar({ border: `1px solid ${NEUTRAL_LINE}` }), "Pendiente")}
+      {item(<span className="inline-block h-1.5 w-1.5 rotate-45 border" style={{ borderColor: NEUTRAL_LINE }} />, "Hito")}
+      {item(<span className="inline-block h-3 w-0.5" style={{ background: NAVY }} />, `Hoy · ${hoy}`)}
+      {item(<span className="inline-block h-3 w-0.5" style={{ background: WARNING }} />, "Cierre estimado")}
     </div>
   );
 }
 
 // ── Distribución de responsabilidad del atraso: barra apilada + leyenda ──
-const ROLE_PALETTE = ["#6366f1", "#3b82f6", "#8b5cf6", "#0ea5e9", "#ec4899", "#14b8a6"];
+// "Sin asignar" siempre gris; el resto cicla la paleta categórica del spec.
 const roleColor = (label: string, i: number) =>
-  /sin asignar/i.test(label) ? "var(--text-muted)" : ROLE_PALETTE[i % ROLE_PALETTE.length];
+  /sin asignar/i.test(label) ? INK_MUTED : ROLE_PALETTE[i % ROLE_PALETTE.length];
 
 function ResponsabilidadDistScreen({ items }: { items: Responsabilidad[] }) {
   return (
-    <div className="h-fit rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
-      <h4 className="mb-3 text-[0.9rem] font-bold text-[var(--text-primary)]">Distribución de responsabilidad</h4>
-      <div className="flex h-2.5 w-full overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
+    <div className="h-fit rounded-xl border p-4" style={{ borderColor: GRID, background: CARD_BG }}>
+      <h4 className="mb-3 text-[0.9rem] font-bold" style={{ color: NAVY }}>Distribución de responsabilidad</h4>
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full" style={{ background: NEUTRAL_BG }}>
         {items.map((r, i) => (
           <div key={r.label} style={{ width: `${r.pct}%`, background: roleColor(r.label, i) }} />
         ))}
@@ -1066,7 +1071,7 @@ function ResponsabilidadDistScreen({ items }: { items: Responsabilidad[] }) {
         {items.map((r, i) => (
           <div key={r.label} className="flex items-center gap-2 text-[0.78rem]">
             <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: roleColor(r.label, i) }} />
-            <span className="text-[var(--text-secondary)]">{r.label} · <strong className="text-[var(--text-primary)]">{r.pct}%</strong></span>
+            <span style={{ color: INK_SEC }}>{r.label} · <strong style={{ color: INK }}>{r.pct}%</strong></span>
           </div>
         ))}
       </div>
@@ -1082,7 +1087,7 @@ function CausasDeAtraso({ rows, responsabilidad }: { rows: CausaRow[]; responsab
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_260px] print:grid-cols-[1fr_220px]">
       <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
-        <h4 className="mb-3 text-[1.05rem] font-bold text-[var(--text-primary)]">Causas de atraso</h4>
+        <h4 className="mb-3 text-[1.05rem] font-bold" style={{ color: NAVY }}>Causas de atraso</h4>
         {rows.length === 0 ? (
           <div className="py-4 text-center text-[0.9rem] text-[var(--text-muted)]">Sin atrasos. 🎉</div>
         ) : (
@@ -1106,7 +1111,7 @@ function CausasDeAtraso({ rows, responsabilidad }: { rows: CausaRow[]; responsab
                     </div>
                     <span
                       className="justify-self-start rounded-full px-2.5 py-1 text-[0.75rem] font-bold"
-                      style={{ color: "var(--bad)", background: "var(--bad-bg)" }}
+                      style={{ color: CRITICAL, background: CRITICAL_BG }}
                     >
                       {r.badge}
                     </span>

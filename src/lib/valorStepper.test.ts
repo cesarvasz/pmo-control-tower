@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { valorStageOf, valorProgress } from "./valorStepper";
+import { valorStageOf, valorProgress, valorLateStages } from "./valorStepper";
 import type { PhaseSummary } from "./projSummary";
 
 const phase = (grupo: string, o: Partial<PhaseSummary> = {}): PhaseSummary =>
@@ -42,5 +42,22 @@ describe("valorProgress", () => {
 
   it("no revienta sin fases", () => {
     expect(valorProgress([])).toEqual({ current: 0, allDone: false });
+  });
+});
+
+describe("valorLateStages", () => {
+  it("marca las etapas VALOR con alguna fase offTrack", () => {
+    const phases = [
+      phase("Valuación | Formulación del proyecto", { done: 1 }),
+      phase("Launch | Lanzamiento", { offTrack: true }),
+      phase("Launch | Desarrollo", { offTrack: true }),
+      phase("Operación | Implementación"),
+    ];
+    expect([...valorLateStages(phases)].sort()).toEqual([2]);
+  });
+
+  it("ignora fases con grupo atípico y devuelve vacío si nada está atrasado", () => {
+    expect(valorLateStages([phase("Backlog", { offTrack: true })]).size).toBe(0);
+    expect(valorLateStages([phase("Launch | Lanzamiento")]).size).toBe(0);
   });
 });
