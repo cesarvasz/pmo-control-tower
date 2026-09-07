@@ -454,7 +454,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   // propio deadline (venció o es Done), sin importar si en verdad lo están —
   // lo que deberíamos llevar avanzado a la fecha según el plan, sin restarle
   // los atrasos actuales. Comparado con el Avance real da la brecha física.
-  const avancePlanificado = calcPlannedProgress(summary.units);
+  const avancePlanificado = calcPlannedProgress(summary.units, summary.phases);
   // SPI (simplificado): Avance real / Avance planificado — mide si vamos más
   // rápido o más lento que el plan, no en dólares (EV/PV) sino en % físico.
   // Sin plan aún (avancePlanificado=0) no hay contra qué comparar → null.

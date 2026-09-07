@@ -74,7 +74,7 @@ export function buildPortfolioRows(
       healthStatus: health.healthStatus, healthIndex: health.healthIndex,
       spi: health.spi, cpi: health.cpi, ev: health.ev, pv: health.pv,
       isComplete: summary.completion.isComplete,
-      progressPct: summary.progress.pct, plannedPct: calcPlannedProgress(summary.units),
+      progressPct: summary.progress.pct, plannedPct: calcPlannedProgress(summary.units, summary.phases),
       budgetApproved, budgetSpent, pctConsumed,
       worstOverdueDays: summary.delay.worstOverdueDays, overdueCount: summary.delay.overdueCount,
       avgSlipDays: summary.delay.avgSlipDays,

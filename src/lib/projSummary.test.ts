@@ -134,18 +134,37 @@ describe("calcProgress (avance ponderado: cada FASE pesa 1 unidad; Fase 3 se abr
   });
 });
 
-describe("calcPlannedProgress", () => {
+describe("calcPlannedProgress (mismo agrupamiento por fase/step que calcProgress, para que el SPI compare cosas comparables)", () => {
   it("cuenta Done + vencidos (aunque no estén Done) como 'debería estar hecho'", () => {
     const units = flattenBoardUnits([
       item({ id: "1", status: "Done" }),
       item({ id: "2", status: "Working on it", deadline: daysFromToday(-3) }), // vencido, no Done
       item({ id: "3", status: "Working on it", deadline: daysFromToday(5) }),  // aún no vence
     ]);
-    expect(calcPlannedProgress(units)).toBe(67); // 2 de 3
+    const phases = buildPhaseSummaries(units);
+    expect(calcPlannedProgress(units, phases)).toBe(67); // 2 de 3
+  });
+
+  it("pesa por fase igual que calcProgress: una fase con muchos hitos no aplasta a las demás", () => {
+    const items = [
+      item({ id: "v", grupo: "Valuación", status: "Done", deadline: daysFromToday(-10) }), // Done, cumple plan
+      // Fase con 4 hitos que aún NO vencen (todavía no "deberían" estar Done) —
+      // sola pesaría 0% de plan; sin agrupar por fase, un promedio simple sobre
+      // los 5 hitos sueltos daría 20% en vez de 50%.
+      item({ id: "a", grupo: "Aprobación", subitems: [
+        sub({ id: "h1", deadline: daysFromToday(5) }), sub({ id: "h2", deadline: daysFromToday(5) }),
+        sub({ id: "h3", deadline: daysFromToday(5) }), sub({ id: "h4", deadline: daysFromToday(5) }),
+      ] }),
+    ];
+    const units = flattenBoardUnits(items);
+    const phases = buildPhaseSummaries(units);
+    // Valuación 1/1 (100% del plan) · Aprobación 0/4 (0% del plan) → promedio 50%,
+    // NO 20% (que daría un promedio simple sobre los 5 hitos sueltos).
+    expect(calcPlannedProgress(units, phases)).toBe(50);
   });
 
   it("lista vacía → 0", () => {
-    expect(calcPlannedProgress([])).toBe(0);
+    expect(calcPlannedProgress([], [])).toBe(0);
   });
 });
 

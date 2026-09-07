@@ -146,6 +146,29 @@ export function groupFase3Units(units: WorkUnit[], fase3Grupo: string): Fase3Gro
 // ── Avance ──────────────────────────────────────────────────────────────
 export interface ProgressSummary { total: number; done: number; pct: number }
 
+/** Agrupa las unidades igual que calcProgress/calcPlannedProgress: cada FASE
+ *  pesa como UNA unidad, excepto Fase 3, que se abre en sus propios
+ *  steps/hitos (ver groupFase3Units) — cada uno de esos pesa como una fase
+ *  más. `isDone` decide qué cuenta como "cumplido" en cada parte: el status
+ *  real (Avance) o el plan según el CPM end (Plan) — MISMO agrupamiento para
+ *  ambas, para que puedan compararse entre sí (SPI) sin mezclar granularidades
+ *  (antes Avance pesaba por fase/step y Plan promediaba todos los hitos sueltos,
+ *  lo que podía dar un SPI que no reflejaba los atrasos reales de la tabla). */
+function buildProgressParts(units: WorkUnit[], phases: PhaseSummary[], isDone: (u: WorkUnit) => boolean): { done: number; total: number }[] {
+  const parts: { done: number; total: number }[] = [];
+  for (const p of phases) {
+    if (isFase3(p.grupo)) {
+      for (const g of groupFase3Units(units, p.grupo)) {
+        parts.push({ done: g.units.filter(isDone).length, total: g.units.length });
+      }
+    } else {
+      const list = units.filter((u) => u.grupo === p.grupo);
+      parts.push({ done: list.filter(isDone).length, total: list.length });
+    }
+  }
+  return parts;
+}
+
 /** Avance del proyecto: cada FASE pesa como UNA unidad, excepto Fase 3, que se
  *  abre en sus propios steps/hitos (ver groupFase3Units) — cada uno de esos
  *  pesa como una fase más (ej.: 4 fases + 4 items de Fase 3 = 8 unidades). El
@@ -154,16 +177,7 @@ export interface ProgressSummary { total: number; done: number; pct: number }
  *  promedio de esas fracciones — así ninguna unidad domina por tener más
  *  hitos que otra. `done` cuenta unidades 100% completas (informativo). */
 export function calcProgress(units: WorkUnit[], phases: PhaseSummary[]): ProgressSummary {
-  const parts: { done: number; total: number }[] = [];
-  for (const p of phases) {
-    if (isFase3(p.grupo)) {
-      for (const g of groupFase3Units(units, p.grupo)) {
-        parts.push({ done: g.units.filter((u) => u.status === "Done").length, total: g.units.length });
-      }
-    } else {
-      parts.push({ done: p.done, total: p.total });
-    }
-  }
+  const parts = buildProgressParts(units, phases, (u) => u.status === "Done");
   const total = parts.length;
   if (!total) return { total: 0, done: 0, pct: 0 };
   const sumFrac = parts.reduce((s, p) => s + (p.total ? p.done / p.total : 0), 0);
@@ -171,15 +185,20 @@ export function calcProgress(units: WorkUnit[], phases: PhaseSummary[]): Progres
   return { total, done: fullyDone, pct: Math.round((sumFrac / total) * 100) };
 }
 
-/** % planificado a la fecha: fracción de hitos/steps que YA deberían estar Done
- *  según su propio deadline (venció o es Done), sin importar si en verdad lo están.
- *  Comparado con calcProgress().pct (avance real) da la brecha física vs. plan. */
-export function calcPlannedProgress(units: WorkUnit[]): number {
-  const total = units.length;
-  if (!total) return 0;
+/** % planificado a la fecha: de cada fase/step (mismo agrupamiento que
+ *  calcProgress), la fracción de sus hitos que YA deberían estar Done según
+ *  su propio CPM end/deadline (venció o es Done — el mismo criterio de fecha
+ *  que marca un hito "ATRASADO" en la tabla de Atrasos, ver enScope/estado en
+ *  proj.ts), sin importar si en verdad lo están. Comparado con
+ *  calcProgress().pct (avance real) da la brecha física vs. plan — y, al usar
+ *  el mismo agrupamiento, el cociente (SPI) es una comparación real. */
+export function calcPlannedProgress(units: WorkUnit[], phases: PhaseSummary[]): number {
   const t = today();
-  const shouldBeDone = units.filter((u) => u.status === "Done" || (u.deadline !== null && u.deadline <= t)).length;
-  return Math.round((shouldBeDone / total) * 100);
+  const parts = buildProgressParts(units, phases, (u) => u.status === "Done" || (u.deadline !== null && u.deadline <= t));
+  const total = parts.length;
+  if (!total) return 0;
+  const sumFrac = parts.reduce((s, p) => s + (p.total ? p.done / p.total : 0), 0);
+  return Math.round((sumFrac / total) * 100);
 }
 
 // ── Fases (grupos de Monday), en orden de aparición en el board ──────────
