@@ -41,10 +41,16 @@ export const REQ_COLS = {
   rDone: "date_mm3gfd8b", // "R Done": fecha real de cierre (fase Cierre ROI) = fecha de entrega
 };
 
+// Nombre del grupo en Monday → label interno de la fase, usado en TODA la
+// lógica de negocio de abajo (REQ_ACTIVE_GRUPOS, REQ_PIPELINE, REQ_GROUP_COLOR,
+// deadlines/costos por fase en reqProcess). El label interno ("Desarrollo")
+// NO cambia — solo el nombre del grupo en Monday, que ya se renombró de
+// "Launch | Desarrollo" a "Launch | Lanzamiento" (verificado en vivo contra
+// el board real) — así los cálculos ya establecidos siguen intactos.
 export const REQ_GROUP_LABEL: Record<string, string> = {
   "Valuación | Req Terminado": "Valuación",
   "Aprobación | Value Gate": "Aprobación",
-  "Launch | Desarrollo": "Desarrollo",
+  "Launch | Lanzamiento": "Desarrollo",
   "Operación | Implementación": "Operación",
   "Revisión | Cierre ROI": "Cierre ROI",
   "REQ Cerrados": "Cerrados",
