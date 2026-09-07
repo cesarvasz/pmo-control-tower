@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   businessDays,
+  unionBusinessDays,
   addBusinessDays,
   fmtDate,
   isToday,
@@ -34,6 +35,46 @@ describe("businessDays", () => {
     // mié 31-dic-2025 → vie 2-ene: jue 1-ene (asueto), vie 2-ene
     expect(businessDays(d(2025, 12, 31), d(2026, 1, 2), false)).toBe(2);
     expect(businessDays(d(2025, 12, 31), d(2026, 1, 2), true)).toBe(1);
+  });
+});
+
+describe("unionBusinessDays", () => {
+  // hoy fijo para todos los casos: lun 2026-01-12
+  const hoy = d(2026, 1, 12);
+
+  it("un solo rango = businessDays normal", () => {
+    expect(unionBusinessDays([{ start: d(2026, 1, 5), end: hoy }])).toBe(businessDays(d(2026, 1, 5), hoy));
+  });
+
+  it("rangos que terminan el mismo día (ej. varios steps atrasados HOY): la unión = el rango más largo, NO la suma de todos", () => {
+    // lun 5 → hoy (12): 5 días hábiles. vie 9 → hoy: 1 día hábil. Se solapan
+    // por completo (el segundo cae dentro del primero) — sumar daría 6, la
+    // unión real es 5.
+    const union = unionBusinessDays([{ start: d(2026, 1, 5), end: hoy }, { start: d(2026, 1, 9), end: hoy }]);
+    expect(union).toBe(businessDays(d(2026, 1, 5), hoy)); // 5
+    expect(union).not.toBe(businessDays(d(2026, 1, 5), hoy) + businessDays(d(2026, 1, 9), hoy));
+  });
+
+  it("rangos disjuntos SÍ se suman (no hay días en común)", () => {
+    // vie 9-dic-2025 → mar 30-dic-2025 (3 días hábiles) y otro separado que
+    // no toca al primero: mié 31-dic-2025 → hoy (12-ene). Sin solape.
+    const r1 = { start: d(2025, 12, 9), end: d(2025, 12, 10) }; // 1 día (mié 10)
+    const r2 = { start: d(2025, 12, 31), end: d(2026, 1, 2) };  // 1 día (vie 2, sin skipHolidays cuenta jue+vie=2)
+    expect(unionBusinessDays([r1, r2])).toBe(businessDays(r1.start, r1.end) + businessDays(r2.start, r2.end));
+  });
+
+  it("rangos parcialmente solapados: cada día en común cuenta una sola vez", () => {
+    // A: lun 5 → jue 8 (mar,mié,jue = 3). B: mié 7 → hoy 12 (jue,vie,lun=3,
+    // ya que 7 es miércoles: jue8,vie9,lun12 = 3). Unión real: mar6..lun12
+    // hábiles = mar,mié,jue,vie,lun = 5 (sáb/dom no cuentan).
+    const A = { start: d(2026, 1, 5), end: d(2026, 1, 8) };
+    const B = { start: d(2026, 1, 7), end: hoy };
+    expect(unionBusinessDays([A, B])).toBe(5);
+  });
+
+  it("sin rangos válidos → 0", () => {
+    expect(unionBusinessDays([])).toBe(0);
+    expect(unionBusinessDays([{ start: hoy, end: hoy }])).toBe(0); // rango vacío (start === end)
   });
 });
 

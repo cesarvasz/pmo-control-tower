@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   flattenBoardUnits, calcProgress, calcPlannedProgress, buildPhaseSummaries, groupFase3Units, calcDelaySummary, calcCompletionEstimate,
-  currentPhaseIndex, phaseState, type PhaseSummary,
+  calcAtrasoActualDias, currentPhaseIndex, phaseState, type PhaseSummary,
 } from "./projSummary";
-import { today } from "./business";
+import { businessDays, today } from "./business";
 import type { ProjItem, ProjSubitem } from "@/types";
 
 const sub = (o: Partial<ProjSubitem>): ProjSubitem => ({ status: "", estado: "EN TIEMPO", deadline: null, actualEnd: null, entrega: null, ...o }) as ProjSubitem;
@@ -248,6 +248,37 @@ describe("calcDelaySummary", () => {
   it("sin atrasos → todo en cero", () => {
     const units = flattenBoardUnits([item({ id: "1", status: "Done", entrega: "on-time" })]);
     expect(calcDelaySummary(units)).toEqual({ overdueCount: 0, worstOverdueDays: 0, lateDoneCount: 0, avgSlipDays: 0 });
+  });
+});
+
+describe("calcAtrasoActualDias (unión de días hábiles atrasados, no la suma ni el max)", () => {
+  const hoy = today();
+
+  it("un solo atraso = sus propios días hábiles", () => {
+    expect(calcAtrasoActualDias([{ deadline: daysFromToday(-5) }], hoy)).toBe(businessDays(daysFromToday(-5), hoy));
+  });
+
+  it("dos atrasos en paralelo (ambos siguen abiertos HOY): el resultado es el del MÁS atrasado, no la suma", () => {
+    const masAtrasado = { deadline: daysFromToday(-15) }; // ej. "MESA 2 - GT" 11 días hábiles
+    const menosAtrasado = { deadline: daysFromToday(-7) }; // ej. "Gacela 2.0 - NI" 5 días hábiles
+    const union = calcAtrasoActualDias([masAtrasado, menosAtrasado], hoy);
+    const diasMasAtrasado = businessDays(masAtrasado.deadline, hoy);
+    const diasMenosAtrasado = businessDays(menosAtrasado.deadline, hoy);
+    expect(union).toBe(diasMasAtrasado);
+    expect(union).not.toBe(diasMasAtrasado + diasMenosAtrasado); // NO se suman los días en común
+  });
+
+  it("tres atrasos (como PM-012: 11, 5 y 1 días) → el total es 11, no 17", () => {
+    const union = calcAtrasoActualDias(
+      [{ deadline: daysFromToday(-15) }, { deadline: daysFromToday(-7) }, { deadline: daysFromToday(-1) }],
+      hoy,
+    );
+    expect(union).toBe(businessDays(daysFromToday(-15), hoy));
+  });
+
+  it("sin atrasos (o solo sin deadline) → 0", () => {
+    expect(calcAtrasoActualDias([], hoy)).toBe(0);
+    expect(calcAtrasoActualDias([{ deadline: null }], hoy)).toBe(0);
   });
 });
 

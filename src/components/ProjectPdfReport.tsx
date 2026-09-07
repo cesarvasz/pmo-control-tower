@@ -26,12 +26,12 @@
 // recortando por altura si de plano no cabe — nunca a la mitad de una letra.
 
 import { forwardRef, useMemo, useState, type ReactNode } from "react";
-import { fmtDate, fmtMoney } from "@/lib/business";
+import { fmtDate, fmtMoney, today } from "@/lib/business";
 import { addMonth, monthTicks, startOfMonth } from "@/lib/dateAxis";
 import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  currentPhaseIndex, enScope, groupFase3Units, phaseState,
+  calcAtrasoActualDias, currentPhaseIndex, enScope, groupFase3Units, phaseState,
   type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import type { BoardHealthData } from "@/lib/proj";
@@ -342,10 +342,10 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
   // SPI (simplificado): Avance real / Avance planificado — mismo criterio que
   // en pantalla (ver resumen-ejecutivo/page.tsx). Sin plan aún → null.
   const spi = avancePlanificado > 0 ? Math.round((summary.progress.pct / avancePlanificado) * 100) : null;
-  // "Atraso actual" = el atraso del PEOR step (días hábiles), no la suma de
-  // todos — mismo criterio que la tarjeta en pantalla (ver resumen-ejecutivo/
-  // page.tsx). atrasos ya viene ordenado desc. por daysLate.
-  const peorAtrasoDias = atrasos[0]?.daysLate ?? 0;
+  // "Atraso actual" = la UNIÓN de días hábiles atrasados entre todos los
+  // steps de `atrasos`, no la suma de sus daysLate — mismo criterio que la
+  // tarjeta en pantalla (ver calcAtrasoActualDias en lib/projSummary.ts).
+  const atrasoActualDias = calcAtrasoActualDias(atrasos, today());
   const kpis: Card[] = [
     {
       label: "Avance / Plan",
@@ -362,7 +362,7 @@ const ProjectPdfReport = forwardRef<HTMLDivElement, ProjectPdfReportProps>(funct
     {
       value: atrasos.length > 0 ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-          <span>{peorAtrasoDias}d hábiles</span>
+          <span>{atrasoActualDias}d hábiles</span>
           <span style={{ fontSize: 10, fontWeight: 400, color: C.textMuted }}>
             {atrasos.length} step{atrasos.length === 1 ? "" : "s"} atrasado{atrasos.length === 1 ? "" : "s"}
           </span>

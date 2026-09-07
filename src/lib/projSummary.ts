@@ -3,7 +3,7 @@
 // desglose por fase, atrasos y estimado predictivo de cierre. Módulo PURO
 // (cliente + servidor) — sin dependencias de red ni de React.
 
-import { addBusinessDays, businessDays, today } from "@/lib/business";
+import { addBusinessDays, businessDays, unionBusinessDays, today } from "@/lib/business";
 import { classifyDev } from "@/lib/devTimeline";
 import { isFase3, isFase4, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import type { ProjItem } from "@/types";
@@ -67,6 +67,25 @@ export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
     stuck: isStuck(it.status),
     nHitos: 0,
   };
+}
+
+/**
+ * "Atraso actual" del proyecto, en días hábiles: la UNIÓN de los períodos de
+ * atraso [deadline, hoy] de cada step en `atrasos` (ver evaluarStepAtraso),
+ * NO la suma de sus daysLate — si dos steps se atrasan en paralelo (ej.
+ * "MESA 2 - GT" 11 días y "Gacela 2.0 - NI" 5 días), esos 5 días ya están
+ * incluidos dentro de los 11 (ambos siguen abiertos HOY, así que el período
+ * del segundo cae por completo dentro del primero) y no deben contarse dos
+ * veces. Se calcula con unionBusinessDays (no con Math.max) para que el
+ * resultado sea igual de correcto si en el futuro se mezclan aquí atrasos
+ * con otro punto de cierre (no solo "hoy").
+ */
+export function calcAtrasoActualDias(atrasos: { deadline: Date | null }[], hoy: Date): number {
+  const ranges = atrasos
+    .map((a) => a.deadline)
+    .filter((d): d is Date => d !== null)
+    .map((deadline) => ({ start: deadline, end: hoy }));
+  return unionBusinessDays(ranges);
 }
 
 /** Unidad de trabajo aplanada: el hito (subitem) si el item los tiene, o el item

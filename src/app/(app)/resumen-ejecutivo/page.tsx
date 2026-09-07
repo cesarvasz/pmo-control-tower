@@ -17,7 +17,7 @@ import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj"
 import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  buildProjectSummary, calcPlannedProgress, currentPhaseIndex, enScope, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
+  buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, currentPhaseIndex, enScope, evaluarStepAtraso, flattenBoardUnits, groupFase3Units, phaseState,
   type PhaseSummary, type PhaseState, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { countByResponsible } from "@/lib/delay";
@@ -485,11 +485,11 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
       .filter((x): x is StepAtraso => x !== null)
       .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
   }, [items]);
-  // "Atraso actual" (tarjeta) = el atraso del PEOR step, no la suma de todos —
-  // si un step lleva 11 días hábiles y otro 5, el proyecto está 11 días atrasado
-  // (el camino crítico lo marca el que más tarda), no 16. atrasos ya viene
-  // ordenado desc. por daysLate (días hábiles, ver evaluarStepAtraso).
-  const peorAtrasoDias = atrasos[0]?.daysLate ?? 0;
+  // "Atraso actual" (tarjeta) = la UNIÓN de días hábiles atrasados entre
+  // todos los steps de `atrasos`, no la suma de sus daysLate — si dos steps
+  // se atrasan en paralelo, los días en común solo cuentan una vez (ver
+  // calcAtrasoActualDias en lib/projSummary.ts).
+  const atrasoActualDias = calcAtrasoActualDias(atrasos, today());
   // % de responsabilidad del atraso (rol asignado en "Responsable atraso", ver
   // AtrasoDetalleEditor) sobre el TOTAL de atrasos actuales — uno sin asignar
   // cuenta como "Sin asignar". Calculado acá (no dentro de AtrasosList) para
@@ -601,7 +601,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
               value={
                 atrasos.length > 0 ? (
                   <div className="flex flex-col items-center gap-0.5">
-                    <span>{peorAtrasoDias}d hábiles</span>
+                    <span>{atrasoActualDias}d hábiles</span>
                     <span className="text-[0.72em] font-normal" style={{ color: "var(--text-muted)" }}>
                       {atrasos.length} step{atrasos.length === 1 ? "" : "s"} atrasado{atrasos.length === 1 ? "" : "s"}
                     </span>

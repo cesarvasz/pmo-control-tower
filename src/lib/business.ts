@@ -30,6 +30,36 @@ export function businessDays(start: Date, end: Date, skipHolidays = false): numb
 }
 
 /**
+ * Cuenta los días hábiles cubiertos por AL MENOS UNO de los rangos dados —
+ * la UNIÓN, sin contar dos veces un mismo día que cae dentro de varios
+ * rangos a la vez. Cada rango es (start, end], igual que businessDays (el
+ * día de `start` no cuenta, el de `end` sí). Sirve para medir un atraso
+ * total cuando varias tareas se atrasan en paralelo: si sus períodos de
+ * atraso se solapan, ese solape no debe sumarse dos veces.
+ */
+export function unionBusinessDays(ranges: { start: Date; end: Date }[], skipHolidays = false): number {
+  const valid = ranges.filter((r) => r.start.getTime() < r.end.getTime());
+  if (!valid.length) return 0;
+  const norm = (d: Date) => { const c = new Date(d); c.setHours(0, 0, 0, 0); return c.getTime(); };
+  const starts = valid.map((r) => norm(r.start));
+  const ends = valid.map((r) => norm(r.end));
+  const minStart = Math.min(...starts);
+  const maxEnd = Math.max(...ends);
+
+  let count = 0;
+  const d = new Date(minStart);
+  d.setDate(d.getDate() + 1);
+  const e = new Date(maxEnd);
+  while (d.getTime() <= e.getTime()) {
+    const t = d.getTime();
+    const covered = valid.some((_, i) => t > starts[i] && t <= ends[i]);
+    if (covered && isWorkday(d, skipHolidays)) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
+/**
  * Suma (o resta si n<0) n días hábiles a una fecha y devuelve la fecha resultante.
  * Con skipHolidays=true también salta los asuetos oficiales de Guatemala.
  */
