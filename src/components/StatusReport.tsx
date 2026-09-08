@@ -158,7 +158,7 @@ const CSS = `
 .pmo-report .legend-diamond{ width:8px; height:8px; background:#fff; border:1.8px solid var(--neutral-line);
   transform:rotate(45deg); border-radius:1px; }
 
-.pmo-report .bottom-grid{ display:grid; grid-template-columns:1.55fr 0.9fr; gap:16px; align-items:start; }
+.pmo-report .bottom-grid{ display:grid; grid-template-columns:2.6fr 0.85fr; gap:16px; align-items:start; }
 .pmo-report table.atrasos{ width:100%; border-collapse:collapse; }
 .pmo-report table.atrasos thead th{ text-align:left; font-size:6.9pt; text-transform:uppercase;
   letter-spacing:.4px; color:var(--ink-muted); font-weight:700; padding:0 8px 6px 8px;
@@ -181,12 +181,11 @@ const CSS = `
 .pmo-report .c-acargo{ color:var(--ink-sec); white-space:nowrap; }
 .pmo-report .side-card{ border:1px solid var(--grid); border-radius:8px; padding:6px 12px; background:${CARD_BG}; }
 .pmo-report .side-card h3{ font-size:8.6pt; margin:0 0 8px 0; color:var(--navy); font-weight:700; }
-.pmo-report .dist-bar{ display:flex; height:16px; border-radius:5px; overflow:hidden; border:1px solid var(--grid); }
-.pmo-report .dist-seg{ height:100%; }
-.pmo-report .dist-legend{ display:flex; flex-direction:column; gap:3px; margin-top:6px; }
-.pmo-report .dist-legend-item{ font-size:7.6pt; color:var(--ink-sec); font-weight:500;
-  display:flex; align-items:center; gap:6px; }
-.pmo-report .dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.pmo-report .dist-legend{ display:flex; flex-direction:column; gap:6px; margin-top:2px; }
+.pmo-report .dist-legend-item{ font-size:7.8pt; color:var(--ink-sec); font-weight:500;
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.pmo-report .dist-legend-item b{ color:var(--critical); font-weight:700; font-size:8.4pt;
+  font-variant-numeric:tabular-nums; }
 
 .pmo-report .pmo-footer{ position:absolute; left:12mm; right:12mm; bottom:0; height:7mm;
   display:flex; align-items:center; justify-content:space-between;
@@ -439,17 +438,10 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
         </table>
         <div className="side-card">
           <h3>Distribución de responsabilidad</h3>
-          <div className="dist-bar">
-            {data.resp_dist.map((d, i) => {
-              const c = RESP_TONE_COLOR[d.color] ?? d.color;
-              return <div key={i} className="dist-seg" style={{ width: `${d.value}%`, background: c }} title={`${d.label} ${d.value}%`} />;
-            })}
-          </div>
           <div className="dist-legend">
-            {data.resp_dist.map((d, i) => {
-              const c = RESP_TONE_COLOR[d.color] ?? d.color;
-              return <span key={i} className="dist-legend-item"><span className="dot" style={{ background: c }} />{d.label} · {d.value}%</span>;
-            })}
+            {data.resp_dist.map((d, i) => (
+              <span key={i} className="dist-legend-item"><span>{d.label}</span><b>{d.value}%</b></span>
+            ))}
           </div>
         </div>
       </div>
