@@ -9,7 +9,7 @@
 // espera. Toda la lógica de agregación vive en lib/portfolioSummary.ts y
 // lib/projSummary.ts (puras, con tests) — esta página solo arma la presentación.
 
-import { Suspense, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { fmtDate, fmtMoney, today } from "@/lib/business";
@@ -30,7 +30,6 @@ import { buildStatusReportData } from "@/lib/statusReportData";
 import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { AtrasoMotivoInput, AtrasoRespSelect } from "@/components/AtrasoInlineEdit";
-import { downloadElementAsPdf } from "@/lib/pdf";
 import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 const SEVERITY_CFG: Record<"high" | "medium" | "low", { color: string; bg: string; label: string }> = {
@@ -336,12 +335,12 @@ function SectionHeader({ n, title }: { n: number; title: string }) {
 // ═══════════════════════════════════════════════════════════════════════
 // VISTA 2 — Detalle de proyecto
 // ═══════════════════════════════════════════════════════════════════════
-function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onDownloadPdf, downloadingPdf }: {
+function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onPrint }: {
   projectName: string; allBoards: ProjBoard[]; currentId: string; onBack: () => void; onSwitch: (id: string) => void;
-  onDownloadPdf: () => void; downloadingPdf: boolean;
+  onPrint: () => void;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
       <nav className="flex items-center gap-2 text-[0.82rem]" aria-label="Breadcrumb">
         <button type="button" onClick={onBack} className="font-semibold text-[var(--accent-light)] transition-colors hover:underline print:hidden">
           Resumen Ejecutivo
@@ -365,12 +364,11 @@ function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onDow
         </select>
         <button
           type="button"
-          onClick={onDownloadPdf}
-          disabled={downloadingPdf}
-          className="rounded-lg border px-3 py-1.5 text-[0.78rem] font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60"
+          onClick={onPrint}
+          className="rounded-lg border px-3 py-1.5 text-[0.78rem] font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
           style={{ borderColor: "var(--border)" }}
         >
-          {downloadingPdf ? "Generando…" : "↓ Descargar PDF"}
+          🖨 Imprimir / PDF
         </button>
       </div>
     </div>
@@ -437,19 +435,16 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
     responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, now,
   }), [board, code, name, summary, health, atrasos, atrasoDetalles, responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, now]);
 
-  // PDF: el mismo <StatusReport> montado 1:1 fuera de pantalla, capturado con
-  // html2canvas y empaquetado en A4 horizontal (ver lib/pdf.ts).
-  const pdfRef = useRef<HTMLDivElement>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const handleDownloadPdf = async () => {
-    if (!pdfRef.current || downloadingPdf) return;
-    setDownloadingPdf(true);
-    try {
-      await downloadElementAsPdf(pdfRef.current, `${code ? `${code}-` : ""}${name}.pdf`, "landscape");
-    } finally {
-      setDownloadingPdf(false);
-    }
-  };
+  // PDF / impresión: NO se rasteriza. Hay una copia 1:1 del reporte montada
+  // fuera de pantalla (.status-print-sheet, sin los controles de edición); al
+  // imprimir, globals.css la deja como única visible y usa @page A4 horizontal
+  // sin margen → sale exactamente una hoja con el diseño intacto. La clase
+  // print-status-report en <html> activa esas reglas solo con esta vista montada.
+  useEffect(() => {
+    document.documentElement.classList.add("print-status-report");
+    return () => document.documentElement.classList.remove("print-status-report");
+  }, []);
+  const handlePrint = () => window.print();
 
   // En pantalla la hoja (1122×794 px) se escala al ancho disponible del panel.
   // Se mide el contenedor EXTERIOR (cuyo ancho no se toca); solo se ajusta su
@@ -473,22 +468,23 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
     <div>
       <Breadcrumb
         projectName={name} allBoards={allBoards} currentId={board.id} onBack={onBack} onSwitch={onSwitch}
-        onDownloadPdf={handleDownloadPdf} downloadingPdf={downloadingPdf}
+        onPrint={handlePrint}
       />
 
       {items.length === 0 ? (
         <EmptyRow msg="Este proyecto no tiene items en Monday." />
       ) : (
         <>
-          {/* Reporte 1:1 fuera de pantalla — fuente del PDF (sin controles editables) */}
-          <div aria-hidden style={{ position: "fixed", left: -10000, top: 0, pointerEvents: "none" }}>
-            <StatusReport ref={pdfRef} data={reportData} />
+          {/* Copia 1:1 del reporte fuera de pantalla — la ÚNICA que se imprime
+              (globals.css @media print). Sin los <select>/<input> de edición. */}
+          <div className="status-print-sheet" aria-hidden>
+            <StatusReport data={reportData} />
           </div>
           {/* En pantalla: la misma hoja escalada al ancho del panel, con
               Responsable/Motivo editables in-situ */}
           <div
             ref={boxRef}
-            className="overflow-hidden rounded-xl"
+            className="overflow-hidden rounded-xl print:hidden"
             style={{ border: `1px solid ${GRID}`, boxShadow: "0 2px 14px rgba(0,0,0,.10)", height: SHEET_H * scale }}
           >
             <div style={{ width: SHEET_W, height: SHEET_H, transformOrigin: "top left", transform: `scale(${scale})` }}>

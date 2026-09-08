@@ -6,9 +6,9 @@
 // pantalla (app/(app)/resumen-ejecutivo/page.tsx).
 //
 // Son colores LITERALES (no variables CSS del tema): un reporte que se
-// descarga/imprime debe verse igual con tema claro u oscuro, y html2canvas no
-// resuelve bien las custom properties. La vista en pantalla del reporte usa
-// esta misma paleta a propósito, para que PDF y pantalla sean idénticos.
+// imprime / guarda como PDF debe verse igual con tema claro u oscuro. La vista
+// en pantalla del reporte usa esta misma paleta a propósito, para que impreso
+// y pantalla sean idénticos.
 //
 // Espejo exacto de las constantes de la skill `status-pdf`
 // (.claude/skills/status-pdf/generate_pmo_status.py). Cualquier cambio de

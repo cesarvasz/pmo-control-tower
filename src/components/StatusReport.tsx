@@ -7,10 +7,11 @@
 // de fases/entregables y tabla de causas de atraso.
 //
 // Se usa en DOS lugares y en ambos se ve idéntico:
-//  · el PDF descargable  → montado 1:1 fuera de pantalla, capturado con
-//    html2canvas (ver lib/pdf.ts, orientación landscape)
-//  · la vista de detalle en /resumen-ejecutivo → dentro de <div class="pmo-fit">
-//    que lo escala al ancho del panel (mismo `fit()` del HTML)
+//  · impresión / "Guardar como PDF" → una copia 1:1 montada fuera de pantalla
+//    (.status-print-sheet); al imprimir, globals.css la deja como única
+//    visible con @page A4 horizontal sin margen (una sola hoja, diseño intacto)
+//  · la vista de detalle en /resumen-ejecutivo → escalada al ancho del panel
+//    (transform:scale, ver ProjectDetailView) con Responsable/Motivo editables
 //
 // El CONTENIDO viene del adaptador puro lib/statusReportData.ts (esquema
 // data.json de la skill). Este archivo SOLO dibuja. La paleta sale de
