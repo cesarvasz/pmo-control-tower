@@ -1,8 +1,9 @@
 // src/lib/reportTheme.ts
 // Paleta y reglas FIJAS del "Status Ejecutivo PMO" (metodología VALOR) —
-// única fuente de verdad del diseño del reporte por proyecto, compartida por
-// el PDF descargable (components/ProjectPdfReport.tsx) y la vista de detalle
-// en pantalla (app/(app)/resumen-ejecutivo/page.tsx).
+// única fuente de verdad del diseño del reporte por proyecto. La consume
+// components/StatusReport.tsx (una réplica exacta del HTML de la skill), que
+// se usa tanto para el PDF descargable como para la vista de detalle en
+// pantalla (app/(app)/resumen-ejecutivo/page.tsx).
 //
 // Son colores LITERALES (no variables CSS del tema): un reporte que se
 // descarga/imprime debe verse igual con tema claro u oscuro, y html2canvas no

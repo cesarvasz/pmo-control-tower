@@ -2,8 +2,8 @@
 // Stepper "VALOR" (Valuación · Aprobación · Launch · Operación · Revisión) del
 // encabezado del Reporte Ejecutivo de un proyecto — mapea cada fase (grupo de
 // Monday) a una de las 5 etapas canónicas y deriva cuál es la etapa actual.
-// Puro: sin React ni red — reutilizado por la vista en pantalla
-// (resumen-ejecutivo/page.tsx) y por el PDF (ProjectPdfReport.tsx).
+// Puro: sin React ni red — lo consume lib/statusReportData.ts (adaptador del
+// "Status Ejecutivo") para el encabezado del reporte por proyecto.
 
 import { currentPhaseIndex, type PhaseSummary } from "@/lib/projSummary";
 

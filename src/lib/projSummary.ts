@@ -26,7 +26,7 @@ export const enScope = (status: string, estado: string, deadline: Date | null) =
 /** Un step (item de Fase 3) atrasado/Stuck — nunca uno de sus hitos por
  *  separado. Devuelve null si el step no está en scope. Reutilizado por la
  *  tabla Atrasos en pantalla (resumen-ejecutivo/page.tsx) y por el PDF
- *  (ProjectPdfReport.tsx) — misma fuente para que ambos siempre coincidan. */
+ *  (StatusReport / statusReportData.ts) — misma fuente para que coincidan. */
 export interface StepAtraso {
   id: string; name: string; grupo: string;
   deadline: Date | null; responsible: string;
@@ -99,7 +99,7 @@ export interface WorkUnit {
   deadline: Date | null;
   actualEnd: Date | null; // fecha real de cierre (Actual End del hito / End Date del item)
   /** Fecha de inicio del CPM de ESTA unidad (Start Date del hito, o del item si no
-   *  tiene subitems). Para ordenar cronológicamente (ver Fase 3 en PhaseTimeline). */
+   *  tiene subitems). Para ordenar cronológicamente (ver el Gantt del Status Ejecutivo). */
   startDate: Date | null;
   entrega: "on-time" | "late" | null;
   /** Quién está a cargo de la tarea (columna "Responsible" de Monday). NO es la
@@ -107,7 +107,7 @@ export interface WorkUnit {
    *  que es para efectos de KPI) — esto es simplemente el dueño operativo del hito/step. */
   responsible: string;
   /** Item (step) padre al que pertenece esta unidad — para fases con varios steps en
-   *  paralelo (ver Fase 3 en PhaseTimeline, que divide su fila por step en vez de una
+   *  paralelo (el Gantt del Status Ejecutivo divide la fila de Fase 3 por step en vez de una
    *  sola para toda la fase). Si el item no tiene subitems, stepId/stepName son los
    *  del item mismo (trivial: es su propio step). */
   stepId: string;
@@ -144,7 +144,7 @@ export interface Fase3Group { name: string; units: WorkUnit[] }
  *      fuera, son controles de fecha redundantes sobre los MISMOS hitos.
  *    · Plantilla nueva (sin ese step): un grupo POR ITEM (step) de la fase,
  *      con sus hitos (subitems) agrupados.
- *  Reutilizado tanto por PhaseTimeline (un renglón por grupo) como por el
+ *  Reutilizado tanto por el Gantt del Status Ejecutivo (un renglón por grupo) como por el
  *  avance global (cada grupo pesa como una fase más, ver calcProgress). */
 export function groupFase3Units(units: WorkUnit[], fase3Grupo: string): Fase3Group[] {
   const list = units.filter((u) => u.grupo === fase3Grupo);
@@ -234,7 +234,7 @@ export interface PhaseSummary {
 }
 
 /** Estado VISUAL de una fase para el stepper/Gantt (pantalla y PDF, ver
- *  resumen-ejecutivo/page.tsx y components/ProjectPdfReport.tsx) — solo 3
+ *  el Gantt de components/StatusReport.tsx vía statusReportData.ts) — solo 3
  *  colores: verde (completada), ámbar (la fase actual, sin importar si
  *  además está atrasada) y gris (todo lo demás, incluida una fase atrasada
  *  que YA NO es la actual). El texto "Atrasada" se decide aparte con

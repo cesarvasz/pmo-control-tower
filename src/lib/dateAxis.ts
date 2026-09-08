@@ -1,6 +1,6 @@
 // src/lib/dateAxis.ts
 // Eje de tiempo mensual compartido por las vistas tipo Gantt del Resumen
-// Ejecutivo (PhaseTimeline en pantalla y ProjectPdfReport en el PDF) — puro,
+// Ejecutivo (lib/statusReportData.ts arma el dominio del Gantt) — puro,
 // sin dependencias de React.
 export const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 export const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
