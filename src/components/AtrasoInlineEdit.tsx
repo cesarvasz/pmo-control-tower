@@ -5,7 +5,7 @@
 // el Motivo como texto editable. Misma persistencia optimista que
 // AtrasoDetalleEditor (POST /api/atraso-detalle, revierte si falla).
 
-import { useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { authedFetch } from "@/lib/api";
 import { DELAY_RESPONSIBLES } from "@/lib/delay";
@@ -54,27 +54,42 @@ export function AtrasoRespSelect({ itemId, tone }: { itemId: string; tone: strin
   );
 }
 
-/** Celda "Motivo": texto editable con la pinta de `.c-motivo`. */
+/** Celda "Motivo": <textarea> multilínea con la pinta de `.c-motivo` — crece
+ *  solo para mostrar todo el texto, respeta saltos de línea (Enter). Ctrl/⌘+Enter
+ *  guarda y sale; Esc revierte; también guarda al perder foco. */
 export function AtrasoMotivoInput({ itemId }: { itemId: string }) {
   const { detalle, save } = useSaveAtraso(itemId);
   const [motivo, setMotivo] = useState(detalle?.motivo ?? "");
   const [prev, setPrev] = useState(detalle?.motivo ?? "");
+  const ref = useRef<HTMLTextAreaElement>(null);
   if ((detalle?.motivo ?? "") !== prev) { // realinea si cambió por fuera (refresh / otro usuario)
     setPrev(detalle?.motivo ?? "");
     setMotivo(detalle?.motivo ?? "");
   }
+  const autosize = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+  useLayoutEffect(autosize, [motivo, autosize]);
   const commit = () => { if (motivo !== (detalle?.motivo ?? "")) save(detalle?.responsable ?? "", motivo); };
   return (
-    <input
+    <textarea
+      ref={ref}
       className="c-motivo-input"
+      rows={1}
       value={motivo}
       onChange={(e) => setMotivo(e.target.value)}
       onBlur={commit}
-      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); }
+        else if (e.key === "Escape") { setMotivo(detalle?.motivo ?? ""); (e.target as HTMLTextAreaElement).blur(); }
+      }}
       onClick={(e) => e.stopPropagation()}
       placeholder="Motivo del atraso…"
       maxLength={MAX_LEN}
-      title="Motivo del atraso"
+      title="Motivo del atraso — Enter: salto de línea · Ctrl+Enter: guardar"
     />
   );
 }

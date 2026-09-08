@@ -173,9 +173,10 @@ const CSS = `
 .pmo-report table.atrasos .c-dias{ white-space:nowrap; }
 .pmo-report .pill-resp{ font-size:7.4pt; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; display:inline-block; }
 .pmo-report select.pill-resp{ cursor:pointer; -webkit-appearance:none; appearance:none; }
-.pmo-report .c-motivo{ color:var(--ink-sec); line-height:1.35; }
-.pmo-report .c-motivo-input{ width:100%; color:var(--ink-sec); line-height:1.35; font-size:7.6pt;
-  background:none; border:0; outline:0; resize:none; font-family:inherit; }
+.pmo-report .c-motivo{ color:var(--ink-sec); line-height:1.35; white-space:pre-wrap; word-break:break-word; }
+.pmo-report .c-motivo-input{ display:block; width:100%; color:var(--ink-sec); line-height:1.35; font-size:7.6pt;
+  background:none; border:0; outline:0; resize:none; font-family:inherit;
+  white-space:pre-wrap; word-break:break-word; overflow:hidden; min-height:1.35em; }
 .pmo-report .c-motivo-input:focus{ background:#fffdf3; box-shadow:0 0 0 1px var(--warning-fill); border-radius:3px; }
 .pmo-report .c-acargo{ color:var(--ink-sec); white-space:nowrap; }
 .pmo-report .side-card{ border:1px solid var(--grid); border-radius:8px; padding:6px 12px; background:${CARD_BG}; }
