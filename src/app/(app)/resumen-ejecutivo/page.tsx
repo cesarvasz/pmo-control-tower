@@ -9,7 +9,7 @@
 // espera. Toda la lógica de agregación vive en lib/portfolioSummary.ts y
 // lib/projSummary.ts (puras, con tests) — esta página solo arma la presentación.
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { fmtDate, fmtMoney, today } from "@/lib/business";
@@ -451,21 +451,21 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
     }
   };
 
-  // En pantalla la hoja (1122×794 px) se escala al ancho del panel — mismo
-  // `fit()` del HTML de referencia.
-  const fitWrap = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const wrap = fitWrap.current;
-    const sheet = wrap?.firstElementChild as HTMLElement | null;
-    if (!wrap || !sheet) return;
-    const apply = () => {
-      const s = Math.min(wrap.clientWidth / SHEET_W, 1.4);
-      sheet.style.transform = `scale(${s})`;
-      wrap.style.height = `${SHEET_H * s}px`;
+  // En pantalla la hoja (1122×794 px) se escala al ancho disponible del panel.
+  // Se mide el contenedor EXTERIOR (cuyo ancho no se toca); solo se ajusta su
+  // alto y el `scale` de la hoja vía estado — sin loops de ResizeObserver.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const compute = () => {
+      const w = box.clientWidth;
+      if (w > 0) setScale(Math.min(w / SHEET_W, 1.5));
     };
-    apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(wrap);
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(box);
     return () => ro.disconnect();
   }, []);
 
@@ -484,9 +484,14 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
           <div aria-hidden style={{ position: "fixed", left: -10000, top: 0, pointerEvents: "none" }}>
             <StatusReport ref={pdfRef} data={reportData} />
           </div>
-          {/* En pantalla: la misma hoja escalada al panel, con Responsable/Motivo editables in-situ */}
-          <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${GRID}`, boxShadow: "0 2px 14px rgba(0,0,0,.10)" }}>
-            <div className="pmo-fit" ref={fitWrap}>
+          {/* En pantalla: la misma hoja escalada al ancho del panel, con
+              Responsable/Motivo editables in-situ */}
+          <div
+            ref={boxRef}
+            className="overflow-hidden rounded-xl"
+            style={{ border: `1px solid ${GRID}`, boxShadow: "0 2px 14px rgba(0,0,0,.10)", height: SHEET_H * scale }}
+          >
+            <div style={{ width: SHEET_W, height: SHEET_H, transformOrigin: "top left", transform: `scale(${scale})` }}>
               <StatusReport
                 data={reportData}
                 renderResp={(a) => <AtrasoRespSelect itemId={a.id} tone={a.resp_tone} />}

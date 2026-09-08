@@ -168,7 +168,8 @@ const CSS = `
 .pmo-report .hito-name{ font-weight:700; color:var(--ink); }
 .pmo-report .hito-meta{ font-size:6.9pt; color:var(--ink-muted); margin-top:1px; }
 .pmo-report .pill-dias{ background:var(--critical-bg); color:var(--critical); font-weight:700;
-  font-size:7.6pt; padding:2px 8px; border-radius:10px; }
+  font-size:7.6pt; padding:2px 8px; border-radius:10px; white-space:nowrap; display:inline-block; }
+.pmo-report table.atrasos .c-dias{ white-space:nowrap; }
 .pmo-report .pill-resp{ font-size:7.4pt; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; display:inline-block; }
 .pmo-report select.pill-resp{ cursor:pointer; -webkit-appearance:none; appearance:none; }
 .pmo-report .c-motivo{ color:var(--ink-sec); line-height:1.35; }
@@ -323,7 +324,7 @@ function AtrasoRows({ data, renderResp, renderMotivo }: {
               <div className="hito-meta">{a.actividades} · comprometido {a.fecha}</div>
             </td>
             <td className="c-acargo">{a.acargo}</td>
-            <td><span className="pill-dias">{a.dias}</span></td>
+            <td className="c-dias"><span className="pill-dias">{a.dias}</span></td>
             <td>
               {renderResp
                 ? renderResp(a, i)
@@ -425,9 +426,9 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
         <table className="atrasos">
           <thead>
             <tr>
-              <th style={{ width: "26%" }}>Entregable</th>
-              <th style={{ width: "15%" }}>A cargo</th>
-              <th style={{ width: "8%" }}>Atraso</th>
+              <th style={{ width: "25%" }}>Entregable</th>
+              <th style={{ width: "14%" }}>A cargo</th>
+              <th style={{ width: "10%" }}>Atraso</th>
               <th style={{ width: "14%" }}>Responsable</th>
               <th>Motivo</th>
             </tr>
