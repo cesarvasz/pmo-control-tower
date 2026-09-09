@@ -9,15 +9,15 @@ import { FilterReset } from "@/components/ui";
 import MultiSelect from "@/components/MultiSelect";
 import BuscableSelect from "@/components/tramites/BuscableSelect";
 import {
-  ANTIGUEDAD_LABEL, FILTROS_VACIOS, hayFiltros, etiquetaMes,
-  type AntiguedadMax, type Filtros, type OpcionesFiltro,
+  ANTIGUEDAD_LABEL, FILTROS_VACIOS, hayFiltros, etiquetaMes, HERRAMIENTA_LABEL,
+  type AntiguedadMax, type Filtros, type OpcionesFiltro, type Herramienta,
 } from "@/lib/clonaciones";
 
 const ANTIGUEDADES: AntiguedadMax[] = ["sin_limite", "365", "90", "30"];
 
 function Chip({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.72rem]"
+    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.92rem]"
       style={{ borderColor: "var(--accent)", background: "var(--bg-accent-soft)", color: "var(--accent-light)" }}>
       {children}
       <button onClick={onRemove} aria-label="Quitar filtro" className="opacity-70 hover:opacity-100">✕</button>
@@ -48,7 +48,7 @@ export default function FiltrosClonacion({
   }, [q]);
 
   const conFiltros = hayFiltros(f);
-  const limpiarTodos = () => onChange({ ...FILTROS_VACIOS, metrica: f.metrica });
+  const limpiarTodos = () => onChange(FILTROS_VACIOS);
 
   return (
     <div className="mb-6">
@@ -68,30 +68,41 @@ export default function FiltrosClonacion({
           onChange={(v) => onChange({ mesas: v })} minWidth={170} />
         <BuscableSelect label="Proceso" options={opciones.procesos} selected={f.procesos}
           onChange={(v) => onChange({ procesos: v })} minWidth={170} />
+        <MultiSelect
+          label="Herramienta"
+          options={opciones.herramienta}
+          selected={f.herramienta}
+          onToggle={(v, ch) => onChange({
+            herramienta: ch
+              ? [...f.herramienta.filter((x) => x !== v), v as Herramienta]
+              : f.herramienta.filter((x) => x !== v),
+          })}
+          onToggleAll={() => onChange({ herramienta: [] })}
+        />
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Archivo (c807_file)</span>
+          <span className="text-[0.9rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Archivo (c807_file)</span>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar…"
-            className="w-[190px] rounded-lg border px-3 py-2 text-sm outline-none"
+            className="w-[190px] rounded-lg border px-3 py-2 text-base outline-none"
             style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
           />
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Días calendario entre Solicitud_fecha y Creacion_fecha">
+          <span className="text-[0.9rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Días calendario entre Solicitud_fecha y Creacion_fecha">
             Antigüedad máx. de la solicitud
           </span>
           <select value={f.antiguedadMax} onChange={(e) => onChange({ antiguedadMax: e.target.value as AntiguedadMax })}
-            className="rounded-lg border px-3 py-2 text-[0.82rem] font-semibold outline-none"
+            className="rounded-lg border px-3 py-2 text-[1.05rem] font-semibold outline-none"
             style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
             {ANTIGUEDADES.map((a) => <option key={a} value={a}>{ANTIGUEDAD_LABEL[a]}</option>)}
           </select>
         </label>
 
-        <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-[0.8rem]"
+        <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-[1.02rem]"
           style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
           <input type="checkbox" checked={f.incluirAnomalos}
             onChange={(e) => onChange({ incluirAnomalos: e.target.checked })}
@@ -119,6 +130,9 @@ export default function FiltrosClonacion({
           {f.procesos.map((v) => (
             <Chip key={`p-${v}`} onRemove={() => onChange({ procesos: f.procesos.filter((x) => x !== v) })}>Proceso: {v}</Chip>
           ))}
+          {f.herramienta.map((v) => (
+            <Chip key={`h-${v}`} onRemove={() => onChange({ herramienta: f.herramienta.filter((x) => x !== v) })}>{HERRAMIENTA_LABEL[v]}</Chip>
+          ))}
           {f.busqueda.trim() !== "" && (
             <Chip onRemove={() => { setQ(""); onChange({ busqueda: "" }); }}>Archivo: {f.busqueda}</Chip>
           )}
@@ -127,9 +141,6 @@ export default function FiltrosClonacion({
           )}
           {f.incluirAnomalos && (
             <Chip onRemove={() => onChange({ incluirAnomalos: false })}>Incluye anómalos</Chip>
-          )}
-          {f.rango && (
-            <Chip onRemove={() => onChange({ rango: null })}>Rango de tiempo activo</Chip>
           )}
         </div>
       )}

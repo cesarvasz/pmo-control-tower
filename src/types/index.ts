@@ -108,6 +108,8 @@ export interface ClonacionRow {
   Cliente: string;
   Mesa: string;
   Proceso: string;
+  /** Texto libre del origen. Llega con HTML ("a<br>b") — ver limpiarComentario. */
+  Comentario: string;
 }
 
 /** Hoja "Clonación" tal como la manda el Apps Script: codificada, mismo

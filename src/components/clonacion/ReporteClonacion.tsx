@@ -7,23 +7,21 @@
 //
 // Los registros se construyen UNA sola vez por carga; los filtros solo
 // seleccionan subconjuntos, así que cambiar un filtro recalcula agregados
-// sobre un arreglo ya normalizado. C4 (distribución por rangos) es la única
-// sección que se calcula sin su propio filtro — ver distribucionRangos.
+// sobre un arreglo ya normalizado.
 
 import { useMemo, useState } from "react";
 import { SectionHeader } from "@/components/ui";
 import { fmtHHMMSS } from "@/lib/horario";
 import FiltrosClonacion from "@/components/clonacion/FiltrosClonacion";
-import TimelineClonacion from "@/components/clonacion/TimelineClonacion";
-import DistribucionRangos from "@/components/clonacion/DistribucionRangos";
+import TimelineOrigenClonacion from "@/components/clonacion/TimelineOrigenClonacion";
 import RankingPersonas from "@/components/clonacion/RankingPersonas";
 import CostoClonacion from "@/components/clonacion/CostoClonacion";
 import TablaDetalleClonacion from "@/components/clonacion/TablaDetalleClonacion";
 import {
-  construirRegistros, opcionesDeFiltro, aplicarFiltros, distribucionRangos,
-  calcularKPIs, serieMensual, agruparPor, costoClonacion,
-  FILTROS_VACIOS, METRICA_LABEL, TARIFA_CLONACION_DEFECTO,
-  type Filtros, type Metrica, type RangoKey,
+  construirRegistros, opcionesDeFiltro, aplicarFiltros,
+  calcularKPIs, serieMensual, agruparPor, costoClonacionPorOrigen, promedio,
+  FILTROS_VACIOS, TARIFA_CLONACION_DEFECTO,
+  type Filtros,
 } from "@/lib/clonaciones";
 import type { ClonacionRow } from "@/types";
 
@@ -39,11 +37,11 @@ function KpiCard({ label, valor, sub, activo, onClick, color }: {
       className={`flex flex-col rounded-xl border p-[18px] text-center transition-transform ${onClick ? "cursor-pointer hover:-translate-y-0.5" : ""}`}
       style={{ background: "var(--bg-surface)", borderColor: "var(--border)", boxShadow: activo ? "0 0 0 2px var(--accent)" : undefined }}
     >
-      <div className="text-[0.66rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</div>
-      <div className="mt-1 tabular-nums text-[1.4rem] font-extrabold leading-none" style={{ color: color ?? "var(--card-value-total)" }}>
+      <div className="text-[0.85rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</div>
+      <div className="mt-1 tabular-nums text-[1.9rem] font-extrabold leading-none" style={{ color: color ?? "var(--card-value-total)" }}>
         {valor}
       </div>
-      {sub && <div className="mt-1 text-[0.68rem] text-[var(--text-muted)]">{sub}</div>}
+      {sub && <div className="mt-1 text-[0.87rem] text-[var(--text-muted)]">{sub}</div>}
     </div>
   );
 }
@@ -57,14 +55,27 @@ export default function ReporteClonacion({ rows }: { rows: ClonacionRow[] }) {
   const todos = useMemo(() => construirRegistros(rows), [rows]);
   const opciones = useMemo(() => opcionesDeFiltro(todos), [todos]);
   const filtrados = useMemo(() => aplicarFiltros(todos, f), [todos, f]);
-  const distribucion = useMemo(() => distribucionRangos(todos, f), [todos, f]);
-  const serie = useMemo(() => serieMensual(filtrados), [filtrados]);
-  const costo = useMemo(() => costoClonacion(filtrados, tarifa), [filtrados, tarifa]);
-  const kpis = useMemo(() => calcularKPIs(todos, filtrados, f, costo.costoTotal), [todos, filtrados, f, costo.costoTotal]);
-  const rankingUsuarios = useMemo(() => agruparPor(filtrados, "usuario", f.metrica), [filtrados, f.metrica]);
-  const rankingClientes = useMemo(() => agruparPor(filtrados, "cliente", f.metrica), [filtrados, f.metrica]);
-  const rankingMesas = useMemo(() => agruparPor(filtrados, "mesa", f.metrica), [filtrados, f.metrica]);
-  const rankingProcesos = useMemo(() => agruparPor(filtrados, "proceso", f.metrica), [filtrados, f.metrica]);
+  const serieOrigen = useMemo(() => ({
+    padreSv: serieMensual(filtrados.filter((r) => r.origenTipo !== "v")),
+    v: serieMensual(filtrados.filter((r) => r.origenTipo === "v")),
+  }), [filtrados]);
+  const costoPorOrigen = useMemo(() => costoClonacionPorOrigen(filtrados, tarifa), [filtrados, tarifa]);
+  // Promedio de tiempo hábil partido por Origen — responde a los filtros.
+  const promedios = useMemo(() => {
+    const seg = (rs: typeof filtrados) => rs.filter((r) => r.segHabiles != null).map((r) => r.segHabiles as number);
+    return {
+      padreSv: promedio(seg(filtrados.filter((r) => r.origenTipo !== "v"))),
+      v: promedio(seg(filtrados.filter((r) => r.origenTipo === "v"))),
+    };
+  }, [filtrados]);
+  // El "Ahorro $" es una cifra ACUMULADA del valor de la herramienta: se calcula
+  // siempre sobre todos los registros, no sobre el recorte filtrado.
+  const ahorroTotal = useMemo(() => costoClonacionPorOrigen(todos, tarifa).contrafactual, [todos, tarifa]);
+  const kpis = useMemo(() => calcularKPIs(todos, filtrados, f, costoPorOrigen.costoTotal), [todos, filtrados, f, costoPorOrigen.costoTotal]);
+  const rankingUsuarios = useMemo(() => agruparPor(filtrados, "usuario", "promedio"), [filtrados]);
+  const rankingClientes = useMemo(() => agruparPor(filtrados, "cliente", "promedio"), [filtrados]);
+  const rankingMesas = useMemo(() => agruparPor(filtrados, "mesa", "promedio"), [filtrados]);
+  const rankingProcesos = useMemo(() => agruparPor(filtrados, "proceso", "promedio"), [filtrados]);
 
   const alternarMes = (clave: string) =>
     set({ meses: f.meses.includes(clave) ? f.meses.filter((v) => v !== clave) : [...f.meses, clave] });
@@ -76,10 +87,9 @@ export default function ReporteClonacion({ rows }: { rows: ClonacionRow[] }) {
     set({ mesas: f.mesas.includes(v) && f.mesas.length === 1 ? [] : [v] });
   const alternarProceso = (v: string) =>
     set({ procesos: f.procesos.includes(v) && f.procesos.length === 1 ? [] : [v] });
-  const alternarRango = (key: RangoKey) => set({ rango: f.rango === key ? null : key });
 
   return (
-    <div>
+    <div className="clonacion-report">
       <SectionHeader
         title="Clonación de Files"
         badge={`${filtrados.length.toLocaleString("es-GT")} de ${todos.length.toLocaleString("es-GT")} clonaciones`}
@@ -87,57 +97,51 @@ export default function ReporteClonacion({ rows }: { rows: ClonacionRow[] }) {
 
       <FiltrosClonacion opciones={opciones} f={f} onChange={set} />
 
-      {/* Selector de medida — afecta KPIs, timeline y rankings a la vez. */}
-      <div className="mb-4 flex flex-col gap-1.5">
-        <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Medida</span>
-        <div className="flex w-fit overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
-          {(["mediana", "promedio", "p90"] as Metrica[]).map((m) => (
-            <button key={m} onClick={() => set({ metrica: m })}
-              className="px-4 py-1.5 text-sm font-medium transition-colors"
-              style={{
-                background: f.metrica === m ? "var(--accent)" : "var(--bg-surface)",
-                color: f.metrica === m ? "#fff" : "var(--text-secondary)",
-              }}>{METRICA_LABEL[m]}</button>
-          ))}
-        </div>
-      </div>
+      {/* Todas las cifras de tiempo son PROMEDIO en horario hábil. */}
+      <p className="mb-4 text-[0.87rem] leading-relaxed text-[var(--text-muted)]">
+        Todas las cifras de tiempo son el <strong>promedio</strong> en horario hábil.{" "}
+        <strong>Con herramienta</strong> = réplicas con file padre localizado; su tiempo se mide desde
+        la creación del file padre. <strong>Sin herramienta</strong> = el resto; se mide desde la
+        Solicitud. Siempre hasta la Creación de la fila. El filtro de antigüedad se queda con Solicitud → Creación.
+      </p>
 
       {/* ── C2 KPIs ── */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <KpiCard label="Files" valor={kpis.n.toLocaleString("es-GT")} />
-        <KpiCard label="Mediana" valor={fmtHHMMSS(kpis.mediana)} activo={f.metrica === "mediana"} onClick={() => set({ metrica: "mediana" })} />
-        <KpiCard label="Promedio" valor={fmtHHMMSS(kpis.promedio)} activo={f.metrica === "promedio"} onClick={() => set({ metrica: "promedio" })}
-          color={kpis.promedioInflado ? "var(--warn)" : undefined}
-          sub={kpis.promedioInflado ? `inflado por ${kpis.casosInflados} caso${kpis.casosInflados === 1 ? "" : "s"} > 1 año` : undefined} />
-        <KpiCard label="P90" valor={fmtHHMMSS(kpis.p90)} activo={f.metrica === "p90"} onClick={() => set({ metrica: "p90" })} />
-        <KpiCard label="≤ 9 h hábiles" valor={kpis.pctResueltos9h == null ? "—" : `${kpis.pctResueltos9h.toFixed(0)}%`} sub="resueltos" />
-        <KpiCard label="Anómalos" valor={kpis.anomalos.toLocaleString("es-GT")} color={kpis.anomalos > 0 ? "var(--bad)" : undefined}
-          sub="Solicitud > Creación" />
-        <KpiCard label="Costo total" valor={usd(kpis.costoTotal)} />
+        <KpiCard label="Promedio sin herramienta" valor={fmtHHMMSS(promedios.padreSv)}
+          sub={`${costoPorOrigen.padreSv.nFiles.toLocaleString("es-GT")} files sin herramienta`} />
+        <KpiCard label="Promedio con herramienta" valor={fmtHHMMSS(promedios.v)}
+          sub={`${costoPorOrigen.contrafactual.nFilesV.toLocaleString("es-GT")} files con herramienta`} />
+        <KpiCard label="Costo sin herramienta" valor={usd(costoPorOrigen.padreSv.costoTotal)}
+          sub={`$${costoPorOrigen.padreSv.costoPorFile.toFixed(2)}/file`} />
+        <KpiCard label="Costo con herramienta" valor={usd(costoPorOrigen.v.costoTotal)}
+          sub={`${costoPorOrigen.contrafactual.nFilesV.toLocaleString("es-GT")} files`} />
+        <KpiCard label="Ahorro $" valor={usd(ahorroTotal.ahorro)} color="var(--ok)"
+          sub={`acumulado · ${ahorroTotal.nFilesV.toLocaleString("es-GT")} files con herramienta · no cambia con filtros`} />
       </div>
 
-      {/* ── C3 Línea de tiempo mensual ── */}
+      {/* ── C3 Línea de tiempo: Padres+SV vs Réplicas V ── */}
       <div className="mb-5">
-        <TimelineClonacion serie={serie} metrica={f.metrica} seleccion={f.meses} onSeleccionarMes={alternarMes} />
+        <TimelineOrigenClonacion
+          padreSv={serieOrigen.padreSv}
+          v={serieOrigen.v}
+          seleccion={f.meses}
+          onSeleccionarMes={alternarMes}
+        />
       </div>
 
-      {/* ── C4 Distribución por rangos (filtro) ── */}
-      <div className="mb-5">
-        <DistribucionRangos filas={distribucion} seleccion={f.rango} onSeleccionar={alternarRango} />
-      </div>
-
-      {/* ── C5 Rankings — misma medida y mismo recorte filtrado en las 4 dimensiones ── */}
+      {/* ── C5 Rankings — promedio y mismo recorte filtrado en las 4 dimensiones ── */}
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <RankingPersonas titulo="Por usuario" filas={rankingUsuarios} metrica={f.metrica} seleccion={f.usuarios} onSeleccionar={alternarUsuario} />
-        <RankingPersonas titulo="Por cliente" filas={rankingClientes} metrica={f.metrica} seleccion={f.clientes} onSeleccionar={alternarCliente} />
-        <RankingPersonas titulo="Por mesa" filas={rankingMesas} metrica={f.metrica} seleccion={f.mesas} onSeleccionar={alternarMesa} />
-        <RankingPersonas titulo="Por proceso" filas={rankingProcesos} metrica={f.metrica} seleccion={f.procesos} onSeleccionar={alternarProceso} />
+        <RankingPersonas titulo="Por usuario" filas={rankingUsuarios} seleccion={f.usuarios} onSeleccionar={alternarUsuario} />
+        <RankingPersonas titulo="Por cliente" filas={rankingClientes} seleccion={f.clientes} onSeleccionar={alternarCliente} />
+        <RankingPersonas titulo="Por mesa" filas={rankingMesas} seleccion={f.mesas} onSeleccionar={alternarMesa} />
+        <RankingPersonas titulo="Por proceso" filas={rankingProcesos} seleccion={f.procesos} onSeleccionar={alternarProceso} />
       </div>
 
-      {/* ── C6 Costo del tiempo ── */}
+      {/* ── C6 Costo del tiempo — partido Padres+SV vs V ── */}
       <section className="mt-7">
         <SectionHeader title="Costo del tiempo" badge={`$${tarifa}/h`} />
-        <CostoClonacion costo={costo} tarifa={tarifa} onTarifa={setTarifa} onSeleccionarMes={alternarMes} />
+        <CostoClonacion costoPorOrigen={costoPorOrigen} tarifa={tarifa} onTarifa={setTarifa} onSeleccionarMes={alternarMes} />
       </section>
 
       {/* ── C7 Detalle ── */}

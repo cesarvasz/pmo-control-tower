@@ -26,6 +26,67 @@ export const norm = (s: unknown): string =>
 export const tituloCase = (s: string): string =>
   s.trim().toLowerCase().replace(/(^|[\s/·-])([a-záéíóúñü])/gi, (_, sep, ch) => sep + ch.toUpperCase());
 
+/**
+ * El origen guarda "Comentario" con HTML ("a<br>b"). Se convierte a texto plano
+ * con saltos de línea reales — el HTML crudo NUNCA se inyecta en la vista.
+ */
+export const limpiarComentario = (s: unknown): string =>
+  String(s ?? "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+/**
+ * "Origen" de una clonación, deducido del comentario:
+ *
+ *  · Si el comentario empieza con "Creado como réplica del file <CODIGO>"
+ *    (CODIGO con formato GT-AAAA-#####, dígitos variables) → devuelve
+ *    "<CODIGO> - v"  si ese código aparece en la columna c807_file del set,
+ *    "<CODIGO> - sv" si no aparece (padre no encontrado).
+ *  · Cualquier otro comentario (o vacío) → "Padre".
+ *
+ * `filesExistentes` son los c807_file del origen ya normalizados (TRIM + MAYÚS).
+ */
+const RE_REPLICA = /^\s*creado como r[eé]plica del file\s+(GT-\d{4}-\d+)/i;
+
+/** Código del file padre si el comentario declara una réplica; null si no. MAYÚS. */
+export const codigoPadreDeComentario = (comentario: string): string | null => {
+  const m = comentario.match(RE_REPLICA);
+  return m ? m[1].toUpperCase() : null;
+};
+
+export function origenDeComentario(comentario: string, filesExistentes: Set<string>): string {
+  const codigo = codigoPadreDeComentario(comentario);
+  if (!codigo) return "Padre";
+  return `${codigo} - ${filesExistentes.has(codigo) ? "v" : "sv"}`;
+}
+
+/**
+ * Categoría interna del "Origen". Solo se muestra tal cual en la tabla de
+ * Detalle; el resto del tablero usa el eje "herramienta" (ver más abajo).
+ */
+export type OrigenTipo = "v" | "sv" | "padre";
+
+/** Deriva la categoría del string de `origen` (que ya la codifica). */
+export const tipoDeOrigen = (origen: string): OrigenTipo =>
+  origen === "Padre" ? "padre" : origen.endsWith(" - sv") ? "sv" : "v";
+
+/**
+ * Eje de análisis del tablero: "con" herramienta = réplicas verificadas (V);
+ * "sin" herramienta = todo lo demás (Padre y SV). Es lo que filtra el
+ * desplegable y lo que parte los KPIs, la línea de tiempo y el costo.
+ */
+export type Herramienta = "sin" | "con";
+export const HERRAMIENTA_OPCIONES: Herramienta[] = ["sin", "con"];
+export const HERRAMIENTA_LABEL: Record<Herramienta, string> = {
+  sin: "Sin herramienta", con: "Con herramienta",
+};
+export const herramientaDe = (t: OrigenTipo): Herramienta => (t === "v" ? "con" : "sin");
+
 // ── Parseo ───────────────────────────────────────────────────────────────
 /** "2026-01-05T08:40:26" o "2026-01-05 08:40:26" → Date local. */
 export function parseFecha(s: unknown): Date | null {
@@ -59,15 +120,31 @@ export interface ClonacionRegistro {
   mesa: string;
   /** Proceso del origen (columna "Proceso"). SIN_DATO cuando viene vacía. */
   proceso: string;
+  /** Comentario del origen, ya en texto plano (ver limpiarComentario). "" si vacío. */
+  comentario: string;
+  /** Deducido del comentario (ver origenDeComentario): "GT-AAAA-##### - v|sv" o "Padre". */
+  origen: string;
+  /** Categoría de `origen` para el filtro de la página. */
+  origenTipo: OrigenTipo;
+  /**
+   * Fecha desde la que se mide el tiempo hábil (hasta `creacion`):
+   *  · origen "v" → Creacion_fecha MÁS ANTIGUA del file padre en c807_file
+   *    (si el padre no tiene fecha, cae a Solicitud_fecha).
+   *  · origen "padre" / "sv" → Solicitud_fecha (tal cual).
+   * null si no hay ninguna → la fila se conserva pero no es medible.
+   * OJO: el costo (C6) y el filtro de antigüedad NO usan esto, siguen con
+   * Solicitud_fecha → Creacion_fecha (trabajo real de la persona).
+   */
+  inicioMetrica: Date | null;
   /** "YYYY-MM" de Creacion_fecha — el filtro de Mes agrupa por aquí. */
   mes: string;
-  /** D2: segundos hábiles entre Solicitud_fecha y Creacion_fecha. null si
-   *  falta Solicitud_fecha; 0 (no null) cuando la fila es anómala. */
+  /** D2: segundos hábiles entre `inicioMetrica` y Creacion_fecha. null si no hay
+   *  inicio; 0 (no null) cuando la fila es anómala (inicio posterior a creación). */
   segHabiles: number | null;
-  /** Solicitud_fecha > Creacion_fecha. */
+  /** `inicioMetrica` posterior a Creacion_fecha. */
   anomalo: boolean;
-  /** Días calendario entre Solicitud_fecha y Creacion_fecha. Puede ser
-   *  negativo en filas anómalas — solo Minutos_Habiles se fuerza a 0, esto no. */
+  /** Días calendario entre Solicitud_fecha y Creacion_fecha (NO cambia con la
+   *  métrica: lo usa el filtro "Antigüedad máx. de la solicitud"). */
   diasAntiguedad: number | null;
 }
 
@@ -81,18 +158,44 @@ export interface ClonacionRegistro {
  * quedan vacías, tal como pide la regla de la hoja.
  */
 export function construirRegistros(rows: ClonacionRow[]): ClonacionRegistro[] {
+  // Todos los c807_file del origen (incluidas filas que luego se descartan por
+  // no tener Creacion_fecha) — para resolver el "Origen" de las réplicas.
+  const filesExistentes = new Set(rows.map((r) => (r.c807_file || "").trim().toUpperCase()));
+
+  // c807_file → Creacion_fecha MÁS ANTIGUA (un file puede repetirse). Es la
+  // "fecha inicial" del tiempo hábil para las réplicas verificadas (origen "v").
+  const creacionPadre = new Map<string, Date>();
+  for (const r of rows) {
+    const c = parseFecha(r.Creacion_fecha);
+    if (!c) continue;
+    const key = (r.c807_file || "").trim().toUpperCase();
+    const prev = creacionPadre.get(key);
+    if (!prev || c.getTime() < prev.getTime()) creacionPadre.set(key, c);
+  }
+
   const out: ClonacionRegistro[] = [];
   for (const r of rows) {
     const creacion = parseFecha(r.Creacion_fecha);
     if (!creacion) continue;
     const solicitud = parseFecha(r.Solicitud_fecha);
-    const segHabiles = solicitud ? segundosHabiles(solicitud, creacion) : null;
-    const anomalo = solicitud ? solicitud.getTime() > creacion.getTime() : false;
     const diasAntiguedad = solicitud
       ? Math.round((creacion.getTime() - solicitud.getTime()) / 86_400_000)
       : null;
     const mesa = r.Mesa?.trim();
     const proceso = r.Proceso?.trim();
+    const comentario = limpiarComentario(r.Comentario);
+    const origen = origenDeComentario(comentario, filesExistentes);
+    const origenTipo = tipoDeOrigen(origen);
+
+    // Inicio del tiempo hábil: para "v", la creación más antigua del padre
+    // (si el padre no tiene fecha, cae a Solicitud); para el resto, Solicitud.
+    const codigoPadre = codigoPadreDeComentario(comentario);
+    const inicioMetrica = origenTipo === "v" && codigoPadre
+      ? creacionPadre.get(codigoPadre) ?? solicitud
+      : solicitud;
+    const segHabiles = inicioMetrica ? segundosHabiles(inicioMetrica, creacion) : null;
+    const anomalo = inicioMetrica ? inicioMetrica.getTime() > creacion.getTime() : false;
+
     out.push({
       file: r.c807_file || "",
       solicitud, creacion,
@@ -100,6 +203,10 @@ export function construirRegistros(rows: ClonacionRow[]): ClonacionRegistro[] {
       cliente: r.Cliente || SIN_DATO,
       mesa: mesa ? tituloCase(mesa) : SIN_DATO,
       proceso: proceso ? tituloCase(proceso) : SIN_DATO,
+      comentario,
+      origen,
+      origenTipo,
+      inicioMetrica,
       mes: mesDe(creacion),
       segHabiles, anomalo, diasAntiguedad,
     });
@@ -174,23 +281,24 @@ export interface Filtros {
   mesas: string[];
   /** Proceso (columna "Proceso" del origen). */
   procesos: string[];
+  /** Eje herramienta: "con" (réplicas V) / "sin" (Padre + SV). */
+  herramienta: Herramienta[];
   busqueda: string;
   antiguedadMax: AntiguedadMax;
   incluirAnomalos: boolean;
-  /** Bucket de C4 activo como filtro. Se calcula sobre TODOS los filtros
-   *  excepto este — ver distribucionRangos. */
+  /** Bucket de rangos de tiempo hábil, activo como filtro (ver distribucionRangos).
+   *  Sin UI hoy: la gráfica C4 se quitó, pero la lógica sigue disponible. */
   rango: RangoKey | null;
-  metrica: Metrica;
 }
 
 export const FILTROS_VACIOS: Filtros = {
-  meses: [], usuarios: [], clientes: [], mesas: [], procesos: [], busqueda: "",
-  antiguedadMax: "sin_limite", incluirAnomalos: false, rango: null, metrica: "mediana",
+  meses: [], usuarios: [], clientes: [], mesas: [], procesos: [], herramienta: [], busqueda: "",
+  antiguedadMax: "sin_limite", incluirAnomalos: false, rango: null,
 };
 
 export const hayFiltros = (f: Filtros): boolean =>
   f.meses.length > 0 || f.usuarios.length > 0 || f.clientes.length > 0 ||
-  f.mesas.length > 0 || f.procesos.length > 0 || f.busqueda.trim() !== "" ||
+  f.mesas.length > 0 || f.procesos.length > 0 || f.herramienta.length > 0 || f.busqueda.trim() !== "" ||
   f.antiguedadMax !== "sin_limite" || f.incluirAnomalos || f.rango !== null;
 
 export function aplicarFiltros(base: ClonacionRegistro[], f: Filtros): ClonacionRegistro[] {
@@ -201,6 +309,7 @@ export function aplicarFiltros(base: ClonacionRegistro[], f: Filtros): Clonacion
     if (f.clientes.length && !f.clientes.includes(r.cliente)) return false;
     if (f.mesas.length && !f.mesas.includes(r.mesa)) return false;
     if (f.procesos.length && !f.procesos.includes(r.proceso)) return false;
+    if (f.herramienta.length && !f.herramienta.includes(herramientaDe(r.origenTipo))) return false;
     if (q && !norm(r.file).includes(q)) return false;
     if (!f.incluirAnomalos && r.anomalo) return false;
     if (f.antiguedadMax !== "sin_limite") {
@@ -253,9 +362,11 @@ export interface KPIs {
   anomalos: number;
   costoTotal: number;
   promedioInflado: boolean;
-  /** Filas con > 1 año entre Solicitud_fecha y Creacion_fecha — la causa típica del inflado. */
+  /** Filas medibles con > 1 año entre `inicioMetrica` y Creacion_fecha — la causa típica del inflado. */
   casosInflados: number;
 }
+
+const DIA_MS = 86_400_000;
 
 export function calcularKPIs(base: ClonacionRegistro[], filtrados: ClonacionRegistro[], f: Filtros, costoTotal: number): KPIs {
   const medibles = filtrados.filter((r) => r.segHabiles != null);
@@ -270,25 +381,29 @@ export function calcularKPIs(base: ClonacionRegistro[], filtrados: ClonacionRegi
     anomalos: contarAnomalos(base, f),
     costoTotal,
     promedioInflado: prom != null && med != null && med > 0 && prom > UMBRAL_PROMEDIO_INFLADO * med,
-    casosInflados: medibles.filter((r) => r.diasAntiguedad != null && r.diasAntiguedad > ANTIGUEDAD_INFLA_DIAS).length,
+    casosInflados: medibles.filter((r) =>
+      r.inicioMetrica != null && (r.creacion.getTime() - r.inicioMetrica.getTime()) / DIA_MS > ANTIGUEDAD_INFLA_DIAS,
+    ).length,
   };
 }
 
 // ── Opciones de filtro ───────────────────────────────────────────────────
 export interface Opcion { value: string; label: string; count: number }
 export interface OpcionesFiltro {
-  meses: Opcion[]; usuarios: Opcion[]; clientes: Opcion[]; mesas: Opcion[]; procesos: Opcion[];
+  meses: Opcion[]; usuarios: Opcion[]; clientes: Opcion[]; mesas: Opcion[]; procesos: Opcion[]; herramienta: Opcion[];
 }
 
 export function opcionesDeFiltro(base: ClonacionRegistro[]): OpcionesFiltro {
   const meses = new Map<string, number>(), usuarios = new Map<string, number>(), clientes = new Map<string, number>();
   const mesas = new Map<string, number>(), procesos = new Map<string, number>();
+  const herramienta: Record<Herramienta, number> = { sin: 0, con: 0 };
   for (const r of base) {
     if (r.mes) meses.set(r.mes, (meses.get(r.mes) ?? 0) + 1);
     usuarios.set(r.usuario, (usuarios.get(r.usuario) ?? 0) + 1);
     clientes.set(r.cliente, (clientes.get(r.cliente) ?? 0) + 1);
     mesas.set(r.mesa, (mesas.get(r.mesa) ?? 0) + 1);
     procesos.set(r.proceso, (procesos.get(r.proceso) ?? 0) + 1);
+    herramienta[herramientaDe(r.origenTipo)]++;
   }
   const porVolumen = (m: Map<string, number>): Opcion[] =>
     [...m.entries()]
@@ -302,6 +417,8 @@ export function opcionesDeFiltro(base: ClonacionRegistro[]): OpcionesFiltro {
     clientes: porVolumen(clientes),
     mesas: porVolumen(mesas),
     procesos: porVolumen(procesos),
+    // Orden fijo Sin · Con herramienta (no por volumen).
+    herramienta: HERRAMIENTA_OPCIONES.map((h) => ({ value: h, label: HERRAMIENTA_LABEL[h], count: herramienta[h] })),
   };
 }
 
@@ -350,6 +467,11 @@ export function agruparPor(filtrados: ClonacionRegistro[], campo: DimensionRanki
 // cobraría la misma hora muchas veces. Se unen los tramos que se traslapan de
 // CADA usuario (nunca entre usuarios distintos) y cada hora hábil se cuenta
 // una sola vez — ver unirIntervalos.
+//
+// El tramo de cada fila es `inicioMetrica → creacion` (el MISMO par que el
+// tiempo hábil): para Padres/SV eso es Solicitud → Creación; para las réplicas
+// verificadas (V), desde la creación del file padre. La sección se muestra
+// partida en dos grupos — ver costoClonacionPorOrigen.
 
 export const TARIFA_CLONACION_DEFECTO = 6; // USD/hora hábil, por usuario
 const UMBRAL_ALERTA_PERIODO_PCT = 120; // Parte E3: no 100%, la solicitud puede ser anterior al periodo
@@ -420,6 +542,10 @@ export interface CostoClonacion {
   /** % de horasSuma que el traslape descuenta: (suma − efectivas) ÷ suma × 100. */
   pctTraslapeDescontado: number;
   nUsuarios: number;
+  /** Files que aportaron un tramo costeable (suma de personas.files). */
+  nFiles: number;
+  /** costoTotal ÷ nFiles — lo que cuesta, en promedio, producir un file del grupo. */
+  costoPorFile: number;
   personas: FilaCostoUsuario[];
   serie: PuntoCostoMes[];
   /** Rango de Creacion_fecha del recorte mostrado — el techo contra el que se mide "% del periodo". */
@@ -447,8 +573,8 @@ export function costoClonacion(filtrados: ClonacionRegistro[], tarifa: number): 
   const porUsuario = new Map<string, Intervalo[]>();
   const filesPorUsuario = new Map<string, number>();
   for (const r of filtrados) {
-    if (!r.solicitud) continue;
-    const inicio = r.solicitud.getTime(), fin = r.creacion.getTime();
+    if (!r.inicioMetrica) continue;
+    const inicio = r.inicioMetrica.getTime(), fin = r.creacion.getTime();
     if (fin <= inicio) continue;
     const l = porUsuario.get(r.usuario);
     if (l) l.push({ inicio, fin }); else porUsuario.set(r.usuario, [{ inicio, fin }]);
@@ -473,6 +599,7 @@ export function costoClonacion(filtrados: ClonacionRegistro[], tarifa: number): 
   const horasEfectivas = personas.reduce((s, p) => s + p.horasEfectivas, 0);
   const horasSuma = personas.reduce((s, p) => s + p.horasSuma, 0);
   const costoTotal = horasEfectivas * tarifa;
+  const nFiles = personas.reduce((s, p) => s + p.files, 0);
 
   // Serie mensual (D4): se recorta cada bloque YA UNIDO en fronteras de mes,
   // así los meses suman el total exacto. No se agrupa por mes antes de unir.
@@ -505,8 +632,57 @@ export function costoClonacion(filtrados: ClonacionRegistro[], tarifa: number): 
     costoTotal, horasEfectivas, horasSuma,
     pctTraslapeDescontado: horasSuma > 0 ? ((horasSuma - horasEfectivas) / horasSuma) * 100 : 0,
     nUsuarios: personas.length,
+    nFiles,
+    costoPorFile: nFiles > 0 ? costoTotal / nFiles : 0,
     personas, serie, ventana, tarifa,
     usuariosAlerta: personas.filter((p) => p.pctPeriodo > UMBRAL_ALERTA_PERIODO_PCT),
+  };
+}
+
+export interface CostoPorOrigen {
+  /** Grupo "Sin herramienta": Padre + SV. */
+  padreSv: CostoClonacion;
+  /** Grupo "Con herramienta": réplicas verificadas (V) — su tramo va desde la creación del file padre. */
+  v: CostoClonacion;
+  costoTotal: number;
+  horasEfectivas: number;
+  /**
+   * Contrafactual: cuánto habrían costado los files V si NO existiera la
+   * herramienta de clonación — es decir, producidos a mano, al mismo costo/file
+   * que un file original (Padre+SV).
+   */
+  contrafactual: {
+    /** Costo promedio de un file Padre+SV — la tarifa contra la que se compara. */
+    costoPorFilePadreSv: number;
+    /** Total de clonaciones V del recorte. */
+    nFilesV: number;
+    /** nFilesV × costoPorFilePadreSv. */
+    costoManualV: number;
+    /** costoManualV − costo real de los V. */
+    ahorro: number;
+  };
+}
+
+/**
+ * Costo partido en dos grupos: "Sin herramienta" (Padre + SV) y "Con
+ * herramienta" (V). La unión de tramos por usuario se hace DENTRO de cada grupo
+ * (así cada número responde "cuánto cuesta este grupo"); el total es la suma.
+ */
+export function costoClonacionPorOrigen(filtrados: ClonacionRegistro[], tarifa: number): CostoPorOrigen {
+  const v = costoClonacion(filtrados.filter((r) => r.origenTipo === "v"), tarifa);
+  const padreSv = costoClonacion(filtrados.filter((r) => r.origenTipo !== "v"), tarifa);
+  const nFilesV = filtrados.filter((r) => r.origenTipo === "v").length;
+  const costoManualV = nFilesV * padreSv.costoPorFile;
+  return {
+    padreSv, v,
+    costoTotal: padreSv.costoTotal + v.costoTotal,
+    horasEfectivas: padreSv.horasEfectivas + v.horasEfectivas,
+    contrafactual: {
+      costoPorFilePadreSv: padreSv.costoPorFile,
+      nFilesV,
+      costoManualV,
+      ahorro: costoManualV - v.costoTotal,
+    },
   };
 }
 
@@ -524,11 +700,13 @@ const isoFecha = (d: Date | null): string =>
 
 /** CSV del detalle filtrado completo (no solo la página visible), C7. */
 export function exportarDetalleCSV(regs: ClonacionRegistro[]): string {
-  const cab = ["c807_file", "Solicitud_fecha", "Creacion_fecha", "Usuario", "Cliente", "Mesa", "Proceso", "Tiempo habil"];
+  const cab = ["c807_file", "Origen", "Solicitud_fecha", "Creacion_fecha", "Inicio_tiempo_habil", "Usuario", "Cliente", "Mesa", "Proceso", "Comentario", "Tiempo habil"];
   const lineas = [cab.join(",")];
   for (const r of regs) {
     lineas.push([
-      r.file, isoFecha(r.solicitud), isoFecha(r.creacion), r.usuario, r.cliente, r.mesa, r.proceso, fmtHHMMSS(r.segHabiles),
+      r.file, r.origen, isoFecha(r.solicitud), isoFecha(r.creacion), isoFecha(r.inicioMetrica),
+      r.usuario, r.cliente, r.mesa, r.proceso,
+      r.comentario.replace(/\n/g, " · "), fmtHHMMSS(r.segHabiles),
     ].map(csvCampo).join(","));
   }
   return lineas.join("\n");
@@ -536,7 +714,7 @@ export function exportarDetalleCSV(regs: ClonacionRegistro[]): string {
 
 /** CSV de la tabla de costo por usuario, con fila TOTAL al final. */
 export function exportarCostoCSV(personas: FilaCostoUsuario[]): string {
-  const cab = ["Usuario", "Files", "Horas sumadas", "Horas efectivas", "Traslape %", "% del periodo", "Costo"];
+  const cab = ["Usuario", "Files", "Horas sumadas", "Horas efectivas", "Traslape %", "% del periodo", "Costo", "Costo por file"];
   const lineas = [cab.join(",")];
   let tFiles = 0, tSuma = 0, tEfectivas = 0, tCosto = 0;
   for (const p of personas) {
@@ -544,10 +722,12 @@ export function exportarCostoCSV(personas: FilaCostoUsuario[]): string {
     lineas.push([
       p.usuario, p.files, p.horasSuma.toFixed(2), p.horasEfectivas.toFixed(2),
       p.traslapePct.toFixed(1), p.pctPeriodo.toFixed(1), p.costo.toFixed(2),
+      (p.files > 0 ? p.costo / p.files : 0).toFixed(2),
     ].map(csvCampo).join(","));
   }
   lineas.push([
     "TOTAL", tFiles, tSuma.toFixed(2), tEfectivas.toFixed(2), "", "", tCosto.toFixed(2),
+    (tFiles > 0 ? tCosto / tFiles : 0).toFixed(2),
   ].map(csvCampo).join(","));
   return lineas.join("\n");
 }

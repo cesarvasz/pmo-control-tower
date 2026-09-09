@@ -377,3 +377,10 @@ table.pmo.grouped tbody tr:hover td { background: var(--bg-hover); }
     box-shadow: none !important;
   }
 }
+
+/* ── Pestaña "Clonación de Files" (ROI): tipografía más grande para lectura
+   ejecutiva. Scoped a .clonacion-report para no tocar el resto de la app. */
+.clonacion-report table.pmo { font-size: 1rem; }
+.clonacion-report table.pmo thead th { font-size: 0.82rem; padding: 12px 15px; }
+.clonacion-report table.pmo tbody td { padding: 12px 15px; }
+.clonacion-report .ini-id { font-size: 0.95rem; }
