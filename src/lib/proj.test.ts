@@ -30,20 +30,30 @@ describe("calcBoardMetrics", () => {
     ({ subitems: [], estado: "EN TIEMPO", deadline: null, endDate: null, entrega: null,
        grupo: "Fase", benefit: 0, cost: 0, ...o }) as ProjItem;
 
-  it("un item atrasado en 'Stuck' cuenta en PV/AC igual que 'Working on it'", () => {
-    const wip = calcBoardMetrics([pItem({ id: "a", status: "Working on it", estado: "ATRASADO", cost: 100 })]);
-    const stuck = calcBoardMetrics([pItem({ id: "a", status: "Stuck", estado: "ATRASADO", cost: 100 })]);
-    expect(stuck).toEqual(wip);
-    expect(stuck.pv).toBe(100);
-    expect(stuck.ac).toBe(100);
-    expect(stuck.ev).toBe(0);
-    expect(stuck.spi).toBe(0);
+  it("un item atrasado en 'Working on it' cuenta en PV/AC (no en EV)", () => {
+    const r = calcBoardMetrics([pItem({ id: "a", status: "Working on it", estado: "ATRASADO", cost: 100 })]);
+    expect(r.pv).toBe(100);
+    expect(r.ac).toBe(100);
+    expect(r.ev).toBe(0);
+    expect(r.spi).toBe(0);
   });
 
-  it("'Stuck' en tiempo (deadline futuro) no entra en PV — mismo criterio que 'Working on it'", () => {
-    const stuck = calcBoardMetrics([pItem({ id: "a", status: "Stuck", estado: "EN TIEMPO", cost: 100, deadline: daysFromToday(10) })]);
-    expect(stuck.pv).toBe(0);
-    expect(stuck.spi).toBeNull();
+  it("'Stuck' entra en PV aunque su fecha límite no haya vencido (trabado = atrasado)", () => {
+    const r = calcBoardMetrics([pItem({ id: "a", status: "Stuck", estado: "EN TIEMPO", cost: 100, deadline: daysFromToday(10) })]);
+    expect(r.pv).toBe(100);
+    expect(r.ev).toBe(0);
+    expect(r.spi).toBe(0);
+    expect(r.scope).toBe(0);
+  });
+
+  it("un item vencido que sigue en 'Future Steps' también entra en PV", () => {
+    const r = calcBoardMetrics([
+      pItem({ id: "done", status: "Done", cost: 100 }),
+      pItem({ id: "late", status: "Future Steps", estado: "ATRASADO", cost: 100, deadline: daysFromToday(-5) }),
+    ]);
+    expect(r.ev).toBe(100);
+    expect(r.pv).toBe(200);
+    expect(r.spi).toBe(0.5);
   });
 });
 

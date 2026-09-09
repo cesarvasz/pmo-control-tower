@@ -134,15 +134,14 @@ export interface BoardHealthData {
 
 // "Stuck" no tiene enum en el origen (Monday): es texto libre en la columna
 // Status, igual que "Working on it"/"Done" (mismo criterio que projSummary.ts).
-const isStuck = (status: string) => status.trim().toLowerCase() === "stuck";
+const isStuck = (status: string) => status?.trim().toLowerCase() === "stuck";
 
-// Item en curso: activo (no Done ni pendiente futuro). "Stuck" cuenta como en
-// curso — está trabado, no sin empezar — igual que "Working on it".
-const isWip = (status: string) => status === "Working on it" || isStuck(status);
-
-// Off Track = está atrasado y no se completó (un Done cuenta como On Track).
+// Trabajo que YA debería estar hecho a la fecha (un Done cuenta como On Track):
+// venció sin cerrarse, o está trabado. "Stuck" cuenta como atrasado por
+// definición —está bloqueado—, tenga o no la fecha límite vencida; mismo
+// criterio que enScope en projSummary.ts.
 const isOffTrack = (status: string, estado: string) =>
-  status !== "Done" && estado === "ATRASADO";
+  status !== "Done" && (estado === "ATRASADO" || isStuck(status));
 
 export function calcBoardMetrics(
   allBoardItems: ProjItem[],
@@ -152,15 +151,15 @@ export function calcBoardMetrics(
   let hasItems = false, anyOffTrack = false;
 
   for (const item of allBoardItems) {
-    const isDone    = item.status === "Done";
-    const isWipLate = isWip(item.status) && item.estado === "ATRASADO";
+    const isDone   = item.status === "Done";
+    const behind   = isOffTrack(item.status, item.estado);
     // EV y PV usan el costo planificado (baseline de Firestore); si aún no hay baseline
     // se usa el costo actual de Monday como fallback.
     const baseCost = projItemBaselines[item.id]?.cost ?? item.cost;
 
     // Scope binario: 0 si algún item o subitem está atrasado (off track), 100 si todo on track.
     hasItems = true;
-    if (isOffTrack(item.status, item.estado)) anyOffTrack = true;
+    if (behind) anyOffTrack = true;
     for (const sub of item.subitems) {
       if (isOffTrack(sub.status, sub.estado)) anyOffTrack = true;
     }
@@ -169,8 +168,8 @@ export function calcBoardMetrics(
       ev += baseCost;   // valor planificado del trabajo completado
       pv += baseCost;   // también cuenta en PV
       ac += item.cost;  // costo actual de Monday
-    } else if (isWipLate) {
-      pv += baseCost;   // debería estar hecho → cuenta en PV
+    } else if (behind) {
+      pv += baseCost;   // ya debería estar hecho a la fecha → cuenta en PV
       ac += item.cost;  // costo actual de Monday
     }
   }
