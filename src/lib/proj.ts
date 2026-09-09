@@ -3,7 +3,7 @@
 // lookups Iniciativa ↔ Proyecto. Funciones puras sobre items de Monday.
 
 import { parseYMD, today } from "@/lib/business";
-import { colText, colDisplay, colByTitle, colByTitleAny } from "@/lib/monday-cols";
+import { colText, colDisplay, colByTitle, colByTitleAny, colNumByTitle } from "@/lib/monday-cols";
 import { calcVem, healthStatusFromIndex, type HealthStatus } from "@/lib/health";
 import type {
   EstrategiaInfo,
@@ -38,9 +38,9 @@ const FORMULA_FALLBACK_COL = { effort: "Effort Spent", itemTimeline: "CPM", subT
 const EFFORT_COST_RATE = 9;
 
 export function resolveCost(cv: MondayColumnValue[]): number {
-  const direct = parseFloat(colByTitle(cv, PROJ_COL.cost));
+  const direct = colNumByTitle(cv, PROJ_COL.cost);
   if (Number.isFinite(direct)) return direct;
-  const effort = parseFloat(colByTitle(cv, FORMULA_FALLBACK_COL.effort));
+  const effort = colNumByTitle(cv, FORMULA_FALLBACK_COL.effort);
   return Number.isFinite(effort) ? effort * EFFORT_COST_RATE : 0;
 }
 
@@ -89,7 +89,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const startDate = resolveStartDate(cv, FORMULA_FALLBACK_COL.itemTimeline);
     const endDate = parseYMD(colByTitle(cv, PROJ_COL.endDate));
     const cost = resolveCost(cv);
-    const benefit = parseFloat(colByTitle(cv, PROJ_COL.benefit)) || 0;
+    const benefit = colNumByTitle(cv, PROJ_COL.benefit) || 0;
     const estado = calcProjEstado(deadline);
 
     const subitems = (item.subitems || []).map((sub) => {
@@ -110,8 +110,8 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
         startDate: sStartDate,
         actualEnd: sActualEnd,
         entrega: calcProjEntrega(sStatus, sActualEnd, sdl),
-        cost: parseFloat(colByTitle(scv, PROJ_COL.cost)) || 0,
-        benefit: parseFloat(colByTitle(scv, PROJ_COL.benefit)) || 0,
+        cost: colNumByTitle(scv, PROJ_COL.cost) || 0,
+        benefit: colNumByTitle(scv, PROJ_COL.benefit) || 0,
       };
     });
 

@@ -120,6 +120,16 @@ describe("projProcess", () => {
     expect(r.pm).toBe("Luis");
   });
 
+  it("lee Benefit $ desde una columna espejo/formateada (display_value con $ y comas)", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [
+      pcol("Status", "Done"),
+      { id: "Benefit $", text: null, column: { title: "Benefit $" }, display_value: "$1,250,000" },
+      { id: "Cost $", text: null, column: { title: " Cost $ " }, display_value: "50,000" },
+    ])]);
+    expect(r.benefit).toBe(1250000);
+    expect(r.cost).toBe(50000);
+  });
+
   it("Done después del límite → entrega late", () => {
     const [r] = projProcess("B", "b1", [mkProj("I", [
       pcol("Status", "Done"), pcol("Limit Date", "2026-06-10"), pcol("End Date", "2026-06-15"),
