@@ -132,6 +132,14 @@ export interface BoardHealthData {
   healthStatus: HealthStatus | null;
 }
 
+// "Stuck" no tiene enum en el origen (Monday): es texto libre en la columna
+// Status, igual que "Working on it"/"Done" (mismo criterio que projSummary.ts).
+const isStuck = (status: string) => status.trim().toLowerCase() === "stuck";
+
+// Item en curso: activo (no Done ni pendiente futuro). "Stuck" cuenta como en
+// curso — está trabado, no sin empezar — igual que "Working on it".
+const isWip = (status: string) => status === "Working on it" || isStuck(status);
+
 // Off Track = está atrasado y no se completó (un Done cuenta como On Track).
 const isOffTrack = (status: string, estado: string) =>
   status !== "Done" && estado === "ATRASADO";
@@ -145,7 +153,7 @@ export function calcBoardMetrics(
 
   for (const item of allBoardItems) {
     const isDone    = item.status === "Done";
-    const isWipLate = item.status === "Working on it" && item.estado === "ATRASADO";
+    const isWipLate = isWip(item.status) && item.estado === "ATRASADO";
     // EV y PV usan el costo planificado (baseline de Firestore); si aún no hay baseline
     // se usa el costo actual de Monday como fallback.
     const baseCost = projItemBaselines[item.id]?.cost ?? item.cost;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards } from "./proj";
+import { calcBoardMetrics, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards } from "./proj";
 import { today } from "./business";
-import type { MondayColumnValue, MondayItem, MondaySubitem } from "@/types";
+import type { MondayColumnValue, MondayItem, MondaySubitem, ProjItem } from "@/types";
 
 const daysFromToday = (n: number): Date => {
   const d = today();
@@ -22,6 +22,28 @@ describe("splitBoardName", () => {
   });
   it("sin '|' devuelve code vacío y el nombre completo", () => {
     expect(splitBoardName("Board suelto")).toEqual({ code: "", name: "Board suelto" });
+  });
+});
+
+describe("calcBoardMetrics", () => {
+  const pItem = (o: Partial<ProjItem>): ProjItem =>
+    ({ subitems: [], estado: "EN TIEMPO", deadline: null, endDate: null, entrega: null,
+       grupo: "Fase", benefit: 0, cost: 0, ...o }) as ProjItem;
+
+  it("un item atrasado en 'Stuck' cuenta en PV/AC igual que 'Working on it'", () => {
+    const wip = calcBoardMetrics([pItem({ id: "a", status: "Working on it", estado: "ATRASADO", cost: 100 })]);
+    const stuck = calcBoardMetrics([pItem({ id: "a", status: "Stuck", estado: "ATRASADO", cost: 100 })]);
+    expect(stuck).toEqual(wip);
+    expect(stuck.pv).toBe(100);
+    expect(stuck.ac).toBe(100);
+    expect(stuck.ev).toBe(0);
+    expect(stuck.spi).toBe(0);
+  });
+
+  it("'Stuck' en tiempo (deadline futuro) no entra en PV — mismo criterio que 'Working on it'", () => {
+    const stuck = calcBoardMetrics([pItem({ id: "a", status: "Stuck", estado: "EN TIEMPO", cost: 100, deadline: daysFromToday(10) })]);
+    expect(stuck.pv).toBe(0);
+    expect(stuck.spi).toBeNull();
   });
 });
 
