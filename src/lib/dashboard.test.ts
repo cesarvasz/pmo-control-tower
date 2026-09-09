@@ -71,7 +71,7 @@ describe("resolveProjStage (evaluación descendente Confirmación > Aprobación 
     expect(resolveProjStage([val("Done")])).toEqual({ stage: "validacion", cost: 0, benefit: 0 });
   });
 
-  it("Aprobación: exige los 3 steps Done (CFO + VG Aprobación + VG Launch); monto = Business Case (Kick Off)", () => {
+  it("Aprobación: CFO + un gate firmado Done (los dos gates); monto = Business Case (Kick Off)", () => {
     const items = [
       bc(10, 100),
       cfo("Done"),
@@ -81,24 +81,39 @@ describe("resolveProjStage (evaluación descendente Confirmación > Aprobación 
     expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 10, benefit: 100 });
   });
 
-  it("Aprobación: el Value Gate de Launch acepta \"actualizado y firmado\" (sin \"aprobado\")", () => {
+  it("Aprobación: basta el gate de Aprobación Done aunque el de Launch siga en curso", () => {
     const items = [
       bc(10, 100),
       cfo("Done"),
       vg("Aprobación | Value Gate", "Done"),
-      vg("Launch | Desarrollo", "Done", "Value Gate (BC) actualizado y firmado (VPA+Sponsor+PMO Mgr)"),
+      vg("Launch | Desarrollo", "Working on it"),
+      val("Done"),
     ];
     expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 10, benefit: 100 });
   });
 
-  it("Aprobación: si falta uno de los 3 Done, no cuenta (cae a Validación si aplica)", () => {
+  it("Aprobación: basta el gate de Launch Done (\"actualizado y firmado\") aunque no haya gate en Aprobación", () => {
+    const items = [
+      bc(10, 100),
+      cfo("Done"),
+      vg("Launch | Desarrollo", "Done", "Value Gate (BC) Actualizado y firmado (Sponsor+VPA+PMO Mgr)"),
+    ];
+    expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 10, benefit: 100 });
+  });
+
+  it("Aprobación: sin el CFO Done no cuenta aunque los dos gates estén Done (cae a Validación)", () => {
     const items = [
       bc(1, 1),
-      cfo("Done"),
+      cfo("Working on it"),
       vg("Aprobación | Value Gate", "Done"),
-      vg("Launch | Desarrollo", "Working on it"), // Launch aún no
+      vg("Launch | Desarrollo", "Done"),
       val("Done"),
     ];
+    expect(resolveProjStage(items)).toEqual({ stage: "validacion", cost: 1, benefit: 1 });
+  });
+
+  it("Aprobación: CFO Done pero ningún gate firmado → no cuenta (cae a Validación)", () => {
+    const items = [bc(1, 1), cfo("Done"), val("Done")];
     expect(resolveProjStage(items)).toEqual({ stage: "validacion", cost: 1, benefit: 1 });
   });
 

@@ -181,7 +181,7 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                 Business Case), y Confirmación es el subconjunto ya medido (valor real). Cada ítem muestra{" "}
                 <span style={{ color: BEN }}>Beneficio</span> / <span style={{ color: COST }}>Costo</span> en cada etapa alcanzada.
                 <b> Validación VPA</b>: REQ en Valuación/Aprobación o proyecto con &quot;VPA valida Business Case&quot; Done.
-                <b> Aprobación VPB</b>: REQ en Desarrollo/Operación/Cierre ROI/Cerrado o proyecto con &quot;Plan de beneficios CFO&quot; + Value Gate Aprobación + Value Gate Launch (los 3 Done).
+                <b> Aprobación VPB</b>: REQ en Desarrollo/Operación/Cierre ROI/Cerrado o proyecto con &quot;Plan de beneficios CFO&quot; Done + al menos un Value Gate firmado Done (el de Aprobación o el de Launch).
                 <b> Confirmación VPC</b>: REQ Cerrado o proyecto con el step &quot;VPA Recopila datos a 30/60/90 días&quot; en curso (o el más reciente Done).
               </div>
 

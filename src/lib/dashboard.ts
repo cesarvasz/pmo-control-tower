@@ -84,10 +84,13 @@ function evalValidacion(items: ProjItem[]): { cost: number; benefit: number } | 
 }
 
 /** Aprobación VPB (Proyecto): "Plan de beneficios acordados con CFO" Done (fase
- *  "Aprobación | Value Gate") en las dos plantillas por igual, MÁS el/los gate(s) de
- *  aprobación firmados — que también cambian de nombre entre plantillas:
- *  · Plantilla vieja: Value Gate (BC) "firmado" Done en Aprobación Y OTRO Value Gate
- *    "firmado" Done en Launch (dos gates separados).
+ *  "Aprobación | Value Gate") en las dos plantillas por igual, MÁS un gate de
+ *  aprobación firmado — cuyo nombre y fase cambian entre plantillas:
+ *  · Plantilla vieja: un Value Gate (BC) "firmado" Done, ya sea el de la fase
+ *    Aprobación ("...Firmado y aprobado") o el de Launch ("...Actualizado y
+ *    firmado"). Basta con UNO: el de Launch es el último de la secuencia, así
+ *    que si está Done el de Aprobación ya pasó (y viceversa cuando el de Launch
+ *    aún no se firmó).
  *  · Plantilla nueva: un solo step "VPA APROBADO (Entregable Business Case validado por
  *    Sponsor+VPA+PMO Mgr)" Done en Aprobación — no existe un segundo gate en Launch.
  *  Beneficio/Costo = los del Business Case (Kick Off Project Meeting) en ambos casos. */
@@ -99,7 +102,7 @@ function evalAprobacion(items: ProjItem[]): { cost: number; benefit: number } | 
   const vgLaunchOld = items.find((it) => norm(it.grupo).includes("launch") && isVgSigned(it.name));
   const vgAprobNew = items.find((it) => norm(it.grupo).includes("aprobacion") && norm(it.name).includes("vpa aprobado"));
 
-  const gatesOk = (vgAprobOld?.status === "Done" && vgLaunchOld?.status === "Done") || vgAprobNew?.status === "Done";
+  const gatesOk = vgAprobOld?.status === "Done" || vgLaunchOld?.status === "Done" || vgAprobNew?.status === "Done";
   if (!gatesOk) return null;
 
   const bc = findBusinessCase(items);
