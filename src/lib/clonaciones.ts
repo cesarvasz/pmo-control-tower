@@ -17,6 +17,15 @@ export const SIN_DATO = "(sin dato)";
 export const norm = (s: unknown): string =>
   String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
+/**
+ * "MESA 3" / "mesa 3" → "Mesa 3". El origen escribe Mesa y Proceso con
+ * capitalización dispar; sin unificar, "Mesa 2" y "MESA 2" se agruparían por
+ * separado en filtros y rankings. Solo toca estas dos columnas — Usuario y
+ * Cliente se dejan tal cual llegan (son nombres propios / razones sociales).
+ */
+export const tituloCase = (s: string): string =>
+  s.trim().toLowerCase().replace(/(^|[\s/·-])([a-záéíóúñü])/gi, (_, sep, ch) => sep + ch.toUpperCase());
+
 // ── Parseo ───────────────────────────────────────────────────────────────
 /** "2026-01-05T08:40:26" o "2026-01-05 08:40:26" → Date local. */
 export function parseFecha(s: unknown): Date | null {
@@ -45,14 +54,19 @@ export interface ClonacionRegistro {
   creacion: Date;
   usuario: string;
   cliente: string;
-  /** "YYYY-MM" de Creacion_Fecha — el filtro de Mes agrupa por aquí. */
+  /** Mesa de trabajo del origen (columna "Mesa"). Ojo: no confundir con `mes`
+   *  (el periodo YYYY-MM). SIN_DATO cuando la celda viene vacía. */
+  mesa: string;
+  /** Proceso del origen (columna "Proceso"). SIN_DATO cuando viene vacía. */
+  proceso: string;
+  /** "YYYY-MM" de Creacion_fecha — el filtro de Mes agrupa por aquí. */
   mes: string;
-  /** D2: segundos hábiles entre Solicitud_fecha y Creacion_Fecha. null si
+  /** D2: segundos hábiles entre Solicitud_fecha y Creacion_fecha. null si
    *  falta Solicitud_fecha; 0 (no null) cuando la fila es anómala. */
   segHabiles: number | null;
-  /** Solicitud_fecha > Creacion_Fecha. */
+  /** Solicitud_fecha > Creacion_fecha. */
   anomalo: boolean;
-  /** Días calendario entre Solicitud_fecha y Creacion_Fecha. Puede ser
+  /** Días calendario entre Solicitud_fecha y Creacion_fecha. Puede ser
    *  negativo en filas anómalas — solo Minutos_Habiles se fuerza a 0, esto no. */
   diasAntiguedad: number | null;
 }
@@ -60,7 +74,7 @@ export interface ClonacionRegistro {
 /**
  * Construye un registro por fila (sin agrupar ni deduplicar c807_file).
  *
- * Se descartan las filas sin Creacion_Fecha: sin ella no hay mes al que
+ * Se descartan las filas sin Creacion_fecha: sin ella no hay mes al que
  * atribuir la clonación y todo el tablero (filtro de periodo, ventana de
  * costo) cuelga de ese agrupamiento. Es la única fecha que se exige — sin
  * Solicitud_fecha la fila se conserva, pero sus 4 columnas derivadas (D2)
@@ -69,7 +83,7 @@ export interface ClonacionRegistro {
 export function construirRegistros(rows: ClonacionRow[]): ClonacionRegistro[] {
   const out: ClonacionRegistro[] = [];
   for (const r of rows) {
-    const creacion = parseFecha(r.Creacion_Fecha);
+    const creacion = parseFecha(r.Creacion_fecha);
     if (!creacion) continue;
     const solicitud = parseFecha(r.Solicitud_fecha);
     const segHabiles = solicitud ? segundosHabiles(solicitud, creacion) : null;
@@ -77,11 +91,15 @@ export function construirRegistros(rows: ClonacionRow[]): ClonacionRegistro[] {
     const diasAntiguedad = solicitud
       ? Math.round((creacion.getTime() - solicitud.getTime()) / 86_400_000)
       : null;
+    const mesa = r.Mesa?.trim();
+    const proceso = r.Proceso?.trim();
     out.push({
       file: r.c807_file || "",
       solicitud, creacion,
       usuario: r.Usuario || SIN_DATO,
       cliente: r.Cliente || SIN_DATO,
+      mesa: mesa ? tituloCase(mesa) : SIN_DATO,
+      proceso: proceso ? tituloCase(proceso) : SIN_DATO,
       mes: mesDe(creacion),
       segHabiles, anomalo, diasAntiguedad,
     });
@@ -148,9 +166,14 @@ export const ANTIGUEDAD_LABEL: Record<AntiguedadMax, string> = {
 const ANTIGUEDAD_DIAS: Record<"365" | "90" | "30", number> = { "365": 365, "90": 90, "30": 30 };
 
 export interface Filtros {
+  /** Periodo YYYY-MM (columna derivada `mes`). No confundir con `mesas`. */
   meses: string[];
   usuarios: string[];
   clientes: string[];
+  /** Mesa de trabajo (columna "Mesa" del origen). */
+  mesas: string[];
+  /** Proceso (columna "Proceso" del origen). */
+  procesos: string[];
   busqueda: string;
   antiguedadMax: AntiguedadMax;
   incluirAnomalos: boolean;
@@ -161,12 +184,13 @@ export interface Filtros {
 }
 
 export const FILTROS_VACIOS: Filtros = {
-  meses: [], usuarios: [], clientes: [], busqueda: "",
+  meses: [], usuarios: [], clientes: [], mesas: [], procesos: [], busqueda: "",
   antiguedadMax: "sin_limite", incluirAnomalos: false, rango: null, metrica: "mediana",
 };
 
 export const hayFiltros = (f: Filtros): boolean =>
-  f.meses.length > 0 || f.usuarios.length > 0 || f.clientes.length > 0 || f.busqueda.trim() !== "" ||
+  f.meses.length > 0 || f.usuarios.length > 0 || f.clientes.length > 0 ||
+  f.mesas.length > 0 || f.procesos.length > 0 || f.busqueda.trim() !== "" ||
   f.antiguedadMax !== "sin_limite" || f.incluirAnomalos || f.rango !== null;
 
 export function aplicarFiltros(base: ClonacionRegistro[], f: Filtros): ClonacionRegistro[] {
@@ -175,6 +199,8 @@ export function aplicarFiltros(base: ClonacionRegistro[], f: Filtros): Clonacion
     if (f.meses.length && !f.meses.includes(r.mes)) return false;
     if (f.usuarios.length && !f.usuarios.includes(r.usuario)) return false;
     if (f.clientes.length && !f.clientes.includes(r.cliente)) return false;
+    if (f.mesas.length && !f.mesas.includes(r.mesa)) return false;
+    if (f.procesos.length && !f.procesos.includes(r.proceso)) return false;
     if (q && !norm(r.file).includes(q)) return false;
     if (!f.incluirAnomalos && r.anomalo) return false;
     if (f.antiguedadMax !== "sin_limite") {
@@ -227,7 +253,7 @@ export interface KPIs {
   anomalos: number;
   costoTotal: number;
   promedioInflado: boolean;
-  /** Filas con > 1 año entre Solicitud_fecha y Creacion_Fecha — la causa típica del inflado. */
+  /** Filas con > 1 año entre Solicitud_fecha y Creacion_fecha — la causa típica del inflado. */
   casosInflados: number;
 }
 
@@ -250,14 +276,19 @@ export function calcularKPIs(base: ClonacionRegistro[], filtrados: ClonacionRegi
 
 // ── Opciones de filtro ───────────────────────────────────────────────────
 export interface Opcion { value: string; label: string; count: number }
-export interface OpcionesFiltro { meses: Opcion[]; usuarios: Opcion[]; clientes: Opcion[] }
+export interface OpcionesFiltro {
+  meses: Opcion[]; usuarios: Opcion[]; clientes: Opcion[]; mesas: Opcion[]; procesos: Opcion[];
+}
 
 export function opcionesDeFiltro(base: ClonacionRegistro[]): OpcionesFiltro {
   const meses = new Map<string, number>(), usuarios = new Map<string, number>(), clientes = new Map<string, number>();
+  const mesas = new Map<string, number>(), procesos = new Map<string, number>();
   for (const r of base) {
     if (r.mes) meses.set(r.mes, (meses.get(r.mes) ?? 0) + 1);
     usuarios.set(r.usuario, (usuarios.get(r.usuario) ?? 0) + 1);
     clientes.set(r.cliente, (clientes.get(r.cliente) ?? 0) + 1);
+    mesas.set(r.mesa, (mesas.get(r.mesa) ?? 0) + 1);
+    procesos.set(r.proceso, (procesos.get(r.proceso) ?? 0) + 1);
   }
   const porVolumen = (m: Map<string, number>): Opcion[] =>
     [...m.entries()]
@@ -269,6 +300,8 @@ export function opcionesDeFiltro(base: ClonacionRegistro[]): OpcionesFiltro {
       .map(([value, count]) => ({ value, label: etiquetaMes(value), count })),
     usuarios: porVolumen(usuarios),
     clientes: porVolumen(clientes),
+    mesas: porVolumen(mesas),
+    procesos: porVolumen(procesos),
   };
 }
 
@@ -299,7 +332,9 @@ export function serieMensual(filtrados: ClonacionRegistro[]): PuntoMes[] {
 // ── Rankings por usuario / cliente (C5) ───────────────────────────────────
 export interface FilaRanking { clave: string; valor: number | null; n: number }
 
-export function agruparPor(filtrados: ClonacionRegistro[], campo: "usuario" | "cliente", metrica: Metrica): FilaRanking[] {
+export type DimensionRanking = "usuario" | "cliente" | "mesa" | "proceso";
+
+export function agruparPor(filtrados: ClonacionRegistro[], campo: DimensionRanking, metrica: Metrica): FilaRanking[] {
   const cubos = new Map<string, number[]>();
   for (const r of filtrados) {
     if (r.segHabiles == null) continue;
@@ -387,7 +422,7 @@ export interface CostoClonacion {
   nUsuarios: number;
   personas: FilaCostoUsuario[];
   serie: PuntoCostoMes[];
-  /** Rango de Creacion_Fecha del recorte mostrado — el techo contra el que se mide "% del periodo". */
+  /** Rango de Creacion_fecha del recorte mostrado — el techo contra el que se mide "% del periodo". */
   ventana: Ventana;
   tarifa: number;
   /** Usuarios con pctPeriodo > 120% — dispara el aviso de Parte E4. */
@@ -395,7 +430,7 @@ export interface CostoClonacion {
 }
 
 export function costoClonacion(filtrados: ClonacionRegistro[], tarifa: number): CostoClonacion {
-  // Ventana: rango de Creacion_Fecha del recorte mostrado (Parte E3).
+  // Ventana: rango de Creacion_fecha del recorte mostrado (Parte E3).
   let minC = Infinity, maxC = -Infinity;
   for (const r of filtrados) {
     const t = r.creacion.getTime();
@@ -489,11 +524,11 @@ const isoFecha = (d: Date | null): string =>
 
 /** CSV del detalle filtrado completo (no solo la página visible), C7. */
 export function exportarDetalleCSV(regs: ClonacionRegistro[]): string {
-  const cab = ["c807_file", "Solicitud_fecha", "Creacion_Fecha", "Usuario", "Cliente", "Tiempo habil"];
+  const cab = ["c807_file", "Solicitud_fecha", "Creacion_fecha", "Usuario", "Cliente", "Mesa", "Proceso", "Tiempo habil"];
   const lineas = [cab.join(",")];
   for (const r of regs) {
     lineas.push([
-      r.file, isoFecha(r.solicitud), isoFecha(r.creacion), r.usuario, r.cliente, fmtHHMMSS(r.segHabiles),
+      r.file, isoFecha(r.solicitud), isoFecha(r.creacion), r.usuario, r.cliente, r.mesa, r.proceso, fmtHHMMSS(r.segHabiles),
     ].map(csvCampo).join(","));
   }
   return lineas.join("\n");

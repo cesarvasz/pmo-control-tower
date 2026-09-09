@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { fmtHHMMSS } from "@/lib/horario";
 import { exportarDetalleCSV, descargarCSV, type ClonacionRegistro } from "@/lib/clonaciones";
 
-type Campo = "file" | "solicitud" | "creacion" | "usuario" | "cliente" | "segHabiles";
+type Campo = "file" | "solicitud" | "creacion" | "usuario" | "cliente" | "mesa" | "proceso" | "segHabiles";
 type Dir = "asc" | "desc";
 const TAMANOS = [25, 50, 100, 250] as const;
 
@@ -43,6 +43,8 @@ export default function TablaDetalleClonacion({ regs }: { regs: ClonacionRegistr
       const v = orden.campo === "file" ? a.file.localeCompare(b.file, "es")
         : orden.campo === "usuario" ? a.usuario.localeCompare(b.usuario, "es")
         : orden.campo === "cliente" ? a.cliente.localeCompare(b.cliente, "es")
+        : orden.campo === "mesa" ? a.mesa.localeCompare(b.mesa, "es")
+        : orden.campo === "proceso" ? a.proceso.localeCompare(b.proceso, "es")
         : orden.campo === "solicitud" ? (a.solicitud?.getTime() ?? -1) - (b.solicitud?.getTime() ?? -1)
         : orden.campo === "creacion" ? a.creacion.getTime() - b.creacion.getTime()
         : num(a.segHabiles) - num(b.segHabiles);
@@ -94,6 +96,8 @@ export default function TablaDetalleClonacion({ regs }: { regs: ClonacionRegistr
                   <Th campo="creacion" actual={orden} alternar={alternar} align="center">Creación</Th>
                   <Th campo="usuario" actual={orden} alternar={alternar}>Usuario</Th>
                   <Th campo="cliente" actual={orden} alternar={alternar}>Cliente</Th>
+                  <Th campo="mesa" actual={orden} alternar={alternar}>Mesa</Th>
+                  <Th campo="proceso" actual={orden} alternar={alternar}>Proceso</Th>
                   <Th campo="segHabiles" actual={orden} alternar={alternar} align="center">Tiempo hábil</Th>
                 </tr>
               </thead>
@@ -105,6 +109,8 @@ export default function TablaDetalleClonacion({ regs }: { regs: ClonacionRegistr
                     <td className="tabular-nums text-center text-[var(--text-secondary)]">{fechaCorta(r.creacion)}</td>
                     <td className="max-w-[180px] truncate text-[var(--text-secondary)]" title={r.usuario}>{r.usuario}</td>
                     <td className="max-w-[220px] truncate text-[var(--text-secondary)]" title={r.cliente}>{r.cliente}</td>
+                    <td className="max-w-[140px] truncate text-[var(--text-secondary)]" title={r.mesa}>{r.mesa}</td>
+                    <td className="max-w-[160px] truncate text-[var(--text-secondary)]" title={r.proceso}>{r.proceso}</td>
                     <td className="tabular-nums text-center font-semibold"
                       style={{ color: r.segHabiles == null ? "var(--text-disabled)" : r.anomalo ? "var(--bad)" : undefined }}
                       title={r.anomalo ? "Anómalo: Solicitud posterior a Creación" : undefined}>

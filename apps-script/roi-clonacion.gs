@@ -247,10 +247,10 @@ function medirDoGet() {
 }
 
 /** Columnas cuyo valor se repite mucho → van por diccionario. */
-var COLS_TEXTO = ["c807_file", "Usuario", "Cliente"];
+var COLS_TEXTO = ["c807_file", "Usuario", "Cliente", "Mesa", "Proceso"];
 /** Columnas de fecha → van como segundos desde EPOCA. "Fecha" no se usa en la
  *  app, pero se codifica igual para no dejar una celda Date sin convertir. */
-var COLS_FECHA = ["Solicitud_fecha", "Creacion_Fecha", "Fecha"];
+var COLS_FECHA = ["Solicitud_fecha", "Creacion_fecha", "Fecha"];
 
 /**
  * Devuelve la hoja CODIFICADA, no las filas crudas:

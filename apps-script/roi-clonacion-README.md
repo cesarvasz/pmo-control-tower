@@ -38,11 +38,13 @@ con `roi-log.gs` a propósito.
 | Columna | Tipo |
 |---|---|
 | `c807_file` | texto |
-| `Solicitud_fecha` | fecha-hora |
 | `Fecha` | fecha-hora (no se usa en la app, pero se codifica igual) |
-| `Creacion_Fecha` | fecha-hora |
-| `Usuario` | texto |
 | `Cliente` | texto |
+| `Usuario` | texto |
+| `Mesa` | texto |
+| `Proceso` | texto |
+| `Solicitud_fecha` | fecha-hora |
+| `Creacion_fecha` | fecha-hora |
 
 Una fila = una clonación. Un mismo `c807_file` puede repetirse — el script no
 deduplica ni agrupa nada, igual que con 003.
@@ -55,9 +57,10 @@ Mismo esquema que `roi-log.gs`:
 { epoca, libres, textos, fechas, dicc: {columna: [valores únicos]}, filas: [[...]] }
 ```
 
-`c807_file`, `Usuario` y `Cliente` van por diccionario (se repiten mucho:
-~80 usuarios, ~280 clientes). `Solicitud_fecha`, `Creacion_Fecha` y `Fecha`
-van como segundos desde una época, igual que las fechas de 003.
+`c807_file`, `Usuario`, `Cliente`, `Mesa` y `Proceso` van por diccionario (se
+repiten mucho: ~80 usuarios, ~280 clientes, pocas mesas y procesos).
+`Solicitud_fecha`, `Creacion_fecha` y `Fecha` van como segundos desde una
+época, igual que las fechas de 003.
 
 **Todas las reglas de negocio (minutos hábiles, tiempo hábil, anómalo, días de
 antigüedad, costo) se calculan en la app**, en `src/lib/clonaciones.ts` — este

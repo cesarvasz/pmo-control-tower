@@ -64,6 +64,10 @@ export default function FiltrosClonacion({
           onChange={(v) => onChange({ usuarios: v })} minWidth={190} />
         <BuscableSelect label="Cliente" options={opciones.clientes} selected={f.clientes}
           onChange={(v) => onChange({ clientes: v })} minWidth={200} />
+        <BuscableSelect label="Mesa" options={opciones.mesas} selected={f.mesas}
+          onChange={(v) => onChange({ mesas: v })} minWidth={170} />
+        <BuscableSelect label="Proceso" options={opciones.procesos} selected={f.procesos}
+          onChange={(v) => onChange({ procesos: v })} minWidth={170} />
 
         <label className="flex flex-col gap-1.5">
           <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Archivo (c807_file)</span>
@@ -77,7 +81,7 @@ export default function FiltrosClonacion({
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Días calendario entre Solicitud_fecha y Creacion_Fecha">
+          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]" title="Días calendario entre Solicitud_fecha y Creacion_fecha">
             Antigüedad máx. de la solicitud
           </span>
           <select value={f.antiguedadMax} onChange={(e) => onChange({ antiguedadMax: e.target.value as AntiguedadMax })}
@@ -108,6 +112,12 @@ export default function FiltrosClonacion({
           ))}
           {f.clientes.map((v) => (
             <Chip key={`c-${v}`} onRemove={() => onChange({ clientes: f.clientes.filter((x) => x !== v) })}>Cliente: {v}</Chip>
+          ))}
+          {f.mesas.map((v) => (
+            <Chip key={`ms-${v}`} onRemove={() => onChange({ mesas: f.mesas.filter((x) => x !== v) })}>Mesa: {v}</Chip>
+          ))}
+          {f.procesos.map((v) => (
+            <Chip key={`p-${v}`} onRemove={() => onChange({ procesos: f.procesos.filter((x) => x !== v) })}>Proceso: {v}</Chip>
           ))}
           {f.busqueda.trim() !== "" && (
             <Chip onRemove={() => { setQ(""); onChange({ busqueda: "" }); }}>Archivo: {f.busqueda}</Chip>

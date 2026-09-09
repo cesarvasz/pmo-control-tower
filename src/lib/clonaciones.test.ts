@@ -1,14 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
   construirRegistros, minutosHabiles, costoClonacion, aplicarFiltros, distribucionRangos,
+  agruparPor, opcionesDeFiltro,
   FILTROS_VACIOS, TARIFA_CLONACION_DEFECTO,
   type ClonacionRegistro,
 } from "./clonaciones";
 import type { ClonacionRow } from "@/types";
 
 // 2026-01-05 es lunes (misma semana de referencia que horario.test.ts).
-const row = (file: string, usuario: string, cliente: string, solicitud: string, creacion: string): ClonacionRow => ({
-  c807_file: file, Solicitud_fecha: solicitud, Creacion_Fecha: creacion, Usuario: usuario, Cliente: cliente,
+const row = (
+  file: string, usuario: string, cliente: string, solicitud: string, creacion: string,
+  mesa = "", proceso = "",
+): ClonacionRow => ({
+  c807_file: file, Fecha: "", Solicitud_fecha: solicitud, Creacion_fecha: creacion,
+  Usuario: usuario, Cliente: cliente, Mesa: mesa, Proceso: proceso,
 });
 
 const seg = (solicitud: string, creacion: string): number | null =>
@@ -41,11 +46,11 @@ describe("D2 · reglas de vacío y anómalo", () => {
     expect(r.anomalo).toBe(false);
   });
 
-  it("sin Creacion_Fecha, la fila se descarta (no hay mes al que atribuirla)", () => {
+  it("sin Creacion_fecha, la fila se descarta (no hay mes al que atribuirla)", () => {
     expect(construirRegistros([row("F", "U", "C", "2026-01-05T09:00:00", "")])).toHaveLength(0);
   });
 
-  it("Solicitud_fecha > Creacion_Fecha: Minutos_Habiles = 0 y Anomalo = TRUE", () => {
+  it("Solicitud_fecha > Creacion_fecha: Minutos_Habiles = 0 y Anomalo = TRUE", () => {
     const [r] = construirRegistros([row("F", "U", "C", "2026-01-06T09:00:00", "2026-01-05T09:00:00")]);
     expect(r.segHabiles).toBe(0);
     expect(r.anomalo).toBe(true);
@@ -164,5 +169,58 @@ describe("C1 · filtro de antigüedad máxima de la solicitud", () => {
     const filtrados = aplicarFiltros(base, { ...FILTROS_VACIOS, antiguedadMax: "30" });
     expect(filtrados).toHaveLength(1);
     expect(filtrados[0].file).toBe("F2");
+  });
+});
+
+describe("C1/C5 · dimensiones Mesa y Proceso", () => {
+  const base = construirRegistros([
+    row("F1", "ANA", "ACME", "2026-01-05T08:00:00", "2026-01-05T09:00:00", "Mesa 1", "Alta"),
+    row("F2", "LUIS", "ACME", "2026-01-05T08:00:00", "2026-01-05T10:00:00", "Mesa 1", "Baja"),
+    row("F3", "ANA", "GLOBEX", "2026-01-05T08:00:00", "2026-01-05T11:00:00", "Mesa 2", "Alta"),
+    row("F4", "ANA", "GLOBEX", "2026-01-06T08:00:00", "2026-01-06T09:00:00", "", ""),
+  ]);
+
+  it("celda vacía de Mesa/Proceso cae en SIN_DATO", () => {
+    expect(base.find((r) => r.file === "F4")?.mesa).toBe("(sin dato)");
+    expect(base.find((r) => r.file === "F4")?.proceso).toBe("(sin dato)");
+  });
+
+  it("normaliza capitalización dispar del origen y no duplica al agrupar", () => {
+    const mixto = construirRegistros([
+      row("A", "U", "C", "2026-01-05T08:00:00", "2026-01-05T09:00:00", "MESA 2", "aduana"),
+      row("B", "U", "C", "2026-01-05T08:00:00", "2026-01-05T09:00:00", "Mesa 2", "Aduana"),
+      row("C", "U", "C", "2026-01-05T08:00:00", "2026-01-05T09:00:00", "mesa 2", "ADUANA"),
+    ]);
+    expect(mixto.every((r) => r.mesa === "Mesa 2" && r.proceso === "Aduana")).toBe(true);
+    expect(agruparPor(mixto, "mesa", "mediana")).toHaveLength(1);
+    expect(opcionesDeFiltro(mixto).procesos).toHaveLength(1);
+  });
+
+  it("filtra por Mesa", () => {
+    const f = aplicarFiltros(base, { ...FILTROS_VACIOS, mesas: ["Mesa 1"] });
+    expect(f.map((r) => r.file).sort()).toEqual(["F1", "F2"]);
+  });
+
+  it("filtra por Proceso", () => {
+    const f = aplicarFiltros(base, { ...FILTROS_VACIOS, procesos: ["Alta"] });
+    expect(f.map((r) => r.file).sort()).toEqual(["F1", "F3"]);
+  });
+
+  it("Mesa y Proceso se combinan (AND)", () => {
+    const f = aplicarFiltros(base, { ...FILTROS_VACIOS, mesas: ["Mesa 1"], procesos: ["Alta"] });
+    expect(f.map((r) => r.file)).toEqual(["F1"]);
+  });
+
+  it("agruparPor('mesa') mide solo las filas medibles del recorte", () => {
+    const r = agruparPor(base, "mesa", "mediana");
+    const mesa1 = r.find((x) => x.clave === "Mesa 1");
+    expect(mesa1?.n).toBe(2); // F1 (1h) y F2 (2h)
+    expect(mesa1?.valor).toBe(90 * 60); // mediana de 3600 y 7200 = 5400 s
+  });
+
+  it("opcionesDeFiltro expone mesas y procesos por volumen", () => {
+    const o = opcionesDeFiltro(base);
+    expect(o.mesas.map((x) => x.value)).toContain("Mesa 1");
+    expect(o.procesos.map((x) => x.value)).toContain("Alta");
   });
 });

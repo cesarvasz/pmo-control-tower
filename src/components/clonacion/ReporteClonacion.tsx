@@ -63,6 +63,8 @@ export default function ReporteClonacion({ rows }: { rows: ClonacionRow[] }) {
   const kpis = useMemo(() => calcularKPIs(todos, filtrados, f, costo.costoTotal), [todos, filtrados, f, costo.costoTotal]);
   const rankingUsuarios = useMemo(() => agruparPor(filtrados, "usuario", f.metrica), [filtrados, f.metrica]);
   const rankingClientes = useMemo(() => agruparPor(filtrados, "cliente", f.metrica), [filtrados, f.metrica]);
+  const rankingMesas = useMemo(() => agruparPor(filtrados, "mesa", f.metrica), [filtrados, f.metrica]);
+  const rankingProcesos = useMemo(() => agruparPor(filtrados, "proceso", f.metrica), [filtrados, f.metrica]);
 
   const alternarMes = (clave: string) =>
     set({ meses: f.meses.includes(clave) ? f.meses.filter((v) => v !== clave) : [...f.meses, clave] });
@@ -70,6 +72,10 @@ export default function ReporteClonacion({ rows }: { rows: ClonacionRow[] }) {
     set({ usuarios: f.usuarios.includes(v) && f.usuarios.length === 1 ? [] : [v] });
   const alternarCliente = (v: string) =>
     set({ clientes: f.clientes.includes(v) && f.clientes.length === 1 ? [] : [v] });
+  const alternarMesa = (v: string) =>
+    set({ mesas: f.mesas.includes(v) && f.mesas.length === 1 ? [] : [v] });
+  const alternarProceso = (v: string) =>
+    set({ procesos: f.procesos.includes(v) && f.procesos.length === 1 ? [] : [v] });
   const alternarRango = (key: RangoKey) => set({ rango: f.rango === key ? null : key });
 
   return (
@@ -120,10 +126,12 @@ export default function ReporteClonacion({ rows }: { rows: ClonacionRow[] }) {
         <DistribucionRangos filas={distribucion} seleccion={f.rango} onSeleccionar={alternarRango} />
       </div>
 
-      {/* ── C5 Rankings ── */}
+      {/* ── C5 Rankings — misma medida y mismo recorte filtrado en las 4 dimensiones ── */}
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <RankingPersonas titulo="Por usuario" filas={rankingUsuarios} metrica={f.metrica} seleccion={f.usuarios} onSeleccionar={alternarUsuario} />
         <RankingPersonas titulo="Por cliente" filas={rankingClientes} metrica={f.metrica} seleccion={f.clientes} onSeleccionar={alternarCliente} />
+        <RankingPersonas titulo="Por mesa" filas={rankingMesas} metrica={f.metrica} seleccion={f.mesas} onSeleccionar={alternarMesa} />
+        <RankingPersonas titulo="Por proceso" filas={rankingProcesos} metrica={f.metrica} seleccion={f.procesos} onSeleccionar={alternarProceso} />
       </div>
 
       {/* ── C6 Costo del tiempo ── */}

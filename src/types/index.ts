@@ -100,10 +100,14 @@ export interface RoiPayload {
  *  file) — no se deduplica. */
 export interface ClonacionRow {
   c807_file: string;
+  /** Fecha suelta del origen — se codifica igual, pero la app no la usa. */
+  Fecha: string;
   Solicitud_fecha: string;
-  Creacion_Fecha: string;
+  Creacion_fecha: string;
   Usuario: string;
   Cliente: string;
+  Mesa: string;
+  Proceso: string;
 }
 
 /** Hoja "Clonación" tal como la manda el Apps Script: codificada, mismo
