@@ -68,5 +68,22 @@ export const BAND_COLOR: Record<"V" | "A" | "L" | "O" | "R", string> = {
  *  siempre gris (se resuelve en el consumidor); el resto cicla estos tonos. */
 export const ROLE_PALETTE = [VIOLET, BLUE, "#8b5cf6", "#0ea5e9", "#ec4899", "#14b8a6"];
 
+/** Slot de color (`violet`/`blue`/`neutral` o hex de ROLE_PALETTE) FIJO por rol
+ *  del "Responsable atraso". Fijo = un rol tiene el mismo color en toda la tabla
+ *  de causas de atraso y en la tarjeta de distribución, en cualquier reporte.
+ *  Resuelve a hex con `respToneColor()` de components/StatusReport. */
+export const ATRASO_RESP_SLOT: Record<string, string> = {
+  VPA: "violet",
+  CKU: "blue",
+  PM: "#8b5cf6",
+  Sponsor: "#0ea5e9",
+  Desarrollador: "#ec4899",
+  BRM: "#14b8a6",
+  "Sin asignar": "neutral",
+};
+export function atrasoRespSlot(resp: string): string {
+  return ATRASO_RESP_SLOT[resp] ?? (/sin asignar/i.test(resp) ? "neutral" : "violet");
+}
+
 /** Rayo del encabezado (mismo path que la skill), relleno ámbar. */
 export const BOLT_PATH = "M13 2 4 14h6l-1 8 9-12h-6l1-8z";

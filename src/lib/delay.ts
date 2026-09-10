@@ -4,7 +4,7 @@
 // muestra, pero solo penaliza su métrica (% de Entregas / % de Reproceso) cuando
 // el responsable asignado es "PM". Cualquier otro (o sin asignar) se excluye.
 
-import type { DelayResponsible, DelayAttribution } from "@/types";
+import type { AtrasoReparto, DelayResponsible, DelayAttribution } from "@/types";
 
 export type { DelayResponsible, DelayAttribution };
 
@@ -15,6 +15,27 @@ export type DelayMap = Record<string, DelayAttribution>;
 export const DELAY_RESPONSIBLES: readonly DelayResponsible[] = [
   "VPA", "CKU", "PM", "Sponsor", "Desarrollador", "BRM",
 ];
+
+/** Catálogo de roles del "Responsable atraso" en la tabla Atrasos del Resumen
+ *  Ejecutivo: DELAY_RESPONSIBLES + "Sin asignar" (tramo de días sin atribuir). */
+export const ATRASO_RESPONSABLES: readonly string[] = [...DELAY_RESPONSIBLES, "Sin asignar"];
+const ATRASO_RESP_SET = new Set<string>(ATRASO_RESPONSABLES);
+export const isAtrasoResp = (v: unknown): v is string =>
+  typeof v === "string" && ATRASO_RESP_SET.has(v);
+
+/** Reparto efectivo de los días de un atraso. Prioridad:
+ *  1) `det.reparto` si tiene tramos;
+ *  2) `det.responsable` legacy → un único tramo con TODOS los días;
+ *  3) sin detalle → un tramo "Sin asignar".
+ *  `totalDias` = días de atraso del step (0 si el step solo está "Stuck"). */
+export function atrasoReparto(
+  det: { reparto?: AtrasoReparto[]; responsable?: string } | undefined,
+  totalDias: number,
+): AtrasoReparto[] {
+  if (det?.reparto && det.reparto.length > 0) return det.reparto;
+  if (det?.responsable) return [{ dias: totalDias, resp: det.responsable }];
+  return [{ dias: totalDias, resp: "Sin asignar" }];
+}
 
 /** Opciones del dropdown de Reproceso: incluye "Sin reproceso" (no penaliza). */
 export const REPROCESO_RESPONSIBLES: readonly DelayResponsible[] = [

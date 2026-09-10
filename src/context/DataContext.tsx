@@ -15,7 +15,7 @@ import { buildCalMap, buildReminderMap, iniProcess } from "@/lib/ini";
 import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
 import { reqProcess } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
-import type { AttributionKind, DashboardData, DashboardRaw, DelayResponsible, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
+import type { AtrasoReparto, AttributionKind, DashboardData, DashboardRaw, DelayResponsible, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
 const RH_EMAIL_COL = "email_mkz5qg4v";
@@ -28,9 +28,10 @@ interface DataContextValue {
   /** Actualiza localmente (optimista) el responsable de una atribución (atraso o
    *  reproceso). responsible null → quita la asignación. La persistencia la hace el caller. */
   setAttribution: (kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => void;
-  /** Actualiza localmente (optimista) el Responsable/Motivo de un atraso (tabla
-   *  Atrasos). Ambos vacíos → quita el detalle. La persistencia la hace el caller. */
-  setAtrasoDetalle: (itemId: string, responsable: string, motivo: string) => void;
+  /** Actualiza localmente (optimista) el reparto de días / motivo de un atraso
+   *  (tabla Atrasos). reparto vacío + motivo vacío → quita el detalle. La
+   *  persistencia la hace el caller. */
+  setAtrasoDetalle: (itemId: string, patch: { reparto?: AtrasoReparto[]; motivo?: string }) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -106,12 +107,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Actualización optimista del detalle de un atraso (tabla Atrasos); evita un refetch completo.
-  const setAtrasoDetalle = useCallback((itemId: string, responsable: string, motivo: string) => {
+  const setAtrasoDetalle = useCallback((itemId: string, patch: { reparto?: AtrasoReparto[]; motivo?: string }) => {
     setData((prev) => {
       if (!prev) return prev;
       const map = { ...prev.atrasoDetalles };
-      if (responsable || motivo) map[itemId] = { responsable, motivo, at: new Date().toISOString() };
-      else delete map[itemId];
+      const cur = map[itemId] ?? {};
+      const reparto = patch.reparto ?? cur.reparto ?? [];
+      const motivo = patch.motivo ?? cur.motivo ?? "";
+      if (reparto.length === 0 && !motivo) delete map[itemId];
+      else map[itemId] = { reparto, motivo, at: new Date().toISOString() }; // suelta `responsable` legacy
       return { ...prev, atrasoDetalles: map };
     });
   }, []);

@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AttributionKind, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -101,10 +101,11 @@ export async function deleteAttribution(kind: AttributionKind, itemId: string): 
 }
 
 // ── Detalle de atraso (tabla "Atrasos" del Resumen Ejecutivo) ────────────
-// Distinto de ATTRIBUTION_COLL: aquí el "responsable" es una PERSONA del
-// Directorio RH (texto libre elegido de un dropdown), no un rol fijo, y se
-// acompaña de un motivo. Editable por cualquiera con acceso a la página
-// (el POST /api/atraso-detalle lo gatea con requirePage, no requireAction).
+// Colección `atraso_detalles`: por itemId, el reparto de los días de atraso
+// entre roles (ATRASO_RESPONSABLES) + un motivo. Editable por cualquiera con
+// acceso a la página (el POST /api/atraso-detalle lo gatea con requirePage, no
+// requireAction). Documentos legacy pueden traer `responsable` (rol único) en
+// vez de `reparto` — los consumidores lo migran con `atrasoReparto()`.
 export async function getAtrasoDetalles(): Promise<Record<string, AtrasoDetalle>> {
   const db = getAdminDb();
   const snap = await db.collection("atraso_detalles").get();
@@ -113,9 +114,10 @@ export async function getAtrasoDetalles(): Promise<Record<string, AtrasoDetalle>
   return result;
 }
 
-export async function saveAtrasoDetalle(itemId: string, responsable: string, motivo: string, by: string): Promise<void> {
+export async function saveAtrasoDetalle(itemId: string, reparto: AtrasoReparto[], motivo: string, by: string): Promise<void> {
   const db = getAdminDb();
-  await db.collection("atraso_detalles").doc(itemId).set({ responsable, motivo, by, at: new Date().toISOString() });
+  // `.set()` reemplaza el doc completo → un `responsable` legacy desaparece al editar.
+  await db.collection("atraso_detalles").doc(itemId).set({ reparto, motivo, by, at: new Date().toISOString() });
 }
 
 export async function deleteAtrasoDetalle(itemId: string): Promise<void> {

@@ -94,8 +94,15 @@ describe("buildStatusReportData", () => {
     expect(mesa2.actividades).toContain("Stuck");
   });
 
-  it("resp_dist refleja responsabilidadAtraso", () => {
-    expect(data.resp_dist).toEqual([{ label: "CKU", value: 100, color: "violet" }]);
+  it("Causas de atraso: migra el `responsable` legacy a un tramo del reparto", () => {
+    const mesa2 = data.atrasos.find((a) => a.hito === "MESA 2 · GT")!;
+    expect(mesa2.reparto.map((r) => r.resp)).toEqual(["CKU"]);
+    expect(mesa2.reparto[0].dias).toBe(mesa2.diasNum);
+    expect(mesa2.reparto[0].tone).toBe("blue"); // CKU → slot fijo "blue"
+  });
+
+  it("resp_dist refleja responsabilidadAtraso con color fijo por rol", () => {
+    expect(data.resp_dist).toEqual([{ label: "CKU", value: 100, color: "blue" }]);
   });
 
   it("fechas del timeline en YYYY-MM-DD", () => {

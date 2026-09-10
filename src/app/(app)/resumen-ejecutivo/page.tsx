@@ -19,7 +19,7 @@ import {
   buildProjectSummary, calcPlannedProgress, evaluarStepAtraso, flattenBoardUnits,
   type StepAtraso,
 } from "@/lib/projSummary";
-import { countByResponsible } from "@/lib/delay";
+import { atrasoReparto, countByResponsible } from "@/lib/delay";
 import {
   buildPortfolioRows, calcPortfolioTotals, topCriticalProjects, buildCrossRisks,
   type PortfolioProjectRow, type CrossRisk,
@@ -29,7 +29,7 @@ import { GRID } from "@/lib/reportTheme";
 import { buildStatusReportData } from "@/lib/statusReportData";
 import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
-import { AtrasoMotivoInput, AtrasoRespSelect } from "@/components/AtrasoInlineEdit";
+import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
 import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 const SEVERITY_CFG: Record<"high" | "medium" | "low", { color: string; bg: string; label: string }> = {
@@ -415,16 +415,26 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
 
   const { data } = useData();
   const atrasoDetalles = data?.atrasoDetalles;
-  // % de responsabilidad del atraso (rol de "Responsable atraso") sobre el TOTAL.
+  // Distribución de responsabilidad del atraso, PONDERADA POR DÍAS: suma de días
+  // atribuidos a cada rol ÷ total de días repartidos. Si nadie tiene días
+  // (todos "Stuck" sin días de atraso) cae a un conteo por # de tramos.
   const responsabilidadAtraso = useMemo(() => {
     if (atrasos.length === 0) return [];
-    const counts: Record<string, number> = {};
+    const dias: Record<string, number> = {};
+    const cnt: Record<string, number> = {};
+    let totalDias = 0;
     for (const a of atrasos) {
-      const resp = atrasoDetalles?.[a.id]?.responsable || "Sin asignar";
-      counts[resp] = (counts[resp] ?? 0) + 1;
+      const td = a.daysLate != null && a.daysLate > 0 ? a.daysLate : 0;
+      for (const r of atrasoReparto(atrasoDetalles?.[a.id], td)) {
+        dias[r.resp] = (dias[r.resp] ?? 0) + r.dias;
+        cnt[r.resp] = (cnt[r.resp] ?? 0) + 1;
+        totalDias += r.dias;
+      }
     }
-    return Object.entries(counts)
-      .map(([label, n]) => ({ label, pct: Math.round((n / atrasos.length) * 100) }))
+    const base = totalDias > 0 ? dias : cnt;
+    const denom = totalDias > 0 ? totalDias : Object.values(cnt).reduce((s, n) => s + n, 0);
+    return Object.entries(base)
+      .map(([label, v]) => ({ label, pct: denom > 0 ? Math.round((v / denom) * 100) : 0 }))
       .sort((a, b) => b.pct - a.pct || a.label.localeCompare(b.label));
   }, [atrasos, atrasoDetalles]);
 
@@ -490,8 +500,8 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             <div style={{ width: SHEET_W, height: SHEET_H, transformOrigin: "top left", transform: `scale(${scale})` }}>
               <StatusReport
                 data={reportData}
-                renderResp={(a) => <AtrasoRespSelect itemId={a.id} tone={a.resp_tone} />}
-                renderMotivo={(a) => <AtrasoMotivoInput itemId={a.id} />}
+                renderResp={(a) => <AtrasoRespReparto itemId={a.id} totalDias={a.diasNum} />}
+                renderMotivo={(a) => <AtrasoMotivoInput itemId={a.id} totalDias={a.diasNum} />}
               />
             </div>
           </div>

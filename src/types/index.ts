@@ -187,16 +187,25 @@ export interface DelayAttribution {
 export type AttributionKind = "delay" | "reproceso";
 
 // ── Detalle de un atraso (tabla "Atrasos" del Resumen Ejecutivo) ───────────
-// Documentación libre de un step atrasado/stuck (tabla Atrasos): un ROL
-// (mismo catálogo DELAY_RESPONSIBLES que usa ResponsibleSelect para
-// Entrega/atraso y Reproceso — VPA/CKU/PM/Sponsor/Desarrollador/BRM) y un
-// texto explicando el motivo. Editable por cualquier usuario con acceso a la
-// página Resumen Ejecutivo (no requiere ser Admin).
+/** Un tramo del reparto de los días de un atraso: cuántos días hábiles del
+ *  atraso se atribuyen a un rol. La suma de `dias` de todos los tramos debe
+ *  ser ≤ los días de atraso del step. */
+export interface AtrasoReparto {
+  dias: number; // días hábiles atribuidos a este rol (entero ≥ 0)
+  resp: string; // rol — ver DELAY_RESPONSIBLES en lib/delay.ts, o "Sin asignar"
+}
+
+// Documentación libre de un step atrasado/stuck (tabla Atrasos): el reparto de
+// los días de atraso entre roles (mismo catálogo DELAY_RESPONSIBLES que usa
+// ResponsibleSelect para Entrega/atraso — VPA/CKU/PM/Sponsor/Desarrollador/BRM,
+// más "Sin asignar") y un texto explicando el motivo. Editable por cualquier
+// usuario con acceso a la página Resumen Ejecutivo (no requiere ser Admin).
 export interface AtrasoDetalle {
-  responsable?: string; // rol — ver DELAY_RESPONSIBLES en lib/delay.ts
-  motivo?: string;      // texto libre
-  by?: string;          // correo de quien lo guardó
-  at?: string;           // ISO timestamp
+  reparto?: AtrasoReparto[]; // reparto de los días de atraso por rol
+  responsable?: string;      // LEGACY (rol único, antes del reparto) — solo se lee si no hay `reparto`
+  motivo?: string;           // texto libre
+  by?: string;               // correo de quien lo guardó
+  at?: string;               // ISO timestamp
 }
 
 /** Payload completo que devuelve `GET /api/dashboard`. */

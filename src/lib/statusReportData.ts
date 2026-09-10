@@ -14,7 +14,8 @@ import {
   type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { valorLateStages, valorProgress, valorStageOf } from "@/lib/valorStepper";
-import type { Tone } from "@/lib/reportTheme";
+import { atrasoReparto } from "@/lib/delay";
+import { atrasoRespSlot, type Tone } from "@/lib/reportTheme";
 import type { BoardHealthData } from "@/lib/proj";
 import type { AtrasoDetalle, ProjBoard } from "@/types";
 
@@ -34,14 +35,22 @@ export interface StatusPhase {
   milestone?: string;            // YYYY-MM-DD (rombo, en vez de start/due)
 }
 
+export interface StatusRepartoTramo {
+  dias: number;                  // días hábiles atribuidos a `resp`
+  resp: string;                  // rol o "Sin asignar"
+  tone: string;                  // "violet" | "blue" | "neutral" | hex
+}
+
 export interface StatusAtraso {
-  id: string;                    // itemId de Monday (para editar Responsable/Motivo en pantalla)
+  id: string;                    // itemId de Monday (para editar reparto/Motivo en pantalla)
   hito: string;
   fecha: string;
   acargo: string;
-  dias: string;
-  resp: string;
-  resp_tone: string;             // "violet" | "blue" | "neutral" | hex
+  dias: string;                  // etiqueta ("11 d" | "Stuck" | "—")
+  diasNum: number;               // días de atraso como número (0 si solo "Stuck") — tope del reparto
+  reparto: StatusRepartoTramo[]; // reparto de los días de atraso por rol
+  resp: string;                  // rol dominante (más días) — para vistas de valor único
+  resp_tone: string;             // "violet" | "blue" | "neutral" | hex del rol dominante
   motivo: string;
   actividades: string;
 }
@@ -94,14 +103,6 @@ const bandOf = (grupo: string): StatusBand | undefined => {
 export function shortPhaseName(grupo: string): string {
   const i = grupo.indexOf(" | ");
   return (i >= 0 ? grupo.slice(i + 3) : grupo).trim() || grupo.trim();
-}
-
-/** Slot de color para un rol de responsabilidad — "Sin asignar" siempre
- *  neutral; el resto: violeta, azul, y luego hex de la paleta categórica. */
-const RESP_SLOTS = ["violet", "blue", "#8b5cf6", "#0ea5e9", "#ec4899", "#14b8a6"];
-function roleColorSlot(label: string, idx: number): string {
-  if (/sin asignar/i.test(label)) return "neutral";
-  return RESP_SLOTS[idx % RESP_SLOTS.length];
 }
 
 const HEALTH_LABEL: Record<string, string> = { "on-track": "On Track", "in-risk": "At Risk", "off-track": "Off Track" };
@@ -238,30 +239,31 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
   const slipVsPlan = plannedFinish && estimatedFinish && estimatedFinish > plannedFinish
     ? businessDays(plannedFinish, estimatedFinish) : scheduleSlipDays;
 
-  // ── colores de rol (compartidos entre atrasos y resp_dist) ──
-  const roleIdx = new Map<string, number>();
-  responsabilidadAtraso.forEach((r) => { if (!/sin asignar/i.test(r.label) && !roleIdx.has(r.label)) roleIdx.set(r.label, roleIdx.size); });
-  const slotFor = (label: string) => roleColorSlot(label, roleIdx.get(label) ?? roleIdx.size);
-
   const statusAtrasos: StatusAtraso[] = atrasos.map((a) => {
     const det = atrasoDetalles?.[a.id];
-    const resp = det?.responsable || "Sin asignar";
     const n = a.nHitos || 1;
+    const diasNum = a.daysLate != null && a.daysLate > 0 ? a.daysLate : 0;
+    const reparto: StatusRepartoTramo[] = atrasoReparto(det, diasNum).map((r) => ({
+      dias: r.dias, resp: r.resp, tone: atrasoRespSlot(r.resp),
+    }));
+    const dom = reparto.reduce((best, r) => (r.dias > best.dias ? r : best), reparto[0]);
     return {
       id: a.id,
       hito: a.name,
       fecha: fmtDate(a.deadline),
       acargo: a.responsible || "—",
       dias: a.daysLate != null && a.daysLate > 0 ? `${a.daysLate} d` : a.stuck ? "Stuck" : "—",
-      resp,
-      resp_tone: slotFor(resp),
+      diasNum,
+      reparto,
+      resp: dom?.resp ?? "Sin asignar",
+      resp_tone: dom ? dom.tone : "neutral",
       motivo: det?.motivo || "—",
       actividades: `${n} actividad${n === 1 ? "" : "es"}${a.stuck ? " · Stuck" : ""}`,
     };
   });
 
   const respDist: StatusRespDist[] = responsabilidadAtraso.map((r) => ({
-    label: r.label, value: r.pct, color: slotFor(r.label),
+    label: r.label, value: r.pct, color: atrasoRespSlot(r.label),
   }));
 
   return {

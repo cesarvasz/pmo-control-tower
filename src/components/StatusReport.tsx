@@ -166,7 +166,7 @@ const CSS = `
 .pmo-report .legend-diamond{ width:8px; height:8px; background:#fff; border:1.8px solid var(--neutral-line);
   transform:rotate(45deg); border-radius:1px; }
 
-.pmo-report .bottom-grid{ display:grid; grid-template-columns:2.6fr 0.85fr; gap:16px; align-items:start; }
+.pmo-report .bottom-grid{ display:grid; grid-template-columns:2.6fr 0.6fr; gap:16px; align-items:start; }
 .pmo-report table.atrasos{ width:100%; border-collapse:collapse; }
 .pmo-report table.atrasos thead th{ text-align:left; font-size:6.9pt; text-transform:uppercase;
   letter-spacing:.4px; color:var(--ink-muted); font-weight:700; padding:0 8px 6px 8px;
@@ -181,6 +181,21 @@ const CSS = `
 .pmo-report table.atrasos .c-dias{ white-space:nowrap; }
 .pmo-report .pill-resp{ font-size:7.4pt; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; display:inline-block; }
 .pmo-report select.pill-resp{ cursor:pointer; -webkit-appearance:none; appearance:none; }
+.pmo-report .resp-stack{ display:flex; flex-direction:column; gap:2px; align-items:flex-start; }
+.pmo-report .reparto-edit{ display:flex; flex-direction:column; gap:2px; align-items:flex-start; }
+.pmo-report .reparto-line{ display:flex; align-items:center; gap:3px; flex-wrap:nowrap; white-space:nowrap; }
+.pmo-report .reparto-dias{ font:inherit; font-size:7.2pt; font-weight:700; padding:1px 3px 1px 5px;
+  border:1px solid var(--neutral-line); border-radius:6px; background:#fff; color:var(--ink);
+  cursor:pointer; -webkit-appearance:none; appearance:none; }
+.pmo-report .reparto-x{ font-size:6.6pt; color:var(--ink-muted); }
+.pmo-report .reparto-rm{ border:0; background:none; color:var(--ink-muted); font-size:9pt;
+  line-height:1; padding:0 2px; cursor:pointer; }
+.pmo-report .reparto-rm:hover{ color:var(--critical); }
+.pmo-report .reparto-pending-role{ color:var(--ink-muted); font-weight:500;
+  background:#fff; border:1px dashed var(--neutral-line); }
+.pmo-report .reparto-foot{ font-size:6.4pt; font-weight:700; margin-top:1px; }
+.pmo-report .reparto-foot.ok{ color:var(--good); }
+.pmo-report .reparto-foot.rem{ color:var(--critical); }
 .pmo-report .c-motivo{ color:var(--ink-sec); line-height:1.35; white-space:pre-wrap; word-break:break-word; }
 .pmo-report .c-motivo-input{ display:block; width:100%; color:var(--ink-sec); line-height:1.35; font-size:7.6pt;
   background:none; border:0; outline:0; resize:none; font-family:inherit;
@@ -314,6 +329,26 @@ function GanttRow({ r, pct, today }: { r: StatusPhase; pct: (t: number) => numbe
   );
 }
 
+/** Celda "Responsable" estática (PDF / impresión): una pill por tramo del
+ *  reparto, `N d · Rol`, apiladas. Sin tramos → "Sin asignar" en gris. */
+function RepartoPills({ reparto }: { reparto: StatusAtraso["reparto"] }) {
+  if (reparto.length === 0) {
+    return <span className="pill-resp" style={{ background: `${NEUTRAL}15`, color: NEUTRAL, border: `1px solid ${NEUTRAL}55` }}>Sin asignar</span>;
+  }
+  return (
+    <div className="resp-stack">
+      {reparto.map((r, i) => {
+        const c = RESP_TONE_COLOR[r.tone] ?? r.tone;
+        return (
+          <span key={i} className="pill-resp" style={{ background: `${c}15`, color: c, border: `1px solid ${c}55` }}>
+            {r.dias > 0 ? `${r.dias} d · ${r.resp}` : r.resp}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function AtrasoRows({ data, renderResp, renderMotivo }: {
   data: StatusReportData;
   renderResp?: (a: StatusAtraso, i: number) => ReactNode;
@@ -324,25 +359,18 @@ function AtrasoRows({ data, renderResp, renderMotivo }: {
   }
   return (
     <>
-      {data.atrasos.map((a, i) => {
-        const tone = RESP_TONE_COLOR[a.resp_tone] ?? a.resp_tone;
-        return (
-          <tr key={a.id}>
-            <td>
-              <div className="hito-name">{a.hito}</div>
-              <div className="hito-meta">{a.actividades} · comprometido {a.fecha}</div>
-            </td>
-            <td className="c-acargo">{a.acargo}</td>
-            <td className="c-dias"><span className="pill-dias">{a.dias}</span></td>
-            <td>
-              {renderResp
-                ? renderResp(a, i)
-                : <span className="pill-resp" style={{ background: `${tone}15`, color: tone, border: `1px solid ${tone}55` }}>{a.resp}</span>}
-            </td>
-            <td className="c-motivo">{renderMotivo ? renderMotivo(a, i) : a.motivo}</td>
-          </tr>
-        );
-      })}
+      {data.atrasos.map((a, i) => (
+        <tr key={a.id}>
+          <td>
+            <div className="hito-name">{a.hito}</div>
+            <div className="hito-meta">{a.actividades} · comprometido {a.fecha}</div>
+          </td>
+          <td className="c-acargo">{a.acargo}</td>
+          <td className="c-dias"><span className="pill-dias">{a.dias}</span></td>
+          <td>{renderResp ? renderResp(a, i) : <RepartoPills reparto={a.reparto} />}</td>
+          <td className="c-motivo">{renderMotivo ? renderMotivo(a, i) : a.motivo}</td>
+        </tr>
+      ))}
     </>
   );
 }
@@ -457,10 +485,10 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
           <table className="atrasos">
             <thead>
               <tr>
-                <th style={{ width: "25%" }}>Entregable</th>
-                <th style={{ width: "14%" }}>A cargo</th>
-                <th style={{ width: "10%" }}>Atraso</th>
-                <th style={{ width: "14%" }}>Responsable</th>
+                <th style={{ width: "21%" }}>Entregable</th>
+                <th style={{ width: "12%" }}>A cargo</th>
+                <th style={{ width: "9%" }}>Atraso</th>
+                <th style={{ width: "23%" }}>Responsable</th>
                 <th>Motivo</th>
               </tr>
             </thead>

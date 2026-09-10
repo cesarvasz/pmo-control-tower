@@ -36,8 +36,9 @@ export interface StepAtraso {
   nHitos: number;
 }
 
-/** % de los atrasos actuales atribuibles a un rol ("Responsable atraso", ver
- *  AtrasoDetalleEditor) — reutilizado por la tabla en pantalla y por el PDF. */
+/** % de los días de atraso actuales atribuibles a un rol ("Responsable atraso",
+ *  ver components/AtrasoInlineEdit) — alimenta la tarjeta "Distribución de
+ *  responsabilidad" del reporte (tabla en pantalla y PDF). */
 export interface Responsabilidad { label: string; pct: number }
 export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
   if (it.subitems.length > 0) {
