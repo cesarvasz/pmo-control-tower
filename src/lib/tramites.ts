@@ -70,6 +70,17 @@ export function esAutomatizado(
 export const SIN_MESA = "(sin mesa)";
 export const SIN_DATO = "(sin dato)";
 
+// ── Impexp ───────────────────────────────────────────────────────────────
+// La hoja 003 guarda la columna Impexp como código: 2 = Exportación,
+// 3 = Importación. Se traduce al construir el expediente para que el filtro,
+// las opciones y el CSV muestren la etiqueta y no el número.
+export const IMPEXP_LABEL: Record<string, string> = { "2": "Exportación", "3": "Importación" };
+
+export const etiquetaImpexp = (v: unknown): string => {
+  const s = String(v ?? "").trim();
+  return IMPEXP_LABEL[s] ?? s;
+};
+
 /** Orden natural: "Mesa 10" después de "Mesa 9". Sin mesa va al final. */
 export function ordenarMesas(mesas: string[]): string[] {
   return [...mesas].sort((a, b) => {
@@ -196,7 +207,7 @@ export function construirExpedientes(rows: RoiRow[]): Expediente[] {
       add(usuarios, r.Usuario); add(analistas, r.Analista);
       add(embarques, r.Embarque); add(documentos, r.Documento);
       add(mesas, r.Mesa, SIN_MESA);
-      add(impexp, r.Impexp);
+      add(impexp, etiquetaImpexp(r.Impexp));
 
       const dc = norm(r.Docalpha);
       if (dc.includes("ducafast") && !dc.startsWith("no ")) ducafast = true;
@@ -1202,7 +1213,7 @@ export function costoPorPersona(
 // número de expedientes que una persona lleva a la vez, y con él el costo se
 // acerca a horas de trabajo reales.
 
-export const TARIFA_HORA_DEFECTO = 8; // USD
+export const TARIFA_HORA_DEFECTO = 6; // USD
 
 // ── Licencias de digitalización ──────────────────────────────────────────
 // Costo que NO sale del reloj: viene ya calculado en la hoja, por expediente.
