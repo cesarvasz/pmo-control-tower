@@ -31,7 +31,7 @@ import {
 } from "@/lib/tramites";
 import type { RoiRow } from "@/types";
 
-type DimFiltro = "meses" | "usuarios" | "analistas" | "clientes" | "mesas" | "procesos" | "documentos" | "embarques";
+type DimFiltro = "meses" | "usuarios" | "analistas" | "clientes" | "mesas" | "procesos" | "documentos" | "embarques" | "impexp";
 
 function Bloque({ titulo, badge, children, nota }: {
   titulo: string; badge?: string; children: React.ReactNode; nota?: string;
@@ -184,6 +184,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
         <div className="flex flex-wrap items-end gap-3">
           {msSelect("documentos", "Documento", opciones.documentos)}
           {msSelect("embarques", "Embarque", opciones.embarques)}
+          {msSelect("impexp", "Impexp", opciones.impexp)}
 
           <div className="flex flex-col gap-1.5">
             <label className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Ducafast</label>

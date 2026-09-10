@@ -310,8 +310,8 @@ describe("métricas", () => {
 
 describe("filtrarExpedientes", () => {
   const exps = construirExpedientes([
-    fila({ c807_file: "F1", Creado: "2026-01-05T08:00:00", Mesa: "Mesa 1", Usuario: "ANA", Analista: "BETO", Cliente: "C1", Proceso: "Aduana", Docalpha: "Ducafast" }),
-    fila({ c807_file: "F2", Creado: "2026-02-05T08:00:00", Mesa: "Mesa 2", Usuario: "CARLA", Analista: "DIEGO", Cliente: "C2", Proceso: "Importación", Docalpha: "No Ducafast" }),
+    fila({ c807_file: "F1", Creado: "2026-01-05T08:00:00", Mesa: "Mesa 1", Usuario: "ANA", Analista: "BETO", Cliente: "C1", Proceso: "Aduana", Docalpha: "Ducafast", Impexp: "Importación" }),
+    fila({ c807_file: "F2", Creado: "2026-02-05T08:00:00", Mesa: "Mesa 2", Usuario: "CARLA", Analista: "DIEGO", Cliente: "C2", Proceso: "Importación", Docalpha: "No Ducafast", Impexp: "Exportación" }),
   ]);
   const f = (o: Partial<Filtros>): Filtros => ({ ...FILTROS_VACIOS, ...o });
 
@@ -325,6 +325,7 @@ describe("filtrarExpedientes", () => {
     expect(filtrarExpedientes(exps, f({ clientes: ["C1"] })).map((e) => e.file)).toEqual(["F1"]);
     expect(filtrarExpedientes(exps, f({ procesos: ["Importación"] })).map((e) => e.file)).toEqual(["F2"]);
     expect(filtrarExpedientes(exps, f({ ducafast: "si" })).map((e) => e.file)).toEqual(["F1"]);
+    expect(filtrarExpedientes(exps, f({ impexp: ["Exportación"] })).map((e) => e.file)).toEqual(["F2"]);
   });
 
   it("Usuario y Analista son dimensiones independientes", () => {

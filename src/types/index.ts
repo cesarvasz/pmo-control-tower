@@ -56,6 +56,8 @@ export interface RoiRow {
   Documento: string;
   Mesa: string;
   Docalpha: string;
+  /** Importación / Exportación — columna nueva de la hoja 003, usada como filtro. */
+  Impexp: string;
   // Hitos (fechas). Vacío = el expediente no alcanzó ese hito.
   Creado: string;
   DPR: string;

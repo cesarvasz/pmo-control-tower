@@ -294,7 +294,7 @@ function medirDoGet() {
 }
 
 /** Columnas cuyo valor se repite mucho → van por diccionario. */
-var COLS_TEXTO = ["Proceso", "Cliente", "Usuario", "Analista", "Embarque", "Documento", "Mesa", "Docalpha"];
+var COLS_TEXTO = ["Proceso", "Cliente", "Usuario", "Analista", "Embarque", "Documento", "Mesa", "Docalpha", "Impexp"];
 /** Columnas de fecha → van como segundos desde EPOCA. */
 var COLS_FECHA = ["Creado", "DPR", "Clasificacion_exacta", "Creacion_Pre_DUCA", "Revision_Analista", "Solicitar_firma_def"];
 

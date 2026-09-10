@@ -123,6 +123,8 @@ export interface Expediente {
   embarques: string[];
   documentos: string[];
   mesas: string[];
+  /** Importación / Exportación (columna Impexp de la hoja). Multivaluada como el resto. */
+  impexp: string[];
   ducafast: boolean;
   hitos: Partial<Record<HitoKey, Date>>;
   /**
@@ -176,7 +178,7 @@ export function construirExpedientes(rows: RoiRow[]): Expediente[] {
     const procesos = new Set<string>(), clientes = new Set<string>();
     const usuarios = new Set<string>(), analistas = new Set<string>();
     const embarques = new Set<string>(), documentos = new Set<string>();
-    const mesas = new Set<string>();
+    const mesas = new Set<string>(), impexp = new Set<string>();
     const hitos: Partial<Record<HitoKey, Date>> = {};
     let ducafast = false;
     let docs = 0, paginas = 0, licencias = 0, costoLicencias = 0;
@@ -194,6 +196,7 @@ export function construirExpedientes(rows: RoiRow[]): Expediente[] {
       add(usuarios, r.Usuario); add(analistas, r.Analista);
       add(embarques, r.Embarque); add(documentos, r.Documento);
       add(mesas, r.Mesa, SIN_MESA);
+      add(impexp, r.Impexp);
 
       const dc = norm(r.Docalpha);
       if (dc.includes("ducafast") && !dc.startsWith("no ")) ducafast = true;
@@ -224,6 +227,7 @@ export function construirExpedientes(rows: RoiRow[]): Expediente[] {
       embarques: [...embarques].sort(),
       documentos: [...documentos].sort(),
       mesas: ordenarMesas([...mesas]),
+      impexp: [...impexp].sort(),
       ducafast,
       hitos,
       docs, paginas, licencias, costoLicencias,
@@ -619,6 +623,7 @@ export interface Filtros {
   procesos: string[];
   documentos: string[];
   embarques: string[];
+  impexp: string[];
   ducafast: "todos" | "si" | "no";
   metrica: Metrica;
   /** Tramo contiguo T_i→T_j que se quiere ver — filtro global de "Tiempo".
@@ -629,15 +634,15 @@ export interface Filtros {
 
 export const FILTROS_VACIOS: Filtros = {
   meses: [], usuarios: [], analistas: [], clientes: [], mesas: [],
-  procesos: [], documentos: [], embarques: [], ducafast: "todos", metrica: "mediana",
+  procesos: [], documentos: [], embarques: [], impexp: [], ducafast: "todos", metrica: "mediana",
   etapaDesde: "t1", etapaHasta: "t5",
 };
 
 export const hayFiltros = (f: Filtros): boolean =>
   f.meses.length > 0 || f.usuarios.length > 0 || f.analistas.length > 0 ||
   f.clientes.length > 0 || f.mesas.length > 0 || f.procesos.length > 0 ||
-  f.documentos.length > 0 || f.embarques.length > 0 || f.ducafast !== "todos" ||
-  f.etapaDesde !== "t1" || f.etapaHasta !== "t5";
+  f.documentos.length > 0 || f.embarques.length > 0 || f.impexp.length > 0 ||
+  f.ducafast !== "todos" || f.etapaDesde !== "t1" || f.etapaHasta !== "t5";
 
 /** Un expediente pasa si ALGUNO de sus valores coincide (dimensiones multivaluadas). */
 const coincide = (valores: string[], sel: Set<string>) => sel.size === 0 || valores.some((v) => sel.has(v));
@@ -645,7 +650,7 @@ const coincide = (valores: string[], sel: Set<string>) => sel.size === 0 || valo
 export function filtrarExpedientes(exps: Expediente[], f: Filtros): Expediente[] {
   const meses = new Set(f.meses), usuarios = new Set(f.usuarios), analistas = new Set(f.analistas);
   const clientes = new Set(f.clientes), mesas = new Set(f.mesas), procesos = new Set(f.procesos);
-  const documentos = new Set(f.documentos), embarques = new Set(f.embarques);
+  const documentos = new Set(f.documentos), embarques = new Set(f.embarques), impexp = new Set(f.impexp);
 
   return exps.filter((e) => {
     if (meses.size && !meses.has(e.mes)) return false;
@@ -654,7 +659,7 @@ export function filtrarExpedientes(exps: Expediente[], f: Filtros): Expediente[]
     return coincide(e.usuarios, usuarios) && coincide(e.analistas, analistas)
       && coincide(e.clientes, clientes) && coincide(e.mesas, mesas)
       && coincide(e.procesos, procesos) && coincide(e.documentos, documentos)
-      && coincide(e.embarques, embarques);
+      && coincide(e.embarques, embarques) && coincide(e.impexp, impexp);
   });
 }
 
@@ -1445,6 +1450,7 @@ export interface Opcion { value: string; label: string; count: number; automatiz
 export interface OpcionesFiltro {
   meses: Opcion[]; usuarios: Opcion[]; analistas: Opcion[]; clientes: Opcion[];
   mesas: Opcion[]; procesos: Opcion[]; documentos: Opcion[]; embarques: Opcion[];
+  impexp: Opcion[];
 }
 
 function contar(exps: Expediente[], get: (e: Expediente) => string[]): Map<string, number> {
@@ -1475,6 +1481,7 @@ export function opcionesDeFiltro(exps: Expediente[]): OpcionesFiltro {
     procesos: porVolumen(contar(exps, (e) => e.procesos)),
     documentos: porVolumen(contar(exps, (e) => e.documentos)),
     embarques: porVolumen(contar(exps, (e) => e.embarques)),
+    impexp: porVolumen(contar(exps, (e) => e.impexp)),
   };
 }
 
@@ -1491,7 +1498,7 @@ const iso = (d: Date | null | undefined) =>
 export function exportarCSV(exps: Expediente[]): string {
   const cab = [
     "c807_file", "Creado", "Mes", "Proceso", "Cliente", "Usuario", "Analista",
-    "Embarque", "Documento", "Mesa", "Ducafast",
+    "Embarque", "Documento", "Mesa", "Impexp", "Ducafast",
     ...HITOS.filter((h) => h.key !== "creado").map((h) => h.label),
     ...ETAPAS.flatMap((e) => [e.corto, `${e.corto}_seg`]),
     "Total", "Total_seg",
@@ -1502,7 +1509,7 @@ export function exportarCSV(exps: Expediente[]): string {
       e.file, iso(e.creado), e.mes,
       e.procesos.join(" | "), e.clientes.join(" | "), e.usuarios.join(" | "),
       e.analistas.join(" | "), e.embarques.join(" | "), e.documentos.join(" | "),
-      e.mesas.join(" | "), e.ducafast ? "Ducafast" : "No Ducafast",
+      e.mesas.join(" | "), e.impexp.join(" | "), e.ducafast ? "Ducafast" : "No Ducafast",
       ...HITOS.filter((h) => h.key !== "creado").map((h) => iso(e.hitos[h.key])),
     ];
     for (const et of ETAPAS) {
