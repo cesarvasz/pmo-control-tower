@@ -25,6 +25,11 @@ export default function NotaMetodologicaOcr() {
           completos&quot;</strong> restringe todo el tablero a los files con T1 <em>y</em> T2.
         </li>
         <li>
+          El selector <strong>Promedio / Mediana</strong> de la tarjeta de tiempo gobierna a la vez
+          esos números y las líneas de la evolución en el tiempo. P90 y máximo se muestran siempre
+          como referencia.
+        </li>
+        <li>
           <strong>Rango de fechas:</strong> filtra por <strong>Creación</strong> del file, que es
           también con lo que se agrupa la línea de tiempo.
         </li>

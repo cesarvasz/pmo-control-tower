@@ -32,6 +32,10 @@ export function percentil90(v: number[]): number | null {
   return s[Math.min(s.length - 1, Math.ceil(s.length * 0.9) - 1)];
 }
 
+/** Estadística elegida en la UI: promedio o mediana (un solo selector que
+ *  gobierna la tarjeta de tiempos y la línea de tiempo). */
+export type StatSel = "prom" | "mediana";
+
 /** Resumen estadístico de una lista de duraciones en segundos. Los `null` se
  *  ignoran (files que aún no tienen ese hito); `n` es cuántos sí contaron. */
 export interface Stat {

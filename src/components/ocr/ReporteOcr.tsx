@@ -15,10 +15,10 @@ import type { OcrRow } from "@/types";
 import {
   construirFiles, opcionesDeFiltro, rangoFechas, filtrar,
   calcularKpis, serie, porCliente, porFile,
-  FILTROS_VACIOS, type Filtros,
+  FILTROS_VACIOS, type Filtros, type StatSel,
 } from "@/lib/digitalizacion";
 import FiltrosOcr from "./FiltrosOcr";
-import KpisOcr from "./KpisOcr";
+import ResumenTiempoOcr from "./ResumenTiempoOcr";
 import GraficasOcr from "./GraficasOcr";
 import TablasOcr from "./TablasOcr";
 import NotaMetodologicaOcr from "./NotaMetodologicaOcr";
@@ -26,6 +26,7 @@ import { nEs } from "./fmt";
 
 export default function ReporteOcr({ rows }: { rows: OcrRow[] }) {
   const [f, setFiltros] = useState<Filtros>(FILTROS_VACIOS);
+  const [stat, setStat] = useState<StatSel>("prom");
 
   const todos = useMemo(() => construirFiles(rows), [rows]);
   const opciones = useMemo(() => opcionesDeFiltro(todos), [todos]);
@@ -60,9 +61,9 @@ export default function ReporteOcr({ rows }: { rows: OcrRow[] }) {
         onLimpiar={limpiar}
       />
 
-      <KpisOcr k={kpis} />
+      <ResumenTiempoOcr k={kpis} stat={stat} onStat={setStat} />
 
-      <GraficasOcr serie={puntos} />
+      <GraficasOcr serie={puntos} stat={stat} />
 
       <TablasOcr clientes={clientes} files={detalleFiles} serie={puntos} />
 

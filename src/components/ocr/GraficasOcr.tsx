@@ -1,54 +1,51 @@
 "use client";
 
-// Gráfica del reporte "Digitalización OCR": la evolución de T1 y T2 por período
-// (promedio y mediana activables) con barras de volumen al fondo. SVG a mano,
-// como el resto de la app (no hay librería de gráficas). Eje de tiempo en pasos
-// de reloj.
+// Línea de tiempo del reporte "Digitalización OCR": la evolución de T1 y T2 por
+// período. El selector Promedio / Mediana vive en la tarjeta de arriba
+// (ResumenTiempoOcr) y llega aquí como `stat`. SVG a mano, como el resto de la
+// app. Eje de tiempo en pasos de reloj (horas hábiles).
 
 import { useState } from "react";
 import { SectionHeader } from "@/components/ui";
 import { marcasDeReloj } from "@/lib/ocrHabil";
-import type { PuntoSerieOcr } from "@/lib/digitalizacion";
-import { fmtMin, nEs, etiquetaReloj } from "./fmt";
-
-const CARD = "rounded-xl border p-4";
-const CARD_STYLE = { background: "var(--bg-surface)", borderColor: "var(--border)" } as const;
+import type { PuntoSerieOcr, StatSel } from "@/lib/digitalizacion";
+import { fmtDur, nEs, etiquetaReloj } from "./fmt";
 
 function Vacio() {
   return <div className="py-8 text-center text-[0.82rem] text-[var(--text-muted)]">Sin datos para los filtros seleccionados.</div>;
 }
 
-const LINEAS = [
-  { key: "t1Prom", label: "T1 promedio", color: "var(--etapa-1)" },
-  { key: "t1Mediana", label: "T1 mediana", color: "var(--etapa-2)" },
-  { key: "t2Prom", label: "T2 promedio", color: "var(--etapa-3)" },
-  { key: "t2Mediana", label: "T2 mediana", color: "var(--etapa-4)" },
-] as const;
-
-export default function GraficasOcr({ serie }: { serie: PuntoSerieOcr[] }) {
-  const [activas, setActivas] = useState<Record<string, boolean>>({
-    t1Prom: true, t1Mediana: true, t2Prom: true, t2Mediana: true,
-  });
+export default function GraficasOcr({ serie, stat }: { serie: PuntoSerieOcr[]; stat: StatSel }) {
   const [hover, setHover] = useState<number | null>(null);
 
+  const promLabel = stat === "prom" ? "promedio" : "mediana";
+  const t1Key: keyof PuntoSerieOcr = stat === "prom" ? "t1Prom" : "t1Mediana";
+  const t2Key: keyof PuntoSerieOcr = stat === "prom" ? "t2Prom" : "t2Mediana";
+  const lineas: { key: keyof PuntoSerieOcr; label: string; color: string }[] = [
+    { key: t1Key, label: "T1", color: "var(--etapa-1)" },
+    { key: t2Key, label: "T2", color: "var(--etapa-3)" },
+  ];
+  const val = (p: PuntoSerieOcr, key: keyof PuntoSerieOcr): number | null => {
+    const v = p[key];
+    return typeof v === "number" ? v : null;
+  };
+
   return (
-    <section className={`mt-7 ${CARD}`} style={CARD_STYLE}>
+    <section className="mt-5 rounded-xl border p-4" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
       <SectionHeader
-        title="Evolución de T1 y T2"
+        title={`Evolución del tiempo · ${promLabel}`}
         badge={serie.length ? serie[0].label + (serie.length > 1 ? ` – ${serie[serie.length - 1].label}` : "") : undefined}
       />
       <p className="mb-3 text-[0.72rem] text-[var(--text-muted)]">
-        T1 = Creación → digitalización de documentos · T2 = documentos → carta de licencia.
-        Línea por período; barras de fondo = volumen de files. Eje en pasos de reloj.
+        <span style={{ color: "var(--etapa-1)" }}>T1</span> = Creación → documentos ·{" "}
+        <span style={{ color: "var(--etapa-3)" }}>T2</span> = documentos → carta de licencia.
+        Barras de fondo = volumen de files. Eje en pasos de reloj (horas hábiles).
       </p>
 
       {serie.length === 0 ? <Vacio /> : (() => {
-        // viewBox ancho (1000×ALTO) para que, estirado al ancho del panel, la
-        // escala x quede cerca de 1 y las líneas se vean nítidas sin trucos.
-        const VBW = 1000, ALTO = 160, PAD = 12;
+        const VBW = 1000, ALTO = 170, PAD = 12;
         const n = serie.length;
-        const visibles = LINEAS.filter((l) => activas[l.key]);
-        const maxSeg = Math.max(1, ...visibles.flatMap((l) => serie.map((p) => p[l.key] ?? 0)));
+        const maxSeg = Math.max(1, ...lineas.flatMap((l) => serie.map((p) => val(p, l.key) ?? 0)));
         const marcas = marcasDeReloj(maxSeg / 60);
         const maxEje = Math.max(maxSeg, (marcas[marcas.length - 1] ?? 0) * 60);
         const maxVol = Math.max(1, ...serie.map((p) => p.files));
@@ -58,18 +55,6 @@ export default function GraficasOcr({ serie }: { serie: PuntoSerieOcr[] }) {
 
         return (
           <>
-            <div className="mb-2 flex flex-wrap gap-3">
-              {LINEAS.map((l) => (
-                <label key={l.key} className="flex cursor-pointer items-center gap-1.5 text-[0.74rem] font-semibold">
-                  <input type="checkbox" checked={!!activas[l.key]}
-                    onChange={(e) => setActivas((s) => ({ ...s, [l.key]: e.target.checked }))}
-                    className="h-3.5 w-3.5 cursor-pointer" style={{ accentColor: l.color }} />
-                  <span className="h-2.5 w-2.5 rounded-sm" style={{ background: l.color }} />
-                  {l.label}
-                </label>
-              ))}
-            </div>
-
             <div className="relative pl-[52px]">
               <div className="absolute left-0 top-0 flex flex-col justify-between py-[9px] pr-2 text-right text-[0.6rem] tabular-nums text-[var(--text-muted)]"
                 style={{ width: 52, height: ALTO }}>
@@ -95,18 +80,16 @@ export default function GraficasOcr({ serie }: { serie: PuntoSerieOcr[] }) {
                   <line x1={x(hover)} x2={x(hover)} y1={0} y2={ALTO - PAD}
                     stroke="var(--accent)" strokeWidth={1.4} opacity={0.7} />
                 )}
-                {visibles.map((l) => {
-                  const pts = serie.map((p, i) => ({ i, seg: p[l.key] }))
+                {lineas.map((l) => {
+                  const pts = serie.map((p, i) => ({ i, seg: val(p, l.key) }))
                     .filter((q): q is { i: number; seg: number } => q.seg != null);
                   const path = pts.map((q, k) => `${k === 0 ? "M" : "L"}${x(q.i)} ${y(q.seg)}`).join(" ");
                   const hp = hover != null ? pts.find((q) => q.i === hover) : undefined;
                   return (
-                    <g key={l.key}>
+                    <g key={l.label}>
                       {path && <path d={path} fill="none" stroke={l.color} strokeWidth={2}
                         strokeLinejoin="round" strokeLinecap="round" />}
-                      {pts.length === 1 && (
-                        <circle cx={x(pts[0].i)} cy={y(pts[0].seg)} r={3} fill={l.color} />
-                      )}
+                      {pts.length === 1 && <circle cx={x(pts[0].i)} cy={y(pts[0].seg)} r={3} fill={l.color} />}
                       {hp && (
                         <circle cx={x(hp.i)} cy={y(hp.seg)} r={4} fill={l.color}
                           stroke="var(--bg-surface)" strokeWidth={1.5} />
@@ -130,17 +113,11 @@ export default function GraficasOcr({ serie }: { serie: PuntoSerieOcr[] }) {
             {hover != null && (
               <div className="mt-3 rounded-lg border p-2.5 text-[0.74rem]" style={{ borderColor: "var(--accent)" }}>
                 <span className="font-bold text-[var(--text-primary)]">{serie[hover].label}</span>
-                <span className="ml-2 text-[var(--text-muted)]">{nEs(serie[hover].files)} files · {nEs(serie[hover].conT2)} con T2</span>
-                <div className="mt-1">
-                  <span style={{ color: "var(--etapa-1)" }}>T1 prom {fmtMin(serie[hover].t1Prom)}</span>
-                  <span className="mx-1 text-[var(--text-disabled)]">·</span>
-                  <span style={{ color: "var(--etapa-2)" }}>T1 mediana {fmtMin(serie[hover].t1Mediana)}</span>
-                </div>
-                <div>
-                  <span style={{ color: "var(--etapa-3)" }}>T2 prom {fmtMin(serie[hover].t2Prom)}</span>
-                  <span className="mx-1 text-[var(--text-disabled)]">·</span>
-                  <span style={{ color: "var(--etapa-4)" }}>T2 mediana {fmtMin(serie[hover].t2Mediana)}</span>
-                </div>
+                <span className="ml-2 text-[var(--text-muted)]">
+                  {nEs(serie[hover].files)} files · {nEs(serie[hover].conT2)} con T2
+                </span>
+                <span className="ml-3" style={{ color: "var(--etapa-1)" }}>T1 {fmtDur(val(serie[hover], t1Key))}</span>
+                <span className="ml-3" style={{ color: "var(--etapa-3)" }}>T2 {fmtDur(val(serie[hover], t2Key))}</span>
               </div>
             )}
           </>
