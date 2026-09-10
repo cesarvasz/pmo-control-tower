@@ -18,7 +18,7 @@
 // lib/reportTheme.ts (única fuente de verdad, espejo del .py de la skill) — no
 // se hardcodean hex aquí.
 
-import { forwardRef, Fragment, type ReactNode } from "react";
+import { forwardRef, Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   BLUE, BOLT_PATH, CARD_BG, CRITICAL, CRITICAL_BG, GOOD, GOOD_BG, GRID, INK, INK_MUTED,
   INK_SEC, NAVY, NEUTRAL, NEUTRAL_BG, NEUTRAL_LINE, SURFACE, TONE, VIOLET, WARNING,
@@ -29,6 +29,12 @@ import type { StatusAtraso, StatusBand, StatusPhase, StatusPhaseStatus, StatusRe
 // Dimensiones de la hoja (A4 landscape @ 96dpi) — las usa el escalado en pantalla.
 export const SHEET_W = (297 * 96) / 25.4; // 1122.52
 export const SHEET_H = (210 * 96) / 25.4; //  793.70
+
+// Alto útil para el cuerpo del reporte: 210mm − 9mm (padding sup.) − 7mm (zona
+// del footer) − 2mm de aire. Si el contenido real supera esto (muchas fases /
+// muchas causas de atraso), <StatusReport> lo reduce con un scale uniforme para
+// que TODO quepa en la hoja sin pisar el footer.
+const BODY_MAX_PX = (192 * 96) / 25.4; // ≈ 725.7
 
 const RESP_TONE_COLOR: Record<string, string> = { violet: VIOLET, blue: BLUE, neutral: NEUTRAL };
 const VALOR_NAMES: Record<StatusBand, string> = { V: "Valuación", A: "Aprobación", L: "Launch", O: "Operación", R: "Revisión" };
@@ -75,9 +81,11 @@ const CSS = `
   background:none; list-style:none; text-decoration:none; letter-spacing:normal; }
 .pmo-report img{ display:block; max-width:none; }
 .pmo-report table{ border-spacing:0; }
+/* cuerpo escalable: si el contenido no cabe en la hoja, JS le pone un scale<1 */
+.pmo-report .pmo-body{ transform-origin:top center; }
 
 .pmo-report .header{ display:flex; justify-content:space-between; align-items:flex-start;
-  padding-bottom:4px; border-bottom:2px solid var(--navy); margin-bottom:15px; }
+  padding-bottom:4px; border-bottom:2px solid var(--navy); margin-bottom:12px; }
 .pmo-report .header-left-group{ display:flex; align-items:center; gap:12px; }
 .pmo-report .logo-pmo{ height:36px; width:auto; flex-shrink:0; }
 .pmo-report .header-left{ display:flex; flex-direction:column; gap:0; min-width:0; }
@@ -101,7 +109,7 @@ const CSS = `
 .pmo-report .vs-name{ font-size:6.6pt; color:var(--ink-sec); font-weight:600; text-align:center; }
 .pmo-report .vs-connector{ height:2px; width:14px; margin:0 -2px 10px -2px; }
 
-.pmo-report .kpi-grid{ display:grid; grid-template-columns:repeat(8,1fr); gap:5px; margin-bottom:16px; }
+.pmo-report .kpi-grid{ display:grid; grid-template-columns:repeat(8,1fr); gap:5px; margin-bottom:11px; }
 .pmo-report .kpi{ display:flex; flex-direction:column; background:${CARD_BG}; border:1px solid var(--grid);
   border-radius:7px; overflow:hidden; }
 .pmo-report .kpi-bar{ width:100%; height:4px; flex-shrink:0; }
@@ -112,13 +120,13 @@ const CSS = `
 .pmo-report .kpi-sub{ font-size:6.6pt; color:var(--ink-sec); margin-top:3px; font-weight:500; line-height:1.2; }
 .pmo-report .kpi-solid{ border:none; }
 
-.pmo-report .section-title{ display:flex; align-items:baseline; gap:8px; margin:0 0 7px 0; }
+.pmo-report .section-title{ display:flex; align-items:baseline; gap:8px; margin:0 0 6px 0; }
 .pmo-report .section-title h2{ font-size:11pt; font-weight:700; color:var(--navy); margin:0; }
 .pmo-report .section-title .hint{ font-size:7.6pt; color:var(--ink-muted); font-weight:500; }
 .pmo-report .section-title:after{ content:""; flex:1; border-bottom:1px solid var(--grid); margin-left:4px; }
 
-.pmo-report .gantt{ margin-bottom:15px; border:1px solid var(--grid); border-radius:8px;
-  padding:6px 12px 4px 12px; background:#fdfdfc; }
+.pmo-report .gantt{ margin-bottom:11px; border:1px solid var(--grid); border-radius:8px;
+  padding:5px 12px 4px 12px; background:#fdfdfc; }
 .pmo-report .g-months{ position:relative; height:12px; margin-left:212px; margin-bottom:1px; }
 .pmo-report .g-month{ position:absolute; top:0; font-size:6.8pt; color:var(--ink-muted); font-weight:600;
   transform:translateX(1px); border-left:1px solid var(--grid); padding-left:3px; white-space:nowrap; }
@@ -127,7 +135,7 @@ const CSS = `
 .pmo-report .g-vline{ position:absolute; top:0; bottom:0; border-left:1px solid var(--grid); }
 .pmo-report .g-todayline{ position:absolute; top:0; bottom:0; border-left:1.6px solid var(--navy); }
 .pmo-report .g-planline{ position:absolute; top:0; bottom:0; border-left:1.6px dashed var(--warning); }
-.pmo-report .g-row{ display:flex; align-items:center; height:14.5px; border-top:1px solid #f1f0ec; }
+.pmo-report .g-row{ display:flex; align-items:center; height:13.5px; border-top:1px solid #f1f0ec; }
 .pmo-report .g-row:first-child{ border-top:none; }
 .pmo-report .g-label{ width:212px; flex-shrink:0; display:flex; align-items:center; gap:5px; padding-right:6px; }
 .pmo-report .g-name{ font-size:7.9pt; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
@@ -163,7 +171,7 @@ const CSS = `
 .pmo-report table.atrasos thead th{ text-align:left; font-size:6.9pt; text-transform:uppercase;
   letter-spacing:.4px; color:var(--ink-muted); font-weight:700; padding:0 8px 6px 8px;
   border-bottom:1.4px solid var(--navy); }
-.pmo-report table.atrasos tbody td{ padding:4px 8px; border-bottom:1px solid var(--grid);
+.pmo-report table.atrasos tbody td{ padding:3px 8px; border-bottom:1px solid var(--grid);
   vertical-align:top; font-size:7.6pt; }
 .pmo-report table.atrasos tbody tr:last-child td{ border-bottom:none; }
 .pmo-report .hito-name{ font-weight:700; color:var(--ink); }
@@ -351,6 +359,27 @@ export interface StatusReportProps {
 const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function StatusReport(
   { data, renderResp, renderMotivo }, ref,
 ) {
+  // Auto-ajuste vertical: si el contenido (fases + causas de atraso) no cabe en
+  // la hoja, se reduce con un scale uniforme para que TODO se vea y no pise el
+  // footer. Se re-mide si el contenido cambia de alto (p. ej. al editar Motivo).
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(1);
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    let raf = 0;
+    const measure = () => {
+      const h = el.scrollHeight; // alto de layout — el transform:scale no lo altera
+      setFit(h > BODY_MAX_PX ? Math.max(BODY_MAX_PX / h, 0.62) : 1);
+    };
+    measure();
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measure); });
+    ro.observe(el);
+    const fonts = document.fonts;
+    if (fonts && fonts.status !== "loaded") fonts.ready.then(measure).catch(() => {});
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [data]);
+
   const tlStart = parseDate(data.timeline_start);
   const tlEnd = parseDate(data.timeline_end);
   const tlDays = (tlEnd - tlStart) / DAY;
@@ -371,77 +400,79 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
       {/* React 19 hoista y deduplica <style> con href+precedence → un solo tag en <head> */}
       <style href="pmo-status-report" precedence="default">{CSS}</style>
 
-      <div className="header">
-        <div className="header-left-group">
-          <img className="logo-pmo" src="/pmo-logo.png" alt="PMO" crossOrigin="anonymous" />
-          <div className="header-left">
-            <div className="title-row">
-              <span className="report-kicker-inline">Reporte Proyecto</span>
-              <span className="title-sep" />
-              <span className="proj-id">{data.project.id}</span>
-              <span className="proj-name">{data.project.name}</span>
-              <span className="bolt">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill={WARNING_FILL} xmlns="http://www.w3.org/2000/svg"><path d={BOLT_PATH} /></svg>
-              </span>
-              <span className="gen-date-inline">Generado el {fmtEs(today)}</span>
-            </div>
-            <div className="meta-row">
-              <span>PM: <b>{data.project.pm}</b></span>
-              <span>Sponsor: <b>{data.project.sponsor}</b></span>
-              <span>CKU: <b>{data.project.cku}</b></span>
-              <span>Estrategia: <b>{data.project.estrategia}</b></span>
+      <div className="pmo-body" ref={bodyRef} style={fit < 1 ? { transform: `scale(${f3(fit)})` } : undefined}>
+        <div className="header">
+          <div className="header-left-group">
+            <img className="logo-pmo" src="/pmo-logo.png" alt="PMO" crossOrigin="anonymous" />
+            <div className="header-left">
+              <div className="title-row">
+                <span className="report-kicker-inline">Reporte Proyecto</span>
+                <span className="title-sep" />
+                <span className="proj-id">{data.project.id}</span>
+                <span className="proj-name">{data.project.name}</span>
+                <span className="bolt">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill={WARNING_FILL} xmlns="http://www.w3.org/2000/svg"><path d={BOLT_PATH} /></svg>
+                </span>
+                <span className="gen-date-inline">Generado el {fmtEs(today)}</span>
+              </div>
+              <div className="meta-row">
+                <span>PM: <b>{data.project.pm}</b></span>
+                <span>Sponsor: <b>{data.project.sponsor}</b></span>
+                <span>CKU: <b>{data.project.cku}</b></span>
+                <span>Estrategia: <b>{data.project.estrategia}</b></span>
+              </div>
             </div>
           </div>
+          <div className="header-right"><ValorSteps data={data} /></div>
         </div>
-        <div className="header-right"><ValorSteps data={data} /></div>
-      </div>
 
-      <Kpis data={data} />
+        <Kpis data={data} />
 
-      <div className="section-title"><h2>Línea de tiempo del proyecto</h2><span className="hint">{data.timeline_hint}</span></div>
-      <div className="gantt">
-        <div className="g-months">
-          {months.map((mm, i) => <div key={i} className="g-month" style={{ left: `${f3(mm.x)}%` }}><span>{mm.label}</span></div>)}
-        </div>
-        <div className="g-rows">
-          <div className="g-lines-overlay">
-            {months.map((mm, i) => <div key={i} className="g-vline" style={{ left: `${f3(mm.x)}%` }} />)}
-            <div className="g-todayline" style={{ left: `${f3(pct(today))}%` }} />
-            <div className="g-planline" style={{ left: `${f3(pct(planDate))}%` }} />
+        <div className="section-title"><h2>Línea de tiempo del proyecto</h2><span className="hint">{data.timeline_hint}</span></div>
+        <div className="gantt">
+          <div className="g-months">
+            {months.map((mm, i) => <div key={i} className="g-month" style={{ left: `${f3(mm.x)}%` }}><span>{mm.label}</span></div>)}
           </div>
-          {data.phases.map((r, i) => <GanttRow key={i} r={r} pct={pct} today={today} />)}
+          <div className="g-rows">
+            <div className="g-lines-overlay">
+              {months.map((mm, i) => <div key={i} className="g-vline" style={{ left: `${f3(mm.x)}%` }} />)}
+              <div className="g-todayline" style={{ left: `${f3(pct(today))}%` }} />
+              <div className="g-planline" style={{ left: `${f3(pct(planDate))}%` }} />
+            </div>
+            {data.phases.map((r, i) => <GanttRow key={i} r={r} pct={pct} today={today} />)}
+          </div>
+          <div className="gantt-legend">
+            <span className="legend-item"><span className="legend-swatch" style={{ background: GOOD }} />Completada</span>
+            <span className="legend-item"><span className="legend-swatch" style={{ background: WARNING_FILL }} />En curso</span>
+            <span className="legend-item"><span className="legend-swatch" style={{ background: CRITICAL }} />Atrasada (rayado = días de sobre-tiempo)</span>
+            <span className="legend-item"><span className="legend-swatch" style={{ background: "#fff", border: `1.4px solid ${NEUTRAL_LINE}` }} />Pendiente</span>
+            <span className="legend-item"><span className="legend-diamond" />Hito</span>
+            <span className="legend-item"><span className="legend-line" />Hoy · {fmtEs(today)}</span>
+            <span className="legend-item"><span className="legend-line-dashed" />Fecha planificada · {fmtEs(planDate)}</span>
+          </div>
         </div>
-        <div className="gantt-legend">
-          <span className="legend-item"><span className="legend-swatch" style={{ background: GOOD }} />Completada</span>
-          <span className="legend-item"><span className="legend-swatch" style={{ background: WARNING_FILL }} />En curso</span>
-          <span className="legend-item"><span className="legend-swatch" style={{ background: CRITICAL }} />Atrasada (rayado = días de sobre-tiempo)</span>
-          <span className="legend-item"><span className="legend-swatch" style={{ background: "#fff", border: `1.4px solid ${NEUTRAL_LINE}` }} />Pendiente</span>
-          <span className="legend-item"><span className="legend-diamond" />Hito</span>
-          <span className="legend-item"><span className="legend-line" />Hoy · {fmtEs(today)}</span>
-          <span className="legend-item"><span className="legend-line-dashed" />Fecha planificada · {fmtEs(planDate)}</span>
-        </div>
-      </div>
 
-      <div className="section-title"><h2>Causas de atraso</h2></div>
-      <div className="bottom-grid">
-        <table className="atrasos">
-          <thead>
-            <tr>
-              <th style={{ width: "25%" }}>Entregable</th>
-              <th style={{ width: "14%" }}>A cargo</th>
-              <th style={{ width: "10%" }}>Atraso</th>
-              <th style={{ width: "14%" }}>Responsable</th>
-              <th>Motivo</th>
-            </tr>
-          </thead>
-          <tbody><AtrasoRows data={data} renderResp={renderResp} renderMotivo={renderMotivo} /></tbody>
-        </table>
-        <div className="side-card">
-          <h3>Distribución de responsabilidad</h3>
-          <div className="dist-legend">
-            {data.resp_dist.map((d, i) => (
-              <span key={i} className="dist-legend-item"><span>{d.label}</span><b>{d.value}%</b></span>
-            ))}
+        <div className="section-title"><h2>Causas de atraso</h2></div>
+        <div className="bottom-grid">
+          <table className="atrasos">
+            <thead>
+              <tr>
+                <th style={{ width: "25%" }}>Entregable</th>
+                <th style={{ width: "14%" }}>A cargo</th>
+                <th style={{ width: "10%" }}>Atraso</th>
+                <th style={{ width: "14%" }}>Responsable</th>
+                <th>Motivo</th>
+              </tr>
+            </thead>
+            <tbody><AtrasoRows data={data} renderResp={renderResp} renderMotivo={renderMotivo} /></tbody>
+          </table>
+          <div className="side-card">
+            <h3>Distribución de responsabilidad</h3>
+            <div className="dist-legend">
+              {data.resp_dist.map((d, i) => (
+                <span key={i} className="dist-legend-item"><span>{d.label}</span><b>{d.value}%</b></span>
+              ))}
+            </div>
           </div>
         </div>
       </div>
