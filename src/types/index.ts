@@ -126,6 +126,38 @@ export interface ClonacionPayload {
   filas: (string | number | null)[][];
 }
 
+/** Fila de la pestaña "009" de un archivo de Google Sheets DISTINTO al de 003 y
+ *  al de Clonación — un expediente C807 por fila. Fuente independiente
+ *  (ver apps-script/roi-ocr.gs). Alimenta la pestaña "Digitalización OCR" de la
+ *  página ROI. Claves = nombres exactos de columna en la hoja.
+ *
+ *  Dos hitos de digitalización por file: `Digit_docs` (documentos) y
+ *  `Digit_carta_licencia` (carta de licencia). El tablero mide, en ventana hábil
+ *  L–V 08:00–18:00: T1 = `Creacion`→`Digit_docs` y T2 = `Digit_docs`→
+ *  `Digit_carta_licencia`. Cualquiera de los dos hitos puede venir vacío (file
+ *  aún en proceso). */
+export interface OcrRow {
+  id: string;
+  c807_file: string;
+  Embarque: string;
+  Cliente: string;
+  Creacion: string;
+  Digit_docs: string;
+  Digit_carta_licencia: string;
+}
+
+/** Pestaña "009" tal como la manda el Apps Script: codificada, mismo esquema
+ *  que RoiPayload / ClonacionPayload (ver apps-script/roi-ocr.gs). */
+export interface OcrPayload {
+  epoca: number;
+  generado?: string;
+  libres: string[];
+  textos: string[];
+  fechas: string[];
+  dicc: Record<string, string[]>;
+  filas: (string | number | null)[][];
+}
+
 /** Costo planificado de un REQ guardado en Firestore (baseline para EV/CPI). */
 export interface ReqBaseline {
   costRH: number;
