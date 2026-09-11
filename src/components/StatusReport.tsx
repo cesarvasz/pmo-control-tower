@@ -157,7 +157,7 @@ const CSS = `
 .pmo-report .g-overdue{ position:absolute; top:1px; height:10px; border-radius:0 5px 5px 0;
   background:repeating-linear-gradient(45deg,${CRITICAL},${CRITICAL} 2.2px,#f7d2d2 2.2px,#f7d2d2 4.4px);
   border:1.4px solid var(--critical); border-left:none; }
-.pmo-report .g-milestone{ position:absolute; top:-1px; width:12px; height:12px; background:#fff;
+.pmo-report .g-milestone{ position:absolute; top:-1px; width:12px; height:12px;
   border:2px solid var(--neutral-line); transform:rotate(45deg); border-radius:2px; }
 
 .pmo-report .gantt-legend{ display:flex; gap:13px; margin-top:3px; padding-top:3px;
@@ -302,7 +302,17 @@ function GanttRow({ r, pct, today }: { r: StatusPhase; pct: (t: number) => numbe
   let chart: ReactNode;
   if (r.milestone) {
     const left = pct(parseDate(r.milestone));
-    chart = (<><div className="g-track" /><div className="g-milestone" style={{ left: `calc(${f3(left)}% - 6px)` }} /></>);
+    const col = statusColors(r.status);
+    const filled = col.fill !== "none";
+    chart = (
+      <>
+        <div className="g-track" />
+        <div
+          className="g-milestone"
+          style={{ left: `calc(${f3(left)}% - 6px)`, background: filled ? col.fill : SURFACE, borderColor: col.edge }}
+        />
+      </>
+    );
   } else {
     const start = parseDate(r.start!);
     const due = parseDate(r.due!);
