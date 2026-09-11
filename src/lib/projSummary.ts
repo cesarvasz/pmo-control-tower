@@ -243,7 +243,11 @@ export function calcProgress(units: WorkUnit[], phases: PhaseSummary[]): Progres
  *  el mismo agrupamiento, el cociente (SPI) es una comparación real. */
 export function calcPlannedProgress(units: WorkUnit[], phases: PhaseSummary[]): number {
   const t = today();
-  const parts = buildProgressParts(units, phases, (u) => u.status === "Done" || (u.deadline !== null && u.deadline <= t));
+  // `< t`, no `<= t`: un hito que vence HOY todavía no es "ATRASADO" en
+  // ningún otro lado del reporte (estado="PARA HOY", ver calcProjEstado) — así
+  // que tampoco debe contar aquí como "ya debería estar hecho" antes de que
+  // el día termine. Mismo corte que enScope/isOffTrack en toda la app.
+  const parts = buildProgressParts(units, phases, (u) => u.status === "Done" || (u.deadline !== null && u.deadline < t));
   const total = parts.length;
   if (!total) return 0;
   const sumFrac = parts.reduce((s, p) => s + (p.total ? p.done / p.total : 0), 0);
@@ -330,19 +334,29 @@ export interface CompletionEstimate {
    *  el papeleo de Revisión. Se toma de TODOS los de Fase 4 (Done o no), no
    *  solo los pendientes, porque el deadline es el plan, no lo que falta. */
   plannedFinish: Date | null;
-  estimatedFinish: Date | null;  // predicción: el plan (o hoy, si ya venció) + el atraso promedio observado
-  scheduleSlipDays: number;      // días hábiles ya vencidos de Fase 4 (0 si aún no llega)
+  /** El plan, empujado hacia adelante por el atraso ACTIVO más grande que haya
+   *  hoy en el proyecto (cualquier fase) — no por tendencia histórica. Igual a
+   *  `plannedFinish` si hoy no hay ningún atraso activo. Ver calcCompletionEstimate. */
+  estimatedFinish: Date | null;
+  scheduleSlipDays: number;      // días hábiles ya vencidos del plan mismo (Fase 4 / Cierre VMO) — 0 si aún no llega
 }
 
 /**
- * Estimado PREDICTIVO de cierre: parte del fin planificado de Fase 4 (Operación,
- * ver plannedFinish); si ese plan ya venció, arranca desde hoy. A ese punto le suma
- * el atraso promedio (días hábiles) que este mismo proyecto ya mostró en sus hitos
- * entregados con atraso (avgSlipDays de calcDelaySummary) — una proyección simple
- * por tendencia, no una fecha inventada. Sin evidencia de atraso (avgSlipDays=0),
- * el estimado es el plan.
+ * Estimado de cierre: el fin planificado (plannedFinish) empujado hacia
+ * adelante por el peor atraso ACTIVO del proyecto HOY (worstOverdueDays de
+ * calcDelaySummary — cualquier item/hito no Done cuyo Limit Date ya venció, en
+ * CUALQUIER fase, no solo Fase 4/Operación). Sin atrasos activos, el estimado
+ * es el plan tal cual — NO se ajusta por tendencia histórica (atrasos ya
+ * entregados en el pasado, antes vía avgSlipDays): esa tendencia sigue
+ * disponible aparte para el riesgo de cartera (portfolioSummary.ts), pero ya
+ * no infla esta fecha del reporte por proyecto.
+ *
+ * Por qué "cualquier fase" y no solo si el plan mismo (Fase 4) ya venció: un
+ * proyecto puede tener atrasos reales HOY en Launch (Fase 3) mientras el plan
+ * de Operación (Fase 4) todavía no llega — ahí `plannedFinish < hoy` es falso,
+ * pero igual hay riesgo real que el cierre estimado debe reflejar.
  */
-export function calcCompletionEstimate(units: WorkUnit[], avgSlipDays: number): CompletionEstimate {
+export function calcCompletionEstimate(units: WorkUnit[], worstOverdueDays: number): CompletionEstimate {
   const t = today();
   const pending = units.filter((u) => u.status !== "Done");
 
@@ -368,8 +382,8 @@ export function calcCompletionEstimate(units: WorkUnit[], avgSlipDays: number): 
   }
 
   const scheduleSlipDays = plannedFinish < t ? businessDays(plannedFinish, t) : 0;
-  const base = scheduleSlipDays > 0 ? t : plannedFinish;
-  const estimatedFinish = avgSlipDays > 0 ? addBusinessDays(base, avgSlipDays) : base;
+  const activeDelay = Math.max(scheduleSlipDays, worstOverdueDays);
+  const estimatedFinish = activeDelay > 0 ? addBusinessDays(plannedFinish, activeDelay) : plannedFinish;
 
   return { isComplete: false, actualFinish: null, plannedFinish, estimatedFinish, scheduleSlipDays };
 }
@@ -388,6 +402,6 @@ export function buildProjectSummary(items: ProjItem[]): ProjectSummary {
   const phases = buildPhaseSummaries(units);
   const progress = calcProgress(units, phases);
   const delay = calcDelaySummary(units);
-  const completion = calcCompletionEstimate(units, delay.avgSlipDays);
+  const completion = calcCompletionEstimate(units, delay.worstOverdueDays);
   return { units, progress, phases, delay, completion };
 }

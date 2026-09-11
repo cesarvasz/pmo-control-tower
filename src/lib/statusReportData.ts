@@ -98,11 +98,11 @@ const bandOf = (grupo: string): StatusBand | undefined => {
 };
 
 /** Nombre corto de una fase para la etiqueta del Gantt (una sola línea): la
- *  parte después del primer " | " ("Valuación | Formulación..." → "Formulación
- *  ..."), o el grupo tal cual si no tiene separador. */
+ *  parte ANTES del primer " | " ("Valuación | Formulación..." → "Valuación"),
+ *  o el grupo tal cual si no tiene separador. */
 export function shortPhaseName(grupo: string): string {
   const i = grupo.indexOf(" | ");
-  return (i >= 0 ? grupo.slice(i + 3) : grupo).trim() || grupo.trim();
+  return (i >= 0 ? grupo.slice(0, i) : grupo).trim() || grupo.trim();
 }
 
 const HEALTH_LABEL: Record<string, string> = { "on-track": "On Track", "in-risk": "At Risk", "off-track": "Off Track" };
@@ -186,17 +186,22 @@ function rowRange(r: GRow, isOldTemplate: boolean): { start: number; end: number
   return ds.length ? { start: Math.min(...ds), end: Math.max(...ds) } : null;
 }
 
+// "Pendiente" (gris) solo si YA arrancó algo dentro de la fila (`started`, ej.
+// un hito en curso que no es el que bloquea el avance) — si NADA arrancó
+// todavía, es "A futuro" (azul), no "Pendiente": mismo criterio que
+// fase3EntregableStatus para Future Steps en Fase 3 de plantilla vieja.
 function phaseStatusOf(r: GRow): StatusPhaseStatus {
   if (r.total > 0 && r.done === r.total) return "done";
   if (r.offTrack) return "late";
   if (r.isCurrent) return "current";
   if (r.started) return "pending_progress";
-  return "pending";
+  return "future";
 }
 function phaseStateLabel(r: GRow): string {
   if (r.total > 0 && r.done === r.total) return "Completada";
   if (r.offTrack) return "Atrasada";
-  return r.isCurrent ? "En curso" : "Pendiente";
+  if (r.isCurrent) return "En curso";
+  return r.started ? "Pendiente" : "A futuro";
 }
 
 /** Fila de hito de Fase 3, plantilla VIEJA: el color/estado viene del status
@@ -209,6 +214,21 @@ function fase3EntregableStatus(u: WorkUnit): { status: StatusPhaseStatus; state:
   if (u.status === "Working on it") return { status: "current", state: "En curso" };
   if (u.status === "Future Steps") return { status: "future", state: "A futuro" };
   return { status: "pending", state: u.status || "Pendiente" };
+}
+
+/** Estado de una fila de FASE PARALELA — entregables/steps de Fase 3 (Launch,
+ *  cualquier plantilla nueva) y la fila de Fase 4 (Operación) completa: a
+ *  diferencia de las fases secuenciales (phaseStatusOf/phaseStateLabel), acá
+ *  "En curso" no se reserva para lo ÚNICO que bloquea el avance — en Launch y
+ *  Operación suele trabajarse EN PARALELO (equipos distintos: desarrollo,
+ *  soporte, capacitación...), así que cualquiera con avance real (`started`)
+ *  se pinta "En curso", sin importar si es o no lo que hoy frena la fase. Sin
+ *  avance real → "A futuro". */
+function parallelPhaseStatus(r: GRow): { status: StatusPhaseStatus; state: string } {
+  if (r.total > 0 && r.done === r.total) return { status: "done", state: "Completada" };
+  if (r.offTrack) return { status: "late", state: "Atrasada" };
+  if (r.started) return { status: "current", state: "En curso" };
+  return { status: "future", state: "A futuro" };
 }
 
 // ── Entrada del adaptador ───────────────────────────────────────────────
@@ -275,9 +295,18 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
   const fallbackMs = (plannedFinish ?? tlEnd).getTime();
   const statusPhases: StatusPhase[] = gRows.map((r) => {
     const range = rowRange(r, isOldTemplate);
-    const { status, state } = isOldTemplate && r.indent === 1
-      ? fase3EntregableStatus(r.units[0])
-      : { status: phaseStatusOf(r), state: phaseStateLabel(r) };
+    // indent 1 = siempre un entregable/step/hito de Fase 3 (ver buildGanttRows) —
+    // plantilla vieja: color por status crudo del hito; plantilla nueva: "En
+    // curso" para cualquier step con avance real (parallelPhaseStatus), no solo
+    // el que bloquea Fase 3. La fila de Fase 4 (Operación, indent 0) usa el
+    // mismo criterio paralelo que Fase 3 — Valuación/Aprobación/Revisión siguen
+    // siendo secuenciales ("solo la que bloquea = En curso").
+    const isFase4Row = r.indent === 0 && valorStageOf(r.grupo) === 3;
+    const { status, state } = r.indent === 1
+      ? (isOldTemplate ? fase3EntregableStatus(r.units[0]) : parallelPhaseStatus(r))
+      : isFase4Row
+        ? parallelPhaseStatus(r)
+        : { status: phaseStatusOf(r), state: phaseStateLabel(r) };
     const base: StatusPhase = {
       name: r.indent === 0 ? shortPhaseName(r.grupo) : r.grupo,
       state,

@@ -145,6 +145,17 @@ describe("calcPlannedProgress (mismo agrupamiento por fase/step que calcProgress
     expect(calcPlannedProgress(units, phases)).toBe(67); // 2 de 3
   });
 
+  it("un hito que vence HOY todavía no cuenta como 'debería estar hecho' — mismo corte que ATRASADO (PARA HOY no es ATRASADO)", () => {
+    const units = flattenBoardUnits([
+      item({ id: "1", grupo: "Valuación", status: "Done" }),
+      item({ id: "2", grupo: "Aprobación", status: "Working on it", estado: "PARA HOY", deadline: today() }), // vence hoy, no vencido
+    ]);
+    const phases = buildPhaseSummaries(units);
+    // Si "2" contara (bug viejo, <=), Aprobación pesaría 100% de plan y el
+    // resultado sería 100%. Al no contar, Aprobación pesa 0% de plan → 50%.
+    expect(calcPlannedProgress(units, phases)).toBe(50);
+  });
+
   it("pesa por fase igual que calcProgress: una fase con muchos hitos no aplasta a las demás", () => {
     const items = [
       item({ id: "v", grupo: "Valuación", status: "Done", deadline: daysFromToday(-10) }), // Done, cumple plan
@@ -324,11 +335,42 @@ describe("calcCompletionEstimate", () => {
     expect(c.plannedFinish).toEqual(daysFromToday(10));
   });
 
-  it("plan ya vencido → arranca desde hoy y le suma el atraso promedio", () => {
+  it("plan ya vencido → estimado = HOY, sin ajuste por tendencia histórica", () => {
     const units = flattenBoardUnits([item({ id: "1", grupo: "Operación", status: "Working on it", deadline: daysFromToday(-15) })]);
-    const c = calcCompletionEstimate(units, 4);
+    const c = calcCompletionEstimate(units, 0);
     expect(c.scheduleSlipDays).toBeGreaterThan(0);
-    expect(c.estimatedFinish!.getTime()).toBeGreaterThan(today().getTime());
+    expect(c.estimatedFinish).toEqual(today());
+  });
+
+  it("sin atraso activo hoy → estimado = fecha plan, aunque el proyecto haya entregado tarde en el pasado", () => {
+    // Point 3: ya no se le suma el atraso promedio histórico (antes vía
+    // calcDelaySummary.avgSlipDays) — ese dato sigue existiendo para
+    // portfolioSummary.ts, pero no infla esta fecha si hoy no hay nada vencido.
+    const units = flattenBoardUnits([
+      item({
+        id: "1", grupo: "Operación", status: "Done", deadline: daysFromToday(-30), endDate: daysFromToday(-10), entrega: "late",
+      }),
+      item({ id: "2", grupo: "Operación", status: "Working on it", deadline: daysFromToday(20) }),
+    ]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.scheduleSlipDays).toBe(0);
+    expect(c.estimatedFinish).toEqual(c.plannedFinish);
+    expect(c.estimatedFinish).toEqual(daysFromToday(20));
+  });
+
+  it("atraso ACTIVO en otra fase (Launch) empuja el estimado, aunque el plan de Fase 4 todavía no venza", () => {
+    // Antes: sin Fase 4 vencida, scheduleSlipDays=0 → estimado quedaba pegado
+    // al plan, aunque el proyecto ya estuviera atrasado HOY en otra fase.
+    const units = flattenBoardUnits([
+      item({ id: "launch", grupo: "Launch | Desarrollo", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-8) }),
+      item({ id: "op", grupo: "Operación", status: "Working on it", deadline: daysFromToday(30) }),
+    ]);
+    const worstOverdueDays = calcDelaySummary(units).worstOverdueDays;
+    expect(worstOverdueDays).toBeGreaterThan(0);
+    const c = calcCompletionEstimate(units, worstOverdueDays);
+    expect(c.scheduleSlipDays).toBe(0); // el plan (Fase 4) en sí no ha vencido
+    expect(c.estimatedFinish!.getTime()).toBeGreaterThan(c.plannedFinish!.getTime());
+    expect(businessDays(c.plannedFinish!, c.estimatedFinish!)).toBe(worstOverdueDays);
   });
 
   it("sin ningún deadline en Fase 4 → no hay estimado posible", () => {

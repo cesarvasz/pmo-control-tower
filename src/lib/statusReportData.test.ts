@@ -17,9 +17,9 @@ const daysFromToday = (n: number): Date => { const d = today(); d.setDate(d.getD
 const ymd = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 describe("shortPhaseName", () => {
-  it("toma la parte después del primer ' | '", () => {
-    expect(shortPhaseName("Valuación | Formulación del proyecto")).toBe("Formulación del proyecto");
-    expect(shortPhaseName("Launch | Lanzamiento")).toBe("Lanzamiento");
+  it("toma la parte ANTES del primer ' | '", () => {
+    expect(shortPhaseName("Valuación | Formulación del proyecto")).toBe("Valuación");
+    expect(shortPhaseName("Launch | Lanzamiento")).toBe("Launch");
     expect(shortPhaseName("Sin separador")).toBe("Sin separador");
   });
 });
@@ -76,8 +76,8 @@ describe("buildStatusReportData", () => {
   it("Gantt: fases de nivel 0 con banda + Launch expandida en steps indentados", () => {
     const top = data.phases.filter((p) => p.indent === 0);
     const steps = data.phases.filter((p) => p.indent === 1);
-    expect(top.map((p) => p.name)).toContain("Formulación del proyecto");
-    expect(top.find((p) => p.name === "Lanzamiento")?.band).toBe("L");
+    expect(top.map((p) => p.name)).toContain("Valuación");
+    expect(top.find((p) => p.name === "Launch")?.band).toBe("L");
     expect(steps.map((p) => p.name)).toEqual(expect.arrayContaining(["MESA 2 · GT", "DucaFast · HN"]));
     // MESA 2 tiene un hito en Stuck → status "late"
     expect(steps.find((p) => p.name === "MESA 2 · GT")?.status).toBe("late");
@@ -170,13 +170,13 @@ describe("buildStatusReportData — plantilla vieja (fases por Limit Date, Fase 
   const hitos = () => data.phases.filter((p) => p.indent === 1);
 
   it("fases 1/2/4 (V/A/O): start = min Limit Date, due = max Limit Date de sus ITEMS — ignora hitos de o1 (-90/+200)", () => {
-    expect(top().find((p) => p.name === "Formulación del proyecto")).toMatchObject({ start: ymd(daysFromToday(-60)), due: ymd(daysFromToday(-50)) });
-    expect(top().find((p) => p.name === "Value Gate")).toMatchObject({ start: ymd(daysFromToday(-40)), due: ymd(daysFromToday(-38)) });
-    expect(top().find((p) => p.name === "Implementación")).toMatchObject({ start: ymd(daysFromToday(35)), due: ymd(daysFromToday(50)) });
+    expect(top().find((p) => p.name === "Valuación")).toMatchObject({ start: ymd(daysFromToday(-60)), due: ymd(daysFromToday(-50)) });
+    expect(top().find((p) => p.name === "Aprobación")).toMatchObject({ start: ymd(daysFromToday(-40)), due: ymd(daysFromToday(-38)) });
+    expect(top().find((p) => p.name === "Operación")).toMatchObject({ start: ymd(daysFromToday(35)), due: ymd(daysFromToday(50)) });
   });
 
   it("fase 5 (Revisión): due = Limit Date de \"Cierre VMO (OP) del proyecto\", NO el máximo de la fase", () => {
-    const revision = top().find((p) => p.name === "Cierre ROI")!;
+    const revision = top().find((p) => p.name === "Revisión")!;
     expect(revision.start).toBe(ymd(daysFromToday(20))); // r0, el más temprano
     expect(revision.due).toBe(ymd(daysFromToday(50)));   // cierre, NO r1 (+90)
   });
@@ -204,5 +204,108 @@ describe("buildStatusReportData — plantilla vieja (fases por Limit Date, Fase 
   it("Causas de atraso: una fila por hito atrasado (no una por checkpoint)", () => {
     expect(data.atrasos.map((a) => a.hito)).toEqual(["Entregable atrasado"]);
     expect(data.atrasos[0].acargo).toBe("PM Step");
+  });
+});
+
+// "Pendiente" (gris) solo si YA arrancó algo dentro de la fila de una fase
+// SECUENCIAL (Valuación/Aprobación/Revisión); si NADA arrancó es "A futuro"
+// (azul). Fase 4 (Operación) es "paralela" — ver el describe de abajo.
+describe("buildStatusReportData — Pendiente vs A futuro (fases secuenciales)", () => {
+  const items: ProjItem[] = [
+    item({ id: "v1", grupo: "Valuación | Formulación del proyecto", status: "Done", deadline: daysFromToday(-40) }),
+    item({ id: "a1", grupo: "Aprobación | Value Gate", status: "Done", deadline: daysFromToday(-20) }),
+    item({ id: "a2", grupo: "Aprobación | Value Gate", status: "Working on it", deadline: daysFromToday(10) }),
+    item({ id: "l1", grupo: "Launch | Desarrollo", status: "Future Steps", deadline: daysFromToday(60) }),
+    item({ id: "r1", grupo: "Revisión | Cierre ROI", status: "Working on it", deadline: daysFromToday(90) }),
+  ];
+  const summary = buildProjectSummary(items);
+  const health = deriveBoardHealth(calcBoardMetrics(items, {}));
+  const data = buildStatusReportData({
+    board: board({}), code: "PM-X", name: "X proyecto",
+    summary, health, atrasos: [], atrasoDetalles: {}, responsabilidadAtraso: [],
+    avancePlanificado: 50, valorProyecto: null, roi: null, payback: null,
+    now: today().getTime(),
+  });
+  const top = data.phases.filter((p) => p.indent === 0);
+
+  it("la fase actual (primera incompleta) → En curso", () => {
+    expect(top.find((p) => p.name === "Aprobación")).toMatchObject({ status: "current", state: "En curso" });
+  });
+
+  it("una fase secuencial con avance pero que no es la actual → Pendiente (gris), pending_progress", () => {
+    expect(top.find((p) => p.name === "Revisión")).toMatchObject({ status: "pending_progress", state: "Pendiente" });
+  });
+
+  it("una fase donde NADA arrancó todavía → A futuro (azul), status future", () => {
+    expect(top.find((p) => p.name === "Launch")).toMatchObject({ status: "future", state: "A futuro" });
+  });
+});
+
+// Fase 4 (Operación), como Fase 3: "paralela" — En curso para cualquier avance
+// real, aunque otra fase (Aprobación) sea la que hoy bloquea el proyecto.
+describe("buildStatusReportData — Fase 4 (Operación) también es 'paralela'", () => {
+  const items: ProjItem[] = [
+    item({ id: "a1", grupo: "Aprobación | Value Gate", status: "Working on it", deadline: daysFromToday(10) }),
+    item({ id: "o1", grupo: "Operación | Implementación", status: "Working on it", deadline: daysFromToday(30) }),
+  ];
+  const summary = buildProjectSummary(items);
+  const health = deriveBoardHealth(calcBoardMetrics(items, {}));
+  const data = buildStatusReportData({
+    board: board({}), code: "PM-Z", name: "Z proyecto",
+    summary, health, atrasos: [], atrasoDetalles: {}, responsabilidadAtraso: [],
+    avancePlanificado: 50, valorProyecto: null, roi: null, payback: null,
+    now: today().getTime(),
+  });
+  const top = data.phases.filter((p) => p.indent === 0);
+
+  it("Aprobación es la que bloquea → En curso", () => {
+    expect(top.find((p) => p.name === "Aprobación")).toMatchObject({ status: "current", state: "En curso" });
+  });
+
+  it("Operación tiene avance real pero NO es la que bloquea → también En curso, no Pendiente", () => {
+    expect(top.find((p) => p.name === "Operación")).toMatchObject({ status: "current", state: "En curso" });
+  });
+});
+
+// Fase 3, plantilla NUEVA: a diferencia de las 5 fases, "En curso" no se
+// reserva para el único entregable que bloquea — varios pueden avanzar en
+// paralelo, y todos los que tengan avance real deben verse "En curso".
+describe("buildStatusReportData — Fase 3 plantilla nueva: varios entregables 'En curso' en paralelo", () => {
+  const items: ProjItem[] = [
+    item({
+      id: "poc", name: "POC", grupo: "Launch | Lanzamiento", status: "Working on it",
+      subitems: [sub({ id: "h1", status: "Working on it", deadline: daysFromToday(10) })],
+    }),
+    item({
+      // MESA 2 también tiene avance real, pero POC (arriba) es el primer
+      // incompleto → MESA 2 NO es "la fase actual" bajo el criterio viejo.
+      id: "mesa2", name: "MESA 2 · GT", grupo: "Launch | Lanzamiento", status: "Working on it",
+      subitems: [sub({ id: "h2", status: "Working on it", deadline: daysFromToday(15) })],
+    }),
+    item({
+      id: "xd", name: "xDocking", grupo: "Launch | Lanzamiento", status: "Future Steps",
+      subitems: [sub({ id: "h3", status: "Future Steps", deadline: daysFromToday(30) })],
+    }),
+  ];
+  const summary = buildProjectSummary(items);
+  const health = deriveBoardHealth(calcBoardMetrics(items, {}));
+  const data = buildStatusReportData({
+    board: board({}), code: "PM-Y", name: "Y proyecto",
+    summary, health, atrasos: [], atrasoDetalles: {}, responsabilidadAtraso: [],
+    avancePlanificado: 50, valorProyecto: null, roi: null, payback: null,
+    now: today().getTime(),
+  });
+  const steps = data.phases.filter((p) => p.indent === 1);
+
+  it("POC (la que bloquea) → En curso", () => {
+    expect(steps.find((p) => p.name === "POC")).toMatchObject({ status: "current", state: "En curso" });
+  });
+
+  it("MESA 2 (avance real, pero NO es la que bloquea) → también En curso, no Pendiente", () => {
+    expect(steps.find((p) => p.name === "MESA 2 · GT")).toMatchObject({ status: "current", state: "En curso" });
+  });
+
+  it("xDocking (nada arrancó) → A futuro", () => {
+    expect(steps.find((p) => p.name === "xDocking")).toMatchObject({ status: "future", state: "A futuro" });
   });
 });
