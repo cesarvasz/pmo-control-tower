@@ -13,7 +13,7 @@ export type DelayMap = Record<string, DelayAttribution>;
 
 /** Opciones del dropdown de Entrega/atraso (orden de presentación). */
 export const DELAY_RESPONSIBLES: readonly DelayResponsible[] = [
-  "VPA", "CKU", "PM", "Sponsor", "Desarrollador", "BRM",
+  "VPA", "CKU", "PM", "Sponsor", "Desarrollo", "IT", "Proveedor", "BRM",
 ];
 
 /** Catálogo de roles del "Responsable atraso" en la tabla Atrasos del Resumen
@@ -39,7 +39,7 @@ export function atrasoReparto(
 
 /** Opciones del dropdown de Reproceso: incluye "Sin reproceso" (no penaliza). */
 export const REPROCESO_RESPONSIBLES: readonly DelayResponsible[] = [
-  "Sin reproceso", "VPA", "CKU", "PM", "Sponsor", "Desarrollador", "BRM",
+  "Sin reproceso", "VPA", "CKU", "PM", "Sponsor", "Desarrollo", "IT", "Proveedor", "BRM",
 ];
 
 // Superset válido (incluye "Sin reproceso"); el dropdown de atraso simplemente no la ofrece.
@@ -70,10 +70,12 @@ export function countByResponsible(ids: string[], map: DelayMap): Record<string,
  *  Requiere el contenedor con className "viz-resp" (ver globals.css). */
 export const RESPONSIBLE_COLOR: Record<string, string> = {
   VPA: "var(--resp-vpa)",
-  Desarrollador: "var(--resp-dev)",
+  Desarrollo: "var(--resp-dev)",
   CKU: "var(--resp-cku)",
   PM: "var(--resp-pm)",
   Sponsor: "var(--resp-sponsor)",
+  IT: "var(--resp-it)",
+  Proveedor: "var(--resp-proveedor)",
   BRM: "var(--resp-brm)",
   "Sin reproceso": "var(--resp-clean)",
   "Sin asignar": "var(--resp-none)",

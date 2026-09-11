@@ -66,7 +66,7 @@ export const BAND_COLOR: Record<"V" | "A" | "L" | "O" | "R", string> = {
 
 /** Paleta categórica para "Distribución de responsabilidad" — "Sin asignar"
  *  siempre gris (se resuelve en el consumidor); el resto cicla estos tonos. */
-export const ROLE_PALETTE = [VIOLET, BLUE, "#8b5cf6", "#0ea5e9", "#ec4899", "#14b8a6"];
+export const ROLE_PALETTE = [VIOLET, BLUE, "#8b5cf6", "#0ea5e9", "#ec4899", "#14b8a6", "#b8860b", "#a1662f"];
 
 /** Slot de color (`violet`/`blue`/`neutral` o hex de ROLE_PALETTE) FIJO por rol
  *  del "Responsable atraso". Fijo = un rol tiene el mismo color en toda la tabla
@@ -77,7 +77,9 @@ export const ATRASO_RESP_SLOT: Record<string, string> = {
   CKU: "blue",
   PM: "#8b5cf6",
   Sponsor: "#0ea5e9",
-  Desarrollador: "#ec4899",
+  Desarrollo: "#ec4899",
+  IT: "#b8860b",
+  Proveedor: "#a1662f",
   BRM: "#14b8a6",
   "Sin asignar": "neutral",
 };

@@ -76,6 +76,13 @@ export async function saveProjItemBaseline(itemId: string, data: Omit<ProjItemBa
   await db.collection("proj_item_baselines").doc(itemId).set({ ...data, savedAt: new Date().toISOString() });
 }
 
+// Alias de compatibilidad: roles renombrados → el nombre vigente. Se aplica
+// SOLO al leer (los documentos en Firestore no se tocan); al re-guardar una
+// fila, queda persistida con el nombre nuevo. Agregar aquí cualquier rol que
+// se renombre a futuro.
+const RESP_ALIAS: Record<string, string> = { Desarrollador: "Desarrollo" };
+const normResp = <T extends string>(r: T): T => (RESP_ALIAS[r] as T) ?? r;
+
 // ── Atribuciones de responsable (delay / reproceso), una colección por kind ──
 const ATTRIBUTION_COLL: Record<AttributionKind, string> = {
   delay: "delay_attributions",
@@ -86,7 +93,10 @@ export async function getAttributions(kind: AttributionKind): Promise<Record<str
   const db = getAdminDb();
   const snap = await db.collection(ATTRIBUTION_COLL[kind]).get();
   const result: Record<string, DelayAttribution> = {};
-  snap.forEach((doc) => { result[doc.id] = doc.data() as DelayAttribution; });
+  snap.forEach((doc) => {
+    const d = doc.data() as DelayAttribution;
+    result[doc.id] = { ...d, responsible: normResp(d.responsible) };
+  });
   return result;
 }
 
@@ -110,7 +120,14 @@ export async function getAtrasoDetalles(): Promise<Record<string, AtrasoDetalle>
   const db = getAdminDb();
   const snap = await db.collection("atraso_detalles").get();
   const result: Record<string, AtrasoDetalle> = {};
-  snap.forEach((doc) => { result[doc.id] = doc.data() as AtrasoDetalle; });
+  snap.forEach((doc) => {
+    const d = doc.data() as AtrasoDetalle;
+    result[doc.id] = {
+      ...d,
+      responsable: d.responsable ? normResp(d.responsable) : d.responsable,
+      reparto: d.reparto?.map((r) => ({ ...r, resp: normResp(r.resp) })),
+    };
+  });
   return result;
 }
 

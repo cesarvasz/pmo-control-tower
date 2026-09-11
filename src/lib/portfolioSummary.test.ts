@@ -98,8 +98,8 @@ describe("buildCrossRisks", () => {
   it("marca un responsable dominante cuando concentra >=30% de los atrasos atribuidos", () => {
     const rows = [mkRow({ boardId: "a" })];
     const totals = calcPortfolioTotals(rows);
-    const risks = buildCrossRisks(rows, totals, { Desarrollador: 6, PM: 2, VPA: 2 });
-    const r = risks.find((x) => x.title.includes("Desarrollador"));
+    const risks = buildCrossRisks(rows, totals, { Desarrollo: 6, PM: 2, VPA: 2 });
+    const r = risks.find((x) => x.title.includes("Desarrollo"));
     expect(r).toBeDefined();
     expect(r!.severity).toBe("high");
   });
@@ -107,7 +107,7 @@ describe("buildCrossRisks", () => {
   it("no marca responsable dominante si ninguno concentra 30% o más", () => {
     const rows = [mkRow({ boardId: "a" })];
     const totals = calcPortfolioTotals(rows);
-    const risks = buildCrossRisks(rows, totals, { Desarrollador: 2, PM: 2, VPA: 2, CKU: 2, BRM: 2 });
+    const risks = buildCrossRisks(rows, totals, { Desarrollo: 2, PM: 2, VPA: 2, CKU: 2, BRM: 2 });
     expect(risks.some((r) => r.title.includes("Concentración de atrasos"))).toBe(false);
   });
 
@@ -129,7 +129,7 @@ describe("buildCrossRisks", () => {
       mkRow({ boardId: "c", pm: "Carlos", healthStatus: "in-risk" }),
     ];
     const totals = calcPortfolioTotals(rows);
-    const risks = buildCrossRisks(rows, totals, { Desarrollador: 9, PM: 1 });
+    const risks = buildCrossRisks(rows, totals, { Desarrollo: 9, PM: 1 });
     expect(risks.length).toBeLessThanOrEqual(3);
   });
 });

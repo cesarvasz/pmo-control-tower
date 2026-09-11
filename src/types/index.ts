@@ -177,7 +177,7 @@ export interface ProjItemBaseline {
 // métrica asociada (% de Compromiso de Entregas y % de Reproceso del KPI).
 // "Sin reproceso" es una opción exclusiva del dropdown de Reproceso: significa que
 // la unidad no tuvo reproceso, por lo que NO penaliza (se excusa como cualquier ≠ PM).
-export type DelayResponsible = "VPA" | "CKU" | "PM" | "Sponsor" | "Desarrollador" | "BRM" | "Sin reproceso";
+export type DelayResponsible = "VPA" | "CKU" | "PM" | "Sponsor" | "Desarrollo" | "IT" | "Proveedor" | "BRM" | "Sin reproceso";
 export interface DelayAttribution {
   responsible: DelayResponsible;
   by?: string;  // correo del admin que la asignó
@@ -197,9 +197,10 @@ export interface AtrasoReparto {
 
 // Documentación libre de un step atrasado/stuck (tabla Atrasos): el reparto de
 // los días de atraso entre roles (mismo catálogo DELAY_RESPONSIBLES que usa
-// ResponsibleSelect para Entrega/atraso — VPA/CKU/PM/Sponsor/Desarrollador/BRM,
-// más "Sin asignar") y un texto explicando el motivo. Editable por cualquier
-// usuario con acceso a la página Resumen Ejecutivo (no requiere ser Admin).
+// ResponsibleSelect para Entrega/atraso — VPA/CKU/PM/Sponsor/Desarrollo/IT/
+// Proveedor/BRM, más "Sin asignar") y un texto explicando el motivo. Editable
+// por cualquier usuario con acceso a la página Resumen Ejecutivo (no requiere
+// ser Admin).
 export interface AtrasoDetalle {
   reparto?: AtrasoReparto[]; // reparto de los días de atraso por rol
   responsable?: string;      // LEGACY (rol único, antes del reparto) — solo se lee si no hay `reparto`

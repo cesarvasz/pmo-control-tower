@@ -20,7 +20,7 @@ describe("countByResponsible", () => {
 
 describe("RESPONSIBLE_COLOR", () => {
   it("tiene una entrada para cada responsable posible + Sin asignar", () => {
-    for (const k of ["VPA", "CKU", "PM", "Sponsor", "Desarrollador", "BRM", "Sin reproceso", "Sin asignar"]) {
+    for (const k of ["VPA", "CKU", "PM", "Sponsor", "Desarrollo", "IT", "Proveedor", "BRM", "Sin reproceso", "Sin asignar"]) {
       expect(RESPONSIBLE_COLOR[k]).toBeDefined();
     }
   });

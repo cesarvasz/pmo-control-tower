@@ -316,18 +316,21 @@ table.pmo.grouped tbody tr:hover td { background: var(--bg-hover); }
 }
 
 /* ── CHART SERIES (Calidad & Cumplimiento — responsables) — colores validados
-   (dataviz). Orden fijo: VPA=azul · Desarrollador=naranja · CKU=aqua · PM=rojo ·
-   Sponsor=violeta · BRM=magenta · Sin reproceso=verde. "Sin asignar" usa gris neutro
-   (no es una categoría de identidad, es ausencia de dato). */
+   (dataviz). Orden fijo: VPA=azul · Desarrollo=naranja · CKU=aqua · PM=rojo ·
+   Sponsor=violeta · IT=dorado · Proveedor=terracota · BRM=magenta · Sin
+   reproceso=verde. "Sin asignar" usa gris neutro (no es una categoría de
+   identidad, es ausencia de dato). */
 .viz-resp {
   --resp-vpa: #3987e5; --resp-dev: #d95926; --resp-cku: #199e70; --resp-pm: #e66767;
-  --resp-sponsor: #9085e9; --resp-brm: #d55181; --resp-clean: #008300; --resp-none: #6b7280;
+  --resp-sponsor: #9085e9; --resp-it: #d9a832; --resp-proveedor: #c9824a;
+  --resp-brm: #d55181; --resp-clean: #008300; --resp-none: #6b7280;
 }
 :root[data-theme="light"] .viz-resp,
 :root[data-theme="c807"] .viz-resp,
 :root[data-theme="rose"] .viz-resp {
   --resp-vpa: #2a78d6; --resp-dev: #eb6834; --resp-cku: #1baf7a; --resp-pm: #e34948;
-  --resp-sponsor: #4a3aa7; --resp-brm: #e87ba4; --resp-clean: #008300; --resp-none: #6b7280;
+  --resp-sponsor: #4a3aa7; --resp-it: #b8860b; --resp-proveedor: #a1662f;
+  --resp-brm: #e87ba4; --resp-clean: #008300; --resp-none: #6b7280;
 }
 
 /* Barra apilada horizontal: baseline cuadrado (izq), data-end redondeado (der). */
