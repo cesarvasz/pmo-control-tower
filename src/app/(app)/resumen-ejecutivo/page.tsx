@@ -387,12 +387,18 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
 
   const summary = useMemo(() => buildProjectSummary(items), [items]);
   const health = useMemo(() => deriveBoardHealth(calcBoardMetrics(items, projItemBaselines)), [items, projItemBaselines]);
-  // Beneficio $ / Costo $ (Validación / Aprobación / Confirmación) — misma
-  // fuente que el modal de Costo/Beneficio por PM (projStageAmounts), acá
-  // aplicada solo a los items de ESTE board. Acumulativa: Confirmación ⇒
-  // también cuenta como Aprobación (a su valor aprobado / Business Case).
+  // Beneficio $ (Validación / Aprobación / Confirmación) — misma fuente que el
+  // modal de Costo/Beneficio por PM (projStageAmounts), acá aplicada solo a
+  // los items de ESTE board. Acumulativa: Confirmación ⇒ también cuenta como
+  // Aprobación (a su valor aprobado / Business Case). Es un valor declarado
+  // UNA sola vez (Business Case o medición real), no algo que se sume por item.
+  //
+  // Costo $ es lo opuesto: se acumula item por item, así que es la SUMA de la
+  // columna "Cost $" de TODOS los items del board (mismo criterio que
+  // ProjectReportModal.totalCost) — no el de un solo step/etapa (ese solo
+  // traía el Cost $ del Business Case, que subestimaba el costo real acumulado).
   const stageAmounts = useMemo(() => projStageAmounts(items), [items]);
-  const costoProyecto = stageAmounts?.aprobacion?.cost ?? stageAmounts?.validacion?.cost;
+  const costoProyecto = items.reduce((s, it) => s + it.cost, 0);
   const beneficioParaRoi = stageAmounts?.confirmacion?.benefit ?? stageAmounts?.aprobacion?.benefit ?? stageAmounts?.validacion?.benefit;
   const valorProyecto = costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
   const roi = costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
