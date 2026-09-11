@@ -138,10 +138,14 @@ const isStuck = (status: string) => status?.trim().toLowerCase() === "stuck";
 
 // Trabajo que YA debería estar hecho a la fecha (un Done cuenta como On Track):
 // venció sin cerrarse, o está trabado. "Stuck" cuenta como atrasado por
-// definición —está bloqueado—, tenga o no la fecha límite vencida; mismo
-// criterio que enScope en projSummary.ts.
-const isOffTrack = (status: string, estado: string) =>
-  status !== "Done" && (estado === "ATRASADO" || isStuck(status));
+// definición —está bloqueado—, tenga o no la fecha límite vencida — MISMO
+// criterio que enScope en projSummary.ts, con el MISMO blindaje: un hito/item
+// sin Limit Date cae en estado "ATRASADO" por defecto (calcProjEstado(null)),
+// eso NO significa que ya venció, solo que no tiene fecha (típicamente un
+// Future Steps que aún no se agenda) — sin `deadline !== null` acá, ese hito
+// tira "scope" a 0 y arrastra la Salud (EVM) a rojo sin una razón real.
+const isOffTrack = (status: string, estado: string, deadline: Date | null) =>
+  status !== "Done" && ((estado === "ATRASADO" && deadline !== null) || isStuck(status));
 
 export function calcBoardMetrics(
   allBoardItems: ProjItem[],
@@ -152,7 +156,7 @@ export function calcBoardMetrics(
 
   for (const item of allBoardItems) {
     const isDone   = item.status === "Done";
-    const behind   = isOffTrack(item.status, item.estado);
+    const behind   = isOffTrack(item.status, item.estado, item.deadline);
     // EV y PV usan el costo planificado (baseline de Firestore); si aún no hay baseline
     // se usa el costo actual de Monday como fallback.
     const baseCost = projItemBaselines[item.id]?.cost ?? item.cost;
@@ -161,7 +165,7 @@ export function calcBoardMetrics(
     hasItems = true;
     if (behind) anyOffTrack = true;
     for (const sub of item.subitems) {
-      if (isOffTrack(sub.status, sub.estado)) anyOffTrack = true;
+      if (isOffTrack(sub.status, sub.estado, sub.deadline)) anyOffTrack = true;
     }
 
     if (isDone) {

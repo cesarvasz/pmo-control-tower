@@ -14,9 +14,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { fmtDate, fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
-import { isFase3, projStageAmounts } from "@/lib/dashboard";
+import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import {
-  buildProjectSummary, calcPlannedProgress, evaluarStepAtraso, flattenBoardUnits,
+  buildProjectSummary, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, flattenBoardUnits,
   type StepAtraso,
 } from "@/lib/projSummary";
 import { atrasoReparto, countByResponsible } from "@/lib/delay";
@@ -402,15 +402,20 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   const avancePlanificado = calcPlannedProgress(summary.units, summary.phases);
   const { code, name } = splitBoardName(board.name);
 
-  // Atrasos: STEPS de Fase 3 (Launch/Lanzamiento) atrasados o en Stuck — una
-  // fila por step, nunca una por hito (mismo criterio que WorkUnit).
+  // Atrasos de Fase 3 (Launch): plantilla NUEVA — una fila por STEP atrasado o
+  // en Stuck, nunca una por hito (mismo criterio que WorkUnit). Plantilla
+  // VIEJA (existe el step "Desarrollo por iteraciones...") — sus hitos SON los
+  // entregables reales (ver evaluarHitosAtraso); una fila por hito atrasado,
+  // ignorando los otros 3 checkpoints de esa fase (steps redundantes sobre los
+  // mismos hitos, ver isDesarrolloPorIteracionesStep en lib/dashboard).
   const atrasos = useMemo(() => {
     const t = today();
-    return items
-      .filter((it) => isFase3(it.grupo))
-      .map((it) => evaluarStepAtraso(it, t))
-      .filter((x): x is StepAtraso => x !== null)
-      .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
+    const fase3Items = items.filter((it) => isFase3(it.grupo));
+    const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
+    const source = desarrolloItem
+      ? evaluarHitosAtraso(desarrolloItem, t)
+      : fase3Items.map((it) => evaluarStepAtraso(it, t)).filter((x): x is StepAtraso => x !== null);
+    return source.sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
   }, [items]);
 
   const { data } = useData();

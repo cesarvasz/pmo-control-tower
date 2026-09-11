@@ -25,16 +25,20 @@ const NPS_STEP_RE = /encuesta para nps/i;
 const isWorkingOnIt = (s: string) => s.trim().toLowerCase() === "working on it";
 interface SurveyTarget { reqId: string; reqCode: string; reqName: string; pm: string }
 
-function estadoPill(status: string, estado: string): [string, string] {
+// "ATRASADO" sin `deadline` (calcProjEstado(null)) no significa que venció —
+// solo que no tiene Limit Date (típico de un Future Steps sin agendar aún).
+// Sin este blindaje, esos items se ven "Off Track" sin razón real (mismo
+// criterio que enScope en projSummary.ts / isOffTrack en lib/proj.ts).
+function estadoPill(status: string, estado: string, deadline: Date | null): [string, string] {
   if (status === "Done")      return ["pill-entiempo", "✓ On Track"];
-  if (estado === "ATRASADO")  return ["pill-atrasado", "✕ Off Track"];
+  if (estado === "ATRASADO" && deadline !== null) return ["pill-atrasado", "✕ Off Track"];
   if (estado === "PARA HOY")  return ["pill-parahoy",  "⚠ At Risk"];
   if (estado === "EN TIEMPO") return ["pill-entiempo", "✓ On Track"];
   return ["pill-skip", "— Pending"];
 }
 
 // Off Track = está atrasado y no se completó (un Done cuenta como On Track).
-const isOffTrack = (status: string, estado: string) => status !== "Done" && estado === "ATRASADO";
+const isOffTrack = (status: string, estado: string, deadline: Date | null) => status !== "Done" && estado === "ATRASADO" && deadline !== null;
 
 
 export default function ProyectosPage() {
@@ -539,7 +543,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                   : allGItems;
                 if (filterNoDl && gItems.length === 0) return null;
                 const gOpen = filterNoDl || openGroups.has(grupo);
-                const gOffTrack = gItems.some((r) => isOffTrack(r.status, r.estado) || r.subitems.some((s) => isOffTrack(s.status, s.estado)));
+                const gOffTrack = gItems.some((r) => isOffTrack(r.status, r.estado, r.deadline) || r.subitems.some((s) => isOffTrack(s.status, s.estado, s.deadline)));
                 // Cumplimiento de Entrega mide progresivo (no espera a que la fase cierre):
                 // basta un step o hito YA evaluado y atrasado para que la fase entera cuente
                 // "con atraso" — un solo responsable decide la excusa de todos a la vez.
@@ -590,7 +594,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                       </td>
                     </tr>
                     {gOpen && gItems.map((r) => {
-                      const [ecls, elbl] = estadoPill(r.status, r.estado);
+                      const [ecls, elbl] = estadoPill(r.status, r.estado, r.deadline);
                       return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} pm={board.pm} surveysByReq={surveysByReq} onOpenSurvey={onOpenSurvey} desarrolloStepId={desarrolloStep?.id} />;
                     })}
                   </React.Fragment>
@@ -611,7 +615,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   const allSubitems = r.subitems;
   const visibleSubitems = filterNoDl ? allSubitems.filter((s) => s.deadline === null) : allSubitems;
   const hasSubitems = allSubitems.length > 0;
-  const subOffTrack = allSubitems.some((s) => isOffTrack(s.status, s.estado));
+  const subOffTrack = allSubitems.some((s) => isOffTrack(s.status, s.estado, s.deadline));
   const isOpen = (filterNoDl && visibleSubitems.length > 0) || open;
 
   // Solo los subitems del step "Encuesta para NPS" que estén en Working on it llevan encuesta.
@@ -676,7 +680,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
       </tr>
       {/* ── Subitem rows ── */}
       {isOpen && visibleSubitems.map((s, i) => {
-        const [secls, selbl] = estadoPill(s.status, s.estado);
+        const [secls, selbl] = estadoPill(s.status, s.estado, s.deadline);
         const isLast = i === visibleSubitems.length - 1;
         return (
           <tr key={s.id}>

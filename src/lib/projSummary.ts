@@ -5,7 +5,7 @@
 
 import { addBusinessDays, businessDays, unionBusinessDays, today } from "@/lib/business";
 import { classifyDev } from "@/lib/devTimeline";
-import { isFase3, isFase4, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { isFase3, isFase4, isCierreVmoStep, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import type { ProjItem } from "@/types";
 
 /** "Stuck" no tiene un enum en el origen (Monday): es un valor de texto libre
@@ -70,6 +70,26 @@ export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
   };
 }
 
+/** Fase 3, plantilla vieja: cada hito (subitem) de "Desarrollo por iteraciones..."
+ *  atrasado/Stuck es su PROPIO entregable en la tabla Atrasos — a diferencia de
+ *  evaluarStepAtraso (que colapsa un step a lo sumo en una fila, la de su peor
+ *  hito), acá cada hito atrasado es una fila. Así la tabla Atrasos coincide 1:1
+ *  con las filas que ya abre groupFase3Units para esos mismos hitos en el
+ *  Gantt. `it` debe ser el step "Desarrollo por iteraciones..." (ver
+ *  isDesarrolloPorIteracionesStep); llamar con cualquier otro step no tiene
+ *  sentido (sus hitos no son los entregables reales de la plantilla vieja). */
+export function evaluarHitosAtraso(it: ProjItem, hoy: Date): StepAtraso[] {
+  return it.subitems
+    .filter((s) => enScope(s.status, s.estado, s.deadline))
+    .map((s) => ({
+      id: s.id, name: s.name, grupo: it.grupo,
+      deadline: s.deadline, responsible: s.responsible || it.responsible,
+      daysLate: s.deadline ? businessDays(s.deadline, hoy) : null,
+      stuck: isStuck(s.status),
+      nHitos: 0,
+    }));
+}
+
 /**
  * "Atraso actual" del proyecto, en días hábiles: la UNIÓN de los períodos de
  * atraso [deadline, hoy] de cada step en `atrasos` (ver evaluarStepAtraso),
@@ -116,6 +136,11 @@ export interface WorkUnit {
   /** Fecha de inicio del CPM del item (step) padre — no la de este hito. Igual a
    *  `startDate` cuando el item no tiene subitems (es su propio step). */
   stepStartDate: Date | null;
+  /** Limit Date del item (step) padre — no la de este hito. Igual a `deadline`
+   *  cuando el item no tiene subitems. La usan las fases 1/2/4/5 del Gantt en
+   *  plantilla vieja (rowRange en statusReportData.ts) y "Cierre VMO (OP) del
+   *  proyecto": esas fechas se miran a nivel ITEM, nunca a nivel hito. */
+  stepDeadline: Date | null;
 }
 
 export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
@@ -123,10 +148,10 @@ export function flattenBoardUnits(items: ProjItem[]): WorkUnit[] {
   for (const it of items) {
     if (it.subitems.length > 0) {
       for (const s of it.subitems) {
-        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, startDate: s.startDate, entrega: s.entrega, responsible: s.responsible, stepId: it.id, stepName: it.name, stepStartDate: it.startDate });
+        out.push({ id: s.id, name: s.name, grupo: it.grupo, status: s.status, estado: s.estado, deadline: s.deadline, actualEnd: s.actualEnd, startDate: s.startDate, entrega: s.entrega, responsible: s.responsible, stepId: it.id, stepName: it.name, stepStartDate: it.startDate, stepDeadline: it.deadline });
       }
     } else {
-      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, startDate: it.startDate, entrega: it.entrega, responsible: it.responsible, stepId: it.id, stepName: it.name, stepStartDate: it.startDate });
+      out.push({ id: it.id, name: it.name, grupo: it.grupo, status: it.status, estado: it.estado, deadline: it.deadline, actualEnd: it.endDate, startDate: it.startDate, entrega: it.entrega, responsible: it.responsible, stepId: it.id, stepName: it.name, stepStartDate: it.startDate, stepDeadline: it.deadline });
     }
   }
   return out;
@@ -327,11 +352,20 @@ export function calcCompletionEstimate(units: WorkUnit[], avgSlipDays: number): 
     return { isComplete: true, actualFinish, plannedFinish: null, estimatedFinish: actualFinish, scheduleSlipDays: 0 };
   }
 
-  const fase4Deadlines = units.filter((u) => isFase4(u.grupo)).map((u) => u.deadline).filter((d): d is Date => d !== null);
-  if (!fase4Deadlines.length) {
-    return { isComplete: false, actualFinish: null, plannedFinish: null, estimatedFinish: null, scheduleSlipDays: 0 };
+  // Plantilla vieja: "Cierre VMO (OP) del proyecto" (Fase 5) fija el cierre plan
+  // directamente — reemplaza el máximo de Fase 4 (que sigue siendo el criterio
+  // para la plantilla nueva, donde ese item no existe). Ver isCierreVmoStep.
+  // Siempre a nivel ITEM (stepName/stepDeadline) — un hito no define el cierre
+  // del proyecto ni de la fase, solo su propio item padre.
+  const cierreVmo = units.find((u) => isCierreVmoStep(u.stepName))?.stepDeadline ?? null;
+  let plannedFinish = cierreVmo;
+  if (!plannedFinish) {
+    const fase4Deadlines = units.filter((u) => isFase4(u.grupo)).map((u) => u.stepDeadline).filter((d): d is Date => d !== null);
+    if (!fase4Deadlines.length) {
+      return { isComplete: false, actualFinish: null, plannedFinish: null, estimatedFinish: null, scheduleSlipDays: 0 };
+    }
+    plannedFinish = new Date(Math.max(...fase4Deadlines.map((d) => d.getTime())));
   }
-  const plannedFinish = new Date(Math.max(...fase4Deadlines.map((d) => d.getTime())));
 
   const scheduleSlipDays = plannedFinish < t ? businessDays(plannedFinish, t) : 0;
   const base = scheduleSlipDays > 0 ? t : plannedFinish;

@@ -31,11 +31,30 @@ describe("calcBoardMetrics", () => {
        grupo: "Fase", benefit: 0, cost: 0, ...o }) as ProjItem;
 
   it("un item atrasado en 'Working on it' cuenta en PV/AC (no en EV)", () => {
-    const r = calcBoardMetrics([pItem({ id: "a", status: "Working on it", estado: "ATRASADO", cost: 100 })]);
+    const r = calcBoardMetrics([pItem({ id: "a", status: "Working on it", estado: "ATRASADO", cost: 100, deadline: daysFromToday(-5) })]);
     expect(r.pv).toBe(100);
     expect(r.ac).toBe(100);
     expect(r.ev).toBe(0);
     expect(r.spi).toBe(0);
+  });
+
+  it("'ATRASADO' SIN deadline (calcProjEstado(null)) no cuenta como off track — no venció, solo no tiene Limit Date", () => {
+    // Mismo blindaje que enScope en projSummary.ts: un item/hito sin fecha
+    // (típico Future Steps sin agendar) no debe tirar PV/scope como si hubiera
+    // vencido de verdad.
+    const r = calcBoardMetrics([pItem({ id: "a", status: "Working on it", estado: "ATRASADO", cost: 100, deadline: null })]);
+    expect(r.pv).toBe(0);
+    expect(r.scope).toBe(100);
+  });
+
+  it("un subitem 'ATRASADO' sin deadline no tira el scope del board a 0", () => {
+    const r = calcBoardMetrics([
+      pItem({
+        id: "a", status: "Working on it", estado: "EN TIEMPO", cost: 100,
+        subitems: [{ id: "s1", status: "Future Steps", estado: "ATRASADO", deadline: null } as ProjItem["subitems"][number]],
+      }),
+    ]);
+    expect(r.scope).toBe(100);
   });
 
   it("'Stuck' entra en PV aunque su fecha límite no haya vencido (trabado = atrasado)", () => {

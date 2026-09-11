@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   flattenBoardUnits, calcProgress, calcPlannedProgress, buildPhaseSummaries, groupFase3Units, calcDelaySummary, calcCompletionEstimate,
-  calcAtrasoActualDias, currentPhaseIndex, phaseState, type PhaseSummary,
+  calcAtrasoActualDias, currentPhaseIndex, phaseState, evaluarHitosAtraso, type PhaseSummary,
 } from "./projSummary";
 import { businessDays, today } from "./business";
 import type { ProjItem, ProjSubitem } from "@/types";
@@ -343,5 +343,68 @@ describe("calcCompletionEstimate", () => {
     const c = calcCompletionEstimate(units, 0);
     expect(c.plannedFinish).toBeNull();
     expect(c.estimatedFinish).toBeNull();
+  });
+
+  it("plantilla vieja: \"Cierre VMO (OP) del proyecto\" (Fase 5) fija el plan — ignora Fase 4 aunque venza después", () => {
+    const units = flattenBoardUnits([
+      item({ id: "op", grupo: "Operación | Implementación", status: "Working on it", deadline: daysFromToday(40) }),
+      item({ id: "cierre", name: "Cierre VMO (OP) del proyecto", grupo: "Revisión | Cierre ROI", status: "Working on it", deadline: daysFromToday(10) }),
+    ]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.plannedFinish).toEqual(daysFromToday(10));
+  });
+
+  it("usa el Limit Date del ITEM \"Cierre VMO...\", no el de sus hitos", () => {
+    const units = flattenBoardUnits([
+      item({
+        id: "cierre", name: "Cierre VMO (OP) del proyecto", grupo: "Revisión | Cierre ROI", status: "Working on it", deadline: daysFromToday(10),
+        subitems: [sub({ id: "h1", status: "Done", deadline: daysFromToday(-30) }), sub({ id: "h2", status: "Working on it", deadline: daysFromToday(99) })],
+      }),
+    ]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.plannedFinish).toEqual(daysFromToday(10));
+  });
+
+  it("Fase 4 sin \"Cierre VMO...\": min/max también a nivel ITEM, ignora hitos con fechas muy distintas", () => {
+    const units = flattenBoardUnits([
+      item({
+        id: "op1", grupo: "Operación | Implementación", status: "Working on it", deadline: daysFromToday(40),
+        subitems: [sub({ id: "h1", status: "Working on it", deadline: daysFromToday(-90) }), sub({ id: "h2", status: "Working on it", deadline: daysFromToday(200) })],
+      }),
+    ]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.plannedFinish).toEqual(daysFromToday(40));
+  });
+});
+
+describe("evaluarHitosAtraso (Fase 3 plantilla vieja: cada hito atrasado de \"Desarrollo por iteraciones...\" es su propia fila)", () => {
+  it("una fila POR HITO atrasado/Stuck — no colapsa al peor como evaluarStepAtraso", () => {
+    const hoy = today();
+    const desarrollo = item({
+      id: "desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", grupo: "Launch | Desarrollo", responsible: "PM Step",
+      subitems: [
+        sub({ id: "h1", name: "Hito 1", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-11), responsible: "Dev A" }),
+        sub({ id: "h2", name: "Hito 2", status: "Stuck", estado: "EN TIEMPO", deadline: daysFromToday(2) }),
+        sub({ id: "h3", name: "Hito 3 al día", status: "Working on it", estado: "EN TIEMPO", deadline: daysFromToday(5) }),
+      ],
+    });
+    const rows = evaluarHitosAtraso(desarrollo, hoy);
+    expect(rows.map((r) => r.id)).toEqual(["h1", "h2"]); // h3 no está en scope
+    expect(rows.find((r) => r.id === "h1")).toMatchObject({ name: "Hito 1", grupo: "Launch | Desarrollo", stuck: false });
+    expect(rows.find((r) => r.id === "h2")).toMatchObject({ stuck: true });
+  });
+
+  it("usa el responsable del hito; si viene vacío, cae al del step", () => {
+    const desarrollo = item({
+      id: "d", name: "Desarrollo por iteraciones", grupo: "Launch", responsible: "PM Step",
+      subitems: [sub({ id: "h1", status: "Stuck", deadline: today(), responsible: "" })],
+    });
+    const rows = evaluarHitosAtraso(desarrollo, today());
+    expect(rows[0].responsible).toBe("PM Step");
+  });
+
+  it("sin hitos en scope → []", () => {
+    const desarrollo = item({ id: "d", name: "Desarrollo por iteraciones", grupo: "Launch", subitems: [sub({ id: "h1", status: "Done" })] });
+    expect(evaluarHitosAtraso(desarrollo, today())).toEqual([]);
   });
 });

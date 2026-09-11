@@ -86,7 +86,9 @@ function computeUpcomingActions(items: ProjItem[]): UpcomingAction[] {
 function phaseStatusOf(gItems: ProjItem[]): PhaseStatus {
   const done = gItems.filter((r) => r.status === "Done").length;
   if (done === gItems.length && gItems.length > 0) return "done";
-  const late = gItems.some((r) => r.status !== "Done" && r.estado === "ATRASADO");
+  // "ATRASADO" sin deadline no venció, solo no tiene Limit Date (mismo
+  // blindaje que enScope en projSummary.ts / isOffTrack en lib/proj.ts).
+  const late = gItems.some((r) => r.status !== "Done" && r.estado === "ATRASADO" && r.deadline !== null);
   if (late) return "late";
   const started = done > 0 || gItems.some((r) => r.status === "Working on it");
   return started ? "active" : "pending";
@@ -100,7 +102,7 @@ function computeMetrics(items: ProjItem[], spi: number | null, cpi: number | nul
   const done    = items.filter((r) => r.status === "Done").length;
   const working = items.filter((r) => r.status === "Working on it").length;
   const future  = items.filter((r) => r.status === "Future Steps").length;
-  const atrasados = items.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+  const atrasados = items.filter((r) => r.status !== "Done" && r.estado === "ATRASADO" && r.deadline !== null).length;
 
   const totalCost    = items.reduce((s, r) => s + r.cost, 0);
   const totalBenefit = items.reduce((s, r) => s + r.benefit, 0);
@@ -125,11 +127,12 @@ function computeMetrics(items: ProjItem[], spi: number | null, cpi: number | nul
     };
   });
 
-  // Off Track = no completado y atrasado (mismo criterio que el resto de la app).
-  const isOffTrack = (status: string, estado: string) => status !== "Done" && estado === "ATRASADO";
+  // Off Track = no completado y atrasado (mismo criterio que el resto de la
+  // app) — "ATRASADO" sin deadline no cuenta, no venció, solo no tiene fecha.
+  const isOffTrack = (status: string, estado: string, deadline: Date | null) => status !== "Done" && estado === "ATRASADO" && deadline !== null;
   // Tareas críticas: el item está off track, o tiene algún subitem off track.
   const criticalItems = items.filter(
-    (r) => isOffTrack(r.status, r.estado) || r.subitems.some((s) => isOffTrack(s.status, s.estado)),
+    (r) => isOffTrack(r.status, r.estado, r.deadline) || r.subitems.some((s) => isOffTrack(s.status, s.estado, s.deadline)),
   );
 
   // Sin acciones críticas: se muestra en su lugar lo que se hará la próxima semana.
@@ -333,9 +336,9 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                 const gItems = m.groupMap.get(grupo)!;
                 const gDone  = gItems.filter((r) => r.status === "Done").length;
                 // Items atrasados ("Steps Atrasados") y subitems atrasados ("Tareas Atrasadas").
-                const gLateItems = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+                const gLateItems = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO" && r.deadline !== null).length;
                 const gLateSubs  = gItems.reduce(
-                  (s, r) => s + r.subitems.filter((su) => su.status !== "Done" && su.estado === "ATRASADO").length,
+                  (s, r) => s + r.subitems.filter((su) => su.status !== "Done" && su.estado === "ATRASADO" && su.deadline !== null).length,
                   0,
                 );
                 const pct    = Math.round((gDone / gItems.length) * 100);
@@ -368,8 +371,9 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
               <SectionLabel>Acciones Críticas</SectionLabel>
               <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
                 {m.criticalItems.map((r, i) => {
-                  const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
-                  const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
+                  const atrasada = r.estado === "ATRASADO" && r.deadline !== null;
+                  const color = atrasada ? "#ef4444" : "#f59e0b";
+                  const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.deadline !== null && s.status !== "Done");
                   const { colResp, respLines, comment } = criticalMeta(r.name, r.resp, board.cku || "");
                   const hitos = hitosInline(offSubs);
                   return (
@@ -383,7 +387,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
                     >
                       <div className="flex items-center gap-3 text-[0.78rem]">
                         <span style={{ color, fontWeight: 700 }}>
-                          {r.estado === "ATRASADO" ? "✕" : "⚠"}
+                          {atrasada ? "✕" : "⚠"}
                         </span>
                         <span className="flex-1 font-medium text-[var(--text-primary)]">{r.name}</span>
                         {r.deadline && (
@@ -571,14 +575,15 @@ function buildPrintHTML(
 
   const criticalRows = m.criticalItems
     .map((r) => {
-      const color = r.estado === "ATRASADO" ? "#ef4444" : "#f59e0b";
-      const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.status !== "Done");
+      const atrasada = r.estado === "ATRASADO" && r.deadline !== null;
+      const color = atrasada ? "#ef4444" : "#f59e0b";
+      const offSubs = r.subitems.filter((s) => s.estado === "ATRASADO" && s.deadline !== null && s.status !== "Done");
       const { colResp, respLines, comment } = criticalMeta(r.name, r.resp, board.cku || "");
       const hitos = hitosInline(offSubs);
       const mainRow = `
       <tr>
         <td style="color:${color};font-weight:700;width:18px">
-          ${r.estado === "ATRASADO" ? "✕" : "⚠"}
+          ${atrasada ? "✕" : "⚠"}
         </td>
         <td style="font-weight:500">${r.name}</td>
         <td style="color:#6b7280">${colResp}</td>
@@ -630,10 +635,10 @@ function buildPrintHTML(
       const gItems = m.groupMap.get(grupo)!;
       const gDone  = gItems.filter((r) => r.status === "Done").length;
       // Items atrasados de la fase ("Steps Atrasados").
-      const gLateItems = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO").length;
+      const gLateItems = gItems.filter((r) => r.status !== "Done" && r.estado === "ATRASADO" && r.deadline !== null).length;
       // Subitems atrasados de la fase ("Tareas Atrasadas").
       const gLateSubs  = gItems.reduce(
-        (s, r) => s + r.subitems.filter((su) => su.status !== "Done" && su.estado === "ATRASADO").length,
+        (s, r) => s + r.subitems.filter((su) => su.status !== "Done" && su.estado === "ATRASADO" && su.deadline !== null).length,
         0,
       );
       const gpct   = Math.round((gDone / gItems.length) * 100);

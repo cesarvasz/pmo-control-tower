@@ -409,6 +409,14 @@ export const isFase4 = (grupo: string): boolean => norm((grupo ?? "").trim()).st
 const DESARROLLO_ITERACIONES_RE = /desarrollo por iteraciones/i;
 export const isDesarrolloPorIteracionesStep = (name: string): boolean => DESARROLLO_ITERACIONES_RE.test(name);
 
+// Fase 5 (Revisión), SOLO plantilla vieja: el item "Cierre VMO (OP) del proyecto"
+// fija el cierre real del proyecto — su Limit Date es tanto el fin de la fila de
+// Fase 5 en el Gantt como la "Fecha cierre plan" del reporte (en vez del máximo
+// Limit Date de Fase 4, que es lo que se usa cuando este item no existe — ver
+// calcCompletionEstimate en projSummary.ts). La plantilla nueva no tiene este item.
+const CIERRE_VMO_RE = /cierre\s*vmo\s*\(op\)\s*del\s*proyecto/i;
+export const isCierreVmoStep = (name: string): boolean => CIERRE_VMO_RE.test(name);
+
 /** Unidad de medición de Calidad dentro de una Fase 3: SIEMPRE un ITEM (step) —
  *  ver isDesarrolloPorIteracionesStep arriba para cuáles steps de la fase miden.
  *  Sus hitos son solo lectura (detalle en `cascade`/`pendingAtrasados`/`fueraDeCpm`),

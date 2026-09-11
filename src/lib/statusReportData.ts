@@ -7,7 +7,7 @@
 
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { addMonth, startOfMonth } from "@/lib/dateAxis";
-import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { isFase3, isCierreVmoStep, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
   calcAtrasoActualDias, currentPhaseIndex, enScope, groupFase3Units,
@@ -20,11 +20,11 @@ import type { BoardHealthData } from "@/lib/proj";
 import type { AtrasoDetalle, ProjBoard } from "@/types";
 
 export type StatusBand = "V" | "A" | "L" | "O" | "R";
-export type StatusPhaseStatus = "done" | "current" | "late" | "pending_progress" | "pending";
+export type StatusPhaseStatus = "done" | "current" | "late" | "pending_progress" | "pending" | "future";
 
 export interface StatusPhase {
   name: string;
-  state: string;                 // "Completada" | "En curso" | "Atrasada" | "Pendiente"
+  state: string;                 // "Completada" | "En curso" | "Atrasada" | "Pendiente" | "A futuro"
   status: StatusPhaseStatus;
   indent: 0 | 1;
   bold: boolean;
@@ -144,7 +144,40 @@ function buildGanttRows(phases: PhaseSummary[], units: WorkUnit[]): GRow[] {
   return rows;
 }
 
-function rowRange(r: GRow): { start: number; end: number } | null {
+/** Rango [start,end] de una fila del Gantt.
+ *  Plantilla VIEJA (isOldTemplate):
+ *   · fila de hito de Fase 3 (indent 1 — ver groupFase3Units): un solo punto,
+ *     el Limit Date de ESE hito (nunca Actual End) — así la línea de tiempo
+ *     refleja el compromiso, no cuándo se cerró de hecho.
+ *   · fases 1/2/4/5 (V/A/O/R, indent 0): min/max del Limit Date de TODOS sus
+ *     ITEMS — nunca de sus hitos/subitems (`stepDeadline`, no `deadline`; no
+ *     hay Start Date confiable en esta plantilla, ver proj.ts). La fase 5
+ *     (Revisión) es la excepción: su fin no es el máximo, es el Limit Date
+ *     del item "Cierre VMO (OP) del proyecto" (mismo criterio que
+ *     calcCompletionEstimate para "Fecha cierre plan" — un solo dato, dos usos).
+ *  Todo lo demás (plantilla nueva, o Fase 3/Launch de nivel 0 en cualquier
+ *  plantilla): el criterio de siempre, min/max de Limit Date + Actual End
+ *  a nivel HITO (deadline/actualEnd, no stepDeadline).
+ */
+function rowRange(r: GRow, isOldTemplate: boolean): { start: number; end: number } | null {
+  if (isOldTemplate) {
+    if (r.indent === 1) {
+      const d = r.units[0]?.deadline;
+      return d ? { start: d.getTime(), end: d.getTime() } : null;
+    }
+    const stage = valorStageOf(r.grupo);
+    if (stage === 0 || stage === 1 || stage === 3 || stage === 4) {
+      const deadlines = r.units.map((u) => u.stepDeadline).filter((d): d is Date => d !== null);
+      if (!deadlines.length) return null;
+      const start = Math.min(...deadlines.map((d) => d.getTime()));
+      let end = Math.max(...deadlines.map((d) => d.getTime()));
+      if (stage === 4) {
+        const cierre = r.units.find((u) => isCierreVmoStep(u.stepName))?.stepDeadline;
+        if (cierre) end = cierre.getTime();
+      }
+      return { start, end };
+    }
+  }
   const ds: number[] = [];
   r.units.forEach((u) => {
     if (u.deadline) ds.push(u.deadline.getTime());
@@ -164,6 +197,18 @@ function phaseStateLabel(r: GRow): string {
   if (r.total > 0 && r.done === r.total) return "Completada";
   if (r.offTrack) return "Atrasada";
   return r.isCurrent ? "En curso" : "Pendiente";
+}
+
+/** Fila de hito de Fase 3, plantilla VIEJA: el color/estado viene del status
+ *  crudo de Monday (Done/Working on it/Future Steps), no de "es la fase
+ *  actual" — pero un hito vencido (mismo criterio que la tabla Atrasos,
+ *  enScope) siempre se pinta "Atrasada" en rojo, sin importar su status. */
+function fase3EntregableStatus(u: WorkUnit): { status: StatusPhaseStatus; state: string } {
+  if (enScope(u.status, u.estado, u.deadline)) return { status: "late", state: "Atrasada" };
+  if (u.status === "Done") return { status: "done", state: "Completada" };
+  if (u.status === "Working on it") return { status: "current", state: "En curso" };
+  if (u.status === "Future Steps") return { status: "future", state: "A futuro" };
+  return { status: "pending", state: u.status || "Pendiente" };
 }
 
 // ── Entrada del adaptador ───────────────────────────────────────────────
@@ -193,11 +238,31 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
   const { units, progress, phases, completion } = summary;
   const { plannedFinish, estimatedFinish, scheduleSlipDays } = completion;
 
+  // Plantilla vieja: existe el step "Desarrollo por iteraciones..." en Fase 3
+  // (ver isDesarrolloPorIteracionesStep) — decide cómo se arman las fases 1/2/4/5
+  // y las filas de Fase 3 (ver rowRange/fase3EntregableStatus abajo), y también
+  // el dominio temporal del eje de meses (ver abajo: por qué no usa `units` crudo).
+  const isOldTemplate = units.some((u) => isFase3(u.grupo) && isDesarrolloPorIteracionesStep(u.stepName));
+  const gRows = buildGanttRows(phases, units);
+
   // ── dominio temporal ──
   const dateNums: number[] = [nowDate.getTime()];
-  units.forEach((u) => {
-    [u.startDate, u.deadline, u.actualEnd].forEach((d) => { if (d) dateNums.push(d.getTime()); });
-  });
+  if (isOldTemplate) {
+    // Igual que el Gantt: SOLO las fechas que de verdad se dibujan (rowRange de
+    // cada fila) — nunca las de `units` crudo. La plantilla vieja trae fases
+    // administrativas (ej. Fase 5 con "VPA recopila datos a 90 días...",
+    // "Cierre formal del proyecto") con Limit Date meses después del cierre
+    // real del proyecto (el de "Cierre VMO..."); si el eje las incluyera
+    // igual, el mes axis se estiraría con espacio muerto que ninguna barra usa.
+    gRows.forEach((r) => {
+      const range = rowRange(r, isOldTemplate);
+      if (range) { dateNums.push(range.start, range.end); }
+    });
+  } else {
+    units.forEach((u) => {
+      [u.startDate, u.deadline, u.actualEnd].forEach((d) => { if (d) dateNums.push(d.getTime()); });
+    });
+  }
   if (plannedFinish) dateNums.push(plannedFinish.getTime());
   if (estimatedFinish) dateNums.push(estimatedFinish.getTime());
   const rawMin = new Date(Math.min(...dateNums));
@@ -207,14 +272,16 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
   const monthYear = (d: Date) => d.toLocaleDateString("es-GT", { month: "long", year: "numeric" });
 
   // ── fases del Gantt ──
-  const gRows = buildGanttRows(phases, units);
   const fallbackMs = (plannedFinish ?? tlEnd).getTime();
   const statusPhases: StatusPhase[] = gRows.map((r) => {
-    const range = rowRange(r);
+    const range = rowRange(r, isOldTemplate);
+    const { status, state } = isOldTemplate && r.indent === 1
+      ? fase3EntregableStatus(r.units[0])
+      : { status: phaseStatusOf(r), state: phaseStateLabel(r) };
     const base: StatusPhase = {
       name: r.indent === 0 ? shortPhaseName(r.grupo) : r.grupo,
-      state: phaseStateLabel(r),
-      status: phaseStatusOf(r),
+      state,
+      status,
       indent: r.indent,
       bold: r.indent === 0,
       ...(r.indent === 0 && bandOf(r.grupo) ? { band: bandOf(r.grupo) } : {}),

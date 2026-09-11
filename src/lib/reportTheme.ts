@@ -32,6 +32,7 @@ export const SURFACE = "#ffffff";
 export const CARD_BG = "#fbfbfa";
 export const NAVY = "#132a3a";
 export const BLUE = "#2a78d6";
+export const BLUE_BG = "#e5f0fb";
 export const VIOLET = "#4a3aa7";
 
 /** Tono semántico de una tarjeta/celda del reporte. */

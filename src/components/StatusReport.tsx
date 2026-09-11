@@ -20,7 +20,7 @@
 
 import { forwardRef, Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
-  BLUE, BOLT_PATH, CARD_BG, CRITICAL, CRITICAL_BG, GOOD, GOOD_BG, GRID, INK, INK_MUTED,
+  BLUE, BLUE_BG, BOLT_PATH, CARD_BG, CRITICAL, CRITICAL_BG, GOOD, GOOD_BG, GRID, INK, INK_MUTED,
   INK_SEC, NAVY, NEUTRAL, NEUTRAL_BG, NEUTRAL_LINE, SURFACE, TONE, VIOLET, WARNING,
   WARNING_BG, WARNING_FILL, spiTone,
 } from "@/lib/reportTheme";
@@ -54,6 +54,7 @@ function statusColors(status: StatusPhaseStatus): { fill: string; edge: string; 
     late:             { fill: CRITICAL,     edge: CRITICAL,     track: "#f3c9c9" },
     pending_progress: { fill: NEUTRAL,      edge: NEUTRAL_LINE, track: "#e6e5e0" },
     pending:          { fill: "none",       edge: NEUTRAL_LINE, track: "#eeeeee" },
+    future:           { fill: "none",       edge: BLUE,         track: "#eeeeee" },
   } as const)[status];
 }
 
@@ -64,6 +65,7 @@ const CSS = `
   --warning:${WARNING}; --warning-fill:${WARNING_FILL}; --warning-bg:${WARNING_BG};
   --critical:${CRITICAL}; --critical-bg:${CRITICAL_BG};
   --neutral:${NEUTRAL}; --neutral-bg:${NEUTRAL_BG}; --neutral-line:${NEUTRAL_LINE};
+  --future:${BLUE}; --future-bg:${BLUE_BG};
   --ink:${INK}; --ink-sec:${INK_SEC}; --ink-muted:${INK_MUTED};
   --grid:${GRID}; --surface:${SURFACE}; --navy:${NAVY};
   --font:var(--font-inter),'Inter','Helvetica Neue',Arial,sans-serif;
@@ -147,6 +149,7 @@ const CSS = `
 .pmo-report .state-current{ background:var(--warning-bg); color:var(--warning); }
 .pmo-report .state-late{ background:var(--critical-bg); color:var(--critical); }
 .pmo-report .state-pending{ background:var(--neutral-bg); color:var(--ink-muted); }
+.pmo-report .state-future{ background:var(--future-bg); color:var(--future); }
 .pmo-report .g-chart{ position:relative; flex:1; height:12px; }
 .pmo-report .g-track{ position:absolute; left:0; right:0; top:50%; height:1px; background:var(--grid); }
 .pmo-report .g-bar{ position:absolute; top:1px; height:10px; border-radius:5px; overflow:hidden; }
@@ -438,7 +441,7 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
             <img className="logo-pmo" src="/pmo-logo.png" alt="PMO" crossOrigin="anonymous" />
             <div className="header-left">
               <div className="title-row">
-                <span className="report-kicker-inline">Score Card</span>
+                <span className="report-kicker-inline">Status Card</span>
                 <span className="title-sep" />
                 <span className="proj-id">{data.project.id}</span>
                 <span className="proj-name">{data.project.name}</span>
