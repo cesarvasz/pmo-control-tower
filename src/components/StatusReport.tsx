@@ -127,21 +127,22 @@ const CSS = `
 
 .pmo-report .gantt{ margin-bottom:11px; border:1px solid var(--grid); border-radius:8px;
   padding:5px 12px 4px 12px; background:#fdfdfc; }
-.pmo-report .g-months{ position:relative; height:12px; margin-left:212px; margin-bottom:1px; }
-.pmo-report .g-month{ position:absolute; top:0; font-size:6.8pt; color:var(--ink-muted); font-weight:600;
-  transform:translateX(1px); border-left:1px solid var(--grid); padding-left:3px; white-space:nowrap; }
+.pmo-report .g-months{ position:relative; height:12px; margin-left:280px; margin-bottom:1px; }
+.pmo-report .g-month{ position:absolute; top:0; font-size:5.4pt; color:var(--ink-muted); font-weight:600;
+  transform:translateX(1px); border-left:1px solid var(--grid); padding-left:2px; white-space:nowrap; }
 .pmo-report .g-rows{ position:relative; }
-.pmo-report .g-lines-overlay{ position:absolute; top:0; bottom:0; left:212px; right:0; pointer-events:none; }
+.pmo-report .g-lines-overlay{ position:absolute; top:0; bottom:0; left:280px; right:0; pointer-events:none; }
 .pmo-report .g-vline{ position:absolute; top:0; bottom:0; border-left:1px solid var(--grid); }
 .pmo-report .g-todayline{ position:absolute; top:0; bottom:0; border-left:1.6px solid var(--navy); }
 .pmo-report .g-planline{ position:absolute; top:0; bottom:0; border-left:1.6px dashed var(--warning); }
-.pmo-report .g-row{ display:flex; align-items:center; height:13.5px; border-top:1px solid #f1f0ec; }
+.pmo-report .g-row{ display:flex; align-items:center; min-height:13.5px; border-top:1px solid #f1f0ec; padding:1.5px 0; }
 .pmo-report .g-row:first-child{ border-top:none; }
-.pmo-report .g-label{ width:212px; flex-shrink:0; display:flex; align-items:center; gap:5px; padding-right:6px; }
-.pmo-report .g-name{ font-size:7.9pt; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-.pmo-report .band-chip{ width:6px; height:6px; border-radius:2px; flex-shrink:0; }
-.pmo-report .g-state{ font-size:6.2pt; font-weight:700; padding:1px 11px; border-radius:8px;
-  text-transform:uppercase; letter-spacing:.2px; margin-left:auto; margin-right:2px; white-space:nowrap; flex-shrink:0; }
+.pmo-report .g-label{ width:280px; flex-shrink:0; display:flex; align-items:center; gap:5px; padding-right:6px; }
+.pmo-report .g-name{ font-size:7.9pt; line-height:1.15; white-space:normal; word-break:break-word; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; max-height:2.35em; min-width:0; }
+.pmo-report .band-chip{ width:6px; height:6px; border-radius:2px; flex-shrink:0; margin-top:2px; align-self:flex-start; }
+.pmo-report .g-state{ font-size:5.6pt; font-weight:700; padding:1px 7px; border-radius:7px;
+  text-transform:uppercase; letter-spacing:.15px; margin-left:auto; margin-right:2px; white-space:nowrap; flex-shrink:0; }
 .pmo-report .state-done{ background:var(--good-bg); color:var(--good); }
 .pmo-report .state-current{ background:var(--warning-bg); color:var(--warning); }
 .pmo-report .state-late{ background:var(--critical-bg); color:var(--critical); }
@@ -288,7 +289,10 @@ function Kpis({ data }: { data: StatusReportData }) {
 }
 
 function GanttRow({ r, pct, today }: { r: StatusPhase; pct: (t: number) => number; today: number }) {
-  const indentPx = 22 * r.indent;
+  // Sangría reducida a propósito: el color/peso de fuente (nameStyle) ya
+  // distingue entregable de fase, así que el "tab" solo necesita un guiño,
+  // no 22px — se recupera ese ancho para el nombre.
+  const indentPx = 10 * r.indent;
   const nameStyle: React.CSSProperties = r.bold ? { fontWeight: 600 } : { fontWeight: 400, color: INK_SEC };
   const stateCls = `state-${r.status.split("_")[0]}`;
 
@@ -434,7 +438,7 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
             <img className="logo-pmo" src="/pmo-logo.png" alt="PMO" crossOrigin="anonymous" />
             <div className="header-left">
               <div className="title-row">
-                <span className="report-kicker-inline">Reporte Proyecto</span>
+                <span className="report-kicker-inline">Score Card</span>
                 <span className="title-sep" />
                 <span className="proj-id">{data.project.id}</span>
                 <span className="proj-name">{data.project.name}</span>
