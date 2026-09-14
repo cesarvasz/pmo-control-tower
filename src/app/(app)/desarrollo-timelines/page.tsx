@@ -22,14 +22,45 @@ const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep"
 const DAY = 86_400_000;
 const LABEL_W = 220; // ancho de la columna de etiquetas (izquierda)
 
-/** Atrasado: el hito ya pasó su Limit Date sin cerrarse a tiempo (o cerró tarde).
- *  Misma fórmula que usan las barras del Gantt (ver `geoms`) — se extrae acá para
- *  reusarla también en el conteo de proyectos de las tarjetas. */
-function isRowLate(r: DevTimelineRow, nowMs: number): boolean {
-  const { firmado, analisis, limit, entrega, enDesarrollo } = r;
-  const devFrom = analisis ?? firmado ?? limit ?? entrega;
-  const endReal = entrega ?? (enDesarrollo ? new Date(nowMs) : (limit ?? devFrom));
-  return !!(limit && endReal && endReal.getTime() > limit.getTime() + DAY);
+// Estado de la BARRA del Gantt (y de "atrasado" para las tarjetas de En Curso):
+// se lee del status del step "Entrega Desarrollo" (`devStatus`), NO de fechas
+// comparadas entre sí:
+//   · Done            → completado (verde)
+//   · Stuck           → SIEMPRE atrasado (rojo), pase o no el Limit Date
+//   · Future Steps/"" → futuro (azul), aún no inicia
+//   · cualquier otro activo (típicamente "Working on it") → atrasado (rojo)
+//     si el Limit Date YA PASÓ, si no en tiempo (amarillo)
+type BarStatus = "completado" | "enTiempo" | "atrasado" | "futuro";
+
+function devStatusKind(status: string): "done" | "stuck" | "future" | "active" {
+  const s = status.trim().toLowerCase();
+  if (s === "done") return "done";
+  if (s === "stuck") return "stuck";
+  if (s === "" || s.includes("future") || s.includes("not started")) return "future";
+  return "active";
+}
+
+function barStatus(r: DevTimelineRow, nowMs: number): BarStatus {
+  const kind = devStatusKind(r.devStatus);
+  if (kind === "done") return "completado";
+  if (kind === "stuck") return "atrasado";
+  if (kind === "future") return "futuro";
+  const pastLimit = !!(r.limit && nowMs > r.limit.getTime() + DAY);
+  return pastLimit ? "atrasado" : "enTiempo";
+}
+
+const BAR_COLOR: Record<BarStatus, string> = {
+  completado: "var(--ok)", enTiempo: "var(--warn)", atrasado: "var(--bad)", futuro: "var(--info)",
+};
+const BAR_STATUS_LABEL: Record<BarStatus, string> = {
+  completado: "Completado", enTiempo: "En curso · a tiempo", atrasado: "Atrasado", futuro: "Aún no inicia",
+};
+
+/** Entrega tardía YA CONSUMADA (Salida en vivo real después del deadline de
+ *  Entrega Desarrollo) — distinto de `barStatus`, que es el estado EN VIVO
+ *  del step; este es el veredicto histórico de un hito ya completado. */
+function wasDeliveredLate(r: DevTimelineRow): boolean {
+  return !!(r.limit && r.entrega && r.entrega.getTime() > r.limit.getTime() + DAY);
 }
 
 export type RowStatus = "A futuro" | "En Curso" | "Completados";
@@ -100,19 +131,20 @@ function monthTicks(min: Date, max: Date): { date: Date; label: string }[] {
 }
 
 // ── Geometría de una fila (posiciones en % sobre el eje [min,max]) ─────────
+// Los colores son SOLO para los puntos (marcadores); la barra es una sola,
+// coloreada por `barStatus` (ver arriba): verde completado, amarillo en curso
+// a tiempo, rojo atrasado, azul futuro/no iniciado.
 interface RowGeom {
   row: DevTimelineRow;
   hasDates: boolean;
-  preL: number; preW: number;      // segmento firma→análisis (espera pre-dev)
-  devL: number; devW: number;      // segmento desarrollo (análisis→fin)
-  lateL: number; lateW: number;    // porción atrasada (limit→fin), si aplica
+  barL: number; barW: number; barColor: string;
   firmadoX: number | null;         // A
   reqTerminadoX: number | null;    // solo plantilla nueva
   analisisX: number | null;        // B
   limitX: number | null;           // C (deadline)
   entregaX: number | null;         // D
   ongoingX: number | null;         // marcador "hoy" si sigue en curso
-  late: boolean;
+  late: boolean;                   // wasDeliveredLate — para el diamante de Salida en vivo
   entregado: boolean;
 }
 
@@ -178,9 +210,12 @@ export default function DesarrolloTimelinesPage() {
   // agrupan por proyecto. Se calculan sobre `rows`, es decir YA con todos los
   // filtros aplicados (Proyecto/PM/Developer/Status) — al filtrar por Status
   // las tarjetas reflejan exactamente lo filtrado. "A futuro"/Completado/En
-  // Curso = rowStatus; Atrasado = ver isRowLate (misma fórmula que pinta las
-  // barras atrasadas del Gantt) — "Desarrollos" es la suma EXACTA de las otras
-  // 3 tarjetas.
+  // Curso = rowStatus. Atrasado: en "En Curso" es `barStatus === "atrasado"`
+  // (Stuck siempre cuenta, Working on it solo si ya pasó el Limit Date — la
+  // MISMA regla que colorea las barras del Gantt); en "Completados" es
+  // `wasDeliveredLate` (la Salida en vivo real llegó después del deadline) —
+  // un veredicto histórico, no el status en vivo. "Desarrollos" es la suma
+  // EXACTA de las otras 3 tarjetas.
   const devStats = useMemo(() => {
     let aFuturo = 0, aFuturoSinCpm = 0, enCursoEnTiempo = 0, enCursoAtrasado = 0, completadosEnTiempo = 0, completadosAtrasado = 0;
     for (const r of rows) {
@@ -190,11 +225,10 @@ export default function DesarrolloTimelinesPage() {
         if (r.plantilla === "nueva" && r.firmado === null) aFuturoSinCpm++;
         continue;
       }
-      const atrasado = isRowLate(r, nowMs);
       if (status === "Completados") {
-        if (atrasado) completadosAtrasado++; else completadosEnTiempo++;
+        if (wasDeliveredLate(r)) completadosAtrasado++; else completadosEnTiempo++;
       } else {
-        if (atrasado) enCursoAtrasado++; else enCursoEnTiempo++;
+        if (barStatus(r, nowMs) === "atrasado") enCursoAtrasado++; else enCursoEnTiempo++;
       }
     }
     return {
@@ -246,9 +280,10 @@ export default function DesarrolloTimelinesPage() {
     return rows.map((r) => {
       const { firmado, reqTerminado, analisis, limit, entrega, enDesarrollo } = r;
       const entregado = !!entrega;
-      const devFrom = analisis ?? firmado ?? limit ?? entrega;
-      const endReal = entrega ?? (enDesarrollo ? new Date(today) : (limit ?? devFrom));
-      const late = isRowLate(r, today);
+      const kind = devStatusKind(r.devStatus);
+      const startPoint = firmado ?? reqTerminado ?? analisis ?? limit ?? entrega;
+      const endReal = entrega ?? (kind === "active" ? new Date(today) : (limit ?? startPoint));
+      const late = wasDeliveredLate(r); // solo para el diamante de Salida en vivo
 
       const firmadoX = firmado ? pct(firmado) : null;
       const reqTerminadoX = reqTerminado ? pct(reqTerminado) : null;
@@ -257,26 +292,18 @@ export default function DesarrolloTimelinesPage() {
       const entregaX = entrega ? pct(entrega) : null;
       const ongoingX = !entregado && enDesarrollo ? pct(new Date(today)) : null;
 
-      // Segmento espera pre-dev (firma → análisis).
-      let preL = 0, preW = 0;
-      if (firmado && analisis && analisis.getTime() > firmado.getTime()) {
-        preL = pct(firmado); preW = pct(analisis) - preL;
-      }
-      // Segmento desarrollo (análisis/firma → fin real).
-      let devL = 0, devW = 0;
-      if (devFrom && endReal && endReal.getTime() >= devFrom.getTime()) {
-        devL = pct(devFrom); devW = Math.max(pct(endReal) - devL, 0.4);
-      }
-      // Porción atrasada (limit → fin real).
-      let lateL = 0, lateW = 0;
-      if (late && limit && endReal) {
-        lateL = pct(limit); lateW = Math.max(pct(endReal) - lateL, 0.4);
+      // Una sola barra, de la primera fecha disponible a la última (o "hoy" si
+      // sigue activa) — el color viene de `barStatus`, no de comparar fechas.
+      let barL = 0, barW = 0;
+      if (startPoint && endReal && endReal.getTime() >= startPoint.getTime()) {
+        barL = pct(startPoint);
+        barW = Math.max(pct(endReal) - barL, 0.4);
       }
 
       return {
         row: r,
         hasDates: !!(firmado || reqTerminado || analisis || limit || entrega),
-        preL, preW, devL, devW, lateL, lateW,
+        barL, barW, barColor: BAR_COLOR[barStatus(r, today)],
         firmadoX, reqTerminadoX, analisisX, limitX, entregaX, ongoingX, late, entregado,
       };
     }).sort((a, b) => {
@@ -284,7 +311,7 @@ export default function DesarrolloTimelinesPage() {
       // inicio del desarrollo para que los traslapes salten a la vista.
       const pa = pmNumber(a.row.proyecto), pb = pmNumber(b.row.proyecto);
       if (pa !== pb) return pb - pa;
-      const sa = a.devL || a.firmadoX || 0, sb = b.devL || b.firmadoX || 0;
+      const sa = a.firmadoX ?? 0, sb = b.firmadoX ?? 0;
       return sa - sb || a.row.hito.localeCompare(b.row.hito);
     });
   }, [rows, domain, nowMs]);
@@ -402,20 +429,11 @@ export default function DesarrolloTimelinesPage() {
                     <div className="flex h-full items-center pl-2 text-[0.72rem] italic text-[var(--text-disabled)]">— sin fechas —</div>
                   ) : (
                     <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
-                      {/* Segmento espera (firma → análisis) */}
-                      {g.preW > 0 && (
-                        <div className="absolute h-[7px] rounded" title="Espera: inicio → análisis técnico"
-                          style={{ left: `${g.preL}%`, width: `${g.preW}%`, top: -3, background: "var(--text-disabled)", opacity: 0.45 }} />
-                      )}
-                      {/* Segmento desarrollo */}
-                      {g.devW > 0 && (
-                        <div className="absolute h-[9px] rounded" title="Desarrollo (análisis → fin)"
-                          style={{ left: `${g.devL}%`, width: `${g.devW}%`, top: -4, background: "var(--accent)" }} />
-                      )}
-                      {/* Porción atrasada (limit → fin) */}
-                      {g.lateW > 0 && (
-                        <div className="absolute h-[9px] rounded" title="Atraso: pasado el Limit Date"
-                          style={{ left: `${g.lateL}%`, width: `${g.lateW}%`, top: -4, background: "var(--bad)" }} />
+                      {/* Barra única — color por status: verde completado, amarillo en
+                          curso a tiempo, rojo atrasado, azul futuro (ver barStatus) */}
+                      {g.barW > 0 && (
+                        <div className="absolute h-[9px] rounded" title={BAR_STATUS_LABEL[barStatus(g.row, nowMs)]}
+                          style={{ left: `${g.barL}%`, width: `${g.barW}%`, top: -4, background: g.barColor }} />
                       )}
                       {/* C Entrega Desarrollo (deadline) */}
                       {g.limitX != null && (
@@ -473,12 +491,16 @@ function TimelineTooltip({ g, x, y, nowMs }: { g: RowGeom; x: number; y: number;
   const espera = r.firmado && r.analisis ? daysBetween(r.firmado, r.analisis) : null;
   const desarrolloFrom = r.analisis ?? r.firmado;
   const desarrollo = desarrolloFrom && endReal ? daysBetween(desarrolloFrom, endReal) : null;
-  const atraso = g.late && r.limit && endReal ? daysBetween(r.limit, endReal) : null;
 
-  const estado = g.entregado
+  const bStatus = barStatus(r, nowMs);
+  const isLateNow = bStatus === "completado" ? g.late : bStatus === "atrasado";
+  const atraso = isLateNow && r.limit && endReal ? daysBetween(r.limit, endReal) : null;
+
+  const estado = bStatus === "completado"
     ? (g.late ? { label: "Entregado con atraso", color: "var(--bad)" } : { label: "Entregado a tiempo", color: "var(--ok)" })
-    : g.late ? { label: "En curso · atrasado", color: "var(--bad)" }
-    : { label: "En curso", color: "var(--accent)" };
+    : bStatus === "atrasado" ? { label: "En curso · atrasado", color: "var(--bad)" }
+    : bStatus === "futuro" ? { label: "Aún no inicia", color: "var(--info)" }
+    : { label: "En curso", color: "var(--warn)" };
 
   return (
     <div
@@ -571,10 +593,11 @@ function Legend() {
   );
   return (
     <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-      {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--accent)" }} />, "Desarrollo")}
-      {item(<span className="inline-block h-[7px] w-6 rounded" style={{ background: "var(--text-disabled)", opacity: 0.45 }} />, "Espera (inicio → análisis)")}
-      {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--bad)" }} />, "Atraso (pasado Limit Date)")}
-      {item(<span className="inline-block h-4 w-0.5" style={{ background: "var(--warn)" }} />, "Entrega Desarrollo")}
+      {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--ok)" }} />, "Completado")}
+      {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--warn)" }} />, "En curso · a tiempo")}
+      {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--bad)" }} />, "Atrasado (Stuck, o pasó el Limit Date)")}
+      {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--info)" }} />, "Aún no inicia (Future Steps)")}
+      {item(<span className="inline-block h-4 w-0.5" style={{ background: "var(--warn)" }} />, "Deadline (Entrega Desarrollo)")}
       {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--text-secondary)" }} />, "Inicio")}
       {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--warn)" }} />, "Req Terminado")}
       {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--accent)" }} />, "Analisis tecnico")}
