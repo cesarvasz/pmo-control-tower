@@ -962,6 +962,8 @@ export interface ReprocesoRawRow {
   name: string;
   pm: string;
   responsible: DelayResponsible;     // opción elegida en el dropdown (incluye "Sin reproceso")
+  /** Solo "Proyecto": código "PM-003" tomado del nombre del board (splitBoardName). "" en REQ. */
+  projCode: string;
 }
 
 /** Filas RAW de "Calidad de Entregas" — solo unidades con responsable YA seleccionado,
@@ -974,13 +976,14 @@ export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBo
     if (r.estado !== "CERRADO") continue;
     const responsible = reproceso[r.id]?.responsible;
     if (responsible == null) continue;
-    rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible });
+    rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible, projCode: "" });
   }
   for (const u of calidadUnits(projs)) {
     const responsible = reproceso[u.id]?.responsible;
     if (responsible == null) continue;
     const pm = bpm.get(u.boardId) ?? u.pm;
-    rows.push({ id: u.id, source: "Proyecto", name: u.name, pm, responsible });
+    const { code: projCode } = splitBoardName(u.boardName);
+    rows.push({ id: u.id, source: "Proyecto", name: u.name, pm, responsible, projCode });
   }
   return rows;
 }

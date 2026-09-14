@@ -83,7 +83,9 @@ export default function ReprocesoDetailModal({ rows, onClose }: { rows: Reproces
                           {r.name}
                           <span className="ml-1.5 text-[0.64rem] text-[var(--text-muted)]">({r.source})</span>
                         </td>
-                        <td className="px-3 py-1.5 font-mono text-[0.7rem] text-[var(--text-muted)]">{r.id}</td>
+                        <td className="px-3 py-1.5 font-mono text-[0.7rem] text-[var(--text-muted)]">
+                          {r.source === "Proyecto" ? (r.projCode || r.id) : r.id}
+                        </td>
                         <td className="px-3 py-1.5 font-bold" style={{ color }}>{r.responsible}</td>
                       </tr>
                     );
