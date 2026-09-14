@@ -19,6 +19,7 @@ import {
 } from "@/lib/digitalizacion";
 import FiltrosOcr from "./FiltrosOcr";
 import ResumenTiempoOcr from "./ResumenTiempoOcr";
+import ResumenDigitalizacionOcr from "./ResumenDigitalizacionOcr";
 import GraficasOcr from "./GraficasOcr";
 import TablasOcr from "./TablasOcr";
 import NotaMetodologicaOcr from "./NotaMetodologicaOcr";
@@ -61,7 +62,10 @@ export default function ReporteOcr({ rows }: { rows: OcrRow[] }) {
         onLimpiar={limpiar}
       />
 
-      <ResumenTiempoOcr k={kpis} stat={stat} onStat={setStat} />
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <ResumenTiempoOcr k={kpis} stat={stat} onStat={setStat} />
+        <ResumenDigitalizacionOcr k={kpis} />
+      </div>
 
       <GraficasOcr serie={puntos} stat={stat} />
 

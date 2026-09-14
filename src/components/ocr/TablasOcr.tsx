@@ -10,7 +10,7 @@ import {
   exportClientesCSV, exportFilesCSV, exportSerieCSV,
   type FilaCliente, type FilaFile, type PuntoSerieOcr, type StatSel,
 } from "@/lib/digitalizacion";
-import { fmtHHMMSS, fmtFecha, fmtFechaHora, nEs } from "./fmt";
+import { fmtHHMMSS, fmtFecha, fmtFechaHora, nEs, usdExacto } from "./fmt";
 
 type Dir = "asc" | "desc";
 const MAX_FILAS = 200;
@@ -149,7 +149,11 @@ function TablaFile({ filas }: { filas: FilaFile[] }) {
               : campo === "carta" ? (f.carta?.getTime() ?? 0)
                 : campo === "t2" ? num(f.t2Seg)
                   : campo === "total" ? num(f.totalSeg)
-                    : num(f.t1Seg);
+                    : campo === "docsCount" ? f.docsCount
+                      : campo === "pagesCount" ? f.pagesCount
+                        : campo === "licencias" ? f.licencias
+                          : campo === "costo" ? f.costo
+                            : num(f.t1Seg);
     return [...filtradas].sort((a, b) => {
       const va = val(a), vb = val(b);
       const c = typeof va === "string" ? va.localeCompare(vb as string, "es") : va - (vb as number);
@@ -183,6 +187,10 @@ function TablaFile({ filas }: { filas: FilaFile[] }) {
               <Th campo="t1" orden={orden} alternar={alternar}>T1</Th>
               <Th campo="t2" orden={orden} alternar={alternar}>T2</Th>
               <Th campo="total" orden={orden} alternar={alternar}>Total</Th>
+              <Th campo="docsCount" orden={orden} alternar={alternar}>Docs</Th>
+              <Th campo="pagesCount" orden={orden} alternar={alternar}>Págs</Th>
+              <Th campo="licencias" orden={orden} alternar={alternar}>Licencias</Th>
+              <Th campo="costo" orden={orden} alternar={alternar}>Costo</Th>
             </tr>
           </thead>
           <tbody>
@@ -196,6 +204,10 @@ function TablaFile({ filas }: { filas: FilaFile[] }) {
                 <td className="tabular-nums text-center" style={{ color: f.t1Seg == null ? "var(--text-muted)" : "var(--etapa-1)" }}>{fmtHHMMSS(f.t1Seg)}</td>
                 <td className="tabular-nums text-center" style={{ color: f.t2Seg == null ? "var(--text-muted)" : "var(--etapa-3)" }}>{fmtHHMMSS(f.t2Seg)}</td>
                 <td className="tabular-nums text-center font-semibold" style={f.totalSeg == null ? { color: "var(--text-muted)" } : undefined}>{fmtHHMMSS(f.totalSeg)}</td>
+                <td className="tabular-nums text-center text-[var(--text-secondary)]">{nEs(f.docsCount)}</td>
+                <td className="tabular-nums text-center text-[var(--text-secondary)]">{nEs(f.pagesCount)}</td>
+                <td className="tabular-nums text-center text-[var(--text-secondary)]">{nEs(f.licencias)}</td>
+                <td className="tabular-nums text-center font-semibold">{usdExacto(f.costo)}</td>
               </tr>
             ))}
           </tbody>

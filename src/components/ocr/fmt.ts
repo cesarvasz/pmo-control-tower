@@ -8,6 +8,10 @@ export { fmtHHMMSS } from "@/lib/horario";
 
 export const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
 
+/** Costo tal cual viene de la hoja (sin tarifa editable en la app): "$2.50". */
+export const usdExacto = (n: number): string =>
+  `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export const nEs = (n: number): string => n.toLocaleString("es-GT");
 
 /** Etiqueta de eje de tiempo en pasos de reloj: 45 → "45 min", 120 → "2 h". */

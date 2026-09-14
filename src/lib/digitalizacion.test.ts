@@ -10,6 +10,7 @@ const row = (o: Partial<OcrRow>): OcrRow => ({
   Creacion: "2026-01-05T09:00:00",
   Digit_docs: "2026-01-05T09:30:00",
   Digit_carta_licencia: "2026-01-05T10:00:00",
+  "Documents Count": "0", "Pages Count": "0", Licencias: "0", Costo: "0",
   ...o,
 });
 
@@ -67,6 +68,27 @@ describe("construirFiles — T1 y T2 hábiles", () => {
   });
 });
 
+describe("construirFiles — Documents Count / Pages Count / Licencias / Costo", () => {
+  it("se leen tal cual de la hoja, sin cruce con otra fuente", () => {
+    const [f] = construirFiles([row({
+      "Documents Count": "2", "Pages Count": "2", Licencias: "2", Costo: "2.5",
+    })]);
+    expect(f.docsCount).toBe(2);
+    expect(f.pagesCount).toBe(2);
+    expect(f.licencias).toBe(2);
+    expect(f.costo).toBe(2.5);
+  });
+  it("vacío o 'No encontrado' → 0", () => {
+    const [f] = construirFiles([row({
+      "Documents Count": "", "Pages Count": "No encontrado", Licencias: "", Costo: "",
+    })]);
+    expect(f.docsCount).toBe(0);
+    expect(f.pagesCount).toBe(0);
+    expect(f.licencias).toBe(0);
+    expect(f.costo).toBe(0);
+  });
+});
+
 describe("filtrar", () => {
   const todos = construirFiles([
     row({ c807_file: "F1", Cliente: "A", Creacion: "2026-01-05T09:00:00", Digit_docs: "2026-01-05T09:10:00", Digit_carta_licencia: "2026-01-05T09:20:00" }),
@@ -108,6 +130,25 @@ describe("calcularKpis", () => {
   it("total solo sobre completos", () => {
     expect(k.total.n).toBe(1);
     expect(k.total.prom).toBe(60 * 60);
+  });
+});
+
+describe("calcularKpis — resumen de digitalización", () => {
+  it("suma docs/páginas/licencias/costo del recorte y cuenta con licencia", () => {
+    const files = construirFiles([
+      row({ c807_file: "F1", "Documents Count": "2", "Pages Count": "2", Licencias: "2", Costo: "2.5" }),
+      row({ c807_file: "F2", "Documents Count": "1", "Pages Count": "0", Licencias: "0", Costo: "0" }),
+    ]);
+    const { digitalizacion: d } = calcularKpis(files);
+    expect(d.docsCount).toBe(3);
+    expect(d.pagesCount).toBe(2);
+    expect(d.licencias).toBe(2);
+    expect(d.costo).toBe(2.5);
+    expect(d.conLicencia).toBe(1);
+    expect(d.costoPorFile).toBe(1.25);
+  });
+  it("recorte vacío no revienta (costoPorFile = 0)", () => {
+    expect(calcularKpis([]).digitalizacion.costoPorFile).toBe(0);
   });
 });
 

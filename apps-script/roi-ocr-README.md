@@ -55,9 +55,15 @@ Y muestra su promedio / mediana / P90 en el tiempo y por cliente.
 | `Creacion` | fecha-hora | creación del file |
 | `Digit_docs` | fecha-hora | digitalización de documentos (puede venir vacía) |
 | `Digit_carta_licencia` | fecha-hora | digitalización de la carta de licencia (puede venir vacía) |
+| `Documents Count` | entero | agregada 2026-09-14. Ya calculada en origen — sin cruce con otra hoja |
+| `Pages Count` | entero | agregada 2026-09-14. Ya calculada en origen |
+| `Licencias` | entero | agregada 2026-09-14. Ya calculada en origen |
+| `Costo` | número | agregada 2026-09-14. Ya calculado en origen; la app lo suma tal cual, sin tarifa editable |
 
 Los dos hitos de digitalización pueden estar vacíos si el file aún está en
 proceso — la app calcula T1 / T2 solo cuando ambos extremos existen.
+`Documents Count` / `Pages Count` / `Licencias` / `Costo` vacíos o
+"No encontrado" se tratan como 0.
 
 ## El payload va codificado, no en filas crudas
 

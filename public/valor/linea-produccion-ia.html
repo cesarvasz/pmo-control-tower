@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C807 — Línea de Producción IA · Flujo de Trabajo</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --dark:#050E0A;--green:#00833E;--lime:#B7C61A;
+    --bg:#f4f6f8;--card:#fff;--text:#1a1a2e;--muted:#6b7280;--border:#dde3e8;
+    --red:#c0392b;--amber:#d68910;--ok:#1e8449;--blue:#2980b9;--purple:#8e44ad;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);line-height:1.55;font-size:13px}
+  .back-bar{background:var(--dark);padding:9px 36px;display:flex;align-items:center}
+  .back-link{display:inline-flex;align-items:center;gap:6px;color:#c9d1d9;text-decoration:none;font-size:11.5px;font-weight:600;opacity:.85;transition:opacity .15s}
+  .back-link:hover{opacity:1;color:var(--lime)}
+  .header{background:var(--dark);color:#fff;padding:22px 36px 26px}
+  .header h1{font-size:21px;font-weight:800}.header h1 span{color:var(--lime)}
+  .header .sub{font-size:12px;color:#9aa3ab;margin-top:4px}
+  .wrap{max-width:980px;margin:0 auto;padding:24px 20px}
+  .board{background:var(--card);border-radius:13px;box-shadow:0 4px 22px rgba(0,0,0,.08);overflow:hidden;margin-bottom:20px}
+  .bh{padding:15px 22px;color:#fff}.bh h2{font-size:16px;font-weight:700}.bh .bd{font-size:11.5px;opacity:.85;margin-top:2px}
+  .h-proj{background:linear-gradient(135deg,#0D4A1E,#1B7A35)}
+  .h-fric{background:linear-gradient(135deg,#7b241c,var(--red))}
+  .h-dark{background:var(--dark)}
+  .bb{padding:20px 22px}
+
+  h3{font-size:13.5px;font-weight:700;margin:17px 0 9px;padding-bottom:5px;border-bottom:1px solid var(--border)}
+  h3:first-child{margin-top:0}
+  p{margin-bottom:10px}
+
+  /* Pasos */
+  .sc{border:1px solid var(--border);border-radius:11px;padding:15px 17px;background:#fff;position:relative;margin-bottom:7px}
+  .sn{position:absolute;top:-10px;left:16px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;padding:2px 10px;border-radius:9px;color:#fff;background:var(--green)}
+  .nuevo-tag{position:absolute;top:-10px;right:16px;background:var(--lime);color:#050E0A;font-size:9px;font-weight:800;padding:2px 9px;border-radius:9px;letter-spacing:.5px}
+  .st{font-size:14px;font-weight:700;margin:5px 0 8px}
+  .sd2{font-size:12.5px;color:var(--muted);margin-bottom:10px;line-height:1.6}
+  .sd2 strong{color:var(--text)}
+  .sm{display:flex;flex-direction:column;gap:6px}
+  .mr{display:flex;align-items:flex-start;gap:9px;font-size:12px}
+  .ml{font-weight:700;min-width:82px;flex-shrink:0;padding:2px 8px;border-radius:4px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;text-align:center}
+  .ml.person{background:#fff3cd;color:#856404}
+  .ml.lidera{background:#d5f5e3;color:#0e6152}
+  .ml.recibe{background:#fdebd0;color:#7d6608}
+  .ml.soporte{background:#e3eef8;color:#154360}
+  .ml.tools{background:#f0f4f8;color:#2c5282}
+  .ml.output{background:#d4edda;color:#155724}
+  .ml.decision{background:#fff8e1;color:#7d6608}
+  .mv{color:var(--text);line-height:1.5;padding-top:1px}
+  .mv .tt{display:inline-block;background:#edf2f7;border:1px solid #e2e8f0;padding:1px 7px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;margin:1px 2px;color:#2d3748}
+  .mv .pn{font-weight:700;color:var(--dark)}
+  .arrow{display:flex;justify-content:center;padding:3px 0}
+
+  .sc.nueva-f4{border:2px solid #6c3483;background:#faf7fd}
+  .sc.nueva-f4 .sn{background:#6c3483}
+  .sc.nueva-f5{border:2px solid #a93226;background:#fdf7f6}
+  .sc.nueva-f5 .sn{background:#a93226}
+  .sc.highlight{border:2px solid var(--green);background:#f0faf4}
+
+  table{width:100%;border-collapse:collapse;font-size:12px;margin:11px 0}
+  th{background:#eef2f6;padding:9px 11px;text-align:left;font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);border-bottom:2px solid var(--border)}
+  td{padding:9px 11px;border-bottom:1px solid #f1f3f5;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:11px}
+  .c{text-align:center}
+
+  .note{border-radius:8px;padding:13px 17px;font-size:12px;margin:13px 0;line-height:1.65}
+  .n-blue{background:#eaf2f8;border:1px solid #bcd4e6}.n-blue strong{color:#1a5276}
+  .n-red{background:#fdedec;border:1px solid #f5b7b1}.n-red strong{color:var(--red)}
+  .n-green{background:#eafaf1;border:1px solid #a9dfbf}.n-green strong{color:var(--ok)}
+  .n-amber{background:#fef9e7;border:1px solid #f0c040}.n-amber strong{color:#7d6608}
+  .n-purple{background:#f4ecf7;border:1px solid #d7bde2}.n-purple strong{color:#6c3483}
+
+  .contrato{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:13px 0}
+  .ccard{border-radius:10px;padding:15px;border:2px solid}
+  .ccard.si{border-color:var(--ok);background:#f4fbf7}
+  .ccard.no{border-color:var(--amber);background:#fefbf3}
+  .ccard h5{font-size:13px;font-weight:800;margin-bottom:7px}
+  .ccard.si h5{color:var(--ok)}.ccard.no h5{color:#7d6608}
+  .ccard p{font-size:12px;color:var(--muted);margin:0}
+
+  .legend{display:flex;gap:18px;padding:12px 22px;background:#f8f9fa;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center}
+  .lgi{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+  .lgd{width:11px;height:11px;border-radius:3px}
+
+  .foot{text-align:center;padding:22px;color:var(--muted);font-size:11px}
+  @media print{.board{break-inside:avoid;box-shadow:none;border:1px solid var(--border)}.back-bar{display:none}}
+
+  /* ── Tema oscuro / claro (mismo patrón que el resto de VALOR) ── */
+  body[data-theme="dark"]{background:#0f1117;color:#e2e8f0}
+  body[data-theme="dark"] .board{background:#1a1d27;box-shadow:0 4px 22px rgba(0,0,0,.4)}
+  body[data-theme="dark"] .sc{background:#1e2130;border-color:#2d3148}
+  body[data-theme="dark"] .sc.highlight{background:#102a1c;border-color:var(--green)}
+  body[data-theme="dark"] .sc.nueva-f4{background:#211a2e}
+  body[data-theme="dark"] .sc.nueva-f5{background:#2b1a18}
+  body[data-theme="dark"] .st{color:#e2e8f0}
+  body[data-theme="dark"] .sd2{color:#9ca3af}
+  body[data-theme="dark"] .sd2 strong{color:#e2e8f0}
+  body[data-theme="dark"] .mv{color:#e2e8f0}
+  body[data-theme="dark"] .mv .pn{color:#f1f5f9}
+  body[data-theme="dark"] .mv .tt{background:#242838;border-color:#2d3148;color:#cbd5e0}
+  body[data-theme="dark"] h3{border-color:#2d3148;color:#e2e8f0}
+  body[data-theme="dark"] p{color:#c9d1d9}
+  body[data-theme="dark"] table{color:#e2e8f0}
+  body[data-theme="dark"] th{background:#1a1d27;color:#9ca3af;border-color:#2d3148}
+  body[data-theme="dark"] td{border-color:#2d3148}
+  body[data-theme="dark"] tr[style*="f4ecf7"]{background:#211a2e!important}
+  body[data-theme="dark"] tr[style*="fdedec"]{background:#2b1a18!important}
+  body[data-theme="dark"] .legend{background:#1a1d27;border-color:#2d3148}
+  body[data-theme="dark"] .ccard.si{background:#0f291c}
+  body[data-theme="dark"] .ccard.no{background:#2b2308}
+  body[data-theme="dark"] .ccard p{color:#9ca3af}
+  body[data-theme="dark"] .n-blue{background:#132a3d;border-color:#1e4a68}
+  body[data-theme="dark"] .n-blue strong{color:#7fb8e0}
+  body[data-theme="dark"] .n-red{background:#2b1a18;border-color:#5a2b26}
+  body[data-theme="dark"] .n-green{background:#0f291c;border-color:#1e5a3a}
+  body[data-theme="dark"] .n-amber{background:#2b2308;border-color:#5a4a1a}
+  body[data-theme="dark"] .n-purple{background:#211a2e;border-color:#4a3768}
+  body[data-theme="dark"] .foot{color:#6b7280}
+  body[data-theme="dark"] .mono{color:#cbd5e0}
+
+  body[data-theme="light"]{background:#f0f2fa;color:#1e2130}
+  body[data-theme="light"] .sc{background:#ffffff;border-color:#dde1ef}
+  body[data-theme="light"] th{border-color:#dde1ef}
+  body[data-theme="light"] td{border-color:#eef0f8}
+</style>
+</head>
+<body>
+
+<div class="back-bar">
+  <a class="back-link" href="/valor">← Volver al Ciclo VALOR</a>
+</div>
+
+<div class="header">
+  <h1>CONSOLIDADOS <span>807</span> — Línea de Producción IA</h1>
+  <div class="sub">Flujo de trabajo · Equipo B · Incorpora la revisión conjunta con PMO · Versión 2</div>
+</div>
+
+<div class="wrap">
+
+<!-- ===== CONTEXTO ===== -->
+<div class="board">
+  <div class="bh h-dark"><h2>🔄 Qué cambió en esta versión</h2></div>
+  <div class="bb">
+    <p>A partir de la revisión con PMO y Javier, lo que antes era un solo momento de aceptación se separa en <strong>dos pasos con dueños distintos</strong>:</p>
+    <table>
+      <thead><tr><th style="width:34%">Antes</th><th>Ahora</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Un solo paso de UAT donde el Lead entregaba directo al usuario, con PMO presente</td>
+          <td><strong>Paso 5 · Entrega Funcional</strong> — el Lead entrega a PMO en <strong>ambiente de QA</strong> y PMO verifica criterio por criterio. El usuario aún no participa.<br><br>
+          <strong>Paso 6 · Prueba de Negocio</strong> — en <strong>ambiente preproductivo</strong>, <strong>el usuario ejecuta</strong> el escenario con sus casos reales. PMO conduce la sesión y sustenta los criterios. El Lead queda como soporte técnico.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note n-purple">
+      <strong>La razón del cambio:</strong> quien define los criterios de aceptación es quien debe responder por ellos ante el usuario. Con la separación, PMO se apropia del entregable antes de presentarlo, y no lleva al usuario algo que no revisó previamente.
+    </div>
+
+    <div class="note n-blue">
+      <strong>Progresión de ambientes:</strong> <span class="mono">QA</span> (Pasos 4 y 5 — validación técnica y entrega funcional) → <span class="mono">PREPRODUCTIVO</span> (Paso 6 — el usuario ejecuta la prueba con datos reales) → <span class="mono">PRODUCCIÓN</span> (Paso 7). Cada ambiente corresponde a un nivel distinto de confianza en el entregable.
+    </div>
+  </div>
+</div>
+
+<!-- ===== FLUJO ===== -->
+<div class="board">
+  <div class="bh h-proj"><h2>📋 Flujo Completo — 8 Pasos</h2><div class="bd">Equipo B · Javier Aragón, Kelvyn Magzul, Ánderly Teleguario, Herbert Lacán</div></div>
+
+  <div class="legend">
+    <div class="lgi"><div class="lgd" style="background:#fff3cd"></div>Responsable</div>
+    <div class="lgi"><div class="lgd" style="background:#f0f4f8"></div>Herramientas</div>
+    <div class="lgi"><div class="lgd" style="background:#d4edda"></div>Entregable</div>
+    <div class="lgi"><div class="lgd" style="background:#fff8e1"></div>Decisión</div>
+    <div class="lgi"><span style="background:var(--lime);color:#050E0A;font-size:9px;font-weight:800;padding:2px 8px;border-radius:8px">NUEVA</span> Paso agregado en la revisión</div>
+  </div>
+
+  <div class="bb">
+
+    <div class="sc">
+      <div class="sn">PASO 0</div>
+      <div class="st">📝 PMO — Historia de Usuario y Criterios</div>
+      <div class="sd2">PMO entrega la HU con el <strong>QUÉ</strong>, el <strong>PARA QUÉ</strong> y los <strong>criterios de aceptación medibles</strong>. Usa IA para detectar ambigüedades antes de entregar. No prescribe el CÓMO. <strong>PMO regresa al flujo en el Paso 5.</strong></div>
+      <div class="sm">
+        <div class="mr"><span class="ml person">Responsable</span><span class="mv"><span class="pn">Juan Carlos Rodas</span> (PMO)</span></div>
+        <div class="mr"><span class="ml tools">Herramientas</span><span class="mv"><span class="tt">Gemini / Claude</span> <span class="tt">Plantilla HU</span></span></div>
+        <div class="mr"><span class="ml output">Contrato</span><span class="mv">Los <strong>criterios de aceptación</strong> son la referencia que se verifica en los Pasos 5 y 6</span></div>
+      </div>
+    </div>
+
+    <div class="arrow"><svg width="22" height="20" viewBox="0 0 24 24"><path d="M12 4L12 16M6 12L12 18L18 12" stroke="#00833E" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+
+    <div class="sc">
+      <div class="sn">PASO 1</div>
+      <div class="st">🔍 Viabilidad Técnica</div>
+      <div class="sd2">El Arquitecto evalúa el impacto real antes de comprometer fecha. Dictamina: viable, rechazar con argumento, o convertir en sí identificando recursos. Los requerimientos grandes se parten en quick wins 80/20 para entregar valor semanal.</div>
+      <div class="sm">
+        <div class="mr"><span class="ml person">Responsable</span><span class="mv"><span class="pn">Javier Aragón</span> (Arquitecto)</span></div>
+        <div class="mr"><span class="ml tools">Herramientas</span><span class="mv"><span class="tt">Praetor</span> <span class="tt">GitNexus</span> <span class="tt">Wiki LLM</span></span></div>
+        <div class="mr"><span class="ml decision">Decisión</span><span class="mv">✅ Viable → Paso 2 &nbsp;|&nbsp; ⚠️ Convertir en sí &nbsp;|&nbsp; 🔴 Rechaza con argumento → PMO</span></div>
+      </div>
+    </div>
+
+    <div class="arrow"><svg width="22" height="20" viewBox="0 0 24 24"><path d="M12 4L12 16M6 12L12 18L18 12" stroke="#00833E" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+
+    <div class="sc">
+      <div class="sn">PASO 2</div>
+      <div class="st">🏗️ Diseño de Patrón y Asignación</div>
+      <div class="sd2">El Arquitecto diseña la arquitectura macro, los contratos API y los prompts del sistema. Define siempre soluciones satélite para no tocar el núcleo de Gacela. <strong>Asigna el paquete a un Lead, que queda como dueño del entregable.</strong></div>
+      <div class="sm">
+        <div class="mr"><span class="ml person">Responsable</span><span class="mv"><span class="pn">Javier Aragón</span> — asigna a <span class="pn">Kelvyn</span>, <span class="pn">Ánderly</span> o <span class="pn">Herbert</span></span></div>
+        <div class="mr"><span class="ml output">Entregable</span><span class="mv">Paquete de trabajo: patrón + prompts + archivos + Definition of Done + criterios para el agente</span></div>
+      </div>
+    </div>
+
+    <div class="arrow"><svg width="22" height="20" viewBox="0 0 24 24"><path d="M12 4L12 16M6 12L12 18L18 12" stroke="#00833E" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+
+    <div class="sc highlight">
+      <div class="sn">PASO 3</div>
+      <div class="st">⚙️ Producción — Maquila con IA</div>
+      <div class="sd2">El Lead ejecuta <strong>Praetor</strong> alimentado con los prompts del patrón. El agente produce código y pruebas unitarias, y <strong>se autovalida contra los criterios de aceptación</strong>. La auditoría automática de lint, seguridad y estándares corre en paralelo.</div>
+      <div class="sm">
+        <div class="mr"><span class="ml person">Responsable</span><span class="mv"><span class="pn">Lead asignado</span> — dueño del entregable</span></div>
+        <div class="mr"><span class="ml tools">Herramientas</span><span class="mv"><span class="tt">Praetor</span> <span class="tt">Claude Opus</span> <span class="tt">IDE + IA</span> <span class="tt">Auditoría automática</span></span></div>
+        <div class="mr"><span class="ml output">Entregable</span><span class="mv">Código + pruebas + reporte de autovalidación contra los criterios</span></div>
+      </div>
+    </div>
+
+    <div class="arrow"><svg width="22" height="20" viewBox="0 0 24 24"><path d="M12 4L12 16M6 12L12 18L18 12" stroke="#00833E" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+
+    <div class="sc">
+      <div class="sn">PASO 4</div>
+      <div class="st">🧪 Validación Técnica — QA del Lead</div>
+      <div class="sd2">El Lead despliega en ambiente de QA y verifica contra los criterios. Valida que no haya regresión sobre los puntos de integración con Gacela. Aplica el juicio humano sobre lo que produjo el agente. <strong>PMO todavía no participa en este paso.</strong></div>
+      <div class="sm">
+        <div class="mr"><span class="ml person">Responsable</span><span class="mv"><span class="pn">Lead asignado</span></span></div>
+        <div class="mr"><span class="ml decision">Decisión</span><span class="mv">✅ Pasa → Paso 5 &nbsp;|&nbsp; ⚠️ Falla → Paso 3 &nbsp;|&nbsp; 🔴 Arquitectural → Javier</span></div>
+      </div>
+    </div>
+
+    <div class="arrow"><svg width="22" height="20" viewBox="0 0 24 24"><path d="M12 4L12 16M6 12L12 18L18 12" stroke="#6c3483" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+
+    <div class="sc nueva-f4">
+      <div class="sn">PASO 5</div>
+      <div class="nuevo-tag">NUEVA</div>
+      <div class="st">🤝 Entrega Funcional — Lead a PMO</div>
+      <div class="sd2">El Lead <strong>entrega a PMO en ambiente de QA</strong>, recorriendo el entregable <strong>criterio por criterio</strong> de la historia de usuario. PMO verifica cada uno y decide si lo acepta. <strong>El usuario final todavía no participa</strong> — este es el momento en que PMO se apropia del entregable.</div>
+      <div class="sm">
+        <div class="mr"><span class="ml lidera">Lidera</span><span class="mv"><span class="pn">Lead</span> — presenta y demuestra</span></div>
+        <div class="mr"><span class="ml recibe">Recibe</span><span class="mv"><span class="pn">Juan Carlos Rodas</span> (PMO) — verifica criterio por criterio</span></div>
+        <div class="mr"><span class="ml tools">Ambiente</span><span class="mv"><span class="tt">QA</span> — aún no producción</span></div>
+        <div class="mr"><span class="ml decision">Decisión</span><span class="mv">✅ PMO acepta → Paso 6 &nbsp;|&nbsp; 🔴 Rechaza → retorno con motivo registrado</span></div>
+      </div>
+    </div>
+
+    <div class="arrow"><svg width="22" height="20" viewBox="0 0 24 24"><path d="M12 4L12 16M6 12L12 18L18 12" stroke="#a93226" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+
+    <div class="sc nueva-f5">
+      <div class="sn">PASO 6</div>
+      <div class="nuevo-tag">NUEVA</div>
+      <div class="st">🎯 Prueba en Escenario de Negocio — ejecutada por el usuario</div>
+      <div class="sd2">Sesión en <strong>ambiente preproductivo</strong>. <strong>El usuario ejecuta</strong> el escenario de negocio real con sus propios casos y datos — no es una demostración, es una prueba hecha por quien va a usar el sistema. <strong>PMO conduce la sesión y sustenta</strong> que se aplicaron los criterios de aceptación que definió en el Paso 0. El Lead está presente como <strong>soporte técnico</strong>, para resolver dudas o incidentes durante la ejecución.</div>
+      <div class="sm">
+        <div class="mr"><span class="ml recibe">Ejecuta</span><span class="mv"><span class="pn">Usuario / dueño del requerimiento</span> — corre el escenario con sus casos reales</span></div>
+        <div class="mr"><span class="ml lidera">Conduce</span><span class="mv"><span class="pn">Juan Carlos Rodas</span> (PMO) — dirige la sesión y sustenta los criterios</span></div>
+        <div class="mr"><span class="ml soporte">Soporte</span><span class="mv"><span class="pn">Lead</span> — resuelve dudas técnicas durante la ejecución</span></div>
+        <div class="mr"><span class="ml tools">Ambiente</span><span class="mv"><span class="tt">PREPRODUCTIVO</span> — réplica de producción, aún no liberado</span></div>
+        <div class="mr"><span class="ml decision">Decisión</span><span class="mv">✅ Usuario acepta → Paso 7 &nbsp;|&nbsp; 🔴 Rechaza → se registra como <strong>ajuste de definición</strong>, no de desarrollo</span></div>
+      </div>
+    </div>
+
+    <div class="arrow"><svg width="22" height="20" viewBox="0 0 24 24"><path d="M12 4L12 16M6 12L12 18L18 12" stroke="#00833E" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+
+    <div class="sc">
+      <div class="sn">PASO 7</div>
+      <div class="st">🚀 Producción y Cierre</div>
+      <div class="sd2">Despliegue a producción, monitoreo de estabilización y cierre formal. Documentación actualizada en Wiki LLM. Los tickets que genere el módulo pasan a Run of Business.</div>
+      <div class="sm">
+        <div class="mr"><span class="ml person">Responsable</span><span class="mv"><span class="pn">Javier Aragón</span> (durante el piloto)</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== CRITERIOS COMO CONTRATO ===== -->
+<div class="board">
+  <div class="bh h-fric"><h2>⚖️ Los Criterios de Aceptación son el Contrato</h2><div class="bd">Cómo se resuelve una diferencia en los Pasos 5 y 6</div></div>
+  <div class="bb">
+
+    <p>La discusión en la entrega casi siempre es una de dos: <em>"esto no es lo que pedí"</em> o <em>"falta algo"</em>. Para que no dependa de quién argumenta mejor, la referencia objetiva son los criterios de aceptación acordados en el Paso 0.</p>
+
+    <h3>La pregunta que resuelve la mayoría de los casos</h3>
+
+    <div class="contrato">
+      <div class="ccard si">
+        <h5>¿Estaba en los criterios?</h5>
+        <p>Si estaba y no funciona, <strong>corresponde a desarrollo</strong>. Vuelve al Paso 3 para corrección. No hay discusión posible: el criterio estaba escrito y acordado desde el inicio.</p>
+      </div>
+      <div class="ccard no">
+        <h5>¿No estaba en los criterios?</h5>
+        <p>Si no estaba y ahora se necesita, <strong>es alcance nuevo</strong>. No es un defecto ni retrabajo: es un requerimiento adicional que se registra aparte y se estima. El original sigue su curso y se entrega.</p>
+      </div>
+    </div>
+
+    <h3>Motivos de retorno en los Pasos 5 y 6</h3>
+    <table>
+      <thead><tr><th style="width:15%">Motivo</th><th style="width:30%">Cuándo aplica</th><th style="width:16%">Regresa a</th><th>Cómo se registra</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono"><strong>Defecto</strong></td>
+          <td>Estaba en los criterios y no funciona</td>
+          <td class="c">Paso 3</td>
+          <td>Corresponde a desarrollo. Se corrigen solo los criterios que fallaron.</td>
+        </tr>
+        <tr style="background:#f4ecf7">
+          <td class="mono"><strong>Ambigüedad</strong></td>
+          <td>Estaba en los criterios pero cada parte lo interpretó distinto</td>
+          <td class="c">Paso 1</td>
+          <td><strong>No corresponde a ninguna de las dos partes.</strong> Se reescribe el criterio con mayor precisión.</td>
+        </tr>
+        <tr>
+          <td class="mono"><strong>Alcance nuevo</strong></td>
+          <td>No estaba en los criterios y ahora se necesita</td>
+          <td class="c">Requerimiento aparte</td>
+          <td>Se registra como adicional y se estima. El original continúa.</td>
+        </tr>
+        <tr>
+          <td class="mono"><strong>Definición</strong></td>
+          <td>Los criterios estaban incompletos o mal planteados</td>
+          <td class="c">Paso 1</td>
+          <td>Corresponde a definición. Se rehacen los criterios.</td>
+        </tr>
+        <tr style="background:#fdedec">
+          <td class="mono"><strong>Negocio</strong></td>
+          <td>Solo en Paso 6 — el usuario rechaza el resultado</td>
+          <td class="c">Paso 1</td>
+          <td>Corresponde a definición, ya que el entregable pasó QA técnico y fue aceptado por PMO.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note n-purple">
+      <strong>Sobre el motivo de ambigüedad:</strong> el caso más frecuente no es que desarrollo lo haya hecho mal ni que PMO lo haya pedido mal, sino que <strong>ambos leyeron el mismo criterio de forma distinta</strong>. Tener un motivo propio para eso evita que se convierta en una discusión de quién tiene razón. Se registra como lo que es —"el criterio no era suficientemente preciso"—, se corrige, y queda el aprendizaje para escribir mejor los siguientes.
+    </div>
+
+    <div class="note n-green">
+      <strong>Recomendación para la sesión:</strong> recorrer el entregable <strong>criterio por criterio, no en general</strong>. En lugar de "muéstrame qué hiciste" seguido de una impresión global, es "criterio uno: ¿cumple sí o no?", "criterio dos: ¿cumple sí o no?". Eso convierte una conversación subjetiva en una verificación objetiva, y cuando algo no cumple queda claro cuál de los motivos aplica.
+    </div>
+  </div>
+</div>
+
+<!-- ===== ROLES ===== -->
+<div class="board">
+  <div class="bh h-dark"><h2>👥 Quién hace qué</h2></div>
+  <div class="bb">
+    <table>
+      <thead><tr><th style="width:22%">Rol</th><th style="width:24%">Quién</th><th>Responsabilidad en el flujo</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>PMO</strong></td>
+          <td>Juan Carlos Rodas</td>
+          <td>Define el QUÉ, el PARA QUÉ y los criterios (Paso 0) · Verifica la entrega funcional en QA (Paso 5) · Conduce la sesión y sustenta los criterios en preproductivo (Paso 6)</td>
+        </tr>
+        <tr>
+          <td><strong>Arquitecto</strong></td>
+          <td>Javier Aragón</td>
+          <td>Dictamina viabilidad (Paso 1) · Diseña el patrón y asigna (Paso 2) · Despliega a producción (Paso 7)</td>
+        </tr>
+        <tr>
+          <td><strong>Lead</strong></td>
+          <td>Kelvyn · Ánderly · Herbert</td>
+          <td>Produce con el agente (Paso 3) · Valida técnicamente en QA (Paso 4) · Entrega a PMO (Paso 5) · Da soporte técnico mientras el usuario ejecuta (Paso 6)</td>
+        </tr>
+        <tr>
+          <td><strong>Usuario</strong></td>
+          <td>Dueño del requerimiento</td>
+          <td><strong>Ejecuta la prueba</strong> en ambiente preproductivo con sus casos y datos reales, y acepta o rechaza (Paso 6)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note n-blue">
+      <strong>El principio que ordena el flujo:</strong> PMO define el <strong>QUÉ</strong> y responde por él ante el usuario. Desarrollo define el <strong>CÓMO</strong> y responde por que funcione. Cada parte responde por lo que decidió.
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  CONSOLIDADOS 807 · Línea de Producción IA · Flujo de Trabajo v2 · 2026<br>
+  Jefatura de Cómputo y Sistemas
+</div>
+
+</div>
+</body>
+</html>

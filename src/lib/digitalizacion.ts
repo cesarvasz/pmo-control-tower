@@ -104,11 +104,24 @@ export interface FileOcr {
   totalSeg: number | null;
   /** Tiene los dos hitos de digitalización (T1 y T2 calculables). */
   completo: boolean;
+  /** De la hoja, ya calculados en origen — sin cruce con otra hoja. */
+  docsCount: number;
+  pagesCount: number;
+  licencias: number;
+  costo: number;
 }
 
 const habilSeg = (a: number | null, b: number | null): number | null =>
   a != null && b != null ? duracion(segmentosHabiles(a, b)) : null;
 const fechaDe = (seg: number | null): Date | null => (seg != null ? new Date(seg * 1000) : null);
+
+/** Número de la hoja; 0 si viene vacío, "No encontrado" o no numérico. */
+const num = (v: unknown): number => {
+  const s = String(v ?? "").trim();
+  if (!s || /no\s*encontrado/i.test(s)) return 0;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+};
 
 /** Una fila del export → un file. `c807_file` es único, no se agrupa. */
 export function construirFiles(rows: OcrRow[]): FileOcr[] {
@@ -133,6 +146,10 @@ export function construirFiles(rows: OcrRow[]): FileOcr[] {
       t1Seg, t2Seg,
       totalSeg: t1Seg != null && t2Seg != null ? t1Seg + t2Seg : null,
       completo: t1Seg != null && t2Seg != null,
+      docsCount: num(r["Documents Count"]),
+      pagesCount: num(r["Pages Count"]),
+      licencias: num(r.Licencias),
+      costo: num(r.Costo),
     });
   }
   return out;
@@ -199,6 +216,19 @@ export function rangoFechas(files: FileOcr[]): { desde: string; hasta: string } 
   return { desde, hasta };
 }
 
+/** Documents Count / Pages Count / Licencias / Costo, agregados sobre el
+ *  recorte — ya calculados en la hoja, sin cruce con ninguna otra fuente. */
+export interface DigitalizacionResumen {
+  docsCount: number;
+  pagesCount: number;
+  licencias: number;
+  costo: number;
+  /** Files con al menos 1 licencia. */
+  conLicencia: number;
+  /** Costo ÷ files del recorte (todos, tengan o no licencia). */
+  costoPorFile: number;
+}
+
 // ── KPIs ───────────────────────────────────────────────────────────────
 export interface KpisOcr {
   /** Files del recorte (todos, tengan o no digitalización). */
@@ -213,9 +243,14 @@ export interface KpisOcr {
   t2: Stat;
   /** T1 + T2, solo sobre los files completos. */
   total: Stat;
+  digitalizacion: DigitalizacionResumen;
 }
 
 export function calcularKpis(files: FileOcr[]): KpisOcr {
+  const docsCount = files.reduce((s, f) => s + f.docsCount, 0);
+  const pagesCount = files.reduce((s, f) => s + f.pagesCount, 0);
+  const licencias = files.reduce((s, f) => s + f.licencias, 0);
+  const costo = files.reduce((s, f) => s + f.costo, 0);
   return {
     files: files.length,
     conT1: files.filter((f) => f.t1Seg != null).length,
@@ -224,6 +259,11 @@ export function calcularKpis(files: FileOcr[]): KpisOcr {
     t1: stat(files.map((f) => f.t1Seg)),
     t2: stat(files.map((f) => f.t2Seg)),
     total: stat(files.map((f) => f.totalSeg)),
+    digitalizacion: {
+      docsCount, pagesCount, licencias, costo,
+      conLicencia: files.filter((f) => f.licencias > 0).length,
+      costoPorFile: files.length ? costo / files.length : 0,
+    },
   };
 }
 
@@ -319,6 +359,10 @@ export interface FilaFile {
   t1Seg: number | null;
   t2Seg: number | null;
   totalSeg: number | null;
+  docsCount: number;
+  pagesCount: number;
+  licencias: number;
+  costo: number;
 }
 
 export function porFile(files: FileOcr[]): FilaFile[] {
@@ -331,6 +375,10 @@ export function porFile(files: FileOcr[]): FilaFile[] {
     t1Seg: x.t1Seg,
     t2Seg: x.t2Seg,
     totalSeg: x.totalSeg,
+    docsCount: x.docsCount,
+    pagesCount: x.pagesCount,
+    licencias: x.licencias,
+    costo: x.costo,
   }));
 }
 
@@ -348,12 +396,14 @@ export function exportFilesCSV(filas: FilaFile[]): string {
   const cab = [
     "c807_file", "Cliente", "Creacion", "Digit_docs", "Digit_carta_licencia",
     "T1_min", "T2_min", "Total_min",
+    "Documents_Count", "Pages_Count", "Licencias", "Costo",
   ];
   const lineas = [cab.join(",")];
   for (const r of filas) {
     lineas.push([
       r.file, r.cliente, iso(r.creado), iso(r.docs), iso(r.carta),
       min1(r.t1Seg), min1(r.t2Seg), min1(r.totalSeg),
+      r.docsCount, r.pagesCount, r.licencias, r.costo.toFixed(2),
     ].map(csvCampo).join(","));
   }
   return lineas.join("\n");
