@@ -173,7 +173,7 @@ function ReqInner() {
           style={{ background: "var(--bg-surface)", borderColor: "var(--border)", borderLeft: `4px solid ${vemCfg(portVEM).color}` }}
         >
           <div>
-            <div className="mb-0.5 text-[0.72rem] text-[var(--text-muted)]">EVM · Portafolio REQ</div>
+            <div className="mb-0.5 text-[0.72rem] text-[var(--text-muted)]">EVM · Portafolio PML</div>
             <div className="text-2xl font-extrabold leading-none" style={{ color: vemCfg(portVEM).color }}>{portVEM.toFixed(2)}</div>
           </div>
           <span className="rounded-full px-3 py-1 text-[0.8rem] font-bold" style={{ color: vemCfg(portVEM).color, background: vemCfg(portVEM).bg }}>
@@ -234,7 +234,7 @@ function ReqInner() {
       {/* REQ Cerrados (tabla aparte al fondo) */}
       {closed.length > 0 && (
         <div className="mt-9">
-          <SectionHeader title="REQ Cerrados" badge={`${closed.length} items${onTimeBadge(closed, delays)}`} />
+          <SectionHeader title="PML Cerrados" badge={`${closed.length} items${onTimeBadge(closed, delays)}`} />
           <ReqTable
             rows={closed}
             onRowClick={setSelected}
@@ -354,7 +354,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
       <table className="pmo">
         <thead>
           <tr>
-            <th>REQ ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
+            <th>PML ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th><th>Benefit Type</th>
             <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Entrega</th><th>Reproceso</th><th>Encuesta</th>
           </tr>

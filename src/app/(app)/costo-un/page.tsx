@@ -110,7 +110,7 @@ function Breakdown({ title, data }: { title: string; data: Group[] }) {
           <div className="mb-1 font-semibold text-[var(--text-primary)]">{tip.label}</div>
           <div className="flex items-center gap-2 text-[var(--text-secondary)]">
             <span className="inline-block h-2 w-3 rounded-sm" style={{ background: "var(--series-req)" }} />
-            REQ<span className="ml-6 font-semibold tabular-nums text-[var(--text-primary)]">{tip.req}</span>
+            PML<span className="ml-6 font-semibold tabular-nums text-[var(--text-primary)]">{tip.req}</span>
           </div>
           <div className="flex items-center gap-2 text-[var(--text-secondary)]">
             <span className="inline-block h-2 w-3 rounded-sm" style={{ background: "var(--series-hito)" }} />
@@ -293,8 +293,8 @@ export default function CostoUnidadNegocioPage() {
               className={selectCls}
               style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}
             >
-              <option value="">Todos (REQ + Proyecto)</option>
-              <option value="REQ">REQ</option>
+              <option value="">Todos (PML + Proyecto)</option>
+              <option value="REQ">PML</option>
               <option value="Proyecto">Proyecto</option>
             </select>
 
@@ -305,7 +305,7 @@ export default function CostoUnidadNegocioPage() {
                 className={selectCls}
                 style={{ borderColor: "var(--border)", background: "var(--bg-base)", maxWidth: "26rem" }}
               >
-                <option value="">{fType === "REQ" ? "Todos los REQ" : "Todos los proyectos"}</option>
+                <option value="">{fType === "REQ" ? "Todos los PML" : "Todos los proyectos"}</option>
                 {(fType === "REQ" ? reqOptions : projOptions).map((o) => (
                   <option key={o.v} value={o.v}>{o.l}</option>
                 ))}
@@ -379,16 +379,16 @@ export default function CostoUnidadNegocioPage() {
           {/* KPIs */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard value={rows.length} label="Ítems totales" />
-            <StatCard value={nReq} label="REQ" />
+            <StatCard value={nReq} label="PML" />
             <StatCard value={nHito} label="Hitos" />
             <StatCard value={byUNeg.length} label="Unidades de Negocio" />
           </div>
 
           {/* Leyenda + medida */}
           <div className="flex flex-wrap items-center gap-4 text-[0.76rem] text-[var(--text-secondary)]">
-            <span className="flex items-center gap-1.5"><Swatch v="var(--series-req)" /> REQ</span>
+            <span className="flex items-center gap-1.5"><Swatch v="var(--series-req)" /> PML</span>
             <span className="flex items-center gap-1.5"><Swatch v="var(--series-hito)" /> Hito</span>
-            <span className="text-[var(--text-muted)]">· Medida: cantidad de ítems (REQ + Hitos)</span>
+            <span className="text-[var(--text-muted)]">· Medida: cantidad de ítems (PML + Hitos)</span>
           </div>
 
           {/* Gráficos */}

@@ -86,7 +86,7 @@ export default function SurveySendModal({
         {/* Header */}
         <div className="flex items-start justify-between border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
-            <div className="text-[0.68rem] uppercase tracking-widest text-[var(--text-muted)]">Encuestas del REQ</div>
+            <div className="text-[0.68rem] uppercase tracking-widest text-[var(--text-muted)]">Encuestas del PML</div>
             <div className="mt-0.5 text-[1rem] font-bold text-[var(--text-primary)]">{target.reqCode || target.reqName}</div>
             <div className="text-[0.75rem] text-[var(--text-muted)]">{target.reqName} · PM: {target.pm || "—"}</div>
           </div>

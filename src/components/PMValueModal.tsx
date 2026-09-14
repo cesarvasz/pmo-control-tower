@@ -180,14 +180,14 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                 Etapas <b>acumulativas</b>: un ítem <b>Confirmado sigue contando en Aprobación</b> (a su valor aprobado /
                 Business Case), y Confirmación es el subconjunto ya medido (valor real). Cada ítem muestra{" "}
                 <span style={{ color: BEN }}>Beneficio</span> / <span style={{ color: COST }}>Costo</span> en cada etapa alcanzada.
-                <b> Validación VPA</b>: REQ en Valuación/Aprobación o proyecto con &quot;VPA valida Business Case&quot; Done.
-                <b> Aprobación VPB</b>: REQ en Desarrollo/Operación/Cierre ROI/Cerrado o proyecto con &quot;Plan de beneficios CFO&quot; Done + al menos un Value Gate firmado Done (el de Aprobación o el de Launch).
-                <b> Confirmación VPC</b>: REQ Cerrado o proyecto con el step &quot;VPA Recopila datos a 30/60/90 días&quot; en curso (o el más reciente Done).
+                <b> Validación VPA</b>: PML en Valuación/Aprobación o proyecto con &quot;VPA valida Business Case&quot; Done.
+                <b> Aprobación VPB</b>: PML en Desarrollo/Operación/Cierre ROI/Cerrado o proyecto con &quot;Plan de beneficios CFO&quot; Done + al menos un Value Gate firmado Done (el de Aprobación o el de Launch).
+                <b> Confirmación VPC</b>: PML Cerrado o proyecto con el step &quot;VPA Recopila datos a 30/60/90 días&quot; en curso (o el más reciente Done).
               </div>
 
               {!hasDetail ? (
                 <div className="rounded-lg px-4 py-6 text-center text-[0.82rem] text-[var(--text-muted)]">
-                  Este PM aún no tiene REQ ni proyectos en ninguna de las 3 etapas.
+                  Este PM aún no tiene PML ni proyectos en ninguna de las 3 etapas.
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border)" }}>
@@ -202,7 +202,7 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                     </thead>
                     <tbody>
                       {[
-                        ...d.reqs.map((r) => ({ ...r, kind: "REQ" as const })),
+                        ...d.reqs.map((r) => ({ ...r, kind: "PML" as const })),
                         ...d.projects.map((p) => ({ ...p, kind: "PM" as const })),
                       ].map((it, i) => (
                         <tr key={`${it.kind}-${i}`} className="border-t" style={{ borderColor: "var(--border)" }}>
@@ -233,8 +233,8 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
   );
 }
 
-function Tag({ kind }: { kind: "REQ" | "PM" }) {
-  const c = kind === "REQ" ? "#0ea5e9" : "#8b5cf6";
+function Tag({ kind }: { kind: "PML" | "PM" }) {
+  const c = kind === "PML" ? "#0ea5e9" : "#8b5cf6";
   return (
     <span
       className="mr-1 inline-block rounded px-1.5 py-0.5 text-[0.6rem] font-bold align-middle"

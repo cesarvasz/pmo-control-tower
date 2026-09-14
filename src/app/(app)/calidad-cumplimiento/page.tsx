@@ -439,7 +439,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
     for (const r of tableRows) {
       const key = r.source === "REQ" ? REQ_GROUP_KEY : (r.projCode ? `${r.projCode}|${r.projName}` : r.projName || "Sin proyecto");
       let g = map.get(key);
-      if (!g) { g = { key, label: r.source === "REQ" ? "REQ" : (r.projName || "Sin proyecto"), code: r.source === "REQ" ? "" : r.projCode, rows: [] }; map.set(key, g); }
+      if (!g) { g = { key, label: r.source === "REQ" ? "PML" : (r.projName || "Sin proyecto"), code: r.source === "REQ" ? "" : r.projCode, rows: [] }; map.set(key, g); }
       g.rows.push(r);
     }
     return Array.from(map.values()).sort((a, b) => {

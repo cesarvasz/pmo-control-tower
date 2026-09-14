@@ -18,6 +18,7 @@ function cfgFor(a: VpaAction): Cfg {
 }
 
 const SRC_COLOR: Record<VpaAction["source"], string> = { PM: "#8b5cf6", REQ: "#0ea5e9" };
+const SRC_LABEL: Record<VpaAction["source"], string> = { PM: "PM", REQ: "PML" };
 
 export default function ValueGateModal({ items, onClose }: { items: VpaAction[]; onClose: () => void }) {
   const rows = items
@@ -69,7 +70,7 @@ export default function ValueGateModal({ items, onClose }: { items: VpaAction[];
                     className="shrink-0 rounded px-1.5 py-0.5 text-[0.6rem] font-bold"
                     style={{ color: SRC_COLOR[a.source], background: SRC_COLOR[a.source] + "22" }}
                   >
-                    {a.source}
+                    {SRC_LABEL[a.source]}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[0.82rem] font-medium text-[var(--text-primary)]" title={a.title}>

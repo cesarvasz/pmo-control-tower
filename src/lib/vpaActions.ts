@@ -51,8 +51,8 @@ const esFase2 = (grupo: string) => valorStageOf(grupo) === 1;
 // REQ: la acción del VPA son los ítems en fase 2 (Aprobación) y fase 6
 // (Revisión ROI). `r.grupo` ya viene con el label interno (ver REQ_GROUP_LABEL).
 const REQ_VPA_FASE: Record<string, string> = {
-  "Aprobación": "REQ · Aprobación (fase 2)",
-  "Cierre ROI": "REQ · Revisión ROI (fase 6)",
+  "Aprobación": "PML · Aprobación (fase 2)",
+  "Cierre ROI": "PML · Revisión ROI (fase 6)",
 };
 
 /**

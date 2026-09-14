@@ -4,6 +4,8 @@ import Modal from "@/components/Modal";
 import { RESPONSIBLE_COLOR } from "@/lib/delay";
 import type { ReprocesoRawRow } from "@/lib/dashboard";
 
+const SOURCE_LABEL: Record<ReprocesoRawRow["source"], string> = { REQ: "PML", Proyecto: "Proyecto" };
+
 /** Pop-up de detalle de "Calidad de Entregas" (tarjeta principal): desglose de qué
  *  opción se seleccionó más para el reproceso (conteo + %) y el listado nombre/id
  *  de cada unidad donde se marcó. Mismo universo que la tarjeta (calcReprocesoStatsRaw):
@@ -81,7 +83,7 @@ export default function ReprocesoDetailModal({ rows, onClose }: { rows: Reproces
                       <tr key={r.id} className="border-t" style={{ borderColor: "var(--border)" }}>
                         <td className="px-3 py-1.5 text-[var(--text-primary)]">
                           {r.name}
-                          <span className="ml-1.5 text-[0.64rem] text-[var(--text-muted)]">({r.source})</span>
+                          <span className="ml-1.5 text-[0.64rem] text-[var(--text-muted)]">({SOURCE_LABEL[r.source]})</span>
                         </td>
                         <td className="px-3 py-1.5 font-mono text-[0.7rem] text-[var(--text-muted)]">
                           {r.source === "Proyecto" ? (r.projCode || r.id) : r.id}

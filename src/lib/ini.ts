@@ -24,7 +24,7 @@ export const INI_SEC_LABEL: Record<string, string> = {
   New: "Meeting 1",
   "Meeting 1": "Meeting 2",
   "PM Aprobado": "PM Aprobado",
-  "REQ Aprobado": "REQ Aprobado",
+  "REQ Aprobado": "PML Aprobado",
   "Sin Valor Def": "En Espera +Info CKU",
 };
 export const INI_ACTIVE_STS = new Set(["New", "Meeting 1"]);

@@ -10,7 +10,7 @@ import CalcHabilesModal from "@/components/CalcHabilesModal";
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/": { title: "Control Tower", subtitle: "Resumen de portafolios PMO" },
   "/iniciativas": { title: "Iniciativas", subtitle: "Board de iniciativas PMO · Monday.com" },
-  "/req": { title: "REQ", subtitle: "Requerimientos VALOR Lite · Monday.com" },
+  "/req": { title: "PML", subtitle: "Requerimientos VALOR Lite · Monday.com" },
   "/proyectos": { title: "Proyectos", subtitle: "Portafolios de proyectos · Monday.com" },
   "/usuarios": { title: "Usuarios", subtitle: "Gestión de usuarios y asignación de roles" },
   "/roles": { title: "Roles", subtitle: "Roles, permisos y grupos" },

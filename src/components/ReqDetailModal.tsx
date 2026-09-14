@@ -77,7 +77,7 @@ export default function ReqDetailModal({ req, onClose }: { req: ReqItem | null; 
             <div>
               <SectionLabel>Cronograma</SectionLabel>
               <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}>
-                <Cell label="Inicio REQ">{r.inicioReq ? fmtDate(r.inicioReq) : dash}</Cell>
+                <Cell label="Inicio PML">{r.inicioReq ? fmtDate(r.inicioReq) : dash}</Cell>
                 <Cell label="Inicio Fase">{r.inicio ? fmtDate(r.inicio) : dash}</Cell>
                 <Cell label="Est DEV">{r.estDev ? fmtDate(r.estDev) : dash}</Cell>
                 <Cell label="Deadline">{r.deadline ? fmtDate(r.deadline) : dash}</Cell>

@@ -56,7 +56,7 @@ export default function EncuestasPage() {
     }
   };
   const cancel = async (token: string) => {
-    if (!window.confirm("Se cancelará esta encuesta pendiente y el REQ volverá a mostrar el botón Enviar. ¿Continuar?")) return;
+    if (!window.confirm("Se cancelará esta encuesta pendiente y el PML volverá a mostrar el botón Enviar. ¿Continuar?")) return;
     setBusyToken(token);
     try {
       const res = await authedFetch(`/api/surveys/${token}`, { method: "DELETE" });

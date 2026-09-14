@@ -42,7 +42,7 @@ export const PAGES: PageDef[] = [
   { key: "overview",    label: "Control Tower", href: "/",         icon: "control-tower" },
   { key: "valor",       label: "VALOR",         href: "/valor",    icon: "💰", public: true },
   { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
-  { key: "req",         label: "REQ",           href: "/req",      icon: "◇" },
+  { key: "req",         label: "PML",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
   { key: "resumen-ejecutivo", label: "Resumen Ejecutivo", href: "/resumen-ejecutivo", icon: "🧭" },
   { key: "desarrollo-timelines", label: "Desarrollo Timelines", href: "/desarrollo-timelines", icon: "🗓" },

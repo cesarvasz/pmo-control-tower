@@ -260,10 +260,10 @@ function ControlTower({ data }: { data: DashboardData }) {
             </div>
             <div
               className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]"
-              title="Nota EVM ponderada: Iniciativas 10% · REQ 20% · Proyectos 70%"
+              title="Nota EVM ponderada: Iniciativas 10% · PML 20% · Proyectos 70%"
             >
               {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}% <span className="font-normal opacity-70">·10%</span></span>}
-              {teamReqHealth  !== null && <span>REQ {Math.round(teamReqHealth  * 100)}% <span className="font-normal opacity-70">·20%</span></span>}
+              {teamReqHealth  !== null && <span>PML {Math.round(teamReqHealth  * 100)}% <span className="font-normal opacity-70">·20%</span></span>}
               {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}% <span className="font-normal opacity-70">·70%</span></span>}
             </div>
           </div>
@@ -316,7 +316,7 @@ function ControlTower({ data }: { data: DashboardData }) {
           {/* Cumplimiento de Entrega — % real: TODO atraso cuenta, sin excusar por responsable */}
           <div
             onClick={() => setShowEntregaDetail(true)}
-            title="% real: cuenta TODO REQ/hito atrasado, sin importar el responsable asignado (a diferencia de Players/KPI, que sí excusan por responsable). Click para ver detalle."
+            title="% real: cuenta TODO PML/hito atrasado, sin importar el responsable asignado (a diferencia de Players/KPI, que sí excusan por responsable). Click para ver detalle."
             className="flex cursor-pointer flex-col justify-center rounded-xl border-2 p-5 text-center transition-transform hover:-translate-y-0.5" style={{ background: "var(--bg-surface)", borderColor: entColor }}
           >
             <div className="mb-2 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Cumplimiento de Entrega</div>
@@ -388,7 +388,7 @@ function ControlTower({ data }: { data: DashboardData }) {
           [`✓ ${G.iniEnTiempo} On Track`, "#10b981"],
         ]} />
         <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
-        <GlobalBlock title="REQ" onClick={() => router.push("/req")} stats={[
+        <GlobalBlock title="PML" onClick={() => router.push("/req")} stats={[
           [`${G.reqTotal} total`, "var(--text-primary)"],
           [`✕ ${G.reqEvmOffTrack} Off Track`, "#ef4444"],
           [`⚠ ${G.reqEvmInRisk} At Risk`, "#f59e0b"],
@@ -636,7 +636,7 @@ function PMPortfolioCard({
         const repColor = pmReprocesoPct === null ? "#6b7280" : pmReprocesoPct >= 90 ? "var(--ok)" : pmReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
         const npsLabel = npsCfg(pmNps.nps)?.label;
         const metrics: { label: string; value: string; color: string; onClick?: () => void; title: string; sub?: string }[] = [
-          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · ponderado Iniciativas 10% · REQ 20% · Proyectos 70%" },
+          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · ponderado Iniciativas 10% · PML 20% · Proyectos 70%" },
           { label: "Beneficio", value: fmtMoneyShort(pmBenefitDisplay), color: "var(--ok)", onClick: () => setShowValue(true), title: `Beneficio HardSaving (Aprobación VPB): ${fmtMoney(pmBenefitDisplay)} · clic para ver el detalle` },
           { label: "Calidad de Entrega", value: pmReprocesoPct !== null ? `${pmReprocesoPct}%` : "—", color: repColor, title: "Calidad de Entrega · % de unidades limpias sin reproceso imputable al PM" },
           { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "s/d", color: entColor, onClick: () => setShowEntregaDetail(true), title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal} · clic para ver el detalle` },
@@ -674,7 +674,7 @@ function PMPortfolioCard({
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section
-          label="REQ"
+          label="PML"
           has={reqHas}
           onClick={onGoReq}
           badge={rvc ? (
@@ -819,7 +819,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                   <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
                 </td>
                 {/* Calidad de Entregas — reproceso (peso 20) */}
-                <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : "% de unidades limpias (REQ cerrados + fases completadas) sin reproceso imputable al PM"}>
+                <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : "% de unidades limpias (PML cerrados + fases completadas) sin reproceso imputable al PM"}>
                   <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</div>
                   {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
                 </td>
