@@ -135,7 +135,13 @@ export interface ClonacionPayload {
  *  `Digit_carta_licencia` (carta de licencia). El tablero mide, en ventana hábil
  *  L–V 08:00–18:00: T1 = `Creacion`→`Digit_docs` y T2 = `Digit_docs`→
  *  `Digit_carta_licencia`. Cualquiera de los dos hitos puede venir vacío (file
- *  aún en proceso). */
+ *  aún en proceso).
+ *
+ *  `Documents Count` / `Pages Count` / `Licencias` / `Costo`: agregadas a la
+ *  hoja el 2026-09-14, ya calculadas en origen — a diferencia de 003, aquí NO
+ *  se cruzan con ninguna otra hoja. Vienen como número pero el decodificador
+ *  las pasa a texto (ver roi.ts); `construirFiles` en digitalizacion.ts las
+ *  convierte de vuelta, tratando vacío/"No encontrado" como 0. */
 export interface OcrRow {
   id: string;
   c807_file: string;
@@ -144,6 +150,10 @@ export interface OcrRow {
   Creacion: string;
   Digit_docs: string;
   Digit_carta_licencia: string;
+  "Documents Count": string;
+  "Pages Count": string;
+  Licencias: string;
+  Costo: string;
 }
 
 /** Pestaña "009" tal como la manda el Apps Script: codificada, mismo esquema
@@ -453,6 +463,9 @@ export interface DashboardData {
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso — tabla Atrasos
   directorio: DirectorioEntry[];
+  /** nombres normalizados del Equipo de Desarrollo Interno + Externo (Directorio RH) —
+   *  filtra los hitos de plantilla nueva en "Desarrollo Timelines" (ver devTimeline.ts). */
+  devTeamRoster: Set<string>;
   /** nombre-normalizado de Estrategia → { U Neg, País }. */
   estrategiaMap: Map<string, EstrategiaInfo>;
   /** Ini ID → { count, lastSent } de correos "Sin Valor Def" ya enviados. */

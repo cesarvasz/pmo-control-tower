@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import { buildCalMap, buildReminderMap, iniProcess } from "@/lib/ini";
+import { buildDevTeamRoster } from "@/lib/devTimeline";
 import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
 import { reqProcess } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
@@ -85,8 +86,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         .sort((a, b) => a.name.localeCompare(b.name));
 
       const reminderMap = buildReminderMap(raw.reminderLog ?? []);
+      const devTeamRoster = buildDevTeamRoster(raw.hrItems ?? []);
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, atrasoDetalles: raw.atrasoDetalles ?? {}, directorio, estrategiaMap, reminderMap, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, atrasoDetalles: raw.atrasoDetalles ?? {}, directorio, devTeamRoster, estrategiaMap, reminderMap, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

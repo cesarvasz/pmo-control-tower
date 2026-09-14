@@ -67,7 +67,7 @@ export default function DesarrolloTimelinesPage() {
   const [incluirFuturos, setIncluirFuturos] = useState(false);
 
   const allRows = useMemo(
-    () => (data ? buildDevTimelines(data.proj, data.projBoards) : []),
+    () => (data ? buildDevTimelines(data.proj, data.projBoards, data.devTeamRoster) : []),
     [data],
   );
 
