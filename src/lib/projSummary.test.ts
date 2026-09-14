@@ -266,15 +266,15 @@ describe("calcAtrasoActualDias (unión de días hábiles atrasados, no la suma n
   const hoy = today();
 
   it("un solo atraso = sus propios días hábiles", () => {
-    expect(calcAtrasoActualDias([{ deadline: daysFromToday(-5) }], hoy)).toBe(businessDays(daysFromToday(-5), hoy));
+    expect(calcAtrasoActualDias([{ deadline: daysFromToday(-5) }], hoy)).toBe(businessDays(daysFromToday(-5), hoy, true));
   });
 
   it("dos atrasos en paralelo (ambos siguen abiertos HOY): el resultado es el del MÁS atrasado, no la suma", () => {
     const masAtrasado = { deadline: daysFromToday(-15) }; // ej. "MESA 2 - GT" 11 días hábiles
     const menosAtrasado = { deadline: daysFromToday(-7) }; // ej. "Gacela 2.0 - NI" 5 días hábiles
     const union = calcAtrasoActualDias([masAtrasado, menosAtrasado], hoy);
-    const diasMasAtrasado = businessDays(masAtrasado.deadline, hoy);
-    const diasMenosAtrasado = businessDays(menosAtrasado.deadline, hoy);
+    const diasMasAtrasado = businessDays(masAtrasado.deadline, hoy, true);
+    const diasMenosAtrasado = businessDays(menosAtrasado.deadline, hoy, true);
     expect(union).toBe(diasMasAtrasado);
     expect(union).not.toBe(diasMasAtrasado + diasMenosAtrasado); // NO se suman los días en común
   });
@@ -284,7 +284,7 @@ describe("calcAtrasoActualDias (unión de días hábiles atrasados, no la suma n
       [{ deadline: daysFromToday(-15) }, { deadline: daysFromToday(-7) }, { deadline: daysFromToday(-1) }],
       hoy,
     );
-    expect(union).toBe(businessDays(daysFromToday(-15), hoy));
+    expect(union).toBe(businessDays(daysFromToday(-15), hoy, true));
   });
 
   it("sin atrasos (o solo sin deadline) → 0", () => {
@@ -370,7 +370,7 @@ describe("calcCompletionEstimate", () => {
     const c = calcCompletionEstimate(units, worstOverdueDays);
     expect(c.scheduleSlipDays).toBe(0); // el plan (Fase 4) en sí no ha vencido
     expect(c.estimatedFinish!.getTime()).toBeGreaterThan(c.plannedFinish!.getTime());
-    expect(businessDays(c.plannedFinish!, c.estimatedFinish!)).toBe(worstOverdueDays);
+    expect(businessDays(c.plannedFinish!, c.estimatedFinish!, true)).toBe(worstOverdueDays);
   });
 
   it("sin ningún deadline en Fase 4 → no hay estimado posible", () => {

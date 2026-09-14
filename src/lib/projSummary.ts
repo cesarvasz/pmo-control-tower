@@ -49,7 +49,7 @@ export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
     if (tardios.length === 0) return null;
     let peorDeadline: Date | null = null, peorDias = -Infinity;
     for (const s of tardios) {
-      const dias = s.deadline ? businessDays(s.deadline, hoy) : -Infinity;
+      const dias = s.deadline ? businessDays(s.deadline, hoy, true) : -Infinity;
       if (dias > peorDias) { peorDias = dias; peorDeadline = s.deadline; }
     }
     return {
@@ -64,7 +64,7 @@ export function evaluarStepAtraso(it: ProjItem, hoy: Date): StepAtraso | null {
   return {
     id: it.id, name: it.name, grupo: it.grupo,
     deadline: it.deadline, responsible: it.responsible,
-    daysLate: it.deadline ? businessDays(it.deadline, hoy) : null,
+    daysLate: it.deadline ? businessDays(it.deadline, hoy, true) : null,
     stuck: isStuck(it.status),
     nHitos: 0,
   };
@@ -84,7 +84,7 @@ export function evaluarHitosAtraso(it: ProjItem, hoy: Date): StepAtraso[] {
     .map((s) => ({
       id: s.id, name: s.name, grupo: it.grupo,
       deadline: s.deadline, responsible: s.responsible || it.responsible,
-      daysLate: s.deadline ? businessDays(s.deadline, hoy) : null,
+      daysLate: s.deadline ? businessDays(s.deadline, hoy, true) : null,
       stuck: isStuck(s.status),
       nHitos: 0,
     }));
@@ -106,7 +106,7 @@ export function calcAtrasoActualDias(atrasos: { deadline: Date | null }[], hoy: 
     .map((a) => a.deadline)
     .filter((d): d is Date => d !== null)
     .map((deadline) => ({ start: deadline, end: hoy }));
-  return unionBusinessDays(ranges);
+  return unionBusinessDays(ranges, true);
 }
 
 /** Unidad de trabajo aplanada: el hito (subitem) si el item los tiene, o el item
@@ -315,10 +315,10 @@ export interface DelaySummary {
 export function calcDelaySummary(units: WorkUnit[]): DelaySummary {
   const t = today();
   const overdue = units.filter((u): u is WorkUnit & { deadline: Date } => u.status !== "Done" && u.estado === "ATRASADO" && u.deadline !== null);
-  const worstOverdueDays = overdue.reduce((max, u) => Math.max(max, businessDays(u.deadline, t)), 0);
+  const worstOverdueDays = overdue.reduce((max, u) => Math.max(max, businessDays(u.deadline, t, true)), 0);
 
   const lateDone = units.filter((u): u is WorkUnit & { deadline: Date; actualEnd: Date } => u.entrega === "late" && u.deadline !== null && u.actualEnd !== null);
-  const slipDaysList = lateDone.map((u) => businessDays(u.deadline, u.actualEnd));
+  const slipDaysList = lateDone.map((u) => businessDays(u.deadline, u.actualEnd, true));
   const avgSlipDays = slipDaysList.length ? Math.round(slipDaysList.reduce((a, b) => a + b, 0) / slipDaysList.length) : 0;
 
   return { overdueCount: overdue.length, worstOverdueDays, lateDoneCount: lateDone.length, avgSlipDays };
@@ -381,9 +381,9 @@ export function calcCompletionEstimate(units: WorkUnit[], worstOverdueDays: numb
     plannedFinish = new Date(Math.max(...fase4Deadlines.map((d) => d.getTime())));
   }
 
-  const scheduleSlipDays = plannedFinish < t ? businessDays(plannedFinish, t) : 0;
+  const scheduleSlipDays = plannedFinish < t ? businessDays(plannedFinish, t, true) : 0;
   const activeDelay = Math.max(scheduleSlipDays, worstOverdueDays);
-  const estimatedFinish = activeDelay > 0 ? addBusinessDays(plannedFinish, activeDelay) : plannedFinish;
+  const estimatedFinish = activeDelay > 0 ? addBusinessDays(plannedFinish, activeDelay, true) : plannedFinish;
 
   return { isComplete: false, actualFinish: null, plannedFinish, estimatedFinish, scheduleSlipDays };
 }

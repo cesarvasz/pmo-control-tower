@@ -333,7 +333,7 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
   const saludTone: Tone = health.healthStatus ? HEALTH_TONE[health.healthStatus] : "neutral";
   const atrasoActualDias = calcAtrasoActualDias(atrasos, today());
   const slipVsPlan = plannedFinish && estimatedFinish && estimatedFinish > plannedFinish
-    ? businessDays(plannedFinish, estimatedFinish) : scheduleSlipDays;
+    ? businessDays(plannedFinish, estimatedFinish, true) : scheduleSlipDays;
 
   const statusAtrasos: StatusAtraso[] = atrasos.map((a) => {
     const det = atrasoDetalles?.[a.id];
