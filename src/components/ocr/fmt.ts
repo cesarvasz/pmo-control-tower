@@ -1,19 +1,10 @@
 // Formateadores del reporte "Digitalización OCR". Mismo lenguaje que el resto
 // de la app (es-GT, tabular-nums en la UI).
 
-/** Segundos → minutos con 2 decimales: "82.57 min". */
-export const fmtMin = (seg: number | null | undefined): string =>
-  seg == null || !isFinite(seg) ? "—" : `${(seg / 60).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} min`;
-
-/** Segundos → horas con 2 decimales: "1,665.24 h". */
-export const fmtHoras = (seg: number | null | undefined): string =>
-  seg == null || !isFinite(seg) ? "—" : `${(seg / 3600).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
-
-/** Segundos → la escala que mejor se lee (min hasta 1 h, luego h). */
-export const fmtDur = (seg: number | null | undefined): string => {
-  if (seg == null || !isFinite(seg)) return "—";
-  return seg < 3600 ? fmtMin(seg) : fmtHoras(seg);
-};
+/** Segundos → "hh:mm:ss" (sin tope de horas). Mismo formato que el resto de
+ *  ROI (ver lib/tramites.ts) — es solo presentación, no depende de la ventana
+ *  hábil de ningún reporte, así que se reutiliza tal cual. */
+export { fmtHHMMSS } from "@/lib/horario";
 
 export const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
 

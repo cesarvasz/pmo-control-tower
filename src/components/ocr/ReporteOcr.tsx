@@ -65,7 +65,7 @@ export default function ReporteOcr({ rows }: { rows: OcrRow[] }) {
 
       <GraficasOcr serie={puntos} stat={stat} />
 
-      <TablasOcr clientes={clientes} files={detalleFiles} serie={puntos} />
+      <TablasOcr clientes={clientes} files={detalleFiles} serie={puntos} stat={stat} />
 
       <NotaMetodologicaOcr />
     </div>

@@ -8,9 +8,9 @@ import { useMemo, useState } from "react";
 import { SectionHeader } from "@/components/ui";
 import {
   exportClientesCSV, exportFilesCSV, exportSerieCSV,
-  type FilaCliente, type FilaFile, type PuntoSerieOcr,
+  type FilaCliente, type FilaFile, type PuntoSerieOcr, type StatSel,
 } from "@/lib/digitalizacion";
-import { fmtMin, fmtDur, fmtFecha, fmtFechaHora, nEs } from "./fmt";
+import { fmtHHMMSS, fmtFecha, fmtFechaHora, nEs } from "./fmt";
 
 type Dir = "asc" | "desc";
 const MAX_FILAS = 200;
@@ -60,24 +60,28 @@ function useOrden(inicial: string) {
 const num = (v: number | null) => (v == null ? -1 : v);
 
 // ── Por cliente ───────────────────────────────────────────────────────
-function TablaCliente({ filas, serie }: { filas: FilaCliente[]; serie: PuntoSerieOcr[] }) {
+// Muestra solo T1 y T2 (sin Total): el valor de cada uno responde al mismo
+// selector Promedio/Mediana que gobierna la tarjeta de tiempo y la gráfica.
+function TablaCliente({ filas, serie, stat }: { filas: FilaCliente[]; serie: PuntoSerieOcr[]; stat: StatSel }) {
   const { campo, dir, alternar, orden } = useOrden("files");
+  const t1 = (f: FilaCliente) => (stat === "prom" ? f.t1Prom : f.t1Mediana);
+  const t2 = (f: FilaCliente) => (stat === "prom" ? f.t2Prom : f.t2Mediana);
+  const statLabel = stat === "prom" ? "promedio" : "mediana";
+
   const ordenadas = useMemo(() => {
     const val = (f: FilaCliente): number | string =>
       campo === "cliente" ? f.cliente
         : campo === "conT2" ? f.conT2
-          : campo === "t1Prom" ? num(f.t1Prom)
-            : campo === "t1Mediana" ? num(f.t1Mediana)
-              : campo === "t2Prom" ? num(f.t2Prom)
-                : campo === "t2Mediana" ? num(f.t2Mediana)
-                  : campo === "totalProm" ? num(f.totalProm)
-                    : f.files;
+          : campo === "t1" ? num(t1(f))
+            : campo === "t2" ? num(t2(f))
+              : f.files;
     return [...filas].sort((a, b) => {
       const va = val(a), vb = val(b);
       const c = typeof va === "string" ? va.localeCompare(vb as string, "es") : va - (vb as number);
       return dir === "asc" ? c : -c;
     });
-  }, [filas, campo, dir]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t1/t2 dependen de `stat`, ya en deps
+  }, [filas, campo, dir, stat]);
 
   const tot = useMemo(
     () => filas.reduce((t, f) => ({ files: t.files + f.files, conT2: t.conT2 + f.conT2 }), { files: 0, conT2: 0 }),
@@ -86,7 +90,7 @@ function TablaCliente({ filas, serie }: { filas: FilaCliente[]; serie: PuntoSeri
 
   return (
     <section className="mt-7">
-      <SectionHeader title="Por cliente" badge={`${nEs(filas.length)} clientes`} />
+      <SectionHeader title="Por cliente" badge={`${nEs(filas.length)} clientes · ${statLabel}`} />
       <div className="mb-2.5 flex flex-wrap gap-2">
         <ExportBtn onClick={() => descargarCSV("ocr-por-cliente", exportClientesCSV(ordenadas))}>Exportar por cliente</ExportBtn>
         <ExportBtn onClick={() => descargarCSV("ocr-por-periodo", exportSerieCSV(serie))}>Exportar por período</ExportBtn>
@@ -98,11 +102,8 @@ function TablaCliente({ filas, serie }: { filas: FilaCliente[]; serie: PuntoSeri
               <Th campo="cliente" orden={orden} alternar={alternar} align="left">Cliente</Th>
               <Th campo="files" orden={orden} alternar={alternar}>Files</Th>
               <Th campo="conT2" orden={orden} alternar={alternar}>c/ T2</Th>
-              <Th campo="t1Prom" orden={orden} alternar={alternar}>T1 prom</Th>
-              <Th campo="t1Mediana" orden={orden} alternar={alternar}>T1 mediana</Th>
-              <Th campo="t2Prom" orden={orden} alternar={alternar}>T2 prom</Th>
-              <Th campo="t2Mediana" orden={orden} alternar={alternar}>T2 mediana</Th>
-              <Th campo="totalProm" orden={orden} alternar={alternar}>Total prom</Th>
+              <Th campo="t1" orden={orden} alternar={alternar}>T1</Th>
+              <Th campo="t2" orden={orden} alternar={alternar}>T2</Th>
             </tr>
           </thead>
           <tbody>
@@ -111,11 +112,8 @@ function TablaCliente({ filas, serie }: { filas: FilaCliente[]; serie: PuntoSeri
                 <td className="max-w-[240px] truncate" title={f.cliente}>{f.cliente}</td>
                 <td className="tabular-nums text-center">{nEs(f.files)}</td>
                 <td className="tabular-nums text-center text-[var(--text-secondary)]">{nEs(f.conT2)}</td>
-                <td className="tabular-nums text-center" style={{ color: f.t1Prom == null ? "var(--text-muted)" : "var(--etapa-1)" }}>{fmtMin(f.t1Prom)}</td>
-                <td className="tabular-nums text-center" style={{ color: f.t1Mediana == null ? "var(--text-muted)" : "var(--etapa-1)" }}>{fmtMin(f.t1Mediana)}</td>
-                <td className="tabular-nums text-center" style={{ color: f.t2Prom == null ? "var(--text-muted)" : "var(--etapa-3)" }}>{fmtMin(f.t2Prom)}</td>
-                <td className="tabular-nums text-center" style={{ color: f.t2Mediana == null ? "var(--text-muted)" : "var(--etapa-3)" }}>{fmtMin(f.t2Mediana)}</td>
-                <td className="tabular-nums text-center font-semibold" style={f.totalProm == null ? { color: "var(--text-muted)" } : undefined}>{fmtMin(f.totalProm)}</td>
+                <td className="tabular-nums text-center" style={{ color: t1(f) == null ? "var(--text-muted)" : "var(--etapa-1)" }}>{fmtHHMMSS(t1(f))}</td>
+                <td className="tabular-nums text-center" style={{ color: t2(f) == null ? "var(--text-muted)" : "var(--etapa-3)" }}>{fmtHHMMSS(t2(f))}</td>
               </tr>
             ))}
           </tbody>
@@ -124,9 +122,6 @@ function TablaCliente({ filas, serie }: { filas: FilaCliente[]; serie: PuntoSeri
               <td>Total</td>
               <td className="tabular-nums text-center">{nEs(tot.files)}</td>
               <td className="tabular-nums text-center">{nEs(tot.conT2)}</td>
-              <td className="text-center text-[var(--text-muted)]">—</td>
-              <td className="text-center text-[var(--text-muted)]">—</td>
-              <td className="text-center text-[var(--text-muted)]">—</td>
               <td className="text-center text-[var(--text-muted)]">—</td>
               <td className="text-center text-[var(--text-muted)]">—</td>
             </tr>
@@ -198,9 +193,9 @@ function TablaFile({ filas }: { filas: FilaFile[] }) {
                 <td className="tabular-nums text-center text-[var(--text-secondary)]">{fmtFecha(f.creado)}</td>
                 <td className="tabular-nums text-center text-[var(--text-secondary)]">{fmtFechaHora(f.docs)}</td>
                 <td className="tabular-nums text-center text-[var(--text-secondary)]">{fmtFechaHora(f.carta)}</td>
-                <td className="tabular-nums text-center" style={{ color: f.t1Seg == null ? "var(--text-muted)" : "var(--etapa-1)" }}>{f.t1Seg == null ? "—" : fmtDur(f.t1Seg)}</td>
-                <td className="tabular-nums text-center" style={{ color: f.t2Seg == null ? "var(--text-muted)" : "var(--etapa-3)" }}>{f.t2Seg == null ? "—" : fmtDur(f.t2Seg)}</td>
-                <td className="tabular-nums text-center font-semibold" style={f.totalSeg == null ? { color: "var(--text-muted)" } : undefined}>{f.totalSeg == null ? "—" : fmtDur(f.totalSeg)}</td>
+                <td className="tabular-nums text-center" style={{ color: f.t1Seg == null ? "var(--text-muted)" : "var(--etapa-1)" }}>{fmtHHMMSS(f.t1Seg)}</td>
+                <td className="tabular-nums text-center" style={{ color: f.t2Seg == null ? "var(--text-muted)" : "var(--etapa-3)" }}>{fmtHHMMSS(f.t2Seg)}</td>
+                <td className="tabular-nums text-center font-semibold" style={f.totalSeg == null ? { color: "var(--text-muted)" } : undefined}>{fmtHHMMSS(f.totalSeg)}</td>
               </tr>
             ))}
           </tbody>
@@ -215,12 +210,12 @@ function TablaFile({ filas }: { filas: FilaFile[] }) {
   );
 }
 
-export default function TablasOcr({ clientes, files, serie }: {
-  clientes: FilaCliente[]; files: FilaFile[]; serie: PuntoSerieOcr[];
+export default function TablasOcr({ clientes, files, serie, stat }: {
+  clientes: FilaCliente[]; files: FilaFile[]; serie: PuntoSerieOcr[]; stat: StatSel;
 }) {
   return (
     <>
-      <TablaCliente filas={clientes} serie={serie} />
+      <TablaCliente filas={clientes} serie={serie} stat={stat} />
       <TablaFile filas={files} />
     </>
   );

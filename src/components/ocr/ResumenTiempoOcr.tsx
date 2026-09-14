@@ -5,7 +5,7 @@
 // (el estado vive en ReporteOcr). Todo en horas hábiles L–V 08:00–18:00.
 
 import type { KpisOcr, StatSel } from "@/lib/digitalizacion";
-import { fmtDur, nEs } from "./fmt";
+import { fmtHHMMSS, nEs } from "./fmt";
 
 const SEG: readonly (readonly [StatSel, string])[] = [["prom", "Promedio"], ["mediana", "Mediana"]];
 
@@ -42,11 +42,11 @@ export default function ResumenTiempoOcr({ k, stat, onStat }: {
           <div key={c.label} className="flex flex-col">
             <div className="text-[0.64rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{c.label}</div>
             <div className="mt-1 tabular-nums text-[1.75rem] font-extrabold leading-none" style={{ color: c.color }}>
-              {fmtDur(pick(c.stat))}
+              {fmtHHMMSS(pick(c.stat))}
             </div>
             <div className="mt-1.5 text-[0.68rem] text-[var(--text-muted)]">{c.cap}</div>
             <div className="mt-0.5 tabular-nums text-[0.66rem] text-[var(--text-muted)]">
-              {nEs(c.stat.n)} files · P90 {fmtDur(c.stat.p90)} · máx {fmtDur(c.stat.max)}
+              {nEs(c.stat.n)} files · P90 {fmtHHMMSS(c.stat.p90)} · máx {fmtHHMMSS(c.stat.max)}
             </div>
           </div>
         ))}

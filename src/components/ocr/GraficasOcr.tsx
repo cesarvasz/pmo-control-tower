@@ -9,7 +9,7 @@ import { useState } from "react";
 import { SectionHeader } from "@/components/ui";
 import { marcasDeReloj } from "@/lib/ocrHabil";
 import type { PuntoSerieOcr, StatSel } from "@/lib/digitalizacion";
-import { fmtDur, nEs, etiquetaReloj } from "./fmt";
+import { fmtHHMMSS, nEs, etiquetaReloj } from "./fmt";
 
 function Vacio() {
   return <div className="py-8 text-center text-[0.82rem] text-[var(--text-muted)]">Sin datos para los filtros seleccionados.</div>;
@@ -116,8 +116,8 @@ export default function GraficasOcr({ serie, stat }: { serie: PuntoSerieOcr[]; s
                 <span className="ml-2 text-[var(--text-muted)]">
                   {nEs(serie[hover].files)} files · {nEs(serie[hover].conT2)} con T2
                 </span>
-                <span className="ml-3" style={{ color: "var(--etapa-1)" }}>T1 {fmtDur(val(serie[hover], t1Key))}</span>
-                <span className="ml-3" style={{ color: "var(--etapa-3)" }}>T2 {fmtDur(val(serie[hover], t2Key))}</span>
+                <span className="ml-3" style={{ color: "var(--etapa-1)" }}>T1 {fmtHHMMSS(val(serie[hover], t1Key))}</span>
+                <span className="ml-3" style={{ color: "var(--etapa-3)" }}>T2 {fmtHHMMSS(val(serie[hover], t2Key))}</span>
               </div>
             )}
           </>
