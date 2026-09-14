@@ -370,6 +370,7 @@ export interface ProjItem {
   status: string;
   deadline: Date | null;
   startDate: Date | null;                     // "Start Date": fecha real de inicio del item
+  cpmStart: Date | null;                      // INICIO del rango de la columna "CPM" — NUNCA "Start Date" (ver resolveCpmStart)
   endDate: Date | null;                       // "End Date": fecha real de cierre del item
   entrega: "on-time" | "late" | null;         // a tiempo si End Date ≤ Limit Date (solo Done)
   cost: number;

@@ -1,23 +1,82 @@
 "use client";
 
 // Desarrollo Timelines — Gantt del ciclo de vida de DESARROLLO por hito.
-// Cada hito (subitem, por PMS ID) es una línea con 4 fechas tomadas de 3 steps
-// del board (ver lib/devTimeline.ts):
-//   A firmado  · B análisis · C limit (deadline) · D entrega (fin real)
+// Cada hito es una línea con 5 puntos, MISMO nombre en las dos plantillas
+// (ver lib/devTimeline.ts para de dónde sale cada uno según `plantilla`):
+//   A Inicio · Req Terminado · B Analisis tecnico · C Entrega Desarrollo (deadline) · D Salida en vivo
 // Todas las líneas comparten un eje temporal para ver traslapes. Filtros por
-// Proyecto, PM y Developer. Scope: hitos en Desarrollo (toggle para incluir
-// los ya entregados).
+// Proyecto, PM, Developer y Status (A futuro / En Curso / Completados — ver
+// rowStatus). Las tarjetas se recalculan sobre el mismo set ya filtrado.
 
-import { useMemo, useState } from "react";
+/** Etiquetas de los puntos A/D — iguales en las dos plantillas. */
+const POINT_LABELS = { firmado: "Inicio", limit: "Entrega Desarrollo", entrega: "Salida en vivo" };
+
+import { useCallback, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
-import { fmtDate } from "@/lib/business";
+import { businessDays, fmtDate } from "@/lib/business";
 import { buildDevTimelines, type DevTimelineRow } from "@/lib/devTimeline";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
-import { EmptyRow, ErrorBox, FilterReset, Loader, StatCard } from "@/components/ui";
+import { EmptyRow, ErrorBox, FilterReset, Loader, SplitStatCard, StatCard } from "@/components/ui";
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const DAY = 86_400_000;
 const LABEL_W = 220; // ancho de la columna de etiquetas (izquierda)
+
+/** Atrasado: el hito ya pasó su Limit Date sin cerrarse a tiempo (o cerró tarde).
+ *  Misma fórmula que usan las barras del Gantt (ver `geoms`) — se extrae acá para
+ *  reusarla también en el conteo de proyectos de las tarjetas. */
+function isRowLate(r: DevTimelineRow, nowMs: number): boolean {
+  const { firmado, analisis, limit, entrega, enDesarrollo } = r;
+  const devFrom = analisis ?? firmado ?? limit ?? entrega;
+  const endReal = entrega ?? (enDesarrollo ? new Date(nowMs) : (limit ?? devFrom));
+  return !!(limit && endReal && endReal.getTime() > limit.getTime() + DAY);
+}
+
+export type RowStatus = "A futuro" | "En Curso" | "Completados";
+const STATUS_ORDER: RowStatus[] = ["A futuro", "En Curso", "Completados"];
+
+/** Status del filtro/tarjetas de cada hito:
+ *  · "A futuro": SOLO plantilla nueva, cuando su Inicio (CPM Start Date,
+ *    `firmado`) todavía no llega, o ni siquiera tiene CPM cargado en Monday —
+ *    en ambos casos no ha arrancado de verdad. La plantilla vieja NUNCA cae acá
+ *    (no tiene concepto de CPM por hito; su `firmado` es "Hitos firmados",
+ *    otra cosa) — sus hitos "Future Steps" cuentan como "En Curso".
+ *  · "Completados": devPhase "done" (y no es "A futuro").
+ *  · "En Curso": el resto (working o future de la plantilla vieja). */
+function rowStatus(r: DevTimelineRow, nowMs: number): RowStatus {
+  if (r.plantilla === "nueva" && (r.firmado === null || r.firmado.getTime() > nowMs)) return "A futuro";
+  return r.devPhase === "done" ? "Completados" : "En Curso";
+}
+
+// Días hábiles entre dos puntos consecutivos del ciclo (Guatemala, sin fines de
+// semana NI asuetos oficiales — businessDays(..., true)). null si falta
+// cualquiera de las dos fechas o si quedan en orden invertido (dato sucio en
+// Monday, ej. Inicio con CPM replanificado después de fechas ya reales).
+function segmentDays(from: Date | null, to: Date | null): number | null {
+  if (!from || !to) return null;
+  const days = businessDays(from, to, true);
+  return days > 0 || from.getTime() === to.getTime() ? days : null;
+}
+
+/** Número de proyecto ("PM-013 | TDP ADU" → 13) para ordenar el Gantt por
+ *  proyecto. -1 si el nombre no sigue la convención "PM-XXX | …". */
+function pmNumber(proyecto: string): number {
+  const m = proyecto.match(/PM-(\d+)/i);
+  return m ? parseInt(m[1], 10) : -1;
+}
+
+type MetricMode = "promedio" | "mediana";
+
+/** Promedio o mediana (según `mode`) de una lista de días hábiles — null y n=0 si viene vacía. */
+function summarize(values: number[], mode: MetricMode): { value: number | null; n: number } {
+  const n = values.length;
+  if (n === 0) return { value: null, n };
+  if (mode === "promedio") return { value: values.reduce((a, b) => a + b, 0) / n, n };
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(n / 2);
+  const value = n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { value, n };
+}
 
 const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 const addMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 1);
@@ -48,6 +107,7 @@ interface RowGeom {
   devL: number; devW: number;      // segmento desarrollo (análisis→fin)
   lateL: number; lateW: number;    // porción atrasada (limit→fin), si aplica
   firmadoX: number | null;         // A
+  reqTerminadoX: number | null;    // solo plantilla nueva
   analisisX: number | null;        // B
   limitX: number | null;           // C (deadline)
   entregaX: number | null;         // D
@@ -63,58 +123,114 @@ export default function DesarrolloTimelinesPage() {
   const [proyectos, setProyectos] = useState<string[]>([]);
   const [pms, setPms] = useState<string[]>([]);
   const [devs, setDevs] = useState<string[]>([]);
-  const [incluirEntregados, setIncluirEntregados] = useState(false);
-  const [incluirFuturos, setIncluirFuturos] = useState(false);
+  const [statuses, setStatuses] = useState<string[]>([]);
+  const [metricMode, setMetricMode] = useState<MetricMode>("promedio");
 
   const allRows = useMemo(
     () => (data ? buildDevTimelines(data.proj, data.projBoards, data.devTeamRoster) : []),
     [data],
   );
 
-  // Scope por fase: base = en desarrollo AHORA (Working on it); los entregados
-  // (Done) y los futuros (Future Steps / no iniciados) entran solo si se activan.
-  const scoped = useMemo(
-    () => allRows.filter((r) =>
-      r.devPhase === "working" ||
-      (incluirEntregados && r.devPhase === "done") ||
-      (incluirFuturos && r.devPhase === "future")),
-    [allRows, incluirEntregados, incluirFuturos],
-  );
-
   // Opciones dependientes: cada filtro se calcula sobre las filas ya acotadas
   // por los OTROS filtros (se excluye a sí mismo), y sus counts reflejan eso.
   const proyectoOpts = useMemo(
-    () => opt(scoped.filter((r) =>
+    () => opt(allRows.filter((r) =>
       (pms.length === 0 || pms.includes(r.pm)) &&
-      (devs.length === 0 || devs.includes(r.developer))).map((r) => r.proyecto)),
-    [scoped, pms, devs],
+      (devs.length === 0 || devs.includes(r.developer)) &&
+      (statuses.length === 0 || statuses.includes(rowStatus(r, nowMs)))).map((r) => r.proyecto)),
+    [allRows, pms, devs, statuses, nowMs],
   );
   const pmOpts = useMemo(
-    () => opt(scoped.filter((r) =>
+    () => opt(allRows.filter((r) =>
       (proyectos.length === 0 || proyectos.includes(r.proyecto)) &&
-      (devs.length === 0 || devs.includes(r.developer))).map((r) => r.pm)),
-    [scoped, proyectos, devs],
+      (devs.length === 0 || devs.includes(r.developer)) &&
+      (statuses.length === 0 || statuses.includes(rowStatus(r, nowMs)))).map((r) => r.pm)),
+    [allRows, proyectos, devs, statuses, nowMs],
   );
   const devOpts = useMemo(
-    () => opt(scoped.filter((r) =>
-      (proyectos.length === 0 || proyectos.includes(r.proyecto)) &&
-      (pms.length === 0 || pms.includes(r.pm))).map((r) => r.developer)),
-    [scoped, proyectos, pms],
-  );
-
-  const rows = useMemo(
-    () => scoped.filter((r) =>
+    () => opt(allRows.filter((r) =>
       (proyectos.length === 0 || proyectos.includes(r.proyecto)) &&
       (pms.length === 0 || pms.includes(r.pm)) &&
-      (devs.length === 0 || devs.includes(r.developer))),
-    [scoped, proyectos, pms, devs],
+      (statuses.length === 0 || statuses.includes(rowStatus(r, nowMs)))).map((r) => r.developer)),
+    [allRows, proyectos, pms, statuses, nowMs],
   );
+  const statusOpts = useMemo(() => {
+    const filtered = allRows.filter((r) =>
+      (proyectos.length === 0 || proyectos.includes(r.proyecto)) &&
+      (pms.length === 0 || pms.includes(r.pm)) &&
+      (devs.length === 0 || devs.includes(r.developer)));
+    const counts: Record<RowStatus, number> = { "A futuro": 0, "En Curso": 0, "Completados": 0 };
+    for (const r of filtered) counts[rowStatus(r, nowMs)]++;
+    return STATUS_ORDER.map((s) => ({ value: s, label: s, count: counts[s] }));
+  }, [allRows, proyectos, pms, devs, nowMs]);
+
+  const bySelectFilters = useCallback((r: DevTimelineRow) =>
+    (proyectos.length === 0 || proyectos.includes(r.proyecto)) &&
+    (pms.length === 0 || pms.includes(r.pm)) &&
+    (devs.length === 0 || devs.includes(r.developer)) &&
+    (statuses.length === 0 || statuses.includes(rowStatus(r, nowMs))),
+    [proyectos, pms, devs, statuses, nowMs],
+  );
+
+  const rows = useMemo(() => allRows.filter(bySelectFilters), [allRows, bySelectFilters]);
+
+  // Tarjetas de DESARROLLO: cada fila (hito) es un desarrollo individual — no se
+  // agrupan por proyecto. Se calculan sobre `rows`, es decir YA con todos los
+  // filtros aplicados (Proyecto/PM/Developer/Status) — al filtrar por Status
+  // las tarjetas reflejan exactamente lo filtrado. "A futuro"/Completado/En
+  // Curso = rowStatus; Atrasado = ver isRowLate (misma fórmula que pinta las
+  // barras atrasadas del Gantt) — "Desarrollos" es la suma EXACTA de las otras
+  // 3 tarjetas.
+  const devStats = useMemo(() => {
+    let aFuturo = 0, aFuturoSinCpm = 0, enCursoEnTiempo = 0, enCursoAtrasado = 0, completadosEnTiempo = 0, completadosAtrasado = 0;
+    for (const r of rows) {
+      const status = rowStatus(r, nowMs);
+      if (status === "A futuro") {
+        aFuturo++;
+        if (r.plantilla === "nueva" && r.firmado === null) aFuturoSinCpm++;
+        continue;
+      }
+      const atrasado = isRowLate(r, nowMs);
+      if (status === "Completados") {
+        if (atrasado) completadosAtrasado++; else completadosEnTiempo++;
+      } else {
+        if (atrasado) enCursoAtrasado++; else enCursoEnTiempo++;
+      }
+    }
+    return {
+      total: rows.length,
+      aFuturo, aFuturoSinCpm,
+      enCurso: enCursoEnTiempo + enCursoAtrasado, enCursoEnTiempo, enCursoAtrasado,
+      completados: completadosEnTiempo + completadosAtrasado, completadosEnTiempo, completadosAtrasado,
+    };
+  }, [rows, nowMs]);
+
+  // Tiempos (días hábiles, sin asuetos) de cada tramo consecutivo del ciclo,
+  // sobre `rows` (ya filtrado) — Promedio/Mediana según `metricMode`. Cada
+  // tramo se calcula sobre los hitos que SÍ tienen ambas fechas de su tramo
+  // (independiente entre sí: un hito sin Analisis tecnico igual aporta a los
+  // otros 3 tramos que sí tenga completos).
+  const timingStats = useMemo(() => {
+    const reqTerminado: number[] = [], analisisT: number[] = [], entregaDev: number[] = [], salidaVivo: number[] = [];
+    for (const r of rows) {
+      const a = segmentDays(r.firmado, r.reqTerminado); if (a !== null) reqTerminado.push(a);
+      const b = segmentDays(r.reqTerminado, r.analisis); if (b !== null) analisisT.push(b);
+      const c = segmentDays(r.analisis, r.limit); if (c !== null) entregaDev.push(c);
+      const e = segmentDays(r.limit, r.entrega); if (e !== null) salidaVivo.push(e);
+    }
+    return {
+      reqTerminado: summarize(reqTerminado, metricMode),
+      analisis: summarize(analisisT, metricMode),
+      entregaDev: summarize(entregaDev, metricMode),
+      salidaVivo: summarize(salidaVivo, metricMode),
+    };
+  }, [rows, metricMode]);
 
   // ── Dominio temporal (eje X) ──
   const domain = useMemo(() => {
     const dates: number[] = [];
     for (const r of rows) {
-      for (const dt of [r.firmado, r.analisis, r.limit, r.entrega]) if (dt) dates.push(dt.getTime());
+      for (const dt of [r.firmado, r.reqTerminado, r.analisis, r.limit, r.entrega]) if (dt) dates.push(dt.getTime());
       if (r.enDesarrollo) dates.push(nowMs); // barras en curso llegan a hoy
     }
     if (dates.length === 0) return null;
@@ -128,13 +244,14 @@ export default function DesarrolloTimelinesPage() {
     const today = nowMs;
     const pct = (d: Date) => Math.max(0, Math.min(100, ((d.getTime() - domain.min.getTime()) / domain.span) * 100));
     return rows.map((r) => {
-      const { firmado, analisis, limit, entrega, enDesarrollo } = r;
+      const { firmado, reqTerminado, analisis, limit, entrega, enDesarrollo } = r;
       const entregado = !!entrega;
       const devFrom = analisis ?? firmado ?? limit ?? entrega;
       const endReal = entrega ?? (enDesarrollo ? new Date(today) : (limit ?? devFrom));
-      const late = !!(limit && endReal && endReal.getTime() > limit.getTime() + DAY);
+      const late = isRowLate(r, today);
 
       const firmadoX = firmado ? pct(firmado) : null;
+      const reqTerminadoX = reqTerminado ? pct(reqTerminado) : null;
       const analisisX = analisis ? pct(analisis) : null;
       const limitX = limit ? pct(limit) : null;
       const entregaX = entrega ? pct(entrega) : null;
@@ -158,14 +275,17 @@ export default function DesarrolloTimelinesPage() {
 
       return {
         row: r,
-        hasDates: !!(firmado || analisis || limit || entrega),
+        hasDates: !!(firmado || reqTerminado || analisis || limit || entrega),
         preL, preW, devL, devW, lateL, lateW,
-        firmadoX, analisisX, limitX, entregaX, ongoingX, late, entregado,
+        firmadoX, reqTerminadoX, analisisX, limitX, entregaX, ongoingX, late, entregado,
       };
     }).sort((a, b) => {
-      // Ordena por inicio del desarrollo para que los traslapes salten a la vista.
+      // Agrupa por proyecto (PM-### descendente); dentro de cada proyecto, por
+      // inicio del desarrollo para que los traslapes salten a la vista.
+      const pa = pmNumber(a.row.proyecto), pb = pmNumber(b.row.proyecto);
+      if (pa !== pb) return pb - pa;
       const sa = a.devL || a.firmadoX || 0, sb = b.devL || b.firmadoX || 0;
-      return sa - sb || a.row.proyecto.localeCompare(b.row.proyecto);
+      return sa - sb || a.row.hito.localeCompare(b.row.hito);
     });
   }, [rows, domain, nowMs]);
 
@@ -173,14 +293,8 @@ export default function DesarrolloTimelinesPage() {
   const tickPct = (d: Date) => domain ? ((d.getTime() - domain.min.getTime()) / domain.span) * 100 : 0;
   const chartMinWidth = LABEL_W + Math.max(ticks.length, 4) * 88;
 
-  // Stats
-  const total = rows.length;
-  const enCurso = rows.filter((r) => r.enDesarrollo).length;
-  const atrasados = geoms.filter((g) => g.late).length;
-  const aTiempo = geoms.filter((g) => g.entregado && !g.late).length;
-
-  const anyFilter = proyectos.length > 0 || pms.length > 0 || devs.length > 0 || incluirEntregados || incluirFuturos;
-  const reset = () => { setProyectos([]); setPms([]); setDevs([]); setIncluirEntregados(false); setIncluirFuturos(false); };
+  const anyFilter = proyectos.length > 0 || pms.length > 0 || devs.length > 0 || statuses.length > 0;
+  const reset = () => { setProyectos([]); setPms([]); setDevs([]); setStatuses([]); };
   const toggle = (setter: React.Dispatch<React.SetStateAction<string[]>>) =>
     (v: string, ch: boolean) => setter((x) => (ch ? [...x.filter((y) => y !== v), v] : x.filter((y) => y !== v)));
 
@@ -195,15 +309,40 @@ export default function DesarrolloTimelinesPage() {
       </div>
       <p className="mb-5 text-[0.82rem] text-[var(--text-muted)]">
         Ciclo de vida de desarrollo de cada hito sobre una línea de tiempo compartida, para ver traslapes.
-        Cada barra va de la firma de hitos a la entrega, con su deadline (Limit Date) marcado.
+        Cada barra va del Inicio a la Salida en vivo, con su Entrega Desarrollo (deadline) marcada.
       </p>
 
       {/* Stats */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard value={total} label="Hitos" />
-        <StatCard value={enCurso} label="En curso" color="var(--accent)" borderColor="var(--accent)" />
-        <StatCard value={atrasados} label="Atrasados" color="var(--bad)" borderColor="var(--bad)" />
-        <StatCard value={aTiempo} label="Entregados a tiempo" color="var(--ok)" borderColor="var(--ok)" />
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard value={devStats.total} label="Desarrollos" />
+        <FuturoStatCard value={devStats.aFuturo} sinCpm={devStats.aFuturoSinCpm} />
+        <SplitStatCard value={devStats.enCurso} label="En curso" enTiempo={devStats.enCursoEnTiempo} atrasado={devStats.enCursoAtrasado} />
+        <SplitStatCard value={devStats.completados} label="Completados" enTiempo={devStats.completadosEnTiempo} atrasado={devStats.completadosAtrasado} />
+      </div>
+
+      {/* Tiempos por tramo (días hábiles, sin asuetos) */}
+      <div className="mb-2 flex items-center gap-2.5">
+        <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Tiempos (días hábiles)</span>
+        <div className="flex rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }}>
+          {(["promedio", "mediana"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMetricMode(m)}
+              className="rounded-md px-2.5 py-1 text-[0.72rem] font-semibold capitalize transition-colors"
+              style={metricMode === m
+                ? { background: "var(--accent)", color: "#fff" }
+                : { color: "var(--text-muted)" }}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <TiempoStatCard label="Tiempo de Req Terminado" stat={timingStats.reqTerminado} />
+        <TiempoStatCard label="Tiempo de Analisis tecnico" stat={timingStats.analisis} />
+        <TiempoStatCard label="Tiempo de Entrega de desarrollo" stat={timingStats.entregaDev} />
+        <TiempoStatCard label="Tiempo de Salida en vivo" stat={timingStats.salidaVivo} />
       </div>
 
       {/* Filtros */}
@@ -211,24 +350,7 @@ export default function DesarrolloTimelinesPage() {
         <MultiSelect label="Proyecto" options={proyectoOpts} selected={proyectos} onToggle={toggle(setProyectos)} onToggleAll={() => setProyectos([])} />
         <MultiSelect label="PM" options={pmOpts} selected={pms} onToggle={toggle(setPms)} onToggleAll={() => setPms([])} />
         <MultiSelect label="Developer" options={devOpts} selected={devs} onToggle={toggle(setDevs)} onToggleAll={() => setDevs([])} />
-        <button
-          onClick={() => setIncluirEntregados((v) => !v)}
-          className="self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors"
-          style={incluirEntregados
-            ? { borderColor: "var(--ok)", color: "var(--ok)", background: "var(--bg-hover)" }
-            : { borderColor: "var(--border)", color: "var(--text-muted)" }}
-        >
-          {incluirEntregados ? "✓ Con entregados" : "+ Entregados"}
-        </button>
-        <button
-          onClick={() => setIncluirFuturos((v) => !v)}
-          className="self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors"
-          style={incluirFuturos
-            ? { borderColor: "var(--accent)", color: "var(--accent)", background: "var(--bg-hover)" }
-            : { borderColor: "var(--border)", color: "var(--text-muted)" }}
-        >
-          {incluirFuturos ? "✓ Con futuros" : "+ Futuros"}
-        </button>
+        <MultiSelect label="Status" options={statusOpts} selected={statuses} onToggle={toggle(setStatuses)} onToggleAll={() => setStatuses([])} />
         {anyFilter && <FilterReset onClick={reset} />}
       </div>
 
@@ -282,7 +404,7 @@ export default function DesarrolloTimelinesPage() {
                     <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
                       {/* Segmento espera (firma → análisis) */}
                       {g.preW > 0 && (
-                        <div className="absolute h-[7px] rounded" title="Espera: firma de hitos → análisis técnico"
+                        <div className="absolute h-[7px] rounded" title="Espera: inicio → análisis técnico"
                           style={{ left: `${g.preL}%`, width: `${g.preW}%`, top: -3, background: "var(--text-disabled)", opacity: 0.45 }} />
                       )}
                       {/* Segmento desarrollo */}
@@ -295,17 +417,19 @@ export default function DesarrolloTimelinesPage() {
                         <div className="absolute h-[9px] rounded" title="Atraso: pasado el Limit Date"
                           style={{ left: `${g.lateL}%`, width: `${g.lateW}%`, top: -4, background: "var(--bad)" }} />
                       )}
-                      {/* Deadline (Limit Date) */}
+                      {/* C Entrega Desarrollo (deadline) */}
                       {g.limitX != null && (
-                        <div className="absolute" title={`Deadline (Limit Date): ${fmtDate(g.row.limit)}`}
+                        <div className="absolute" title={`${POINT_LABELS.limit}: ${fmtDate(g.row.limit)}`}
                           style={{ left: `${g.limitX}%`, top: -9, bottom: -9, width: 2, background: "var(--warn)", transform: "translateX(-1px)" }} />
                       )}
-                      {/* A firmado */}
-                      {g.firmadoX != null && <Dot x={g.firmadoX} color="var(--text-secondary)" title={`Hitos firmados: ${fmtDate(g.row.firmado)}`} />}
-                      {/* B análisis */}
-                      {g.analisisX != null && <Dot x={g.analisisX} color="var(--accent)" title={`Análisis técnico: ${fmtDate(g.row.analisis)}`} />}
-                      {/* D entrega */}
-                      {g.entregaX != null && <Diamond x={g.entregaX} color={g.late ? "var(--bad)" : "var(--ok)"} title={`Entrega: ${fmtDate(g.row.entrega)}${g.late ? " (atrasado)" : ""}`} />}
+                      {/* A Inicio */}
+                      {g.firmadoX != null && <Dot x={g.firmadoX} color="var(--text-secondary)" title={`${POINT_LABELS.firmado}: ${fmtDate(g.row.firmado)}`} />}
+                      {/* Req Terminado */}
+                      {g.reqTerminadoX != null && <Dot x={g.reqTerminadoX} color="var(--warn)" title={`Req Terminado: ${fmtDate(g.row.reqTerminado)}`} />}
+                      {/* B Analisis tecnico */}
+                      {g.analisisX != null && <Dot x={g.analisisX} color="var(--accent)" title={`Analisis tecnico: ${fmtDate(g.row.analisis)}`} />}
+                      {/* D Salida en vivo */}
+                      {g.entregaX != null && <Diamond x={g.entregaX} color={g.late ? "var(--bad)" : "var(--ok)"} title={`${POINT_LABELS.entrega}: ${fmtDate(g.row.entrega)}${g.late ? " (atrasado)" : ""}`} />}
                       {/* En curso → marcador hoy */}
                       {g.ongoingX != null && <Dot x={g.ongoingX} color="var(--accent)" hollow title="En curso (hoy)" />}
                     </div>
@@ -372,19 +496,49 @@ function TimelineTooltip({ g, x, y, nowMs }: { g: RowGeom; x: number; y: number;
       </div>
 
       <div className="flex flex-col gap-1 border-t pt-2" style={{ borderColor: "var(--border)" }}>
-        <TipRow dot="var(--text-secondary)" label="Hitos firmados" value={r.firmado ? fmtDate(r.firmado) : "—"} muted={!r.firmado} />
-        <TipRow dot="var(--accent)" label="Análisis técnico" value={r.analisis ? fmtDate(r.analisis) : "—"} muted={!r.analisis} />
-        <TipRow dot="var(--warn)" label="Deadline (Limit)" value={r.limit ? fmtDate(r.limit) : "—"} muted={!r.limit} />
-        <TipRow dot={g.late ? "var(--bad)" : "var(--ok)"} label="Entrega" value={r.entrega ? fmtDate(r.entrega) : "pendiente"} muted={!r.entrega} />
+        <TipRow dot="var(--text-secondary)" label={POINT_LABELS.firmado} value={r.firmado ? fmtDate(r.firmado) : "—"} muted={!r.firmado} />
+        <TipRow dot="var(--warn)" label="Req Terminado" value={r.reqTerminado ? fmtDate(r.reqTerminado) : "—"} muted={!r.reqTerminado} />
+        <TipRow dot="var(--accent)" label="Analisis tecnico" value={r.analisis ? fmtDate(r.analisis) : "—"} muted={!r.analisis} />
+        <TipRow dot="var(--warn)" label={POINT_LABELS.limit} value={r.limit ? fmtDate(r.limit) : "—"} muted={!r.limit} />
+        <TipRow dot={g.late ? "var(--bad)" : "var(--ok)"} label={POINT_LABELS.entrega} value={r.entrega ? fmtDate(r.entrega) : "pendiente"} muted={!r.entrega} />
       </div>
 
       {(espera != null || desarrollo != null || atraso != null) && (
         <div className="mt-2 flex flex-col gap-1 border-t pt-2 text-[0.7rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border)" }}>
-          {espera != null && <div>Espera firma → análisis: <b className="text-[var(--text-secondary)]">{fmtDays(espera)}</b></div>}
+          {espera != null && <div>Espera inicio → análisis: <b className="text-[var(--text-secondary)]">{fmtDays(espera)}</b></div>}
           {desarrollo != null && <div>Desarrollo (análisis → {g.entregado ? "entrega" : "hoy"}): <b className="text-[var(--text-secondary)]">{fmtDays(desarrollo)}</b></div>}
           {atraso != null && atraso > 0 && <div style={{ color: "var(--bad)" }}>Atraso vs. deadline: <b>{fmtDays(atraso)}</b></div>}
         </div>
       )}
+    </div>
+  );
+}
+
+// Tarjeta "A futuro": total + cuántos de esos no tienen CPM Inicio cargado
+// (el resto sí tiene CPM pero apunta a una fecha que todavía no llega).
+function FuturoStatCard({ value, sinCpm }: { value: number; sinCpm: number }) {
+  return (
+    <div className="rounded-xl border p-[18px] text-center" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+      <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, color: "var(--card-value-total)" }}>{value}</div>
+      <div className="mt-1.5 text-[0.75rem] uppercase tracking-wide text-[var(--text-secondary)]">A futuro</div>
+      <div className="mt-2.5 border-t pt-2.5 text-[0.75rem] font-semibold" style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}>
+        {sinCpm} sin CPM de inicio
+      </div>
+    </div>
+  );
+}
+
+// Tarjeta de tiempo por tramo: Promedio/Mediana en días hábiles + tamaño de muestra.
+function TiempoStatCard({ label, stat }: { label: string; stat: { value: number | null; n: number } }) {
+  return (
+    <div className="rounded-xl border p-[18px] text-center" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+      <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, color: "var(--card-value-total)" }}>
+        {stat.value !== null ? stat.value.toFixed(1) : "—"}
+      </div>
+      <div className="mt-1.5 text-[0.75rem] uppercase tracking-wide text-[var(--text-secondary)]">{label}</div>
+      <div className="mt-2.5 border-t pt-2.5 text-[0.72rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border-subtle)" }}>
+        {stat.n > 0 ? `días hábiles · n=${stat.n}` : "sin datos"}
+      </div>
     </div>
   );
 }
@@ -418,12 +572,13 @@ function Legend() {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
       {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--accent)" }} />, "Desarrollo")}
-      {item(<span className="inline-block h-[7px] w-6 rounded" style={{ background: "var(--text-disabled)", opacity: 0.45 }} />, "Espera (firma → análisis)")}
+      {item(<span className="inline-block h-[7px] w-6 rounded" style={{ background: "var(--text-disabled)", opacity: 0.45 }} />, "Espera (inicio → análisis)")}
       {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--bad)" }} />, "Atraso (pasado Limit Date)")}
-      {item(<span className="inline-block h-4 w-0.5" style={{ background: "var(--warn)" }} />, "Deadline (Limit Date)")}
-      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--text-secondary)" }} />, "Hitos firmados")}
-      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--accent)" }} />, "Análisis técnico")}
-      {item(<span className="inline-block h-2.5 w-2.5" style={{ background: "var(--ok)", transform: "rotate(45deg)" }} />, "Entrega")}
+      {item(<span className="inline-block h-4 w-0.5" style={{ background: "var(--warn)" }} />, "Entrega Desarrollo")}
+      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--text-secondary)" }} />, "Inicio")}
+      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--warn)" }} />, "Req Terminado")}
+      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--accent)" }} />, "Analisis tecnico")}
+      {item(<span className="inline-block h-2.5 w-2.5" style={{ background: "var(--ok)", transform: "rotate(45deg)" }} />, "Salida en vivo")}
     </div>
   );
 }

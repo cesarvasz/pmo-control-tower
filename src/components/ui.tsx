@@ -94,6 +94,21 @@ export function StatCard({
   );
 }
 
+// Tarjeta con desglose: un total grande + dos sub-conteos (en tiempo/atrasados)
+// debajo, para que sea evidente que ambos suman el total de la tarjeta.
+export function SplitStatCard({ value, label, enTiempo, atrasado }: { value: number; label: string; enTiempo: number; atrasado: number }) {
+  return (
+    <div className="rounded-xl border p-[18px] text-center" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+      <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, color: "var(--card-value-total)" }}>{value}</div>
+      <div className="mt-1.5 text-[0.75rem] uppercase tracking-wide text-[var(--text-secondary)]">{label}</div>
+      <div className="mt-2.5 flex items-center justify-center gap-3 border-t pt-2.5 text-[0.75rem] font-semibold" style={{ borderColor: "var(--border-subtle)" }}>
+        <span style={{ color: "var(--ok)" }}>✓ {enTiempo} en tiempo</span>
+        <span style={{ color: "var(--bad)" }}>✕ {atrasado} atrasado{atrasado === 1 ? "" : "s"}</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Estado pill ────────────────────────────────────────────────────────
 const ESTADO_PILL: Record<string, [string, string]> = {
   ATRASADO: ["pill-atrasado", "✕ Off Track"],

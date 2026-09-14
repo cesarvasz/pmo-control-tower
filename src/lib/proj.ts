@@ -62,6 +62,16 @@ function resolveStartDate(cv: MondayColumnValue[], timelineTitle: string): Date 
   return start ? parseYMD(start) : null;
 }
 
+/** INICIO del rango "CPM" del item (columna Timeline, NUNCA "Start Date" — son
+ *  campos independientes en la plantilla nueva y pueden divergir bastante, ej.
+ *  "Start Date" replanificado a futuro mientras el CPM real ya arrancó antes).
+ *  Solo existe a nivel item (no hay CPM en subitems). Usado por Desarrollo
+ *  Timelines para el punto "Inicio" de la plantilla nueva (ver devTimeline.ts). */
+function resolveCpmStart(cv: MondayColumnValue[]): Date | null {
+  const start = colByTitle(cv, FORMULA_FALLBACK_COL.itemTimeline).split(" - ")[0]?.trim();
+  return start ? parseYMD(start) : null;
+}
+
 export function calcProjEstado(dl: Date | null): string {
   const t = today();
   if (!dl) return "ATRASADO";
@@ -87,6 +97,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const status = colByTitle(cv, PROJ_COL.status);
     const deadline = resolveDeadline(cv, FORMULA_FALLBACK_COL.itemTimeline);
     const startDate = resolveStartDate(cv, FORMULA_FALLBACK_COL.itemTimeline);
+    const cpmStart = resolveCpmStart(cv);
     const endDate = parseYMD(colByTitle(cv, PROJ_COL.endDate));
     const cost = resolveCost(cv);
     const benefit = colNumByTitle(cv, PROJ_COL.benefit) || 0;
@@ -118,7 +129,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     return {
       boardId, boardName, id: item.id, name: item.name,
       grupo: item.group?.title || "",
-      pm, resp, responsible, status, deadline, startDate, endDate, cost, benefit,
+      pm, resp, responsible, status, deadline, startDate, cpmStart, endDate, cost, benefit,
       entrega: calcProjEntrega(status, endDate, deadline),
       valueNet: benefit - cost, estado, subitems,
     };

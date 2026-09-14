@@ -191,6 +191,19 @@ describe("projProcess", () => {
     expect(r.startDate).toEqual(new Date(2026, 2, 1));
     expect(r.subitems[0].startDate).toEqual(new Date(2026, 3, 2));
   });
+
+  it("\"cpmStart\" siempre viene del INICIO de \"CPM\", incluso si \"Start Date\" trae otro valor (son campos independientes)", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [
+      pcol("Start Date", "2026-08-28"), pcol("CPM", "2026-05-28 - 2026-07-14"),
+    ], [])]);
+    expect(r.startDate).toEqual(new Date(2026, 7, 28));   // "Start Date" directo, sin tocar
+    expect(r.cpmStart).toEqual(new Date(2026, 4, 28));    // INICIO de "CPM", ignora "Start Date"
+  });
+
+  it("\"cpmStart\" null si el item no tiene columna \"CPM\"", () => {
+    const [r] = projProcess("B", "b1", [mkProj("I", [pcol("Start Date", "2026-01-05")], [])]);
+    expect(r.cpmStart).toBeNull();
+  });
 });
 
 describe("projEnrichBoards", () => {
