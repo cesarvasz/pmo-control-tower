@@ -598,10 +598,6 @@ function Legend() {
       {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--bad)" }} />, "Atrasado (Stuck, o pasó el Limit Date)")}
       {item(<span className="inline-block h-[9px] w-6 rounded" style={{ background: "var(--info)" }} />, "Aún no inicia (Future Steps)")}
       {item(<span className="inline-block h-4 w-0.5" style={{ background: "var(--warn)" }} />, "Deadline (Entrega Desarrollo)")}
-      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--text-secondary)" }} />, "Inicio")}
-      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--warn)" }} />, "Req Terminado")}
-      {item(<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ border: "2px solid var(--accent)" }} />, "Analisis tecnico")}
-      {item(<span className="inline-block h-2.5 w-2.5" style={{ background: "var(--ok)", transform: "rotate(45deg)" }} />, "Salida en vivo")}
     </div>
   );
 }
