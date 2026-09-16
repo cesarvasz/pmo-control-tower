@@ -45,7 +45,7 @@ export const PAGES: PageDef[] = [
   { key: "req",         label: "PML",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
   { key: "resumen-ejecutivo", label: "Resumen Ejecutivo", href: "/resumen-ejecutivo", icon: "🧭" },
-  { key: "desarrollo-timelines", label: "Desarrollo Timelines", href: "/desarrollo-timelines", icon: "🗓" },
+  { key: "desarrollo-timelines", label: "Desarrollo Timelines", href: "/desarrollo-timelines", icon: "🗓", public: true },
   { key: "costo-un",    label: "Costo $ x Unid Neg", href: "/costo-un", icon: "🏢" },
   { key: "visor",       label: "Visor",         href: "/visor",    icon: "🛃", public: true },
   { key: "encuestas",   label: "Encuestas",     href: "/encuestas", icon: "📋" },
