@@ -332,7 +332,7 @@ export default function DesarrolloTimelinesPage() {
   return (
     <div>
       <div className="mb-1 flex flex-wrap items-center gap-2.5">
-        <h1 className="text-lg font-bold text-[var(--text-primary)]">Desarrollo Timelines</h1>
+        <h1 className="text-lg font-bold text-[var(--text-primary)]">Desarrollo Timeliness</h1>
       </div>
       <p className="mb-5 text-[0.82rem] text-[var(--text-muted)]">
         Ciclo de vida de desarrollo de cada hito sobre una línea de tiempo compartida, para ver traslapes.
