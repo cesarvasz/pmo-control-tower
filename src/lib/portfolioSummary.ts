@@ -4,11 +4,13 @@
 // proyecto (projSummary.ts) — aquí solo se agrega a nivel de portafolio y se
 // detectan riesgos que cruzan varios proyectos. Módulo PURO (cliente/servidor).
 
-import { fmtMoney } from "@/lib/business";
+import { fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
-import { buildProjectSummary, calcPlannedProgress } from "@/lib/projSummary";
+import { buildProjectSummary, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
+import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { atrasoReparto } from "@/lib/delay";
 import type { HealthStatus } from "@/lib/health";
-import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
+import type { AtrasoDetalle, ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 // ── Fila de portafolio (una por proyecto/board) ──────────────────────────
 export interface RiskFlag { label: string; severity: "high" | "medium" | "low" }
@@ -206,4 +208,67 @@ export function buildCrossRisks(
   }
 
   return risks.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "high" ? -1 : 1)).slice(0, 3);
+}
+
+// ── Radar de Atascos — "¿quién es el responsable del atraso hoy?" ────────
+// Para la Carátula Light del portafolio (/resumen-ejecutivo): una fila por
+// proyecto CON atraso activo (worstOverdueDays > 0), con el responsable
+// dominante (más días atribuidos) y un action item concreto. El responsable
+// solo se conoce para atrasos de Fase 3/Launch (única fase con la tabla de
+// "Causas de atraso" + reparto por rol, ver projSummary/statusReportData) —
+// un proyecto atrasado en otra fase, sin ese detalle, cae en "N/D" en vez de
+// inventar un responsable.
+export interface DelayRadarRow {
+  boardId: string;
+  code: string;
+  name: string;
+  diasAtraso: number;
+  responsable: string;            // rol dominante, o "N/D" si no hay atribución de Fase 3
+  esCulpaPm: "Sí" | "No" | "N/D";
+  actionItem: string;
+}
+
+export function buildDelayRadar(
+  rows: PortfolioProjectRow[],
+  boards: ProjBoard[],
+  proj: ProjItem[],
+  atrasoDetalles: Record<string, AtrasoDetalle> | undefined,
+): DelayRadarRow[] {
+  const hoy = today();
+  const boardById = new Map(boards.map((b) => [b.id, b]));
+
+  return rows
+    .filter((r) => !r.isComplete && r.worstOverdueDays > 0)
+    .map((r) => {
+      const board = boardById.get(r.boardId);
+      const items = board ? proj.filter((it) => it.boardId === board.id) : [];
+      const fase3Items = items.filter((it) => isFase3(it.grupo));
+      const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
+      const atrasos = desarrolloItem
+        ? evaluarHitosAtraso(desarrolloItem, hoy)
+        : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null);
+
+      let responsable = "N/D";
+      let actionItem = `Atender: ${r.mainRisk.label}`;
+      if (atrasos.length > 0) {
+        const diasPorResp: Record<string, number> = {};
+        let peor: StepAtraso | null = null;
+        for (const a of atrasos) {
+          if (!peor || (a.daysLate ?? 0) > (peor.daysLate ?? 0)) peor = a;
+          const td = a.daysLate != null && a.daysLate > 0 ? a.daysLate : 0;
+          for (const rep of atrasoReparto(atrasoDetalles?.[a.id], td)) {
+            diasPorResp[rep.resp] = (diasPorResp[rep.resp] ?? 0) + rep.dias;
+          }
+        }
+        const top = Object.entries(diasPorResp).sort((a, b) => b[1] - a[1])[0];
+        if (top) responsable = top[0];
+        if (peor) {
+          const motivo = atrasoDetalles?.[peor.id]?.motivo;
+          actionItem = motivo || `Destrabar "${peor.name}" (a cargo de ${peor.responsible || "sin asignar"}).`;
+        }
+      }
+      const esCulpaPm: DelayRadarRow["esCulpaPm"] = responsable === "N/D" ? "N/D" : responsable === "PM" ? "Sí" : "No";
+      return { boardId: r.boardId, code: r.code, name: r.name, diasAtraso: r.worstOverdueDays, responsable, esCulpaPm, actionItem };
+    })
+    .sort((a, b) => b.diasAtraso - a.diasAtraso);
 }

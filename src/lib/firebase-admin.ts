@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AtrasoReparto, AttributionKind, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -140,6 +140,27 @@ export async function saveAtrasoDetalle(itemId: string, reparto: AtrasoReparto[]
 export async function deleteAtrasoDetalle(itemId: string): Promise<void> {
   const db = getAdminDb();
   await db.collection("atraso_detalles").doc(itemId).delete();
+}
+
+// ── Alcance de un proyecto (Status Card) ──────────────────────────────────
+// Colección `board_alcance`: por boardId, un texto libre. Mismo criterio de
+// edición que `atraso_detalles` (cualquiera con acceso a la página, no requiere Admin).
+export async function getBoardAlcances(): Promise<Record<string, BoardAlcance>> {
+  const db = getAdminDb();
+  const snap = await db.collection("board_alcance").get();
+  const result: Record<string, BoardAlcance> = {};
+  snap.forEach((doc) => { result[doc.id] = doc.data() as BoardAlcance; });
+  return result;
+}
+
+export async function saveBoardAlcance(boardId: string, alcance: string, by: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("board_alcance").doc(boardId).set({ alcance, by, at: new Date().toISOString() });
+}
+
+export async function deleteBoardAlcance(boardId: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("board_alcance").doc(boardId).delete();
 }
 
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {

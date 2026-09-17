@@ -219,6 +219,16 @@ export interface AtrasoDetalle {
   at?: string;               // ISO timestamp
 }
 
+// ── Alcance de un proyecto (Status Card) ───────────────────────────────────
+/** Texto libre de "Alcance" de un board de Proyectos, editable desde el Status
+ *  Card (línea nueva bajo PM/Sponsor/CKU/Estrategia). Igual que AtrasoDetalle,
+ *  editable por cualquier usuario con acceso a la página Resumen Ejecutivo. */
+export interface BoardAlcance {
+  alcance: string; // texto libre
+  by?: string;     // correo de quien lo guardó
+  at?: string;     // ISO timestamp
+}
+
 /** Payload completo que devuelve `GET /api/dashboard`. */
 export interface DashboardRaw {
   iniItems: MondayItem[];
@@ -235,6 +245,7 @@ export interface DashboardRaw {
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Firestore)
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Firestore)
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Firestore) — tabla Atrasos
+  boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto (Firestore) — Status Card
   reminderLog: ReminderEnvio[]; // registro de correos "Sin Valor Def" enviados por Apps Script
   fetchedAt: string;
 }
@@ -463,6 +474,7 @@ export interface DashboardData {
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso — tabla Atrasos
+  boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto — Status Card
   directorio: DirectorioEntry[];
   /** nombres normalizados del Equipo de Desarrollo Interno + Externo (Directorio RH) —
    *  filtra los hitos de plantilla nueva en "Desarrollo Timelines" (ver devTimeline.ts). */

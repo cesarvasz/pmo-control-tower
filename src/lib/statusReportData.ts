@@ -58,7 +58,7 @@ export interface StatusAtraso {
 export interface StatusRespDist { label: string; value: number; color: string }
 
 export interface StatusReportData {
-  project: { id: string; name: string; pm: string; sponsor: string; cku: string; estrategia: string };
+  project: { id: string; name: string; pm: string; sponsor: string; cku: string; estrategia: string; alcance: string };
   today: string;
   plan_date: string;
   timeline_start: string;
@@ -245,6 +245,9 @@ export interface StatusReportInput {
   valorProyecto: number | null;
   roi: number | null;
   payback: number | null;
+  /** Texto libre de "Alcance" del proyecto (Firestore, ver BoardAlcance) — línea
+   *  del header debajo de PM/Sponsor/CKU/Estrategia. "" si aún no se documenta. */
+  alcance?: string;
   /** "hoy" fijado (Date.now del montaje) — para que el reporte no cambie entre renders. */
   now?: number;
 }
@@ -252,7 +255,7 @@ export interface StatusReportInput {
 export function buildStatusReportData(input: StatusReportInput): StatusReportData {
   const {
     board, code, name, summary, health, atrasos, atrasoDetalles, responsabilidadAtraso,
-    avancePlanificado, valorProyecto, roi, payback,
+    avancePlanificado, valorProyecto, roi, payback, alcance,
   } = input;
   const nowDate = input.now != null ? new Date(input.now) : today();
   const { units, progress, phases, completion } = summary;
@@ -367,6 +370,7 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
       id: code, name,
       pm: board.pm || "—", sponsor: board.sponsor || "—",
       cku: board.cku || "—", estrategia: board.estrategia || "—",
+      alcance: alcance?.trim() ?? "",
     },
     today: toYMD(nowDate),
     plan_date: toYMD(plannedFinish ?? tlEnd),

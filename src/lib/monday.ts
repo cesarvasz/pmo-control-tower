@@ -206,6 +206,7 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     delayAttributions: {}, // el route handler inyecta los responsables de atraso desde Firestore
     reprocesoAttributions: {}, // el route handler inyecta los responsables de reproceso desde Firestore
     atrasoDetalles: {},     // el route handler inyecta el detalle de atrasos desde Firestore
+    boardAlcance: {},       // el route handler inyecta el Alcance de proyectos desde Firestore
     reminderLog,
     fetchedAt: new Date().toISOString(),
   };

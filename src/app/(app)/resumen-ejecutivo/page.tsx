@@ -1,53 +1,118 @@
 "use client";
 
 // Resumen Ejecutivo — página única para C-Level/Directores: por defecto muestra
-// el PORTAFOLIO completo (semáforo, KPIs de portafolio, tabla, riesgos y
-// recomendaciones); al hacer clic en cualquier proyecto (fila de la tabla,
-// tarjeta crítica o el selector rápido) carga el DETALLE de ese proyecto en la
-// misma página, sin navegar a otra ruta — el estado vive en el query param
-// ?board=, así que el botón atrás/adelante del navegador funciona como se
-// espera. Toda la lógica de agregación vive en lib/portfolioSummary.ts y
-// lib/projSummary.ts (puras, con tests) — esta página solo arma la presentación.
+// el PORTAFOLIO completo como una "Carátula Light" (salud global, radar de
+// atascos con el responsable del atraso de HOY, y la tabla de todos los
+// proyectos — misma paleta/tipografía que el Status Card, ver reportTheme.ts);
+// al hacer clic en cualquier proyecto (fila de cualquiera de las tablas o el
+// selector rápido) carga el DETALLE de ese proyecto en la misma página, sin
+// navegar a otra ruta — el estado vive en el query param ?board=, así que el
+// botón atrás/adelante del navegador funciona como se espera. Toda la lógica
+// de agregación vive en lib/portfolioSummary.ts y lib/projSummary.ts (puras,
+// con tests) — esta página solo arma la presentación.
 
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Bar, BarChart, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from "recharts";
 import { useData } from "@/context/DataContext";
 import { fmtDate, fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
 import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import {
-  buildProjectSummary, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, flattenBoardUnits,
+  buildProjectSummary, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso,
   type StepAtraso,
 } from "@/lib/projSummary";
-import { atrasoReparto, countByResponsible } from "@/lib/delay";
+import { atrasoReparto, RESPONSIBLE_COLOR } from "@/lib/delay";
 import {
-  buildPortfolioRows, calcPortfolioTotals, topCriticalProjects, buildCrossRisks,
-  type PortfolioProjectRow, type CrossRisk,
+  buildPortfolioRows, calcPortfolioTotals, buildDelayRadar,
+  type PortfolioProjectRow, type DelayRadarRow,
 } from "@/lib/portfolioSummary";
-import { HEALTH_CFG } from "@/lib/health";
+import { HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { GRID } from "@/lib/reportTheme";
 import { buildStatusReportData } from "@/lib/statusReportData";
-import { EmptyRow, ErrorBox, Loader, StatCard } from "@/components/ui";
+import { EmptyRow, ErrorBox, Loader } from "@/components/ui";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
+import { AlcanceInput } from "@/components/AlcanceInlineEdit";
 import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
-const SEVERITY_CFG: Record<"high" | "medium" | "low", { color: string; bg: string; label: string }> = {
-  high:   { color: "var(--bad)",  bg: "var(--bad-bg)",  label: "Crítico" },
-  medium: { color: "var(--warn)", bg: "var(--warn-bg)", label: "Medio" },
-  low:    { color: "var(--text-muted)", bg: "var(--bg-hover)", label: "Bajo" },
-};
+/** Status en español, para la lectura de 3 segundos de la Carátula Light
+ *  (el resto de la app usa las etiquetas en inglés de HEALTH_CFG — acá no se
+ *  tocan, solo se relabela localmente). */
+const STATUS_LABEL_ES: Record<HealthStatus, string> = { "on-track": "Sano", "in-risk": "En Riesgo", "off-track": "Crítico" };
 
-function buildRecommendations(critical: PortfolioProjectRow[], risks: CrossRisk[]): string[] {
-  const recs: string[] = [];
-  if (critical.length) {
-    recs.push(`Intervenir esta semana en los proyectos críticos: ${critical.map((r) => r.name).join(", ")} — son los que más arrastran el VEM del portafolio hacia abajo.`);
+/** "Alcance" de la tabla general = board.estrategia, recortado a `maxWords`
+ *  (no hay un campo de descripción de alcance separado en Monday — ver
+ *  ProjBoard). Sin dato → "N/D" (regla: nunca inventar). */
+function truncateWords(text: string | undefined, maxWords = 10): string {
+  const clean = (text ?? "").trim();
+  if (!clean) return "N/D";
+  const words = clean.split(/\s+/);
+  return words.length <= maxWords ? clean : `${words.slice(0, maxWords).join(" ")}…`;
+}
+
+// ── Transformadores puros para los 2 gráficos (no tocan portfolioSummary.ts:
+// consumen su salida ya calculada — rows/delayRadar — y solo reagrupan) ────
+
+/** Dona "Portfolio Status por Valor": suma de Valor del Proyecto por Status.
+ *  Exactamente 3 categorías (Sano/En Riesgo/Crítico, pedidas por el usuario) —
+ *  un proyecto Completado se cuenta como Sano (sin riesgo abierto, mismo
+ *  criterio que `mainRisk` en portfolioSummary.ts); uno sin salud calculable
+ *  (Monday sin costos/fechas) se excluye del todo — nunca se le asigna un
+ *  status a ojo. */
+interface StatusMoneySlice { key: HealthStatus; label: string; icon: string; color: string; value: number; pct: number }
+function buildStatusMoneyBreakdown(rows: PortfolioProjectRow[]): { slices: StatusMoneySlice[]; sinClasificar: number } {
+  const buckets: Record<HealthStatus, number> = { "on-track": 0, "in-risk": 0, "off-track": 0 };
+  let sinClasificar = 0;
+  for (const r of rows) {
+    if (r.isComplete || r.healthStatus === "on-track") buckets["on-track"] += r.budgetApproved;
+    else if (r.healthStatus === "in-risk") buckets["in-risk"] += r.budgetApproved;
+    else if (r.healthStatus === "off-track") buckets["off-track"] += r.budgetApproved;
+    else sinClasificar += r.budgetApproved;
   }
-  risks.forEach((r) => recs.push(r.mitigation));
-  if (recs.length === 0) {
-    recs.push("Sin señales de riesgo sistémico esta semana: mantener el ritmo de seguimiento actual.");
-  }
-  return recs.slice(0, 3);
+  const total = buckets["on-track"] + buckets["in-risk"] + buckets["off-track"];
+  const order: HealthStatus[] = ["on-track", "in-risk", "off-track"];
+  const slices = order.map((k) => ({
+    key: k, label: STATUS_LABEL_ES[k], icon: HEALTH_CFG[k].icon, color: HEALTH_CFG[k].color,
+    value: buckets[k], pct: total > 0 ? Math.round((buckets[k] / total) * 100) : 0,
+  }));
+  return { slices, sinClasificar };
+}
+
+/** Barras horizontales "Top Cuellos de Botella": Σ días de atraso del Radar
+ *  de Atascos, agrupado por responsable (un mismo responsable puede aparecer
+ *  en varios proyectos atrasados) — de mayor a menor, top N. Mismo cálculo
+ *  que ya usaba la KpiTile "Cuello de Botella Principal" (ahora la consume
+ *  de acá, en vez de duplicarlo). */
+interface BottleneckSlice { label: string; dias: number; color: string }
+function buildBottleneckRanking(delayRadar: DelayRadarRow[], top = 5): BottleneckSlice[] {
+  const diasPorResponsable: Record<string, number> = {};
+  for (const r of delayRadar) diasPorResponsable[r.responsable] = (diasPorResponsable[r.responsable] ?? 0) + r.diasAtraso;
+  return Object.entries(diasPorResponsable)
+    .map(([label, dias]) => ({ label, dias, color: RESPONSIBLE_COLOR[label] ?? "var(--text-muted)" }))
+    .sort((a, b) => b.dias - a.dias)
+    .slice(0, top);
+}
+
+/** Tooltip themed con variables CSS (respeta claro/oscuro sin JS de tema). */
+function ChartTooltip({ active, payload }: { active?: boolean; payload?: { name?: string; value?: number; payload?: { label?: string; dias?: number } }[] }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0];
+  const label = p.payload?.label ?? p.name ?? "";
+  const value = p.payload?.dias ?? p.value ?? 0;
+  return (
+    <div
+      className="rounded-lg border px-3 py-2 text-[0.75rem] shadow-lg"
+      style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+    >
+      <div className="font-semibold">{label}</div>
+      <div className="text-[var(--text-secondary)]">
+        {typeof p.value === "number" && p.payload?.dias === undefined ? fmtMoney(value) : `${value} d hábiles`}
+      </div>
+    </div>
+  );
 }
 
 export default function ResumenEjecutivoPage() {
@@ -77,18 +142,10 @@ function ResumenEjecutivoInner() {
     [data],
   );
   const totals = useMemo(() => calcPortfolioTotals(rows), [rows]);
-  const critical = useMemo(() => topCriticalProjects(rows, 3), [rows]);
-
-  const responsibleCounts = useMemo(() => {
-    if (!data) return {};
-    const lateIds = flattenBoardUnits(data.proj)
-      .filter((u) => u.entrega === "late" || (u.status !== "Done" && u.estado === "ATRASADO"))
-      .map((u) => u.id);
-    return countByResponsible(lateIds, data.delayAttributions);
-  }, [data]);
-
-  const crossRisks = useMemo(() => buildCrossRisks(rows, totals, responsibleCounts), [rows, totals, responsibleCounts]);
-  const recommendations = useMemo(() => buildRecommendations(critical, crossRisks), [critical, crossRisks]);
+  const delayRadar = useMemo(
+    () => (data ? buildDelayRadar(rows, data.projBoards, data.proj, data.atrasoDetalles) : []),
+    [rows, data],
+  );
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -113,9 +170,8 @@ function ResumenEjecutivoInner() {
           fetchedAt={data.fetchedAt}
           rows={rows}
           totals={totals}
-          critical={critical}
-          crossRisks={crossRisks}
-          recommendations={recommendations}
+          boards={boardsSorted}
+          delayRadar={delayRadar}
           onSelectProject={goToProject}
         />
       )}
@@ -126,15 +182,16 @@ function ResumenEjecutivoInner() {
 // ═══════════════════════════════════════════════════════════════════════
 // VISTA 1 — Portafolio (Resumen Ejecutivo)
 // ═══════════════════════════════════════════════════════════════════════
-function PortfolioView({ fetchedAt, rows, totals, critical, crossRisks, recommendations, onSelectProject }: {
+function PortfolioView({ fetchedAt, rows, totals, boards, delayRadar, onSelectProject }: {
   fetchedAt: Date;
   rows: PortfolioProjectRow[];
   totals: ReturnType<typeof calcPortfolioTotals>;
-  critical: PortfolioProjectRow[];
-  crossRisks: CrossRisk[];
-  recommendations: string[];
+  boards: ProjBoard[];
+  delayRadar: DelayRadarRow[];
   onSelectProject: (id: string) => void;
 }) {
+  const estrategiaByBoard = useMemo(() => new Map(boards.map((b) => [b.id, b.estrategia])), [boards]);
+
   const tableRows = [...rows].sort((a, b) => {
     const order = { "off-track": 0, "in-risk": 1, "on-track": 2 } as const;
     const oa = a.isComplete ? 3 : a.healthStatus ? order[a.healthStatus] : 4;
@@ -142,108 +199,120 @@ function PortfolioView({ fetchedAt, rows, totals, critical, crossRisks, recommen
     return oa !== ob ? oa - ob : a.name.localeCompare(b.name);
   });
 
+  // Bloque 1: "Días totales de atraso acumulado" = suma del peor atraso activo
+  // de cada proyecto atrasado (mismo dato que la columna Atraso, ver
+  // delayRadar); "Cuello de botella" = el responsable que acumula más de esos
+  // días en todo el portafolio.
+  const diasAtrasoTotal = delayRadar.reduce((s, r) => s + r.diasAtraso, 0);
+  const enRiesgoOCritico = totals.inRisk + totals.offTrack;
+  const bottleneckRanking = useMemo(() => buildBottleneckRanking(delayRadar), [delayRadar]);
+  const bottleneck = bottleneckRanking[0] ?? null;
+  const statusMoney = useMemo(() => buildStatusMoneyBreakdown(rows), [rows]);
+
   return (
     <div>
       <div className="mb-1 flex flex-wrap items-center gap-2.5">
         <h1 className="text-lg font-bold text-[var(--text-primary)]">Resumen Ejecutivo del Portafolio</h1>
       </div>
       <p className="mb-6 text-[0.82rem] text-[var(--text-muted)]">
-        Vista consolidada de {totals.total} proyecto{totals.total === 1 ? "" : "s"} · datos al {fmtDate(fetchedAt)}.
-        Haz clic en cualquier proyecto para ver su detalle.
+        {totals.total} proyecto{totals.total === 1 ? "" : "s"} · datos al {fmtDate(fetchedAt)} · haz clic en cualquier proyecto para ver su Status Card.
       </p>
 
       {rows.length === 0 ? (
         <EmptyRow msg="No hay proyectos en el portafolio." />
       ) : (
         <>
-          {/* ── 1. EXECUTIVE SUMMARY ── */}
-          <SectionHeader n={1} title="Executive Summary" />
-          <div className="mb-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            <StatCard value={totals.total} label="Total proyectos" />
-            <StatCard value={totals.onTrack} label="🟢 On Track" color="#10b981" borderColor="#10b981" />
-            <StatCard value={totals.inRisk} label="🟡 En Riesgo" color="#f59e0b" borderColor="#f59e0b" />
-            <StatCard value={totals.offTrack} label="🔴 Atrasados" color="#ef4444" borderColor="#ef4444" />
-            <StatCard value={totals.completed} label="✓ Completados" color="var(--text-secondary)" />
-          </div>
-          {totals.noData > 0 && (
-            <p className="mb-5 text-[0.72rem] text-[var(--text-muted)]">
-              ⓘ {totals.noData} proyecto{totals.noData === 1 ? "" : "s"} sin costos/fechas suficientes en Monday para calcular salud — no se incluyen en el semáforo.
-            </p>
-          )}
-          <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <StatCard value={fmtMoney(totals.budgetApproved)} label="Presupuesto Aprobado" valueSize="1.3rem" />
-            <StatCard value={fmtMoney(totals.budgetSpent)} label={`Ejecutado · Burn Rate ${totals.burnRatePct ?? "—"}%`} valueSize="1.3rem" />
-            <StatCard
-              value={fmtMoney(totals.ev - totals.ac)}
-              label="Desviación financiera (EV − AC)"
-              color={totals.ev - totals.ac < 0 ? "var(--bad)" : "var(--ok)"}
-              borderColor={totals.ev - totals.ac < 0 ? "var(--bad)" : undefined}
-              valueSize="1.3rem"
+          {/* ── 1. SALUD GLOBAL — la lectura de 3 segundos ── */}
+          <BlockHeader title="Salud Global" />
+          <div className="mb-8 flex flex-wrap gap-3">
+            <KpiTile
+              label="Valor Total del Portafolio"
+              value={fmtMoney(totals.budgetApproved)}
+              sub={`Presupuesto aprobado · ${totals.total} proyecto${totals.total === 1 ? "" : "s"}`}
+              accent="var(--accent)"
+            />
+            <KpiTile
+              label="Proyectos en Riesgo o Críticos"
+              value={enRiesgoOCritico}
+              sub={`${totals.offTrack} crítico${totals.offTrack === 1 ? "" : "s"} · ${totals.inRisk} en riesgo`}
+              accent={enRiesgoOCritico > 0 ? "#ef4444" : "#10b981"}
+            />
+            <KpiTile
+              label="Días Totales de Atraso Acumulado"
+              value={`${diasAtrasoTotal} d`}
+              sub={`${delayRadar.length} proyecto${delayRadar.length === 1 ? "" : "s"} con atraso activo`}
+              accent={diasAtrasoTotal > 0 ? "#ef4444" : "#10b981"}
+            />
+            <KpiTile
+              label="Cuello de Botella Principal"
+              value={bottleneck ? bottleneck.label : "N/D"}
+              sub={bottleneck ? `${bottleneck.dias} día${bottleneck.dias === 1 ? "" : "s"} acumulados` : "Sin atrasos activos"}
+              accent={bottleneck ? "#c98500" : "#10b981"}
+              valueSize="1.2rem"
             />
           </div>
 
-          {/* ── 2. PORTFOLIO KPI BLOCK ── */}
-          <SectionHeader n={2} title="Portfolio KPI Block" />
-          <div className="mb-3 grid grid-cols-2 gap-4 sm:grid-cols-2">
-            <StatCard
-              value={totals.portfolioSpi !== null ? totals.portfolioSpi.toFixed(2) : "—"}
-              label="SPI portafolio (ponderado por EV/PV)"
-              color={totals.portfolioSpi === null ? undefined : totals.portfolioSpi >= 1 ? "#10b981" : totals.portfolioSpi >= 0.85 ? "#f59e0b" : "#ef4444"}
-            />
-            <StatCard
-              value={totals.portfolioCpi !== null ? totals.portfolioCpi.toFixed(2) : "—"}
-              label="CPI portafolio (ponderado por EV/AC)"
-              color={totals.portfolioCpi === null ? undefined : totals.portfolioCpi >= 1 ? "#10b981" : totals.portfolioCpi >= 0.85 ? "#f59e0b" : "#ef4444"}
-            />
+          <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <PortfolioStatusDonut data={statusMoney} />
+            <TopBottlenecksBar data={bottleneckRanking} />
           </div>
-          <h3 className="mb-3 mt-6 text-[0.85rem] font-bold text-[var(--text-primary)]">Top 3 proyectos críticos</h3>
-          {critical.length === 0 ? (
-            <p className="mb-8 text-[0.8rem] text-[var(--text-muted)]">Ningún proyecto activo está En Riesgo u Off Track. 🎉</p>
+
+          {/* ── 2. RADAR DE ATASCOS — solo proyectos atrasados ── */}
+          <BlockHeader title="Radar de Atascos" hint="¿Quién es el responsable del atraso hoy?" />
+          {delayRadar.length === 0 ? (
+            <p className="mb-8 text-[0.8rem] text-[var(--text-muted)]">🎉 Ningún proyecto tiene atraso activo hoy.</p>
           ) : (
-            <div className="mb-8 grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-              {critical.map((r) => {
-                const cfg = r.healthStatus ? HEALTH_CFG[r.healthStatus] : null;
-                return (
-                  <button
-                    key={r.boardId}
-                    type="button"
-                    onClick={() => onSelectProject(r.boardId)}
-                    className="flex flex-col gap-1.5 rounded-xl border p-4 text-left transition-transform hover:-translate-y-0.5"
-                    style={{ background: "var(--bg-surface)", borderColor: cfg?.color ?? "var(--border)" }}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="text-[0.85rem] font-bold text-[var(--text-primary)]">{r.name}</div>
-                      {cfg && (
-                        <span className="shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] font-bold" style={{ color: cfg.color, background: cfg.bg }}>
-                          {cfg.icon} {cfg.label}
-                        </span>
-                      )}
-                    </div>
-                    {r.pm && <div className="text-[0.72rem] text-[var(--text-secondary)]">PM: {r.pm}</div>}
-                    <div className="text-[0.72rem]" style={{ color: SEVERITY_CFG[r.mainRisk.severity].color }}>{r.mainRisk.label}</div>
-                  </button>
-                );
-              })}
+            <div className="table-wrap mb-8">
+              <table className="pmo">
+                <thead>
+                  <tr>
+                    <th>Proyecto</th>
+                    <th>Responsable del atraso</th>
+                    <th>Días de atraso</th>
+                    <th>¿Culpa del PM?</th>
+                    <th>Action item de HOY</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {delayRadar.map((r) => (
+                    <tr
+                      key={r.boardId}
+                      onClick={() => onSelectProject(r.boardId)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectProject(r.boardId); } }}
+                      tabIndex={0}
+                      role="button"
+                      className="cursor-pointer transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)]"
+                    >
+                      <td className="ini-name">{r.code && <span className="mr-1.5 text-[0.65rem] text-[var(--text-muted)]">{r.code}</span>}{r.name}</td>
+                      <td style={{ fontSize: ".75rem", fontWeight: 700, whiteSpace: "nowrap", color: RESPONSIBLE_COLOR[r.responsable] ?? "var(--text-secondary)" }}>{r.responsable}</td>
+                      <td style={{ fontSize: ".75rem", fontWeight: 700, whiteSpace: "nowrap", color: "var(--bad)" }}>{r.diasAtraso}d hábiles</td>
+                      <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: r.esCulpaPm === "Sí" ? "var(--bad)" : r.esCulpaPm === "No" ? "var(--text-secondary)" : "var(--text-muted)" }}>
+                        {r.esCulpaPm}
+                      </td>
+                      <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 340 }}>{r.actionItem}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
-          {/* ── 3. PROJECT STATUS TABLE ── */}
-          <SectionHeader n={3} title="Project Status Table" />
-          <div className="table-wrap mb-8">
+          {/* ── 3. RESUMEN EJECUTIVO GENERAL — todos los proyectos ── */}
+          <BlockHeader title="Resumen Ejecutivo General" />
+          <div className="table-wrap mb-4">
             <table className="pmo">
               <thead>
                 <tr>
-                  <th>Proyecto</th><th>PM</th><th>Salud</th>
-                  <th>Avance (Físico/Plan)</th>
-                  <th>Presupuesto (Aprob. / Gastado / %)</th>
-                  <th>Atraso</th><th>Riesgo principal</th><th></th>
+                  <th>Proyecto</th><th>Alcance</th><th>Valor del proyecto</th><th>Status</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 {tableRows.map((r) => {
                   const cfg = r.isComplete
                     ? { color: "var(--text-secondary)", bg: "var(--bg-hover)", icon: "✓", label: "Completado" }
-                    : r.healthStatus ? HEALTH_CFG[r.healthStatus] : { color: "var(--text-muted)", bg: "var(--bg-hover)", icon: "—", label: "Sin datos" };
+                    : r.healthStatus
+                      ? { ...HEALTH_CFG[r.healthStatus], label: STATUS_LABEL_ES[r.healthStatus] }
+                      : { color: "var(--text-muted)", bg: "var(--bg-hover)", icon: "—", label: "N/D" };
                   return (
                     <tr
                       key={r.boardId}
@@ -254,66 +323,19 @@ function PortfolioView({ fetchedAt, rows, totals, critical, crossRisks, recommen
                       className="cursor-pointer transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)]"
                     >
                       <td className="ini-name">{r.code && <span className="mr-1.5 text-[0.65rem] text-[var(--text-muted)]">{r.code}</span>}{r.name}</td>
-                      <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.pm || "—"}</td>
+                      <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 280 }}>{truncateWords(estrategiaByBoard.get(r.boardId))}</td>
+                      <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: "var(--text-primary)" }}>{fmtMoney(r.budgetApproved)}</td>
                       <td>
                         <span className="rounded-full px-2 py-0.5 text-[0.68rem] font-bold whitespace-nowrap" style={{ color: cfg.color, background: cfg.bg }}>
                           {cfg.icon} {cfg.label}
                         </span>
                       </td>
-                      <td style={{ fontSize: ".75rem", whiteSpace: "nowrap" }}>
-                        <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{r.progressPct}%</span>
-                        <span style={{ color: "var(--text-muted)" }}> / {r.plannedPct}%</span>
-                      </td>
-                      <td style={{ fontSize: ".75rem", whiteSpace: "nowrap", color: "var(--text-secondary)" }}>
-                        {fmtMoney(r.budgetApproved)} / {fmtMoney(r.budgetSpent)} / {r.pctConsumed !== null ? `${r.pctConsumed}%` : "—"}
-                      </td>
-                      <td style={{ fontSize: ".75rem", whiteSpace: "nowrap", color: r.worstOverdueDays > 0 ? "var(--bad)" : "var(--text-muted)", fontWeight: r.worstOverdueDays > 0 ? 600 : 400 }}>
-                        {r.worstOverdueDays > 0 ? `${r.worstOverdueDays}d hábiles` : "En tiempo"}
-                      </td>
-                      <td style={{ fontSize: ".72rem", color: SEVERITY_CFG[r.mainRisk.severity].color, maxWidth: 220 }}>{r.mainRisk.label}</td>
-                      <td className="whitespace-nowrap text-[0.72rem] font-semibold" style={{ color: "var(--accent-light)" }}>Ver detalle →</td>
+                      <td className="whitespace-nowrap text-[0.72rem] font-semibold" style={{ color: "var(--accent-light)" }}>Ver Status Card →</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-          </div>
-
-          {/* ── 4. TOP RISKS & BLOCKERS ── */}
-          <SectionHeader n={4} title="Top Risks & Blockers" />
-          {crossRisks.length === 0 ? (
-            <p className="mb-8 text-[0.8rem] text-[var(--text-muted)]">No se detectaron riesgos que crucen varios proyectos esta semana.</p>
-          ) : (
-            <div className="mb-8 grid grid-cols-1 gap-3.5 lg:grid-cols-3">
-              {crossRisks.map((r, i) => {
-                const sev = SEVERITY_CFG[r.severity];
-                return (
-                  <div key={i} className="flex flex-col gap-2 rounded-xl border p-4" style={{ borderColor: sev.color, background: "var(--bg-surface)" }}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="rounded-full px-2 py-0.5 text-[0.65rem] font-bold" style={{ color: sev.color, background: sev.bg }}>{sev.label}</span>
-                    </div>
-                    <div className="text-[0.85rem] font-bold text-[var(--text-primary)]">{r.title}</div>
-                    <div className="text-[0.78rem] text-[var(--text-secondary)]">{r.detail}</div>
-                    <div className="mt-1 border-t pt-2 text-[0.75rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border-subtle)" }}>
-                      <strong className="text-[var(--text-secondary)]">Mitigación:</strong> {r.mitigation}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ── 5. RECOMENDACIONES ESTRATÉGICAS ── */}
-          <SectionHeader n={5} title="Recomendaciones Estratégicas" />
-          <div className="mb-4 flex flex-col gap-2.5 rounded-xl border p-4" style={{ borderColor: "var(--accent)", background: "var(--bg-accent-soft)" }}>
-            {recommendations.map((rec, i) => (
-              <div key={i} className="flex items-start gap-2.5 text-[0.85rem] text-[var(--text-primary)]">
-                <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[0.7rem] font-bold" style={{ background: "var(--accent)", color: "#fff" }}>
-                  {i + 1}
-                </span>
-                <span>{rec}</span>
-              </div>
-            ))}
           </div>
         </>
       )}
@@ -321,14 +343,154 @@ function PortfolioView({ fetchedAt, rows, totals, critical, crossRisks, recommen
   );
 }
 
-function SectionHeader({ n, title }: { n: number; title: string }) {
+/** Título de bloque de la Carátula Light — misma gramática visual que
+ *  `.section-title` del Status Card (título navy + regla horizontal), ver
+ *  components/StatusReport.tsx. */
+function BlockHeader({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="mb-3 mt-8 flex items-center gap-2.5 first:mt-0">
-      <span className="flex h-6 w-6 items-center justify-center rounded-full text-[0.7rem] font-bold" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-        {n}
-      </span>
-      <h2 className="text-base font-bold text-[var(--text-primary)]">{title}</h2>
+    <div className="mb-3 mt-8 flex flex-wrap items-baseline gap-2.5 first:mt-0">
+      <h2 className="text-[0.95rem] font-bold text-[var(--text-primary)]">{title}</h2>
+      {hint && <span className="text-[0.72rem] text-[var(--text-muted)]">{hint}</span>}
+      <span className="min-w-[24px] flex-1 border-b" style={{ borderColor: "var(--border)" }} />
     </div>
+  );
+}
+
+/** Tarjeta KPI de la Carátula Light — misma gramática visual que `.kpi` del
+ *  Status Card (barra de color arriba + etiqueta muted + valor grande), ver
+ *  components/StatusReport.tsx `Kpis`. */
+function KpiTile({ label, value, sub, accent, valueSize = "1.55rem" }: {
+  label: string; value: ReactNode; sub?: string; accent: string; valueSize?: string;
+}) {
+  return (
+    <div className="flex min-w-[190px] flex-1 flex-col overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+      <div style={{ height: 4, background: accent }} />
+      <div className="px-4 py-3.5">
+        <div className="text-[0.62rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</div>
+        <div className="mt-1.5 truncate font-bold leading-tight" style={{ fontSize: valueSize, color: accent }} title={typeof value === "string" ? value : undefined}>
+          {value}
+        </div>
+        {sub && <div className="mt-1 text-[0.72rem] font-medium text-[var(--text-secondary)]">{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Tarjeta contenedora de un gráfico — mismo borde/superficie que KpiTile y
+ *  las tablas, para que los 2 gráficos se sientan parte del mismo sistema. */
+function ChartCard({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}>
+      <div className="mb-1 text-[0.85rem] font-bold text-[var(--text-primary)]">{title}</div>
+      {hint && <div className="mb-3 text-[0.72rem] text-[var(--text-muted)]">{hint}</div>}
+      {children}
+    </div>
+  );
+}
+
+/** Dona "Portfolio Status por Valor" — qué % del dinero del portafolio está
+ *  Sano vs. en Riesgo/Crítico, de un vistazo (el número grande al centro es
+ *  la respuesta directa a esa pregunta; la tabla "Resumen Ejecutivo General"
+ *  de abajo es el detalle proyecto por proyecto de esta misma data). */
+function PortfolioStatusDonut({ data }: { data: { slices: StatusMoneySlice[]; sinClasificar: number } }) {
+  const { slices, sinClasificar } = data;
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  const enRiesgoPct = slices.filter((s) => s.key !== "on-track").reduce((s, x) => s + x.pct, 0);
+
+  return (
+    <ChartCard title="Portfolio Status por Valor" hint="Qué % del dinero del portafolio está en riesgo o crítico">
+      {total === 0 ? (
+        <p className="py-8 text-center text-[0.8rem] text-[var(--text-muted)]">Sin datos suficientes para clasificar el valor del portafolio.</p>
+      ) : (
+        <>
+          <div className="relative" style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={slices}
+                  dataKey="value"
+                  nameKey="label"
+                  innerRadius="64%"
+                  outerRadius="88%"
+                  paddingAngle={slices.filter((s) => s.value > 0).length > 1 ? 3 : 0}
+                  cornerRadius={4}
+                  stroke="var(--bg-surface)"
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                >
+                  {slices.map((s) => <Cell key={s.key} fill={s.color} />)}
+                </Pie>
+                <Tooltip content={<ChartTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <div className="text-[1.6rem] font-bold leading-none" style={{ color: enRiesgoPct > 0 ? "#ef4444" : "#10b981" }}>
+                {enRiesgoPct}%
+              </div>
+              <div className="mt-1 max-w-[110px] text-center text-[0.65rem] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                en riesgo o crítico
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-col gap-1.5">
+            {slices.map((s) => (
+              <div key={s.key} className="flex items-center justify-between gap-2 text-[0.75rem]">
+                <span className="flex items-center gap-1.5 font-medium text-[var(--text-secondary)]">
+                  <span aria-hidden style={{ color: s.color }}>{s.icon}</span>
+                  {s.label}
+                </span>
+                <span className="font-bold tabular-nums" style={{ color: s.color }}>
+                  {fmtMoney(s.value)} · {s.pct}%
+                </span>
+              </div>
+            ))}
+          </div>
+          {sinClasificar > 0 && (
+            <p className="mt-2 text-[0.68rem] text-[var(--text-muted)]">
+              ⓘ {fmtMoney(sinClasificar)} sin datos suficientes en Monday para clasificar — excluido del gráfico.
+            </p>
+          )}
+        </>
+      )}
+    </ChartCard>
+  );
+}
+
+/** Barras horizontales "Top Cuellos de Botella" — ¿quién acumula más días de
+ *  atraso en todo el portafolio? Mismo color por responsable que el resto de
+ *  la app (RESPONSIBLE_COLOR) y misma data que el Radar de Atascos de abajo
+ *  (esa tabla es el detalle proyecto por proyecto de este ranking). */
+function TopBottlenecksBar({ data }: { data: BottleneckSlice[] }) {
+  return (
+    <ChartCard title="Top Cuellos de Botella" hint="¿Quién nos está atascando más? (días de atraso acumulados)">
+      {data.length === 0 ? (
+        <p className="py-8 text-center text-[0.8rem] text-[var(--text-muted)]">🎉 Nadie acumula atraso activo hoy.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={Math.max(data.length * 42, 130)}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 34, left: 4, bottom: 4 }}>
+            <XAxis type="number" hide domain={[0, (max: number) => Math.ceil(max * 1.2)]} />
+            <YAxis
+              type="category"
+              dataKey="label"
+              width={100}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fill: "var(--text-secondary)", fontSize: 12, fontWeight: 600 }}
+            />
+            <Tooltip content={<ChartTooltip />} cursor={{ fill: "var(--bg-hover)" }} />
+            <Bar dataKey="dias" barSize={18} radius={[0, 4, 4, 0]} isAnimationActive={false}>
+              {data.map((d) => <Cell key={d.label} fill={d.color} />)}
+              <LabelList
+                dataKey="dias"
+                position="right"
+                formatter={(v: string | number | boolean | null | undefined) => (v == null || typeof v === "boolean" ? "" : `${v} d`)}
+                style={{ fill: "var(--text-primary)", fontSize: 12, fontWeight: 700 }}
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
   );
 }
 
@@ -449,12 +611,14 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
       .sort((a, b) => b.pct - a.pct || a.label.localeCompare(b.label));
   }, [atrasos, atrasoDetalles]);
 
+  const alcance = data?.boardAlcance[board.id]?.alcance ?? "";
+
   // Datos del "Status Ejecutivo" en el esquema de la skill `/status-pdf`
   // (ver lib/statusReportData.ts) — lo consume <StatusReport>.
   const reportData = useMemo(() => buildStatusReportData({
     board, code, name, summary, health, atrasos, atrasoDetalles,
-    responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, now,
-  }), [board, code, name, summary, health, atrasos, atrasoDetalles, responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, now]);
+    responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, alcance, now,
+  }), [board, code, name, summary, health, atrasos, atrasoDetalles, responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, alcance, now]);
 
   // PDF / impresión: NO se rasteriza. Hay una copia 1:1 del reporte montada
   // fuera de pantalla (.status-print-sheet, sin los controles de edición); al
@@ -502,7 +666,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             <StatusReport data={reportData} />
           </div>
           {/* En pantalla: la misma hoja escalada al ancho del panel, con
-              Responsable/Motivo editables in-situ */}
+              Alcance/Responsable/Motivo editables in-situ */}
           <div
             ref={boxRef}
             className="overflow-hidden rounded-xl print:hidden"
@@ -511,6 +675,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
             <div style={{ width: SHEET_W, height: SHEET_H, transformOrigin: "top left", transform: `scale(${scale})` }}>
               <StatusReport
                 data={reportData}
+                renderAlcance={() => <AlcanceInput boardId={board.id} />}
                 renderResp={(a) => <AtrasoRespReparto itemId={a.id} totalDias={a.diasNum} />}
                 renderMotivo={(a) => <AtrasoMotivoInput itemId={a.id} totalDias={a.diasNum} />}
               />

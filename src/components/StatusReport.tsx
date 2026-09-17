@@ -88,9 +88,9 @@ const CSS = `
 
 .pmo-report .header{ display:flex; justify-content:space-between; align-items:flex-start;
   padding-bottom:4px; border-bottom:2px solid var(--navy); margin-bottom:12px; }
-.pmo-report .header-left-group{ display:flex; align-items:center; gap:12px; }
+.pmo-report .header-left-group{ display:flex; align-items:center; gap:12px; flex:1; min-width:0; }
 .pmo-report .logo-pmo{ height:36px; width:auto; flex-shrink:0; }
-.pmo-report .header-left{ display:flex; flex-direction:column; gap:0; min-width:0; }
+.pmo-report .header-left{ display:flex; flex-direction:column; gap:0; flex:1; min-width:0; }
 .pmo-report .title-row{ display:flex; align-items:center; gap:9px; line-height:1.1; }
 .pmo-report .report-kicker-inline{ font-size:7.6pt; font-weight:700; letter-spacing:1.1px;
   color:var(--ink-muted); text-transform:uppercase; padding-right:9px; border-right:1px solid var(--grid); }
@@ -102,6 +102,12 @@ const CSS = `
 .pmo-report .meta-row{ display:flex; gap:18px; font-size:7.4pt; color:var(--ink-sec);
   margin-top:0; line-height:1.1; flex-wrap:nowrap; white-space:nowrap; }
 .pmo-report .meta-row b{ color:var(--ink); font-weight:600; }
+.pmo-report .alcance-row{ display:flex; align-items:center; width:100%; gap:5px; margin-top:3px; font-size:7.4pt; color:var(--ink-sec); line-height:1.3; }
+.pmo-report .alcance-row b{ flex-shrink:0; color:var(--ink); font-weight:600; }
+.pmo-report .alcance-text{ flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pmo-report .alcance-input{ display:block; flex:1 1 auto; width:100%; min-width:420px; height:1.3em; color:var(--ink-sec); line-height:1.3; font-size:7.4pt;
+  background:none; border:0; outline:0; font-family:inherit; white-space:nowrap; }
+.pmo-report .alcance-input:focus{ background:#fffdf3; box-shadow:0 0 0 1px var(--warning-fill); border-radius:3px; }
 .pmo-report .header-right{ text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:3px; flex-shrink:0; }
 
 .pmo-report .valor-steps{ display:flex; align-items:center; }
@@ -399,10 +405,12 @@ export interface StatusReportProps {
   renderResp?: (atraso: StatusAtraso, index: number) => ReactNode;
   /** vista en pantalla: control editable en la celda "Motivo". */
   renderMotivo?: (atraso: StatusAtraso, index: number) => ReactNode;
+  /** vista en pantalla: control editable de la línea "Alcance" del header. */
+  renderAlcance?: (data: StatusReportData) => ReactNode;
 }
 
 const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function StatusReport(
-  { data, renderResp, renderMotivo }, ref,
+  { data, renderResp, renderMotivo, renderAlcance }, ref,
 ) {
   // Auto-ajuste vertical: si el contenido (fases + causas de atraso) no cabe en
   // la hoja, se reduce con un scale uniforme para que TODO se vea y no pise el
@@ -466,6 +474,17 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
                 <span>CKU: <b>{data.project.cku}</b></span>
                 <span>Estrategia: <b>{data.project.estrategia}</b></span>
               </div>
+              {renderAlcance ? (
+                <div className="alcance-row">
+                  <b>Alcance:</b>
+                  {renderAlcance(data)}
+                </div>
+              ) : data.project.alcance && (
+                <div className="alcance-row">
+                  <b>Alcance:</b>
+                  <span className="alcance-text">{data.project.alcance}</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="header-right"><ValorSteps data={data} /></div>

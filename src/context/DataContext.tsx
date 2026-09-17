@@ -33,6 +33,9 @@ interface DataContextValue {
    *  (tabla Atrasos). reparto vacío + motivo vacío → quita el detalle. La
    *  persistencia la hace el caller. */
   setAtrasoDetalle: (itemId: string, patch: { reparto?: AtrasoReparto[]; motivo?: string }) => void;
+  /** Actualiza localmente (optimista) el Alcance de un proyecto (Status Card).
+   *  alcance vacío → quita el detalle. La persistencia la hace el caller. */
+  setBoardAlcance: (boardId: string, alcance: string) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -88,7 +91,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const reminderMap = buildReminderMap(raw.reminderLog ?? []);
       const devTeamRoster = buildDevTeamRoster(raw.hrItems ?? []);
 
-      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, atrasoDetalles: raw.atrasoDetalles ?? {}, directorio, devTeamRoster, estrategiaMap, reminderMap, fetchedAt: new Date(raw.fetchedAt) });
+      setData({ ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: raw.delayAttributions ?? {}, reprocesoAttributions: raw.reprocesoAttributions ?? {}, atrasoDetalles: raw.atrasoDetalles ?? {}, boardAlcance: raw.boardAlcance ?? {}, directorio, devTeamRoster, estrategiaMap, reminderMap, fetchedAt: new Date(raw.fetchedAt) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
@@ -122,6 +125,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Actualización optimista del Alcance de un proyecto (Status Card); evita un refetch completo.
+  const setBoardAlcance = useCallback((boardId: string, alcance: string) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const map = { ...prev.boardAlcance };
+      if (!alcance) delete map[boardId];
+      else map[boardId] = { alcance, at: new Date().toISOString() };
+      return { ...prev, boardAlcance: map };
+    });
+  }, []);
+
   // Carga inicial una sola vez, cuando hay sesión. Los datos NO se refrescan solos:
   // solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
   useEffect(() => {
@@ -138,7 +152,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, loading, error, refresh, setAttribution, setAtrasoDetalle }}>
+    <DataContext.Provider value={{ data, loading, error, refresh, setAttribution, setAtrasoDetalle, setBoardAlcance }}>
       {children}
     </DataContext.Provider>
   );

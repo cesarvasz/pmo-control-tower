@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
 import { resolveCost } from "@/lib/proj";
-import { verifyRequest, getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline, getAttributions, getAtrasoDetalles } from "@/lib/firebase-admin";
+import { verifyRequest, getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline, getAttributions, getAtrasoDetalles, getBoardAlcances } from "@/lib/firebase-admin";
 import type { MondayItem, ProjBoardRaw } from "@/types";
 
 // IDs de columnas REQ necesarios para baseline (mismo valor que REQ_COLS en process.ts).
@@ -103,15 +103,16 @@ export async function GET(request: Request) {
   // 2. Single Fetch a Monday + sync baselines en Firestore.
   try {
     const data = await fetchDashboardRaw();
-    const [baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, atrasoDetalles] = await Promise.all([
+    const [baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, atrasoDetalles, boardAlcance] = await Promise.all([
       syncBaselines(data.reqItems),
       syncProjItemBaselines(data.projRaw),
       listNpsRecords(),
       getAttributions("delay"),
       getAttributions("reproceso"),
       getAtrasoDetalles(),
+      getBoardAlcances(),
     ]);
-    return NextResponse.json({ ...data, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, atrasoDetalles });
+    return NextResponse.json({ ...data, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, atrasoDetalles, boardAlcance });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: message }, { status: 500 });
