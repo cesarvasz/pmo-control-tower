@@ -204,7 +204,15 @@ export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number;
 }
 
 // Columnas mirror/board_relation de Iniciativas para el lookup hacia Proyectos.
-const INI_LOOKUP_COL = { estrategia: "board_relation_mm3by83p", sponsor: "lookup_mm3bdj38", benefitType: "dropdown_mm51s7pm" };
+// `projectId` ("Project ID", texto libre) es la clave PRIMARIA del match desde
+// 2026-09: cada Iniciativa activa debería traer ahí el código "PM-XXX" del
+// board de Proyectos al que pertenece. El match por nombre (más abajo) sigue
+// existiendo solo como fallback para Iniciativas que aún no tienen ese campo
+// cargado en Monday.
+const INI_LOOKUP_COL = {
+  estrategia: "board_relation_mm3by83p", sponsor: "lookup_mm3bdj38", benefitType: "dropdown_mm51s7pm",
+  projectId: "text_mm3ajvj5",
+};
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
 const RH_EMAIL_COL = "email_mkz5qg4v";
@@ -266,25 +274,45 @@ export function lookupBenefitType(name: string, map: Map<string, string>): strin
   return "";
 }
 
-/** Lookup de Estrategia, Sponsor y CKU desde el board de Iniciativas, indexado por nombre normalizado.
+/** Salida de `buildIniLookup`: dos índices sobre las mismas Iniciativas —
+ *  `byId` (clave primaria, código "PM-XXX" de la columna "Project ID") y
+ *  `byName` (fallback legacy, nombre normalizado — ver `resolverIniDeBoard`). */
+export interface IniLookup {
+  byId: Map<string, IniLookupVal>;
+  byName: Map<string, IniLookupVal>;
+}
+
+/** Lookup de Estrategia, Sponsor y CKU desde el board de Iniciativas — ver `IniLookup`.
  *  El Sponsor/CKU (email) se resuelve a nombre con el Directorio RH; si no hay match se deja el valor.
- *  El CKU se lee por TÍTULO de columna ("CKU"). */
+ *  El CKU se lee por TÍTULO de columna ("CKU"). Si dos Iniciativas comparten el mismo
+ *  "Project ID" (dato mal cargado en Monday), gana la última — se avisa por consola
+ *  para que se corrija en Monday, no en el código. */
 export function buildIniLookup(
   iniItems: MondayItem[],
   hrItems: MondayItem[] = [],
-): Map<string, IniLookupVal> {
+): IniLookup {
   const emailToName = buildEmailNameMap(hrItems);
   const resolveName = (v: string) => emailToName.get(v.trim().toLowerCase()) ?? v;
-  const map = new Map<string, IniLookupVal>();
+  const byId = new Map<string, IniLookupVal>();
+  const byName = new Map<string, IniLookupVal>();
   for (const it of iniItems) {
-    map.set(normName(it.name), {
+    const val: IniLookupVal = {
       estrategia: colDisplay(it.column_values, INI_LOOKUP_COL.estrategia),
       sponsor:    resolveName(colDisplay(it.column_values, INI_LOOKUP_COL.sponsor)),
       cku:        resolveName(colByTitleAny(it.column_values, "CKU")),
       benefitType: colText(it.column_values, INI_LOOKUP_COL.benefitType).trim(),
-    });
+    };
+    byName.set(normName(it.name), val);
+
+    const projectId = colText(it.column_values, INI_LOOKUP_COL.projectId).trim().toUpperCase();
+    if (projectId) {
+      if (byId.has(projectId)) {
+        console.warn(`Iniciativas: "Project ID" duplicado "${projectId}" (Iniciativa "${it.name}") — se usa la última encontrada; corregir en Monday.`);
+      }
+      byId.set(projectId, val);
+    }
   }
-  return map;
+  return { byId, byName };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -335,34 +363,44 @@ const BOARD_INI_ALIAS_BY_ID: Record<string, string> = {
   "18427168172": "DUCAfast Regional",  // PM-012 DUCAfast Reg⚡
 };
 
-/** Resuelve la Iniciativa de un board: match exacto por nombre, luego por
- *  prefijo, luego por alias explícito — la misma cadena que projEnrichBoards
- *  aplica a cada board, extraída para poder resolverla también para un board
- *  DISTINTO al que se está enriqueciendo (ver excepción PM-013 más abajo). */
+/** Código de board (ej. "PM-013") sin espacios y en mayúsculas, para comparar. */
+const boardCode = (boardName: string) => splitBoardName(boardName).code.trim().toUpperCase();
+
+/** Resuelve la Iniciativa de un board. Prioridad:
+ *   1) Project ID (código "PM-XXX" del board) contra `iniLookup.byId` — clave
+ *      PRIMARIA desde 2026-09; una Iniciativa con ese Project ID cargado en
+ *      Monday GANA sobre cualquier otra señal, incluso el alias manual de
+ *      abajo (si el Project ID en Monday está mal cargado, se corrige ahí,
+ *      no en el código — ver aviso de `buildIniLookup`).
+ *   2) Fallback legacy, solo si NINGUNA Iniciativa tiene ese Project ID:
+ *      match exacto por nombre, luego por prefijo, luego por alias explícito
+ *      — la misma cadena que projEnrichBoards aplica a cada board, extraída
+ *      para poder resolverla también para un board DISTINTO al que se está
+ *      enriqueciendo (ver excepción PM-013 más abajo). */
 function resolverIniDeBoard(
   board: { id: string; name: string },
-  iniLookup: Map<string, IniLookupVal>,
+  iniLookup: IniLookup,
 ): IniLookupVal | undefined {
+  const code = boardCode(board.name);
+  if (code && iniLookup.byId.has(code)) return iniLookup.byId.get(code);
+
   const key = normName(stripPmPrefix(board.name));
-  let ini = iniLookup.get(key);
+  let ini = iniLookup.byName.get(key);
   if (!ini) {
-    for (const [iniKey, val] of iniLookup) {
+    for (const [iniKey, val] of iniLookup.byName) {
       if (iniKey.length > 4 && key.startsWith(iniKey)) { ini = val; break; }
     }
   }
   if (!ini && BOARD_INI_ALIAS_BY_ID[board.id]) {
-    ini = iniLookup.get(normName(BOARD_INI_ALIAS_BY_ID[board.id]));
+    ini = iniLookup.byName.get(normName(BOARD_INI_ALIAS_BY_ID[board.id]));
   }
   return ini;
 }
 
-/** Código de board (ej. "PM-013") sin espacios y en mayúsculas, para comparar. */
-const boardCode = (boardName: string) => splitBoardName(boardName).code.trim().toUpperCase();
-
 export function projEnrichBoards(
   boards: { id: string; name: string }[],
   projData: ProjItem[],
-  iniLookup: Map<string, IniLookupVal> = new Map(),
+  iniLookup: IniLookup = { byId: new Map(), byName: new Map() },
 ): ProjBoard[] {
   const boardResp: Record<string, string> = {};
   projData.forEach((item) => {

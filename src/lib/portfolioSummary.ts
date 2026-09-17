@@ -6,7 +6,7 @@
 
 import { fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
-import { buildProjectSummary, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
+import { buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
 import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import { atrasoReparto } from "@/lib/delay";
 import type { HealthStatus } from "@/lib/health";
@@ -212,11 +212,14 @@ export function buildCrossRisks(
 
 // ── Radar de Atascos — "¿quién es el responsable del atraso hoy?" ────────
 // Para la Carátula Light del portafolio (/resumen-ejecutivo): una fila por
-// proyecto CON atraso activo (worstOverdueDays > 0), con el responsable
-// dominante (más días atribuidos) y un action item concreto. El responsable
-// solo se conoce para atrasos de Fase 3/Launch (única fase con la tabla de
-// "Causas de atraso" + reparto por rol, ver projSummary/statusReportData) —
-// un proyecto atrasado en otra fase, sin ese detalle, cae en "N/D" en vez de
+// proyecto CON atraso activo (worstOverdueDays > 0), con sus días de atraso,
+// el responsable dominante (más días atribuidos) y un action item concreto.
+// Los días de atraso se calculan igual que el Status Card (calcAtrasoActualDias:
+// unión de los períodos de atraso, sin duplicar traslapes) para que el número
+// sea el MISMO en el portafolio y al entrar al proyecto. El responsable solo
+// se conoce para atrasos de Fase 3/Launch (única fase con la tabla de "Causas
+// de atraso" + reparto por rol, ver projSummary/statusReportData) — un
+// proyecto atrasado en otra fase, sin ese detalle, cae en "N/D" en vez de
 // inventar un responsable.
 export interface DelayRadarRow {
   boardId: string;
@@ -248,9 +251,18 @@ export function buildDelayRadar(
         ? evaluarHitosAtraso(desarrolloItem, hoy)
         : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null);
 
+      // Días de atraso: la UNIÓN de los períodos [deadline, hoy] de cada atraso
+      // de Fase 3 — igual que el KPI "Atraso actual" del Status Card
+      // (calcAtrasoActualDias en statusReportData.ts) — así el número que ve
+      // el gerente en el portafolio es EL MISMO que ve al entrar al proyecto,
+      // sin duplicar días cuando dos entregables se atrasan en paralelo.
+      // Fallback a worstOverdueDays solo si el proyecto no tiene atrasos de
+      // Fase 3 (su atraso activo vive en otra fase, sin ese detalle).
+      let diasAtraso = r.worstOverdueDays;
       let responsable = "N/D";
       let actionItem = `Atender: ${r.mainRisk.label}`;
       if (atrasos.length > 0) {
+        diasAtraso = calcAtrasoActualDias(atrasos, hoy);
         const diasPorResp: Record<string, number> = {};
         let peor: StepAtraso | null = null;
         for (const a of atrasos) {
@@ -268,7 +280,7 @@ export function buildDelayRadar(
         }
       }
       const esCulpaPm: DelayRadarRow["esCulpaPm"] = responsable === "N/D" ? "N/D" : responsable === "PM" ? "Sí" : "No";
-      return { boardId: r.boardId, code: r.code, name: r.name, diasAtraso: r.worstOverdueDays, responsable, esCulpaPm, actionItem };
+      return { boardId: r.boardId, code: r.code, name: r.name, diasAtraso, responsable, esCulpaPm, actionItem };
     })
     .sort((a, b) => b.diasAtraso - a.diasAtraso);
 }

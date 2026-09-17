@@ -208,14 +208,14 @@ describe("projProcess", () => {
 
 describe("projEnrichBoards", () => {
   const iniPM003 = { estrategia: "Digitalización", sponsor: "Ana Ana", cku: "CKU-1", benefitType: "HardSaving" };
-  const iniLookup = new Map([["ducafast 2.0 gt", iniPM003]]);
+  const byNameOnly = { byId: new Map(), byName: new Map([["ducafast 2.0 gt", iniPM003]]) };
 
   it("PM-013 no tiene Iniciativa propia: toma Estrategia/Sponsor/CKU de PM-003, pero NO su Benefit Type", () => {
     const boards = [
       { id: "b003", name: "PM-003 | DUCAfast 2.0 GT" },
       { id: "b013", name: "PM-013 | Proyecto Sin Iniciativa" },
     ];
-    const [pm003, pm013] = projEnrichBoards(boards, [], iniLookup);
+    const [pm003, pm013] = projEnrichBoards(boards, [], byNameOnly);
 
     expect(pm003).toMatchObject({ estrategia: "Digitalización", sponsor: "Ana Ana", cku: "CKU-1", benefitType: "HardSaving" });
     expect(pm013.estrategia).toBe("Digitalización");
@@ -227,7 +227,7 @@ describe("projEnrichBoards", () => {
 
   it("si el board de PM-003 no está presente, PM-013 no rompe: campos vacíos como cualquier board sin Iniciativa", () => {
     const boards = [{ id: "b013", name: "PM-013 | Proyecto Sin Iniciativa" }];
-    const [pm013] = projEnrichBoards(boards, [], iniLookup);
+    const [pm013] = projEnrichBoards(boards, [], byNameOnly);
     expect(pm013.estrategia).toBe("");
     expect(pm013.sponsor).toBe("");
     expect(pm013.cku).toBe("");
@@ -235,7 +235,30 @@ describe("projEnrichBoards", () => {
 
   it("la excepción de Sponsor de DUCAfast SV sigue funcionando", () => {
     const boards = [{ id: "bsv", name: "PM-099 | DUCAfast SV" }];
-    const [r] = projEnrichBoards(boards, [], new Map());
+    const [r] = projEnrichBoards(boards, [], { byId: new Map(), byName: new Map() });
     expect(r.sponsor).toBe("Javier Claros");
+  });
+
+  it("usa el Project ID (byId) aunque el nombre del board no matchee ninguna Iniciativa por nombre", () => {
+    const iniPorId = { estrategia: "Evolución HN", sponsor: "Karla", cku: "CKU-2", benefitType: "SoftSaving" };
+    const boards = [{ id: "b010", name: "PM-010 | Nombre Que No Existe En Iniciativas" }];
+    const lookup = { byId: new Map([["PM-010", iniPorId]]), byName: new Map() };
+    const [r] = projEnrichBoards(boards, [], lookup);
+    expect(r).toMatchObject(iniPorId);
+  });
+
+  it("el Project ID (byId) gana sobre el match por nombre/alias cuando ambos existen", () => {
+    const iniPorId = { estrategia: "Por ID", sponsor: "Sponsor ID", cku: "CKU ID", benefitType: "" };
+    const iniPorNombre = { estrategia: "Por Nombre", sponsor: "Sponsor Nombre", cku: "CKU Nombre", benefitType: "" };
+    const boards = [{ id: "b010", name: "PM-010 | Air & Sea" }];
+    const lookup = { byId: new Map([["PM-010", iniPorId]]), byName: new Map([["air & sea", iniPorNombre]]) };
+    const [r] = projEnrichBoards(boards, [], lookup);
+    expect(r).toMatchObject(iniPorId);
+  });
+
+  it("sin Project ID cargado en ninguna Iniciativa, cae al match por nombre de siempre", () => {
+    const boards = [{ id: "b003", name: "PM-003 | DUCAfast 2.0 GT" }];
+    const [r] = projEnrichBoards(boards, [], byNameOnly);
+    expect(r).toMatchObject(iniPM003);
   });
 });

@@ -36,16 +36,17 @@ import { EmptyRow, ErrorBox, Loader } from "@/components/ui";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
 import { AlcanceInput } from "@/components/AlcanceInlineEdit";
-import type { ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
+import type { BoardAlcance, ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 /** Status en español, para la lectura de 3 segundos de la Carátula Light
  *  (el resto de la app usa las etiquetas en inglés de HEALTH_CFG — acá no se
  *  tocan, solo se relabela localmente). */
 const STATUS_LABEL_ES: Record<HealthStatus, string> = { "on-track": "Sano", "in-risk": "En Riesgo", "off-track": "Crítico" };
 
-/** "Alcance" de la tabla general = board.estrategia, recortado a `maxWords`
- *  (no hay un campo de descripción de alcance separado en Monday — ver
- *  ProjBoard). Sin dato → "N/D" (regla: nunca inventar). */
+/** "Alcance" de la tabla general = el campo editable del Status Card
+ *  (Firestore `board_alcance`, ver components/AlcanceInlineEdit.tsx),
+ *  recortado a `maxWords` para que quepa en la celda. Sin dato → "N/D"
+ *  (regla: nunca inventar). */
 function truncateWords(text: string | undefined, maxWords = 10): string {
   const clean = (text ?? "").trim();
   if (!clean) return "N/D";
@@ -170,7 +171,7 @@ function ResumenEjecutivoInner() {
           fetchedAt={data.fetchedAt}
           rows={rows}
           totals={totals}
-          boards={boardsSorted}
+          boardAlcance={data.boardAlcance}
           delayRadar={delayRadar}
           onSelectProject={goToProject}
         />
@@ -182,21 +183,28 @@ function ResumenEjecutivoInner() {
 // ═══════════════════════════════════════════════════════════════════════
 // VISTA 1 — Portafolio (Resumen Ejecutivo)
 // ═══════════════════════════════════════════════════════════════════════
-function PortfolioView({ fetchedAt, rows, totals, boards, delayRadar, onSelectProject }: {
+function PortfolioView({ fetchedAt, rows, totals, boardAlcance, delayRadar, onSelectProject }: {
   fetchedAt: Date;
   rows: PortfolioProjectRow[];
   totals: ReturnType<typeof calcPortfolioTotals>;
-  boards: ProjBoard[];
+  boardAlcance: Record<string, BoardAlcance>;
   delayRadar: DelayRadarRow[];
   onSelectProject: (id: string) => void;
 }) {
-  const estrategiaByBoard = useMemo(() => new Map(boards.map((b) => [b.id, b.estrategia])), [boards]);
+  // Radar de Atascos integrado como columnas extra de la tabla general — un
+  // lookup por boardId en vez de una tabla aparte (buildDelayRadar solo trae
+  // filas para proyectos con atraso activo).
+  const delayByBoard = useMemo(() => new Map(delayRadar.map((r) => [r.boardId, r])), [delayRadar]);
 
+  // Orden ascendente por PM ID (numérico, no alfabético — "PM-2" antes que
+  // "PM-10"); boards sin código reconocible ("PM-XXX") quedan al final.
+  const codeNum = (code: string) => {
+    const m = code.match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : Infinity;
+  };
   const tableRows = [...rows].sort((a, b) => {
-    const order = { "off-track": 0, "in-risk": 1, "on-track": 2 } as const;
-    const oa = a.isComplete ? 3 : a.healthStatus ? order[a.healthStatus] : 4;
-    const ob = b.isComplete ? 3 : b.healthStatus ? order[b.healthStatus] : 4;
-    return oa !== ob ? oa - ob : a.name.localeCompare(b.name);
+    const na = codeNum(a.code), nb = codeNum(b.code);
+    return na !== nb ? na - nb : a.name.localeCompare(b.name);
   });
 
   // Bloque 1: "Días totales de atraso acumulado" = suma del peor atraso activo
@@ -257,53 +265,27 @@ function PortfolioView({ fetchedAt, rows, totals, boards, delayRadar, onSelectPr
             <TopBottlenecksBar data={bottleneckRanking} />
           </div>
 
-          {/* ── 2. RADAR DE ATASCOS — solo proyectos atrasados ── */}
-          <BlockHeader title="Radar de Atascos" hint="¿Quién es el responsable del atraso hoy?" />
-          {delayRadar.length === 0 ? (
-            <p className="mb-8 text-[0.8rem] text-[var(--text-muted)]">🎉 Ningún proyecto tiene atraso activo hoy.</p>
-          ) : (
-            <div className="table-wrap mb-8">
-              <table className="pmo">
-                <thead>
-                  <tr>
-                    <th>Proyecto</th>
-                    <th>Responsable del atraso</th>
-                    <th>Días de atraso</th>
-                    <th>¿Culpa del PM?</th>
-                    <th>Action item de HOY</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {delayRadar.map((r) => (
-                    <tr
-                      key={r.boardId}
-                      onClick={() => onSelectProject(r.boardId)}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectProject(r.boardId); } }}
-                      tabIndex={0}
-                      role="button"
-                      className="cursor-pointer transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)]"
-                    >
-                      <td className="ini-name">{r.code && <span className="mr-1.5 text-[0.65rem] text-[var(--text-muted)]">{r.code}</span>}{r.name}</td>
-                      <td style={{ fontSize: ".75rem", fontWeight: 700, whiteSpace: "nowrap", color: RESPONSIBLE_COLOR[r.responsable] ?? "var(--text-secondary)" }}>{r.responsable}</td>
-                      <td style={{ fontSize: ".75rem", fontWeight: 700, whiteSpace: "nowrap", color: "var(--bad)" }}>{r.diasAtraso}d hábiles</td>
-                      <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: r.esCulpaPm === "Sí" ? "var(--bad)" : r.esCulpaPm === "No" ? "var(--text-secondary)" : "var(--text-muted)" }}>
-                        {r.esCulpaPm}
-                      </td>
-                      <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 340 }}>{r.actionItem}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {/* ── 2. RESUMEN EJECUTIVO GENERAL — todos los proyectos, con el
+              Radar de Atascos integrado como columnas (no como tabla aparte) ── */}
+          <BlockHeader title="Resumen Ejecutivo General" hint="Alcance, valor, status y responsable del atraso — un proyecto por fila" />
+          {delayRadar.length === 0 && (
+            <p className="mb-3 text-[0.8rem] text-[var(--text-muted)]">🎉 Ningún proyecto tiene atraso activo hoy.</p>
           )}
-
-          {/* ── 3. RESUMEN EJECUTIVO GENERAL — todos los proyectos ── */}
-          <BlockHeader title="Resumen Ejecutivo General" />
-          <div className="table-wrap mb-4">
+          {/* Sin scroll propio (a diferencia de .table-wrap): se muestran todas las
+              filas y columnas, la página completa hace el scroll si hace falta. */}
+          <div className="mb-4 overflow-hidden rounded-[10px] border" style={{ borderColor: "var(--border)" }}>
             <table className="pmo">
               <thead>
                 <tr>
-                  <th>Proyecto</th><th>Alcance</th><th>Valor del proyecto</th><th>Status</th><th></th>
+                  <th>Proyecto</th>
+                  <th>Alcance</th>
+                  <th>Valor del proyecto</th>
+                  <th>Status</th>
+                  <th>Días de atraso</th>
+                  <th>Responsable del atraso</th>
+                  <th>¿Culpa del PM?</th>
+                  <th>Action item de HOY</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -313,6 +295,7 @@ function PortfolioView({ fetchedAt, rows, totals, boards, delayRadar, onSelectPr
                     : r.healthStatus
                       ? { ...HEALTH_CFG[r.healthStatus], label: STATUS_LABEL_ES[r.healthStatus] }
                       : { color: "var(--text-muted)", bg: "var(--bg-hover)", icon: "—", label: "N/D" };
+                  const dr = delayByBoard.get(r.boardId);
                   return (
                     <tr
                       key={r.boardId}
@@ -322,14 +305,29 @@ function PortfolioView({ fetchedAt, rows, totals, boards, delayRadar, onSelectPr
                       role="button"
                       className="cursor-pointer transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)]"
                     >
-                      <td className="ini-name">{r.code && <span className="mr-1.5 text-[0.65rem] text-[var(--text-muted)]">{r.code}</span>}{r.name}</td>
-                      <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 280 }}>{truncateWords(estrategiaByBoard.get(r.boardId))}</td>
+                      <td className="ini-name">
+                        <div className="flex flex-col gap-0.5" style={{ maxWidth: 200, wordBreak: "break-word" }}>
+                          {r.code && <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{r.code}</span>}
+                          <span>{r.name}</span>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 200, wordBreak: "break-word" }}>{truncateWords(boardAlcance[r.boardId]?.alcance)}</td>
                       <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: "var(--text-primary)" }}>{fmtMoney(r.budgetApproved)}</td>
                       <td>
                         <span className="rounded-full px-2 py-0.5 text-[0.68rem] font-bold whitespace-nowrap" style={{ color: cfg.color, background: cfg.bg }}>
                           {cfg.icon} {cfg.label}
                         </span>
                       </td>
+                      <td style={{ fontSize: ".75rem", fontWeight: dr ? 700 : 400, whiteSpace: "nowrap", color: dr ? "var(--bad)" : "var(--text-muted)" }}>
+                        {dr ? `${dr.diasAtraso}d hábiles` : "En tiempo"}
+                      </td>
+                      <td style={{ fontSize: ".75rem", fontWeight: dr ? 700 : 400, whiteSpace: "nowrap", color: dr ? (RESPONSIBLE_COLOR[dr.responsable] ?? "var(--text-secondary)") : "var(--text-muted)" }}>
+                        {dr?.responsable ?? "—"}
+                      </td>
+                      <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: !dr ? "var(--text-muted)" : dr.esCulpaPm === "Sí" ? "var(--bad)" : dr.esCulpaPm === "No" ? "var(--text-secondary)" : "var(--text-muted)" }}>
+                        {dr?.esCulpaPm ?? "—"}
+                      </td>
+                      <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 260, wordBreak: "break-word" }}>{dr?.actionItem ?? "—"}</td>
                       <td className="whitespace-nowrap text-[0.72rem] font-semibold" style={{ color: "var(--accent-light)" }}>Ver Status Card →</td>
                     </tr>
                   );

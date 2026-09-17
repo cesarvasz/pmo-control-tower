@@ -1,11 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildPortfolioRows, calcPortfolioTotals, topCriticalProjects, buildCrossRisks, type PortfolioProjectRow,
+  buildPortfolioRows, calcPortfolioTotals, topCriticalProjects, buildCrossRisks, buildDelayRadar, type PortfolioProjectRow,
 } from "./portfolioSummary";
+import { businessDays, today } from "./business";
 import type { ProjBoard, ProjItem } from "@/types";
 
 const board = (o: Partial<ProjBoard>): ProjBoard => o as ProjBoard;
 const item = (o: Partial<ProjItem>): ProjItem => ({ subitems: [], estado: "EN TIEMPO", deadline: null, endDate: null, entrega: null, grupo: "Fase", benefit: 0, ...o }) as ProjItem;
+
+const daysFromToday = (n: number): Date => {
+  const d = today();
+  d.setDate(d.getDate() + n);
+  return d;
+};
 
 const mkRow = (o: Partial<PortfolioProjectRow>): PortfolioProjectRow => ({
   boardId: "x", code: "", name: "Proyecto", pm: "",
@@ -131,5 +138,37 @@ describe("buildCrossRisks", () => {
     const totals = calcPortfolioTotals(rows);
     const risks = buildCrossRisks(rows, totals, { Desarrollo: 9, PM: 1 });
     expect(risks.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("buildDelayRadar", () => {
+  const hoy = today();
+
+  it("días de atraso = unión de los atrasos de Fase 3 (el peor, no la suma) — mismo cálculo que el Status Card", () => {
+    const boards = [board({ id: "b1", name: "PM-020 | Delta", pm: "Ana" })];
+    const proj = [
+      item({ id: "i1", boardId: "b1", grupo: "Launch", name: "Step A", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-15) }),
+      item({ id: "i2", boardId: "b1", grupo: "Launch", name: "Step B", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-7) }),
+    ];
+    // worstOverdueDays deliberadamente distinto: si el radar todavía lo usara, el test fallaría.
+    const rows = [mkRow({ boardId: "b1", code: "PM-020", name: "Delta", worstOverdueDays: 999 })];
+    const radar = buildDelayRadar(rows, boards, proj, {});
+    expect(radar).toHaveLength(1);
+    const diasPeor = businessDays(daysFromToday(-15), hoy, true);
+    const diasSumaIngenua = diasPeor + businessDays(daysFromToday(-7), hoy, true);
+    expect(radar[0].diasAtraso).toBe(diasPeor);
+    expect(radar[0].diasAtraso).not.toBe(diasSumaIngenua); // no se suman los días en común
+    expect(radar[0].diasAtraso).not.toBe(999);
+  });
+
+  it("sin atrasos de Fase 3, cae a worstOverdueDays (el proyecto igual aparece en el radar)", () => {
+    const boards = [board({ id: "b2", name: "PM-021 | Epsilon", pm: "Ana" })];
+    const proj = [
+      item({ id: "i3", boardId: "b2", grupo: "Aprobación", name: "Checkpoint fuera de Launch", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-3) }),
+    ];
+    const rows = [mkRow({ boardId: "b2", code: "PM-021", name: "Epsilon", worstOverdueDays: 42 })];
+    const radar = buildDelayRadar(rows, boards, proj, {});
+    expect(radar[0].diasAtraso).toBe(42);
+    expect(radar[0].responsable).toBe("N/D");
   });
 });
