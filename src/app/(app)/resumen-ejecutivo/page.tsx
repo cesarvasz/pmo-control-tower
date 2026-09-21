@@ -560,9 +560,14 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   const stageAmounts = useMemo(() => projStageAmounts(items), [items]);
   const costoProyecto = items.reduce((s, it) => s + it.cost, 0);
   const beneficioParaRoi = stageAmounts?.confirmacion?.benefit ?? stageAmounts?.aprobacion?.benefit ?? stageAmounts?.validacion?.benefit;
-  const valorProyecto = costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
-  const roi = costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
-  const payback = costoProyecto && beneficioParaRoi && beneficioParaRoi > 0 ? costoProyecto / (beneficioParaRoi / 12) : null;
+  // Benefit Type "SoftSaving" (heredado de la Iniciativa) = beneficio NO
+  // cuantificable de forma rigurosa (no es ahorro/ingreso real medible) — Valor
+  // Generado/ROI/Payback no tienen sentido ahí, quedan en "—" (fmtMoney/roi/
+  // payback ya renderizan null como "—").
+  const isSoftSaving = board.benefitType === "SoftSaving";
+  const valorProyecto = !isSoftSaving && costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
+  const roi = !isSoftSaving && costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
+  const payback = !isSoftSaving && costoProyecto && beneficioParaRoi && beneficioParaRoi > 0 ? costoProyecto / (beneficioParaRoi / 12) : null;
   // Avance planificado: % de hitos/steps que YA deberían estar Done según su
   // propio deadline. Comparado con el Avance real da la brecha física (SPI del reporte).
   const avancePlanificado = calcPlannedProgress(summary.units, summary.phases);
