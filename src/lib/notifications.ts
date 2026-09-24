@@ -39,21 +39,20 @@ export interface MeIdentity {
 }
 
 /** ¿Alguno de los nombres en `pmText` (columna PM — puede traer varias
- *  personas separadas por coma) es el usuario logueado? Primero intenta
- *  resolver el nombre a un email real vía el Directorio RH (más confiable
- *  que comparar texto suelto); si el nombre no aparece ahí, cae a comparar
- *  directo contra el displayName de la sesión. */
+ *  personas separadas por coma) es el usuario logueado? El login no da un
+ *  nombre confiable (el displayName de Firebase puede venir vacío o no
+ *  calzar con Monday) — por eso el email de la sesión se resuelve PRIMERO a
+ *  un nombre real vía el Directorio RH, y ES ESE nombre el que se compara
+ *  contra los de `pmText`. Solo si el email no aparece en el directorio
+ *  (ej. una cuenta que no es un "recurso" de RH) cae a comparar directo
+ *  contra el displayName, como último recurso. */
 function isMe(pmText: string, me: MeIdentity, directorio: DirectorioEntry[]): boolean {
   if (!pmText) return false;
   const meEmail = me.email.trim().toLowerCase();
-  const meName = me.displayName.trim().toLowerCase();
-  return pmText.split(",").some((raw) => {
-    const name = raw.trim().toLowerCase();
-    if (!name) return false;
-    if (meName && name === meName) return true;
-    const entry = directorio.find((d) => d.name.trim().toLowerCase() === name);
-    return !!entry && entry.email.trim().toLowerCase() === meEmail;
-  });
+  const entry = directorio.find((d) => d.email.trim().toLowerCase() === meEmail);
+  const meName = (entry?.name ?? me.displayName).trim().toLowerCase();
+  if (!meName) return false;
+  return pmText.split(",").some((raw) => raw.trim().toLowerCase() === meName);
 }
 
 const DAY_MS = 86400000;

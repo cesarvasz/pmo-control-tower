@@ -83,12 +83,22 @@ describe("buildTodoNotifications", () => {
     expect(b.hoy.map((n) => n.name)).toEqual(["Mío"]);
   });
 
-  it("resuelve el PM por nombre vía el directorio cuando el displayName no calza exacto", () => {
+  it("resuelve el nombre por EMAIL vía el directorio, ignorando el displayName del login", () => {
     const data = mkData({
       proj: [proj({ id: "p1", name: "Vía directorio", pm: "Ana Pérez", deadline: daysFromToday(0) })],
     });
-    const b = buildTodoNotifications(data, { email: "ana@empresa.com", displayName: "ana.perez" });
+    // displayName totalmente distinto al nombre real — el match debe salir
+    // del email resuelto contra el Directorio RH, no de este campo.
+    const b = buildTodoNotifications(data, { email: "ana@empresa.com", displayName: "cualquier-cosa" });
     expect(b.hoy.map((n) => n.name)).toEqual(["Vía directorio"]);
+  });
+
+  it("si el email no está en el directorio, cae al displayName como último recurso", () => {
+    const data = mkData({
+      proj: [proj({ id: "p1", name: "Sin directorio", pm: "Carlos Ruiz", deadline: daysFromToday(0) })],
+    });
+    const b = buildTodoNotifications(data, { email: "carlos@fuera-de-rh.com", displayName: "Carlos Ruiz" });
+    expect(b.hoy.map((n) => n.name)).toEqual(["Sin directorio"]);
   });
 
   it("soporta PM multi-persona separado por coma", () => {
