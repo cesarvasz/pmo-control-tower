@@ -3,8 +3,8 @@
 // Campanita de notificaciones del Topbar: "qué hay que hacer hoy", por PM,
 // usando las fechas límite de los 3 boards (Iniciativas, PML, Proyectos —
 // ver src/lib/notifications.ts, función pura que hace todo el cálculo).
-// 3 pestañas: hace 3 días (incluye Done, para ver qué se hizo/dejó), hoy y
-// próximos 3 días (ambas solo pendientes). Pedido explícito del usuario.
+// 3 pestañas: hace 3 días, hoy y próximos 3 días — SOLO lo pendiente; lo ya
+// Done/Cerrado nunca aparece aquí (pedido explícito del usuario).
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +27,7 @@ const BOARD_COLOR: Record<TodoNotification["board"], string> = {
 };
 
 function Row({ n, tab, onClick }: { n: TodoNotification; tab: TabKey; onClick: () => void }) {
-  const statusColor = n.done ? "var(--ok, #10b981)" : tab === "atras" ? "var(--bad, #ef4444)" : "var(--text-secondary)";
+  const statusColor = tab === "atras" ? "var(--bad, #ef4444)" : "var(--text-secondary)";
   return (
     <Link
       href={n.href}
@@ -47,7 +47,7 @@ function Row({ n, tab, onClick }: { n: TodoNotification; tab: TabKey; onClick: (
         className="mt-0.5 w-fit whitespace-nowrap rounded-full px-2 py-0.5 text-[0.66rem] font-bold"
         style={{ color: statusColor, background: `${statusColor}18` }}
       >
-        {n.done ? "✓ " : ""}{n.status || "—"}
+        {n.status || "—"}
       </span>
     </Link>
   );

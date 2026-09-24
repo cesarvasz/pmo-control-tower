@@ -4,17 +4,12 @@
 // Proyectos — items y sus hitos/subitems). Función pura sobre DashboardData,
 // sin red ni DOM — fácil de testear con fixtures.
 //
-// Pedido del usuario: 3 pestañas por rango de fecha —
-//  · "atras"    (hoy-3 .. hoy): incluye TODO, incluso lo ya marcado Done,
-//    para poder ver qué se hizo y qué se dejó pendiente (el rango de un Done
-//    llega hasta HOY, no solo hoy-1, para no perder lo recién completado).
-//  · "hoy"      (== hoy): solo lo que sigue pendiente (status ≠ Done).
-//  · "adelante" (hoy+1 .. hoy+3): solo lo pendiente, para anticipar.
-//
-// En Proyectos, un item/hito Done se clasifica por su fecha REAL de cierre
-// ("End Date"/"Actual End"), no por su "Limit Date" original — un hito muy
-// atrasado que se completa hoy debe verse en "atrás" HOY, no quedar invisible
-// solo porque su Limit Date quedó fuera de la ventana de 3 días.
+// Pedido del usuario: 3 pestañas por rango de fecha, SOLO lo pendiente — lo
+// ya marcado Done/Cerrado NUNCA se muestra, en ninguna pestaña ("no muestres
+// los que estan Done en las notificaciones") —
+//  · "atras"    (hoy-3 .. hoy-1): sigue atrasado, sin cerrarse.
+//  · "hoy"      (== hoy): vence hoy.
+//  · "adelante" (hoy+1 .. hoy+3): vence pronto.
 
 import { today } from "@/lib/business";
 import { splitBoardName } from "@/lib/proj";
@@ -29,7 +24,6 @@ export interface TodoNotification {
   context?: string; // proyecto/item padre — solo hitos de Proyectos lo usan
   status: string;
   date: Date;
-  done: boolean;
   href: string;
 }
 
@@ -82,14 +76,7 @@ export function buildTodoNotifications(data: DashboardData, me: MeIdentity, now:
   const { directorio } = data;
 
   const add = (n: TodoNotification) => {
-    const offset = dayOffset(n.date, anchor);
-    if (n.done) {
-      // Done solo va a "atrás", con la ventana extendida hasta HOY (no solo
-      // hoy-1) — completar algo el mismo día no debe hacerlo desaparecer.
-      if (offset >= -3 && offset <= 0) buckets.atras.push(n);
-      return;
-    }
-    const bucket = bucketOf(offset);
+    const bucket = bucketOf(dayOffset(n.date, anchor));
     if (bucket) buckets[bucket].push(n);
   };
 
@@ -97,15 +84,15 @@ export function buildTodoNotifications(data: DashboardData, me: MeIdentity, now:
     if (!it.deadline || !isMe(it.pm, me, directorio)) continue;
     add({
       key: `ini-${it.id}`, board: "Iniciativas", name: it.name, status: it.status,
-      date: it.deadline, done: false, href: `/iniciativas?pm=${encodeURIComponent(it.pm)}`,
+      date: it.deadline, href: `/iniciativas?pm=${encodeURIComponent(it.pm)}`,
     });
   }
 
   for (const it of data.req) {
-    if (!it.deadline || !isMe(it.pm, me, directorio)) continue;
+    if (!it.deadline || it.estado === "CERRADO" || !isMe(it.pm, me, directorio)) continue;
     add({
       key: `req-${it.id}`, board: "PML", name: it.name, status: it.status,
-      date: it.deadline, done: it.estado === "CERRADO", href: `/req?pm=${encodeURIComponent(it.pm)}`,
+      date: it.deadline, href: `/req?pm=${encodeURIComponent(it.pm)}`,
     });
   }
 
@@ -119,24 +106,19 @@ export function buildTodoNotifications(data: DashboardData, me: MeIdentity, now:
 
   for (const it of data.proj) {
     const pm = it.pm || boardPmById.get(it.boardId) || "";
-    const mine = isMe(pm, me, directorio);
-    if (!mine) continue;
+    if (!isMe(pm, me, directorio)) continue;
     const { name: projectName } = splitBoardName(it.boardName);
-    const itemDone = it.status === "Done";
-    const itemDate = itemDone ? (it.endDate ?? it.deadline) : it.deadline;
-    if (itemDate) {
+    if (it.deadline && it.status !== "Done") {
       add({
         key: `proj-${it.id}`, board: "Proyectos", name: it.name, context: projectName,
-        status: it.status, date: itemDate, done: itemDone, href: "/proyectos",
+        status: it.status, date: it.deadline, href: "/proyectos",
       });
     }
     for (const s of it.subitems) {
-      const hitoDone = s.status === "Done";
-      const hitoDate = hitoDone ? (s.actualEnd ?? s.deadline) : s.deadline;
-      if (!hitoDate) continue;
+      if (!s.deadline || s.status === "Done") continue;
       add({
         key: `proj-hito-${s.id}`, board: "Proyectos", name: s.name, context: `${projectName} · ${it.name}`,
-        status: s.status, date: hitoDate, done: hitoDone, href: "/proyectos",
+        status: s.status, date: s.deadline, href: "/proyectos",
       });
     }
   }

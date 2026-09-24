@@ -59,41 +59,22 @@ describe("buildTodoNotifications", () => {
     expect(b.adelante.map((n) => n.name)).toEqual(["Vence en 3d"]);
   });
 
-  it("excluye Done de hoy/adelante; en atrás la ventana llega hasta HOY (completar hoy no desaparece)", () => {
+  it("nunca muestra items/hitos Done, en ninguna pestaña", () => {
     const data = mkData({
       proj: [
         proj({ id: "p1", name: "Done pasado", deadline: daysFromToday(-1), status: "Done" }),
         proj({ id: "p2", name: "Done hoy", deadline: daysFromToday(0), status: "Done" }),
         proj({ id: "p3", name: "Done futuro", deadline: daysFromToday(2), status: "Done" }),
+        proj({
+          id: "p4", name: "Padre", status: "Working on it", deadline: null,
+          subitems: [{ id: "h1", name: "Hito Done", status: "Done", deadline: daysFromToday(0) } as ProjItem["subitems"][number]],
+        }),
       ],
     });
     const b = buildTodoNotifications(data, ME);
-    expect(b.atras.map((n) => n.name).sort()).toEqual(["Done hoy", "Done pasado"]);
-    expect(b.atras.every((n) => n.done)).toBe(true);
+    expect(b.atras).toHaveLength(0);
     expect(b.hoy).toHaveLength(0);
     expect(b.adelante).toHaveLength(0);
-  });
-
-  it("Proyectos: un item/hito Done se clasifica por su fecha REAL de cierre (End Date/Actual End), no por el Limit Date original", () => {
-    const data = mkData({
-      proj: [
-        // Limit Date quedó hace 90 días (fuera de cualquier ventana), pero se
-        // completó hace 2 días — debe verse en "atrás" por su End Date real.
-        proj({
-          id: "p1", name: "Item cerrado tarde", status: "Done",
-          deadline: daysFromToday(-90), endDate: daysFromToday(-2),
-        }),
-        proj({
-          id: "p2", name: "Padre", status: "Working on it", deadline: null,
-          subitems: [{
-            id: "h1", name: "Hito cerrado tarde", status: "Done",
-            deadline: daysFromToday(-90), actualEnd: daysFromToday(-1),
-          } as ProjItem["subitems"][number]],
-        }),
-      ],
-    });
-    const b = buildTodoNotifications(data, ME);
-    expect(b.atras.map((n) => n.name).sort()).toEqual(["Hito cerrado tarde", "Item cerrado tarde"]);
   });
 
   it("filtra por PM: solo lo del usuario logueado", () => {
@@ -176,7 +157,7 @@ describe("buildTodoNotifications", () => {
     expect(b.hoy[0].href).toBe(`/iniciativas?pm=${encodeURIComponent("Ana Pérez")}`);
   });
 
-  it("PML: Cerrado cuenta como done", () => {
+  it("PML: un requerimiento Cerrado nunca se muestra", () => {
     const data = mkData({
       req: [
         req({ id: "r1", name: "Cerrado ayer", deadline: daysFromToday(-1), estado: "CERRADO" }),
@@ -184,9 +165,7 @@ describe("buildTodoNotifications", () => {
       ],
     });
     const b = buildTodoNotifications(data, ME);
-    const byName = Object.fromEntries(b.atras.map((n) => [n.name, n.done]));
-    expect(byName["Cerrado ayer"]).toBe(true);
-    expect(byName["Pendiente ayer"]).toBe(false);
+    expect(b.atras.map((n) => n.name)).toEqual(["Pendiente ayer"]);
   });
 
   it("ignora items sin deadline", () => {
