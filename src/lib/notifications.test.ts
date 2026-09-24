@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildTodoNotifications } from "./notifications";
 import { today } from "./business";
-import type { DashboardData, DirectorioEntry, IniItem, ProjItem, ReqItem } from "@/types";
+import type { DashboardData, DirectorioEntry, IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 
 const ME = { email: "ana@empresa.com", displayName: "Ana Pérez" };
 
@@ -23,6 +23,8 @@ const proj = (o: Partial<ProjItem>): ProjItem => ({
   estado: "EN TIEMPO", entrega: null, subitems: [], cost: 0, benefit: 0, valueNet: 0,
   ...o,
 }) as ProjItem;
+
+const board = (o: Partial<ProjBoard>): ProjBoard => ({ id: "b1", name: "PM-001 | Alfa", pm: "Ana Pérez", ...o }) as ProjBoard;
 
 const directorio: DirectorioEntry[] = [{ name: "Ana Pérez", email: "ana@empresa.com" }];
 
@@ -57,7 +59,7 @@ describe("buildTodoNotifications", () => {
     expect(b.adelante.map((n) => n.name)).toEqual(["Vence en 3d"]);
   });
 
-  it("excluye Done de hoy/adelante pero lo incluye en atrás", () => {
+  it("excluye Done de hoy/adelante; en atrás la ventana llega hasta HOY (completar hoy no desaparece)", () => {
     const data = mkData({
       proj: [
         proj({ id: "p1", name: "Done pasado", deadline: daysFromToday(-1), status: "Done" }),
@@ -66,10 +68,32 @@ describe("buildTodoNotifications", () => {
       ],
     });
     const b = buildTodoNotifications(data, ME);
-    expect(b.atras.map((n) => n.name)).toEqual(["Done pasado"]);
-    expect(b.atras[0].done).toBe(true);
+    expect(b.atras.map((n) => n.name).sort()).toEqual(["Done hoy", "Done pasado"]);
+    expect(b.atras.every((n) => n.done)).toBe(true);
     expect(b.hoy).toHaveLength(0);
     expect(b.adelante).toHaveLength(0);
+  });
+
+  it("Proyectos: un item/hito Done se clasifica por su fecha REAL de cierre (End Date/Actual End), no por el Limit Date original", () => {
+    const data = mkData({
+      proj: [
+        // Limit Date quedó hace 90 días (fuera de cualquier ventana), pero se
+        // completó hace 2 días — debe verse en "atrás" por su End Date real.
+        proj({
+          id: "p1", name: "Item cerrado tarde", status: "Done",
+          deadline: daysFromToday(-90), endDate: daysFromToday(-2),
+        }),
+        proj({
+          id: "p2", name: "Padre", status: "Working on it", deadline: null,
+          subitems: [{
+            id: "h1", name: "Hito cerrado tarde", status: "Done",
+            deadline: daysFromToday(-90), actualEnd: daysFromToday(-1),
+          } as ProjItem["subitems"][number]],
+        }),
+      ],
+    });
+    const b = buildTodoNotifications(data, ME);
+    expect(b.atras.map((n) => n.name).sort()).toEqual(["Hito cerrado tarde", "Item cerrado tarde"]);
   });
 
   it("filtra por PM: solo lo del usuario logueado", () => {
@@ -81,6 +105,24 @@ describe("buildTodoNotifications", () => {
     });
     const b = buildTodoNotifications(data, ME);
     expect(b.hoy.map((n) => n.name)).toEqual(["Mío"]);
+  });
+
+  it("Proyectos: si el item no trae PM propio, usa el PM del board (13/14 boards reales vienen así)", () => {
+    const data = mkData({
+      projBoards: [board({ id: "b1", pm: "Ana Pérez" })],
+      proj: [proj({ id: "p1", name: "Hereda del board", boardId: "b1", pm: "", deadline: daysFromToday(0) })],
+    });
+    const b = buildTodoNotifications(data, ME);
+    expect(b.hoy.map((n) => n.name)).toEqual(["Hereda del board"]);
+  });
+
+  it("Proyectos: si el item SÍ trae PM propio, se prioriza sobre el del board", () => {
+    const data = mkData({
+      projBoards: [board({ id: "b1", pm: "Carlos Ruiz" })],
+      proj: [proj({ id: "p1", name: "PM propio", boardId: "b1", pm: "Ana Pérez", deadline: daysFromToday(0) })],
+    });
+    const b = buildTodoNotifications(data, ME);
+    expect(b.hoy.map((n) => n.name)).toEqual(["PM propio"]);
   });
 
   it("resuelve el nombre por EMAIL vía el directorio, ignorando el displayName del login", () => {

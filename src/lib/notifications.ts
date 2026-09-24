@@ -5,10 +5,16 @@
 // sin red ni DOM — fácil de testear con fixtures.
 //
 // Pedido del usuario: 3 pestañas por rango de fecha —
-//  · "atras"    (hoy-3 .. hoy-1): incluye TODO, incluso lo ya marcado Done,
-//    para poder ver qué se hizo y qué se dejó pendiente.
+//  · "atras"    (hoy-3 .. hoy): incluye TODO, incluso lo ya marcado Done,
+//    para poder ver qué se hizo y qué se dejó pendiente (el rango de un Done
+//    llega hasta HOY, no solo hoy-1, para no perder lo recién completado).
 //  · "hoy"      (== hoy): solo lo que sigue pendiente (status ≠ Done).
 //  · "adelante" (hoy+1 .. hoy+3): solo lo pendiente, para anticipar.
+//
+// En Proyectos, un item/hito Done se clasifica por su fecha REAL de cierre
+// ("End Date"/"Actual End"), no por su "Limit Date" original — un hito muy
+// atrasado que se completa hoy debe verse en "atrás" HOY, no quedar invisible
+// solo porque su Limit Date quedó fuera de la ventana de 3 días.
 
 import { today } from "@/lib/business";
 import { splitBoardName } from "@/lib/proj";
@@ -76,10 +82,15 @@ export function buildTodoNotifications(data: DashboardData, me: MeIdentity, now:
   const { directorio } = data;
 
   const add = (n: TodoNotification) => {
-    const bucket = bucketOf(dayOffset(n.date, anchor));
-    if (!bucket) return;
-    if (bucket !== "atras" && n.done) return; // hoy/adelante: solo pendientes
-    buckets[bucket].push(n);
+    const offset = dayOffset(n.date, anchor);
+    if (n.done) {
+      // Done solo va a "atrás", con la ventana extendida hasta HOY (no solo
+      // hoy-1) — completar algo el mismo día no debe hacerlo desaparecer.
+      if (offset >= -3 && offset <= 0) buckets.atras.push(n);
+      return;
+    }
+    const bucket = bucketOf(offset);
+    if (bucket) buckets[bucket].push(n);
   };
 
   for (const it of data.ini) {
@@ -98,21 +109,34 @@ export function buildTodoNotifications(data: DashboardData, me: MeIdentity, now:
     });
   }
 
+  // El PM de Proyectos vive de forma confiable a nivel de BOARD (ProjBoard.pm,
+  // ya enriquecido por projEnrichBoards) — no en el item: en 13 de los 14
+  // boards reales, la columna "PM" viene vacía en TODOS los items (el dato
+  // real está en "Resp"/"Responsible", que es de donde board.pm ya lo saca).
+  // Si `it.pm` sí trae algo (el único board donde Monday la llena por fila),
+  // se prioriza por ser más específico.
+  const boardPmById = new Map(data.projBoards.map((b) => [b.id, b.pm]));
+
   for (const it of data.proj) {
-    const mine = isMe(it.pm, me, directorio);
+    const pm = it.pm || boardPmById.get(it.boardId) || "";
+    const mine = isMe(pm, me, directorio);
     if (!mine) continue;
     const { name: projectName } = splitBoardName(it.boardName);
-    if (it.deadline) {
+    const itemDone = it.status === "Done";
+    const itemDate = itemDone ? (it.endDate ?? it.deadline) : it.deadline;
+    if (itemDate) {
       add({
         key: `proj-${it.id}`, board: "Proyectos", name: it.name, context: projectName,
-        status: it.status, date: it.deadline, done: it.status === "Done", href: "/proyectos",
+        status: it.status, date: itemDate, done: itemDone, href: "/proyectos",
       });
     }
     for (const s of it.subitems) {
-      if (!s.deadline) continue;
+      const hitoDone = s.status === "Done";
+      const hitoDate = hitoDone ? (s.actualEnd ?? s.deadline) : s.deadline;
+      if (!hitoDate) continue;
       add({
         key: `proj-hito-${s.id}`, board: "Proyectos", name: s.name, context: `${projectName} · ${it.name}`,
-        status: s.status, date: s.deadline, done: s.status === "Done", href: "/proyectos",
+        status: s.status, date: hitoDate, done: hitoDone, href: "/proyectos",
       });
     }
   }
