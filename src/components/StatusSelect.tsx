@@ -5,8 +5,15 @@
 // Editable solo por Admin o roles con la acción "edit_proj_status" (ver
 // /roles); el resto ve el status como texto, igual que antes. Actualiza de
 // forma optimista el contexto (setProjStatus, que recalcula Entrega — función
-// pura de status+fechas) y persiste en Monday; si la mutación falla, resincroniza.
-
+// pura de status+fechas) y persiste en Monday; al terminar (éxito O error)
+// confirma con Monday el estado real de ESTE proyecto (refreshBoard, rápido —
+// un solo board) en vez de refrescar TODO el dashboard. Necesario porque
+// Monday a veces rechaza el cambio por una restricción/automatización de la
+// columna (la mutación falla igual que cualquier otro error) — antes eso
+// disparaba un refresh() completo de los 14 boards + Iniciativas/PML, que es
+// lento y dejaba el dropdown deshabilitado ("trabado") mucho más de lo
+// necesario, además de poder quedarse con el valor optimista si ese refresh
+// completo fallaba a su vez.
 import { useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
@@ -21,7 +28,7 @@ export default function StatusSelect({ boardId, itemId, columnId, options, curre
   current: string;
 }) {
   const { me } = useMe();
-  const { setProjStatus, refresh } = useData();
+  const { setProjStatus, refreshBoard } = useData();
   const [saving, setSaving] = useState(false);
 
   const canEdit =
@@ -43,8 +50,15 @@ export default function StatusSelect({ boardId, itemId, columnId, options, curre
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } catch {
-      await refresh(); // revierte al estado real del servidor
+      // Sigue al finally: el refreshBoard de ahí confirma qué quedó realmente
+      // en Monday (aceptado o no) — no hace falta revertir nada a mano aquí.
     } finally {
+      try {
+        await refreshBoard(boardId);
+      } catch {
+        // Si ni el refresh del board responde, se queda el valor optimista;
+        // el usuario puede reintentar con el botón "↻ Actualizar" del board.
+      }
       setSaving(false);
     }
   };
