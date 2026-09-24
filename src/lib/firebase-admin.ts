@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline } from "@/types";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -174,6 +174,22 @@ export async function saveBoardAlcance(boardId: string, alcance: string, by: str
 export async function deleteBoardAlcance(boardId: string): Promise<void> {
   const db = getAdminDb();
   await db.collection("board_alcance").doc(boardId).delete();
+}
+
+// ── Histórico semanal del portafolio (Control Tower) ───────────────────────
+// Colección `weekly_snapshots`: doc id = "YYYY-MM-DD" del lunes de la semana
+// (mondayOfWeek/ymd de business.ts) — sobreescribir el mismo id es idempotente
+// (útil si el cron corre dos veces o se rellena una semana atrasada a mano).
+export async function saveWeeklySnapshot(weekOf: string, metrics: Omit<WeeklySnapshotDoc, "weekOf" | "createdAt">): Promise<void> {
+  const db = getAdminDb();
+  const doc: WeeklySnapshotDoc = { weekOf, ...metrics, createdAt: new Date().toISOString() };
+  await db.collection("weekly_snapshots").doc(weekOf).set(doc);
+}
+
+export async function listWeeklySnapshots(): Promise<WeeklySnapshotDoc[]> {
+  const db = getAdminDb();
+  const snap = await db.collection("weekly_snapshots").orderBy("weekOf", "asc").get();
+  return snap.docs.map((d) => d.data() as WeeklySnapshotDoc);
 }
 
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {

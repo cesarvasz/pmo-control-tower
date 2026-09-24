@@ -232,6 +232,18 @@ export interface BoardAlcance {
   at?: string;     // ISO timestamp
 }
 
+/** Snapshot semanal del portafolio (Control Tower) — guardado cada lunes 8am
+ *  por el cron (ver lib/weeklySnapshot.ts). doc id = "YYYY-MM-DD" del lunes. */
+export interface WeeklySnapshotDoc {
+  weekOf: string;                    // "YYYY-MM-DD" del lunes de esa semana
+  evm: number | null;                // 0-100
+  beneficioConfirmado: number;       // $ HardSaving, etapa Confirmación
+  calidad: number | null;            // 0-100, "Calidad de Entregas"
+  cumplimiento: number | null;       // 0-100, "Cumplimiento de Entrega"
+  nps: number | null;                // -100..100
+  createdAt: string;                 // ISO timestamp
+}
+
 /** Payload completo que devuelve `GET /api/dashboard`. */
 export interface DashboardRaw {
   iniItems: MondayItem[];

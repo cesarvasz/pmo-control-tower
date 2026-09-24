@@ -103,6 +103,27 @@ export function today(): Date {
   return t;
 }
 
+/** Lunes (medianoche local) de la semana que contiene `date` — el histórico
+ *  semanal (weeklySnapshot.ts) lo usa como llave de cada snapshot, ya sea
+ *  corriendo justo el lunes o rellenando una semana atrasada. */
+export function mondayOfWeek(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=domingo .. 6=sábado
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diffToMonday);
+  return d;
+}
+
+/** Formatea una fecha como "YYYY-MM-DD" (día local) — llave estable para
+ *  documentos de Firestore indexados por fecha. */
+export function ymd(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 /** Parsea "YYYY-MM-DD..." (o con timeline "YYYY-MM-DD - YYYY-MM-DD") → Date local. */
 export function parseYMD(s: string | null | undefined): Date | null {
   if (!s || !s.trim()) return null;

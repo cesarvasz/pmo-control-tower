@@ -6,6 +6,8 @@ import {
   fmtDate,
   isToday,
   today,
+  mondayOfWeek,
+  ymd,
   parseYMD,
   parseCreation,
   fmtMoney,
@@ -137,6 +139,26 @@ describe("today", () => {
     expect(t.getFullYear()).toBe(now.getFullYear());
     expect(t.getMonth()).toBe(now.getMonth());
     expect(t.getDate()).toBe(now.getDate());
+  });
+});
+
+describe("mondayOfWeek", () => {
+  it("un lunes se devuelve a sí mismo", () => {
+    expect(ymd(mondayOfWeek(d(2026, 1, 5)))).toBe("2026-01-05");
+  });
+  it("jueves/viernes retroceden al lunes de esa misma semana", () => {
+    expect(ymd(mondayOfWeek(d(2026, 1, 1)))).toBe("2025-12-29"); // jue → semana anterior
+    expect(ymd(mondayOfWeek(d(2026, 1, 9)))).toBe("2026-01-05"); // vie → mismo lunes que el 5
+  });
+  it("domingo pertenece a la semana que empezó el lunes anterior", () => {
+    expect(ymd(mondayOfWeek(d(2026, 1, 4)))).toBe("2025-12-29"); // dom 4-ene → lunes 29-dic
+  });
+});
+
+describe("ymd", () => {
+  it("formatea YYYY-MM-DD con ceros a la izquierda", () => {
+    expect(ymd(d(2026, 1, 5))).toBe("2026-01-05");
+    expect(ymd(d(2025, 12, 31))).toBe("2025-12-31");
   });
 });
 
