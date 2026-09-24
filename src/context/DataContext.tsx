@@ -11,11 +11,13 @@ import {
 } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
+import { authedFetch } from "@/lib/api";
 import { buildCalMap, buildReminderMap, iniProcess } from "@/lib/ini";
 import { buildDevTeamRoster } from "@/lib/devTimeline";
-import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
+import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, calcProjEntrega, projEnrichBoards, projProcess } from "@/lib/proj";
 import { reqProcess } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
+import type { BoardRefreshResponse } from "@/app/api/dashboard/board/[boardId]/route";
 import type { AtrasoReparto, AttributionKind, DashboardData, DashboardRaw, DelayResponsible, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
@@ -26,6 +28,18 @@ interface DataContextValue {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  /** Refresca UN SOLO board de Proyectos (carril rápido, no toca Iniciativas/
+   *  PML/RH/Estrategia/calendario ni los demás boards). Lanza si falla — el
+   *  caller decide cómo mostrarlo. */
+  refreshBoard: (boardId: string) => Promise<void>;
+  /** ids de boards con un refresco en curso — para deshabilitar su botón. */
+  refreshingBoards: Set<string>;
+  /** Actualiza localmente (optimista) el status de un item/hito de Proyectos
+   *  tras escribirlo en Monday (recalcula Entrega, que es función pura de
+   *  status+fechas; el resto de las métricas se recalculan solas al re-renderizar
+   *  porque son funciones puras de `data.proj`). La persistencia (mutación a
+   *  Monday) la hace el caller vía POST /api/proj-status. */
+  setProjStatus: (boardId: string, itemId: string, status: string) => void;
   /** Actualiza localmente (optimista) el responsable de una atribución (atraso o
    *  reproceso). responsible null → quita la asignación. La persistencia la hace el caller. */
   setAttribution: (kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => void;
@@ -99,6 +113,62 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const [refreshingBoards, setRefreshingBoards] = useState<Set<string>>(new Set());
+
+  // Refresca UN SOLO board: 1 fetch a /api/dashboard/board/[id] (Monday +
+  // Firestore, resincroniza solo sus baselines) y mergea el resultado en
+  // `data.proj`/`data.projBoards`/`data.projItemBaselines`. Todo lo demás
+  // (Iniciativas, PML, calendario, NPS, otros boards) queda intacto — las
+  // páginas ya son funciones puras de `data`, así que Control Tower, el
+  // scoreboard y el Resumen Ejecutivo se recalculan solos al re-renderizar.
+  const refreshBoard = useCallback(async (boardId: string) => {
+    setRefreshingBoards((s) => new Set(s).add(boardId));
+    try {
+      const res = await authedFetch(`/api/dashboard/board/${boardId}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      const body = (await res.json()) as BoardRefreshResponse;
+      const items = projProcess(body.projRaw.name, body.projRaw.id, body.projRaw.items_page.items);
+
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          proj: [...prev.proj.filter((p) => p.boardId !== boardId), ...items],
+          projBoards: prev.projBoards.map((b) => (b.id === boardId ? body.projBoard : b)),
+          projItemBaselines: { ...prev.projItemBaselines, ...body.projItemBaselines },
+        };
+      });
+    } finally {
+      setRefreshingBoards((s) => { const n = new Set(s); n.delete(boardId); return n; });
+    }
+  }, []);
+
+  // Actualización optimista del status (item o hito) de Proyectos; evita un refetch completo.
+  const setProjStatus = useCallback((boardId: string, itemId: string, status: string) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const proj: ProjItem[] = prev.proj.map((p) => {
+        if (p.boardId !== boardId) return p;
+        if (p.id === itemId) {
+          return { ...p, status, entrega: calcProjEntrega(status, p.endDate, p.deadline) };
+        }
+        if (p.subitems.some((s) => s.id === itemId)) {
+          return {
+            ...p,
+            subitems: p.subitems.map((s) =>
+              s.id === itemId ? { ...s, status, entrega: calcProjEntrega(status, s.actualEnd, s.deadline) } : s
+            ),
+          };
+        }
+        return p;
+      });
+      return { ...prev, proj };
+    });
+  }, []);
+
   // Actualización optimista del responsable (atraso o reproceso); evita un refetch completo.
   const setAttribution = useCallback((kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => {
     const field = kind === "delay" ? "delayAttributions" : "reprocesoAttributions";
@@ -152,7 +222,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, loading, error, refresh, setAttribution, setAtrasoDetalle, setBoardAlcance }}>
+    <DataContext.Provider value={{ data, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setAtrasoDetalle, setBoardAlcance }}>
       {children}
     </DataContext.Provider>
   );

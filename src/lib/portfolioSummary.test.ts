@@ -6,7 +6,7 @@ import { businessDays, today } from "./business";
 import type { ProjBoard, ProjItem } from "@/types";
 
 const board = (o: Partial<ProjBoard>): ProjBoard => o as ProjBoard;
-const item = (o: Partial<ProjItem>): ProjItem => ({ subitems: [], estado: "EN TIEMPO", deadline: null, endDate: null, entrega: null, grupo: "Fase", benefit: 0, ...o }) as ProjItem;
+const item = (o: Partial<ProjItem>): ProjItem => ({ name: "Item", subitems: [], estado: "EN TIEMPO", deadline: null, endDate: null, entrega: null, grupo: "Fase", benefit: 0, ...o }) as ProjItem;
 
 const daysFromToday = (n: number): Date => {
   const d = today();

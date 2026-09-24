@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
-import { resolveCost } from "@/lib/proj";
+import { decideBaselineUpdates } from "@/lib/projBaselineSync";
 import { verifyRequest, getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline, getAttributions, getAtrasoDetalles, getBoardAlcances } from "@/lib/firebase-admin";
 import type { MondayItem, ProjBoardRaw } from "@/types";
 
@@ -54,21 +54,17 @@ async function syncBaselines(reqItems: MondayItem[]) {
   return baselines;
 }
 
+/** Misma regla que /api/dashboard/board/[boardId] (ver lib/projBaselineSync) —
+ *  aquí se mantiene la lectura de TODA la colección de una sola vez (más
+ *  barato que un getAll por board cuando de todos modos se necesitan los ~14
+ *  boards juntos), pero la decisión de qué guardar es la MISMA función pura. */
 async function syncProjItemBaselines(projRaw: ProjBoardRaw[]) {
   const baselines = await getProjItemBaselines();
   const toSave: { id: string; boardId: string; cost: number }[] = [];
 
   for (const board of projRaw) {
-    for (const item of board.items_page.items) {
-      const cost = resolveCost(item.column_values);
-      const existing = baselines[item.id];
-
-      if (!existing) {
-        toSave.push({ id: item.id, boardId: board.id, cost });
-      } else if (existing.cost === 0 && cost > 0) {
-        // Costo era 0 (ej. Software pendiente) y ya tiene valor → actualizar.
-        toSave.push({ id: item.id, boardId: board.id, cost });
-      }
+    for (const { id, cost } of decideBaselineUpdates(board.items_page.items, baselines)) {
+      toSave.push({ id, boardId: board.id, cost });
       // Subitems no se guardan — EV/PV solo usan items de nivel superior.
     }
   }

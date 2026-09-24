@@ -76,6 +76,19 @@ export async function saveProjItemBaseline(itemId: string, data: Omit<ProjItemBa
   await db.collection("proj_item_baselines").doc(itemId).set({ ...data, savedAt: new Date().toISOString() });
 }
 
+/** Baselines de un CONJUNTO de items puntual (lectura por id, no toda la
+ *  colección) — usado por el refresh de un solo board de Proyectos, donde
+ *  traer las ~500+ baselines de todos los boards sería desperdiciar lecturas. */
+export async function getProjItemBaselinesFor(itemIds: string[]): Promise<Record<string, ProjItemBaseline>> {
+  if (itemIds.length === 0) return {};
+  const db = getAdminDb();
+  const refs = itemIds.map((id) => db.collection("proj_item_baselines").doc(id));
+  const snaps = await db.getAll(...refs);
+  const result: Record<string, ProjItemBaseline> = {};
+  snaps.forEach((snap) => { if (snap.exists) result[snap.id] = snap.data() as ProjItemBaseline; });
+  return result;
+}
+
 // Alias de compatibilidad: roles renombrados → el nombre vigente. Se aplica
 // SOLO al leer (los documentos en Firestore no se tocan); al re-guardar una
 // fila, queda persistida con el nombre nuevo. Agregar aquí cualquier rol que

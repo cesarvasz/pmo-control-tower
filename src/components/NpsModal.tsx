@@ -21,7 +21,11 @@ function fmtTs(ts: string): string {
     " · " + d.toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () => void }) {
+/** Cuerpo del detalle de NPS (resumen + respuestas individuales), sin el
+ *  <Modal> que lo envuelve — reusado por NpsModal (popup del Control Tower) y
+ *  por la pestaña "NPS" de ProjectReportModal (ya vive dentro de otro modal,
+ *  no puede anidar uno nuevo). */
+export function NpsDetail({ nps }: { nps: NpsData }) {
   const [tab, setTab] = useState<"resumen" | "detalles">("resumen");
   const [idx, setIdx] = useState(0);
 
@@ -35,22 +39,9 @@ export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () =
   const next = () => setIdx((i) => (i + 1) % responses.length);
 
   return (
-    <Modal open onClose={onClose} width={720}>
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-3">
-          <span className="text-[1.05rem] font-bold text-[var(--text-primary)]">NPS · Encuesta PMO</span>
-          {nps.nps !== null && (
-            <span className="rounded-full px-2.5 py-0.5 text-[0.72rem] font-bold" style={{ color, background: "var(--bg-hover)" }}>
-              {nps.nps} · {cfg?.label}
-            </span>
-          )}
-        </div>
-        <button onClick={onClose} className="rounded-md px-1.5 text-xl leading-none text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]">✕</button>
-      </div>
-
+    <div className="flex flex-col gap-0">
       {/* Tabs */}
-      <div className="flex shrink-0 gap-1 border-b px-6 pt-3" style={{ borderColor: "var(--border)" }}>
+      <div className="flex shrink-0 gap-1 border-b pb-0" style={{ borderColor: "var(--border)" }}>
         {(["resumen", "detalles"] as const).map((t) => (
           <button
             key={t}
@@ -68,7 +59,7 @@ export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () =
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="pt-5">
         {tab === "resumen" ? (
           <div className="flex flex-col gap-5">
             {/* Nota grande */}
@@ -179,6 +170,32 @@ export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () =
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+export default function NpsModal({ nps, onClose }: { nps: NpsData; onClose: () => void }) {
+  const cfg = npsCfg(nps.nps);
+  const color = cfg?.color ?? "#6b7280";
+
+  return (
+    <Modal open onClose={onClose} width={720}>
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
+        <div className="flex items-center gap-3">
+          <span className="text-[1.05rem] font-bold text-[var(--text-primary)]">NPS · Encuesta PMO</span>
+          {nps.nps !== null && (
+            <span className="rounded-full px-2.5 py-0.5 text-[0.72rem] font-bold" style={{ color, background: "var(--bg-hover)" }}>
+              {nps.nps} · {cfg?.label}
+            </span>
+          )}
+        </div>
+        <button onClick={onClose} className="rounded-md px-1.5 text-xl leading-none text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]">✕</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <NpsDetail nps={nps} />
       </div>
     </Modal>
   );

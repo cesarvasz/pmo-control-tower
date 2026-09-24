@@ -88,6 +88,29 @@ export function calcProjEntrega(status: string, actual: Date | null, limit: Date
   return actual.getTime() <= limit.getTime() ? "on-time" : "late";
 }
 
+/** id + labels disponibles de la columna "Status" de un item/subitem — para el
+ *  dropdown editable (StatusSelect). Las labels vienen del settings_str de la
+ *  columna (JSON `{labels:{"0":"Working on it",...}}`); vacío si Monday no lo
+ *  expone (columna no-status, o falta el fragmento en la query). */
+function statusMeta(cv: MondayColumnValue[]): { colId: string; options: string[] } {
+  const col = cv.find((c) => (c.column?.title ?? "") === PROJ_COL.status);
+  const colId = col?.id ?? "";
+  const raw = col?.column?.settings_str;
+  if (!raw) return { colId, options: [] };
+  try {
+    const parsed = JSON.parse(raw) as { labels?: Record<string, string> };
+    const labels = parsed.labels ?? {};
+    // Orden por índice (mismo orden en que Monday las lista en su propio dropdown).
+    const options = Object.keys(labels)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => labels[k])
+      .filter(Boolean);
+    return { colId, options };
+  } catch {
+    return { colId, options: [] };
+  }
+}
+
 export function projProcess(boardName: string, boardId: string, items: MondayItem[]): ProjItem[] {
   return items.map((item): ProjItem => {
     const cv = item.column_values || [];
@@ -102,6 +125,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const cost = resolveCost(cv);
     const benefit = colNumByTitle(cv, PROJ_COL.benefit) || 0;
     const estado = calcProjEstado(deadline);
+    const { colId: statusColId, options: statusOptions } = statusMeta(cv);
 
     const subitems = (item.subitems || []).map((sub) => {
       const scv = sub.column_values || [];
@@ -109,6 +133,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
       const sStartDate = resolveStartDate(scv, FORMULA_FALLBACK_COL.subTimeline);
       const sActualEnd = parseYMD(colByTitle(scv, PROJ_COL.actualEnd));
       const sStatus = colByTitle(scv, PROJ_COL.status);
+      const { colId: sStatusColId, options: sStatusOptions } = statusMeta(scv);
       return {
         id: sub.id, name: sub.name,
         pmsId: colByTitle(scv, PROJ_COL.pmsId),
@@ -123,6 +148,10 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
         entrega: calcProjEntrega(sStatus, sActualEnd, sdl),
         cost: colNumByTitle(scv, PROJ_COL.cost) || 0,
         benefit: colNumByTitle(scv, PROJ_COL.benefit) || 0,
+        statusColId: sStatusColId,
+        statusBoardId: sub.board?.id ?? "",
+        statusOptions: sStatusOptions,
+        email: sub.email ?? "",
       };
     });
 
@@ -132,6 +161,8 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
       pm, resp, responsible, status, deadline, startDate, cpmStart, endDate, cost, benefit,
       entrega: calcProjEntrega(status, endDate, deadline),
       valueNet: benefit - cost, estado, subitems,
+      statusColId, statusOptions,
+      email: item.email ?? "",
     };
   });
 }

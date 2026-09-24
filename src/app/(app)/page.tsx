@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
 import { calcIniPMHealth, countPlanFuturoDue, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
-import { type BoardHealthData } from "@/lib/proj";
+import { calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
+import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
 import {
   reqStageAmounts, projStageAmounts, sumStageAmounts, type StageAmounts,
-  buildBoardHealthMap, pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
+  pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, weightedEvm, HEALTH_CFG, type HealthStatus } from "@/lib/health";
@@ -81,7 +82,21 @@ function ControlTower({ data }: { data: DashboardData }) {
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
 
   // ── Board health map ──
-  const boardHealthMap = buildBoardHealthMap(proj, projBoards, projItemBaselines);
+  // SPI/CPI/Scope/EVM de cada board salen de la medición única de proyectos
+  // (projectMetrics.ts — misma fórmula que el Status Card/reporte por proyecto
+  // y que /proyectos → "Ver cálculo"), vía boardHealthFromMetrics. `ac` (costo
+  // actual de Monday) no forma parte de esa medición única — sigue viniendo de
+  // calcBoardMetrics, la única fuente de ese dato.
+  const projMetricsByBoard = new Map(
+    buildAllProjectMetrics(projBoards, proj, { baselines: projItemBaselines }).map((m) => [m.boardId, m]),
+  );
+  const boardHealthMap = new Map<string, BoardHealthData>();
+  projBoards.forEach((b) => {
+    const m = projMetricsByBoard.get(b.id);
+    if (!m) return;
+    const { ac } = calcBoardMetrics(proj.filter((r) => r.boardId === b.id), projItemBaselines);
+    boardHealthMap.set(b.id, boardHealthFromMetrics(m, ac));
+  });
   const boardsWithHealth = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus !== null);
   const projBoardsOffTrack = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
   const projBoardsInRisk   = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;

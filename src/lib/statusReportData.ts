@@ -7,17 +7,19 @@
 
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { addMonth, startOfMonth } from "@/lib/dateAxis";
-import { isFase3, isCierreVmoStep, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { isFase3, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
-  calcAtrasoActualDias, currentPhaseIndex, enScope, groupFase3Units,
+  buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, currentPhaseIndex, enScope,
+  evaluarHitosAtraso, evaluarStepAtraso, groupFase3Units,
   type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { valorLateStages, valorProgress, valorStageOf } from "@/lib/valorStepper";
 import { atrasoReparto } from "@/lib/delay";
 import { atrasoRespSlot, type Tone } from "@/lib/reportTheme";
-import type { BoardHealthData } from "@/lib/proj";
-import type { AtrasoDetalle, ProjBoard } from "@/types";
+import { calcBoardMetrics, splitBoardName, type BoardHealthData } from "@/lib/proj";
+import { buildProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
+import type { AtrasoDetalle, ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 export type StatusBand = "V" | "A" | "L" | "O" | "R";
 export type StatusPhaseStatus = "done" | "current" | "late" | "pending_progress" | "pending" | "future";
@@ -401,4 +403,78 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
     footer_left: `${code ? `${code} ` : ""}${name} · Reporte Ejecutivo PMO`,
     footer_right: "Confidencial · Uso interno",
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ATAJO — arma el StatusReportData completo desde los items crudos de un
+// board. MISMA lógica que /resumen-ejecutivo (ProjectDetailView) — extraída
+// acá para que cualquier otra pantalla (ej. el reporte de /proyectos) pueda
+// mostrar el mismo Status Card sin duplicar el cálculo de atrasos/ROI/salud.
+// ─────────────────────────────────────────────────────────────────────
+export interface BuildStatusReportForBoardInput {
+  board: ProjBoard;
+  items: ProjItem[];
+  baselines?: Record<string, ProjItemBaseline>;
+  atrasoDetalles?: Record<string, AtrasoDetalle>;
+  alcance?: string;
+  now?: number;
+}
+
+export function buildStatusReportDataForBoard(input: BuildStatusReportForBoardInput): StatusReportData {
+  const { board, items, baselines = {}, atrasoDetalles, alcance = "", now } = input;
+
+  const summary = buildProjectSummary(items);
+  const m = buildProjectMetrics({ board, items, baselines });
+  const { ac } = calcBoardMetrics(items, baselines);
+  const health = boardHealthFromMetrics(m, ac);
+
+  // Beneficio $ se declara UNA vez (Business Case o medición real); Costo $ se
+  // ACUMULA item por item — mismo criterio que ProjectReportModal/ProjectDetailView.
+  const stageAmounts = projStageAmounts(items);
+  const costoProyecto = items.reduce((s, it) => s + it.cost, 0);
+  const beneficioParaRoi = stageAmounts?.confirmacion?.benefit ?? stageAmounts?.aprobacion?.benefit ?? stageAmounts?.validacion?.benefit;
+  // Benefit Type "SoftSaving" = beneficio no cuantificable de forma rigurosa → Valor/ROI/Payback quedan null ("—").
+  const isSoftSaving = board.benefitType === "SoftSaving";
+  const valorProyecto = !isSoftSaving && costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
+  const roi = !isSoftSaving && costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
+  const payback = !isSoftSaving && costoProyecto && beneficioParaRoi && beneficioParaRoi > 0 ? costoProyecto / (beneficioParaRoi / 12) : null;
+
+  const avancePlanificado = calcPlannedProgress(summary.units, summary.phases);
+  const { code, name } = splitBoardName(board.name);
+
+  // Atrasos de Fase 3: plantilla vieja → una fila por HITO atrasado del step
+  // "Desarrollo por iteraciones..."; plantilla nueva → una fila por STEP.
+  const hoy = today();
+  const fase3Items = items.filter((it) => isFase3(it.grupo));
+  const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
+  const atrasos = (desarrolloItem
+    ? evaluarHitosAtraso(desarrolloItem, hoy)
+    : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null)
+  ).sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
+
+  // Distribución de responsabilidad del atraso, ponderada por días.
+  const responsabilidadAtraso: Responsabilidad[] = (() => {
+    if (atrasos.length === 0) return [];
+    const dias: Record<string, number> = {};
+    const cnt: Record<string, number> = {};
+    let totalDias = 0;
+    for (const a of atrasos) {
+      const td = a.daysLate != null && a.daysLate > 0 ? a.daysLate : 0;
+      for (const r of atrasoReparto(atrasoDetalles?.[a.id], td)) {
+        dias[r.resp] = (dias[r.resp] ?? 0) + r.dias;
+        cnt[r.resp] = (cnt[r.resp] ?? 0) + 1;
+        totalDias += r.dias;
+      }
+    }
+    const base = totalDias > 0 ? dias : cnt;
+    const denom = totalDias > 0 ? totalDias : Object.values(cnt).reduce((s, n) => s + n, 0);
+    return Object.entries(base)
+      .map(([label, v]) => ({ label, pct: denom > 0 ? Math.round((v / denom) * 100) : 0 }))
+      .sort((a, b) => b.pct - a.pct || a.label.localeCompare(b.label));
+  })();
+
+  return buildStatusReportData({
+    board, code, name, summary, health, atrasos, atrasoDetalles,
+    responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, alcance, now,
+  });
 }

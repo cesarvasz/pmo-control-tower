@@ -239,3 +239,60 @@ export function buildDevTimelines(
 
   return rows;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// PRESENTACIÓN DEL GANTT — compartida entre la página completa
+// (/desarrollo-timelines) y el mini-Gantt por proyecto (ProjectReportModal →
+// pestaña "Desarrollo Timeliness"). Única fuente de la clasificación
+// visual/estado de cada hito — no recalcular esto en cada pantalla.
+// ─────────────────────────────────────────────────────────────────────
+const GANTT_DAY = 86_400_000;
+
+export function devStatusKind(status: string): "done" | "stuck" | "future" | "active" {
+  const s = status.trim().toLowerCase();
+  if (s === "done") return "done";
+  if (s === "stuck") return "stuck";
+  if (s === "" || s.includes("future") || s.includes("not started")) return "future";
+  return "active";
+}
+
+export type BarStatus = "completado" | "enTiempo" | "atrasado" | "futuro";
+
+/** Estado de la BARRA del Gantt (y de "atrasado" para las tarjetas de En Curso):
+ *  se lee del status del step "Entrega Desarrollo" (`devStatus`), NO de fechas
+ *  comparadas entre sí. Ver detalle de cada caso en desarrollo-timelines/page.tsx. */
+export function barStatus(r: DevTimelineRow, nowMs: number): BarStatus {
+  const kind = devStatusKind(r.devStatus);
+  if (kind === "done") return "completado";
+  if (kind === "stuck") return "atrasado";
+  if (kind === "future") return "futuro";
+  const pastLimit = !!(r.limit && nowMs > r.limit.getTime() + GANTT_DAY);
+  return pastLimit ? "atrasado" : "enTiempo";
+}
+
+export const BAR_COLOR: Record<BarStatus, string> = {
+  completado: "var(--ok)", enTiempo: "var(--warn)", atrasado: "var(--bad)", futuro: "var(--info)",
+};
+export const BAR_STATUS_LABEL: Record<BarStatus, string> = {
+  completado: "Completado", enTiempo: "En curso · a tiempo", atrasado: "Atrasado", futuro: "Aún no inicia",
+};
+
+/** Entrega tardía YA CONSUMADA (Salida en vivo real después del deadline de
+ *  Entrega Desarrollo) — distinto de `barStatus`, que es el estado EN VIVO
+ *  del step; este es el veredicto histórico de un hito ya completado. */
+export function wasDeliveredLate(r: DevTimelineRow): boolean {
+  return !!(r.limit && r.entrega && r.entrega.getTime() > r.limit.getTime() + GANTT_DAY);
+}
+
+const GANTT_MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const ganttStartOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+const ganttAddMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 1);
+
+/** Ticks mensuales para el eje del Gantt, entre min y max (inclusive). */
+export function monthTicks(min: Date, max: Date): { date: Date; label: string }[] {
+  const ticks: { date: Date; label: string }[] = [];
+  for (let d = ganttStartOfMonth(min); d <= max; d = ganttAddMonth(d)) {
+    ticks.push({ date: new Date(d), label: `${GANTT_MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
+  }
+  return ticks;
+}

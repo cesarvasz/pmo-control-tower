@@ -62,6 +62,7 @@ export const PAGES: PageDef[] = [
 export const ACTIONS: ActionDef[] = [
   { key: "manage_users", label: "Gestionar usuarios", description: "Ver usuarios y asignarles roles." },
   { key: "manage_roles", label: "Gestionar roles",    description: "Crear, editar y eliminar roles, grupos y sus permisos." },
+  { key: "edit_proj_status", label: "Cambiar status en Proyectos", description: "Cambiar el status de items y hitos de Proyectos desde la app (escribe directo en Monday)." },
 ];
 
 // Páginas "puras" (sin requiredAction) — las únicas que van en el mapa de

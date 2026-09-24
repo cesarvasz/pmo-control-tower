@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useData } from "@/context/DataContext";
 import AsuetosModal from "@/components/AsuetosModal";
 import CalcHabilesModal from "@/components/CalcHabilesModal";
+import NotificationsBell from "@/components/NotificationsBell";
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/": { title: "Control Tower", subtitle: "Resumen de portafolios PMO" },
@@ -100,6 +101,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
         {user?.email && (
           <span className="hidden text-[var(--text-secondary)] sm:inline">{user.email}</span>
         )}
+        <NotificationsBell />
         <button
           onClick={() => setShowCalc(true)}
           title="Calculadora de días hábiles"

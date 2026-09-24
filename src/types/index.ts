@@ -5,19 +5,22 @@
 export interface MondayColumnValue {
   id: string;
   text: string | null;
-  column?: { title: string } | null;
+  column?: { title: string; settings_str?: string } | null; // settings_str: labels de columnas Status (JSON)
   display_value?: string | null; // valor de columnas mirror / board_relation
 }
 
 export interface MondaySubitem {
   id: string;
   name: string;
+  email?: string | null; // email único del item para actualizar su bitácora por correo
   column_values: MondayColumnValue[];
+  board?: { id: string } | null; // board OCULTO de subitems — lo necesita la mutación de status (distinto del board del item padre)
 }
 
 export interface MondayItem {
   id: string;
   name: string;
+  email?: string | null; // email único del item para actualizar su bitácora por correo
   group: { title: string };
   column_values: MondayColumnValue[];
   subitems?: MondaySubitem[];
@@ -367,6 +370,13 @@ export interface ProjSubitem {
   entrega: "on-time" | "late" | null;         // a tiempo si Actual End ≤ Limit Date (solo Done)
   cost: number;
   benefit: number;
+  // Campos para el dropdown de status editable (StatusSelect) — opcionales: solo
+  // vienen de projProcess() sobre datos crudos de Monday; ausentes en fixtures de
+  // test, donde el dropdown simplemente no se habilita.
+  statusColId?: string;    // id de la columna "Status" del subitem (para la mutación)
+  statusBoardId?: string;  // board OCULTO de subitems que es dueño real de este hito
+  statusOptions?: string[]; // labels disponibles (desde settings_str de la columna)
+  email?: string;          // email único del hito para actualizar su bitácora por correo (mismo feed que create_update)
 }
 
 export interface ProjItem {
@@ -389,6 +399,10 @@ export interface ProjItem {
   valueNet: number;
   estado: string;
   subitems: ProjSubitem[];
+  // Ver nota en ProjSubitem — mismos campos opcionales para el dropdown de status.
+  statusColId?: string;
+  statusOptions?: string[];
+  email?: string; // email único del item para actualizar su bitácora por correo
 }
 
 export interface ProjBoard {
@@ -399,6 +413,14 @@ export interface ProjBoard {
   sponsor?: string;    // lookup desde la Iniciativa con el mismo nombre
   cku?: string;        // lookup desde la Iniciativa (columna "CKU")
   benefitType?: string; // "Benefit Type" de la Iniciativa (SoftSaving/HardSaving/"")
+}
+
+/** Un comentario de la bitácora (Updates) de Monday de un item/hito de Proyectos. */
+export interface ProjUpdate {
+  id: string;
+  textBody: string;
+  createdAt: string; // ISO
+  creatorName: string;
 }
 
 export interface CalMeeting {
@@ -434,6 +456,11 @@ export interface NpsRecord {
   respondentEmail: string;
   submittedAt: string;
   reqCode: string;
+  /** id del step/subitem de Monday desde el que se envió la encuesta. Para las lanzadas
+   *  desde un board de Proyectos es el id del SUBITEM del step "Encuesta para NPS" — es lo
+   *  que permite calcular el NPS por proyecto (ver lib/projectMetrics.ts). Vacío en las
+   *  importadas del Sheet. */
+  reqId: string;
 }
 
 /** Resultado del NPS (encuesta PMO). */

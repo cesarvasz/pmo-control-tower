@@ -24,7 +24,7 @@ interface MondayResponse<T> {
   errors?: { message: string }[];
 }
 
-async function mondayFetch<T>(query: string): Promise<T> {
+async function mondayFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const res = await fetch(MONDAY_URL, {
     method: "POST",
     headers: {
@@ -32,7 +32,7 @@ async function mondayFetch<T>(query: string): Promise<T> {
       "Content-Type": "application/json",
       "API-Version": "2024-01",
     },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(variables ? { query, variables } : { query }),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Monday HTTP ${res.status}`);
@@ -92,14 +92,49 @@ const richBoardQuery = (boardId: string) =>
 const estBoardQuery = (boardId: string) =>
   `{ boards(ids:[${boardId}]) { items_page(limit:500) { items { id name column_values(ids:["text_mkx5ehzc","text_mkx5fa5a","multiple_person_mkz54zk0"]) { id text } } } } }`;
 
+// column.settings_str: labels configuradas de columnas Status (StatusSelect las
+// usa para el dropdown). subitems.board.id: board OCULTO de subitems — distinto
+// del board del item padre, lo exige la mutación de status de un hito. email:
+// dirección única del item/hito para actualizar su bitácora por correo (mismo
+// feed que create_update — BitacoraModal la muestra para copiar).
 const projBoardsQuery = (ids: string) =>
-  `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name group { title } column_values { id text column { title } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } subitems { id name column_values { id text column { title } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } } } } } }`;
+  `{ boards(ids:[${ids}]) { id name items_page(limit:500) { items { id name email group { title } column_values { id text column { title settings_str } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } subitems { id name email board { id } column_values { id text column { title settings_str } ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } } } } } }`;
 
-async function discoverProjBoards(): Promise<{ id: string; name: string }[]> {
+/** Descubre los boards de la carpeta de Proyectos (id + nombre, sin items —
+ *  barato). Exportada: el refresh de un solo board (ver
+ *  /api/dashboard/board/[boardId]) la necesita para resolver excepciones que
+ *  dependen de conocer TODOS los boards (ej. PM-013 hereda de PM-003, ver
+ *  resolverIniDeBoard en proj.ts), aunque solo traiga los items de uno. */
+export async function discoverProjBoards(): Promise<{ id: string; name: string }[]> {
   const data = await mondayFetch<{
     folders: { children: { id: string; name: string }[] }[];
   }>(`{ folders(ids:[${env("MONDAY_PROJ_FOLDER_ID")}]) { children { id name } } }`);
   return data.folders?.[0]?.children ?? [];
+}
+
+/** Trae los items de UN SOLO board de Proyectos — la parte cara del refresh
+ *  por proyecto (ver /api/dashboard/board/[boardId]). Mismo shape/columnas
+ *  que projBoardsQuery, sin traer los otros 13 boards. */
+export async function fetchProjBoardRaw(boardId: string): Promise<ProjBoardRaw> {
+  const data = await mondayFetch<{ boards: ProjBoardRaw[] }>(projBoardsQuery(boardId));
+  const board = data.boards?.[0];
+  if (!board) throw new Error(`Board ${boardId} no encontrado`);
+  return board;
+}
+
+/** Iniciativas + Directorio RH — lo que necesita `buildIniLookup` para
+ *  enriquecer un board (Estrategia/Sponsor/CKU/Benefit Type). Mismo fetch que
+ *  hace el dashboard completo, aislado para el refresh de un solo board. */
+export async function fetchIniAndHrRaw(): Promise<{ iniItems: MondayItem[]; hrItems: MondayItem[] }> {
+  type BoardsResp = { boards: { items_page: { items: MondayItem[] } }[] };
+  const [iniData, hrData] = await Promise.all([
+    mondayFetch<BoardsResp>(richBoardQuery(env("MONDAY_INI_BOARD_ID"))),
+    mondayFetch<BoardsResp>(boardItemsQuery(env("MONDAY_RH_BOARD_ID"))),
+  ]);
+  return {
+    iniItems: iniData.boards[0]?.items_page.items ?? [],
+    hrItems: hrData.boards[0]?.items_page.items ?? [],
+  };
 }
 
 // ── Caché en memoria (TTL) + single-flight ───────────────────────────────
@@ -210,4 +245,47 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     reminderLog,
     fetchedAt: new Date().toISOString(),
   };
+}
+
+const changeStatusMutation = `mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $label: String!) {
+  change_simple_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $label) { id }
+}`;
+
+/** Escribe un nuevo status en Monday para un item/hito de Proyectos (mutación
+ *  change_simple_column_value — acepta el label tal cual, sin crear labels
+ *  nuevos). `boardId` debe ser el board REAL dueño del item: para un hito
+ *  (subitem) es el board OCULTO de subitems (ProjSubitem.statusBoardId), nunca
+ *  el board del proyecto. */
+export async function changeProjStatus(boardId: string, itemId: string, columnId: string, label: string): Promise<void> {
+  await mondayFetch<{ change_simple_column_value: { id: string } | null }>(changeStatusMutation, {
+    boardId, itemId, columnId, label,
+  });
+}
+
+interface RawUpdate {
+  id: string;
+  text_body: string | null;
+  created_at: string;
+  creator: { name: string } | null;
+}
+
+const projUpdatesQuery = `query ($itemId: ID!) {
+  items(ids: [$itemId]) { updates(limit: 25) { id text_body created_at creator { name } } }
+}`;
+
+/** Bitácora (Updates) de Monday de UN item/hito — no necesita boardId: a
+ *  diferencia del status, las Updates se leen/escriben solo por item_id. */
+export async function fetchProjUpdates(itemId: string): Promise<{ id: string; textBody: string; createdAt: string; creatorName: string }[]> {
+  const data = await mondayFetch<{ items: { updates: RawUpdate[] }[] }>(projUpdatesQuery, { itemId });
+  const updates = data.items?.[0]?.updates ?? [];
+  return updates.map((u) => ({ id: u.id, textBody: u.text_body ?? "", createdAt: u.created_at, creatorName: u.creator?.name ?? "—" }));
+}
+
+const createProjUpdateMutation = `mutation ($itemId: ID!, $body: String!) {
+  create_update(item_id: $itemId, body: $body) { id }
+}`;
+
+/** Publica un comentario en la bitácora (Updates) de un item/hito de Proyectos. */
+export async function createProjUpdate(itemId: string, body: string): Promise<void> {
+  await mondayFetch<{ create_update: { id: string } | null }>(createProjUpdateMutation, { itemId, body });
 }

@@ -3,7 +3,14 @@
 import { fmtDate, fmtMoney } from "@/lib/business";
 import { calcVem, healthStatusFromIndex } from "@/lib/health";
 import type { ProjBoard, ProjItem, ProjSubitem } from "@/types";
+import { useState } from "react";
 import Modal from "@/components/Modal";
+import EvmCharts from "@/components/EvmCharts";
+import CalidadCumplimientoCharts from "@/components/CalidadCumplimientoCharts";
+import { NpsDetail } from "@/components/NpsModal";
+import DevGanttChart from "@/components/DevGanttChart";
+import StatusCardTab from "@/components/StatusCardTab";
+import type { ProjectMetrics } from "@/lib/projectMetrics";
 
 interface Props {
   board: ProjBoard;
@@ -14,6 +21,7 @@ interface Props {
   scope: number | null;
   spi: number | null;
   cpi: number | null;
+  metrics: ProjectMetrics;
   onClose: () => void;
 }
 
@@ -154,7 +162,8 @@ const PHASE_STYLE: Record<PhaseStatus, { chip: string; chipColor: string; border
   pending: { chip: "PENDIENTE",      chipColor: "var(--text-muted)", border: "var(--border)", bg: "var(--bg-hover)", opacity: 0.55 },
 };
 
-export default function ProjectReportModal({ board, items, ev, pv, ac, scope, spi, cpi, onClose }: Props) {
+export default function ProjectReportModal({ board, items, ev, pv, ac, scope, spi, cpi, metrics, onClose }: Props) {
+  const [tab, setTab] = useState<"informe" | "evm" | "calidad" | "dev" | "nps" | "statuscard">("informe");
   const m   = computeMetrics(items, spi, cpi, scope);
   const hc  = m.healthStatus ? HC[m.healthStatus] : null;
   const today = new Date().toLocaleDateString("es-CR", { year: "numeric", month: "long", day: "numeric" });
@@ -195,7 +204,7 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
   ];
 
   return (
-    <Modal open onClose={onClose} width={1024}>
+    <Modal open onClose={onClose} width={1440}>
         {/* ── Header ── */}
         <div
           className="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-4"
@@ -242,8 +251,29 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
           </div>
         </div>
 
+        {/* ── Pestañas ── */}
+        <div className="flex shrink-0 flex-wrap gap-1 border-b px-6 pt-3" style={{ borderColor: "var(--border)" }}>
+          {([
+            ["informe", "Informe"], ["evm", "EVM"],
+            ["calidad", "Calidad y Cumplimiento"], ["dev", "Desarrollo Timeliness"],
+            ["nps", "NPS"], ["statuscard", "Status Card"],
+          ] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              className="rounded-t-lg px-4 py-2 text-[0.8rem] font-semibold transition-colors"
+              style={tab === k
+                ? { color: "var(--accent)", borderBottom: "2px solid var(--accent)" }
+                : { color: "var(--text-muted)", borderBottom: "2px solid transparent" }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* ── Body ── */}
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          {tab === "informe" && (<>
 
           {/* Estrategia (desde la Iniciativa) */}
           {board.estrategia && (
@@ -464,6 +494,27 @@ export default function ProjectReportModal({ board, items, ev, pv, ac, scope, sp
             </div>
           )}
 
+          </>)}
+
+          {tab === "evm" && <EvmCharts m={metrics} />}
+
+          {tab === "calidad" && <CalidadCumplimientoCharts m={metrics} />}
+
+          {tab === "dev" && (
+            <div className="flex flex-col gap-3.5">
+              <p className="text-[0.8rem] text-[var(--text-secondary)]">
+                {metrics.devTimeline.length} hito{metrics.devTimeline.length !== 1 ? "s" : ""} de desarrollo ·{" "}
+                {metrics.devTimeline.filter((r) => r.devPhase === "working").length} en curso ·{" "}
+                {metrics.devTimeline.filter((r) => r.devPhase === "done").length} entregados ·{" "}
+                {metrics.devTimeline.filter((r) => r.devPhase === "future").length} sin iniciar.
+              </p>
+              <DevGanttChart rows={metrics.devTimeline} now={metrics.medidoEn} />
+            </div>
+          )}
+
+          {tab === "nps" && <NpsDetail nps={metrics.nps} />}
+
+          {tab === "statuscard" && <StatusCardTab board={board} items={items} />}
         </div>
     </Modal>
   );

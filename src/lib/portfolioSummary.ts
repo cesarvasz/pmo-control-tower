@@ -5,7 +5,8 @@
 // detectan riesgos que cruzan varios proyectos. Módulo PURO (cliente/servidor).
 
 import { fmtMoney, today } from "@/lib/business";
-import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
+import { calcBoardMetrics, splitBoardName } from "@/lib/proj";
+import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
 import { buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
 import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import { atrasoReparto } from "@/lib/delay";
@@ -62,11 +63,19 @@ export function buildPortfolioRows(
   proj: ProjItem[],
   baselines: Record<string, ProjItemBaseline>,
 ): PortfolioProjectRow[] {
+  // SPI/CPI/Scope/EVM salen de la medición única (projectMetrics.ts) — mismo
+  // dato que "Ver cálculo" de /proyectos y que el Control Tower. `ac` sigue
+  // viniendo de calcBoardMetrics (no es parte de esa medición).
+  const metricsByBoard = new Map(
+    buildAllProjectMetrics(boards, proj, { baselines }).map((m) => [m.boardId, m]),
+  );
   return boards.map((b) => {
     const items = proj.filter((r) => r.boardId === b.id);
     const { code, name } = splitBoardName(b.name);
     const summary = buildProjectSummary(items);
-    const health = deriveBoardHealth(calcBoardMetrics(items, baselines));
+    const m = metricsByBoard.get(b.id)!;
+    const { ac } = calcBoardMetrics(items, baselines);
+    const health = boardHealthFromMetrics(m, ac);
     const budgetApproved = items.reduce((s, it) => s + it.cost, 0);
     const budgetSpent = health.ac;
     const pctConsumed = budgetApproved > 0 ? Math.round((budgetSpent / budgetApproved) * 100) : null;

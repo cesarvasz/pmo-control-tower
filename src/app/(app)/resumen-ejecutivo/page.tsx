@@ -17,21 +17,16 @@ import {
   Bar, BarChart, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { useData } from "@/context/DataContext";
-import { fmtDate, fmtMoney, today } from "@/lib/business";
-import { calcBoardMetrics, deriveBoardHealth, splitBoardName } from "@/lib/proj";
-import { isFase3, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
-import {
-  buildProjectSummary, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso,
-  type StepAtraso,
-} from "@/lib/projSummary";
-import { atrasoReparto, RESPONSIBLE_COLOR } from "@/lib/delay";
+import { fmtDate, fmtMoney } from "@/lib/business";
+import { splitBoardName } from "@/lib/proj";
+import { RESPONSIBLE_COLOR } from "@/lib/delay";
 import {
   buildPortfolioRows, calcPortfolioTotals, buildDelayRadar,
   type PortfolioProjectRow, type DelayRadarRow,
 } from "@/lib/portfolioSummary";
 import { HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { GRID } from "@/lib/reportTheme";
-import { buildStatusReportData } from "@/lib/statusReportData";
+import { buildStatusReportDataForBoard } from "@/lib/statusReportData";
 import { EmptyRow, ErrorBox, Loader } from "@/components/ui";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
@@ -499,6 +494,21 @@ function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onPri
   projectName: string; allBoards: ProjBoard[]; currentId: string; onBack: () => void; onSwitch: (id: string) => void;
   onPrint: () => void;
 }) {
+  const { refreshBoard, refreshingBoards } = useData();
+  const [refreshErr, setRefreshErr] = useState(false);
+  const refreshing = refreshingBoards.has(currentId);
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshErr(false);
+    try {
+      await refreshBoard(currentId);
+    } catch {
+      setRefreshErr(true);
+      setTimeout(() => setRefreshErr(false), 3000);
+    }
+  };
+
   return (
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
       <nav className="flex items-center gap-2 text-[0.82rem]" aria-label="Breadcrumb">
@@ -524,6 +534,16 @@ function Breadcrumb({ projectName, allBoards, currentId, onBack, onSwitch, onPri
         </select>
         <button
           type="button"
+          onClick={handleRefresh}
+          title="Trae solo este proyecto de Monday, sin recargar los demás"
+          disabled={refreshing}
+          className="rounded-lg border px-3 py-1.5 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60"
+          style={{ borderColor: refreshErr ? "#ef4444" : "var(--border)", color: refreshErr ? "#ef4444" : "var(--text-secondary)" }}
+        >
+          {refreshing ? "…" : refreshErr ? "✕ Error" : "↻ Actualizar"}
+        </button>
+        <button
+          type="button"
           onClick={onPrint}
           className="rounded-lg border px-3 py-1.5 text-[0.78rem] font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
           style={{ borderColor: "var(--border)" }}
@@ -544,84 +564,26 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   allBoards: ProjBoard[]; onBack: () => void; onSwitch: (id: string) => void;
 }) {
   const [now] = useState(() => Date.now());
-
-  const summary = useMemo(() => buildProjectSummary(items), [items]);
-  const health = useMemo(() => deriveBoardHealth(calcBoardMetrics(items, projItemBaselines)), [items, projItemBaselines]);
-  // Beneficio $ (Validación / Aprobación / Confirmación) — misma fuente que el
-  // modal de Costo/Beneficio por PM (projStageAmounts), acá aplicada solo a
-  // los items de ESTE board. Acumulativa: Confirmación ⇒ también cuenta como
-  // Aprobación (a su valor aprobado / Business Case). Es un valor declarado
-  // UNA sola vez (Business Case o medición real), no algo que se sume por item.
-  //
-  // Costo $ es lo opuesto: se acumula item por item, así que es la SUMA de la
-  // columna "Cost $" de TODOS los items del board (mismo criterio que
-  // ProjectReportModal.totalCost) — no el de un solo step/etapa (ese solo
-  // traía el Cost $ del Business Case, que subestimaba el costo real acumulado).
-  const stageAmounts = useMemo(() => projStageAmounts(items), [items]);
-  const costoProyecto = items.reduce((s, it) => s + it.cost, 0);
-  const beneficioParaRoi = stageAmounts?.confirmacion?.benefit ?? stageAmounts?.aprobacion?.benefit ?? stageAmounts?.validacion?.benefit;
-  // Benefit Type "SoftSaving" (heredado de la Iniciativa) = beneficio NO
-  // cuantificable de forma rigurosa (no es ahorro/ingreso real medible) — Valor
-  // Generado/ROI/Payback no tienen sentido ahí, quedan en "—" (fmtMoney/roi/
-  // payback ya renderizan null como "—").
-  const isSoftSaving = board.benefitType === "SoftSaving";
-  const valorProyecto = !isSoftSaving && costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
-  const roi = !isSoftSaving && costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
-  const payback = !isSoftSaving && costoProyecto && beneficioParaRoi && beneficioParaRoi > 0 ? costoProyecto / (beneficioParaRoi / 12) : null;
-  // Avance planificado: % de hitos/steps que YA deberían estar Done según su
-  // propio deadline. Comparado con el Avance real da la brecha física (SPI del reporte).
-  const avancePlanificado = calcPlannedProgress(summary.units, summary.phases);
-  const { code, name } = splitBoardName(board.name);
-
-  // Atrasos de Fase 3 (Launch): plantilla NUEVA — una fila por STEP atrasado o
-  // en Stuck, nunca una por hito (mismo criterio que WorkUnit). Plantilla
-  // VIEJA (existe el step "Desarrollo por iteraciones...") — sus hitos SON los
-  // entregables reales (ver evaluarHitosAtraso); una fila por hito atrasado,
-  // ignorando los otros 3 checkpoints de esa fase (steps redundantes sobre los
-  // mismos hitos, ver isDesarrolloPorIteracionesStep en lib/dashboard).
-  const atrasos = useMemo(() => {
-    const t = today();
-    const fase3Items = items.filter((it) => isFase3(it.grupo));
-    const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
-    const source = desarrolloItem
-      ? evaluarHitosAtraso(desarrolloItem, t)
-      : fase3Items.map((it) => evaluarStepAtraso(it, t)).filter((x): x is StepAtraso => x !== null);
-    return source.sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
-  }, [items]);
-
-  const { data } = useData();
+  const { data, refreshBoard } = useData();
   const atrasoDetalles = data?.atrasoDetalles;
-  // Distribución de responsabilidad del atraso, PONDERADA POR DÍAS: suma de días
-  // atribuidos a cada rol ÷ total de días repartidos. Si nadie tiene días
-  // (todos "Stuck" sin días de atraso) cae a un conteo por # de tramos.
-  const responsabilidadAtraso = useMemo(() => {
-    if (atrasos.length === 0) return [];
-    const dias: Record<string, number> = {};
-    const cnt: Record<string, number> = {};
-    let totalDias = 0;
-    for (const a of atrasos) {
-      const td = a.daysLate != null && a.daysLate > 0 ? a.daysLate : 0;
-      for (const r of atrasoReparto(atrasoDetalles?.[a.id], td)) {
-        dias[r.resp] = (dias[r.resp] ?? 0) + r.dias;
-        cnt[r.resp] = (cnt[r.resp] ?? 0) + 1;
-        totalDias += r.dias;
-      }
-    }
-    const base = totalDias > 0 ? dias : cnt;
-    const denom = totalDias > 0 ? totalDias : Object.values(cnt).reduce((s, n) => s + n, 0);
-    return Object.entries(base)
-      .map(([label, v]) => ({ label, pct: denom > 0 ? Math.round((v / denom) * 100) : 0 }))
-      .sort((a, b) => b.pct - a.pct || a.label.localeCompare(b.label));
-  }, [atrasos, atrasoDetalles]);
-
   const alcance = data?.boardAlcance[board.id]?.alcance ?? "";
+  const { name } = splitBoardName(board.name);
 
-  // Datos del "Status Ejecutivo" en el esquema de la skill `/status-pdf`
-  // (ver lib/statusReportData.ts) — lo consume <StatusReport>.
-  const reportData = useMemo(() => buildStatusReportData({
-    board, code, name, summary, health, atrasos, atrasoDetalles,
-    responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, alcance, now,
-  }), [board, code, name, summary, health, atrasos, atrasoDetalles, responsabilidadAtraso, avancePlanificado, valorProyecto, roi, payback, alcance, now]);
+  // Al entrar (o cambiar) de proyecto, confirma su status real contra Monday
+  // — evita mostrar un status desactualizado si alguien lo cambió fuera de la
+  // app desde el fetch inicial de la sesión.
+  useEffect(() => {
+    refreshBoard(board.id).catch(() => {});
+  }, [board.id, refreshBoard]);
+
+  // Datos del "Status Ejecutivo" en el esquema de la skill `/status-pdf` (ver
+  // lib/statusReportData.ts) — lo consume <StatusReport>. buildStatusReportDataForBoard
+  // hace TODO el cálculo (salud, ROI/payback, atrasos, responsabilidad) desde
+  // los items crudos — misma función que usa la pestaña "Status Card" del
+  // reporte de /proyectos, para no duplicar esta lógica en dos lugares.
+  const reportData = useMemo(() => buildStatusReportDataForBoard({
+    board, items, baselines: projItemBaselines, atrasoDetalles, alcance, now,
+  }), [board, items, projItemBaselines, atrasoDetalles, alcance, now]);
 
   // PDF / impresión: NO se rasteriza. Hay una copia 1:1 del reporte montada
   // fuera de pantalla (.status-print-sheet, sin los controles de edición); al

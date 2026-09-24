@@ -14,54 +14,18 @@ const POINT_LABELS = { firmado: "Inicio", limit: "Entrega Desarrollo", entrega: 
 import { useCallback, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { businessDays, fmtDate } from "@/lib/business";
-import { buildDevTimelines, type DevTimelineRow } from "@/lib/devTimeline";
+import {
+  buildDevTimelines, barStatus, devStatusKind, wasDeliveredLate, monthTicks,
+  BAR_COLOR, BAR_STATUS_LABEL, type DevTimelineRow,
+} from "@/lib/devTimeline";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
 import { EmptyRow, ErrorBox, FilterReset, Loader, SplitStatCard, StatCard } from "@/components/ui";
-
-const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const DAY = 86_400_000;
 const LABEL_W = 220; // ancho de la columna de etiquetas (izquierda)
 
-// Estado de la BARRA del Gantt (y de "atrasado" para las tarjetas de En Curso):
-// se lee del status del step "Entrega Desarrollo" (`devStatus`), NO de fechas
-// comparadas entre sí:
-//   · Done            → completado (verde)
-//   · Stuck           → SIEMPRE atrasado (rojo), pase o no el Limit Date
-//   · Future Steps/"" → futuro (azul), aún no inicia
-//   · cualquier otro activo (típicamente "Working on it") → atrasado (rojo)
-//     si el Limit Date YA PASÓ, si no en tiempo (amarillo)
-type BarStatus = "completado" | "enTiempo" | "atrasado" | "futuro";
-
-function devStatusKind(status: string): "done" | "stuck" | "future" | "active" {
-  const s = status.trim().toLowerCase();
-  if (s === "done") return "done";
-  if (s === "stuck") return "stuck";
-  if (s === "" || s.includes("future") || s.includes("not started")) return "future";
-  return "active";
-}
-
-function barStatus(r: DevTimelineRow, nowMs: number): BarStatus {
-  const kind = devStatusKind(r.devStatus);
-  if (kind === "done") return "completado";
-  if (kind === "stuck") return "atrasado";
-  if (kind === "future") return "futuro";
-  const pastLimit = !!(r.limit && nowMs > r.limit.getTime() + DAY);
-  return pastLimit ? "atrasado" : "enTiempo";
-}
-
-const BAR_COLOR: Record<BarStatus, string> = {
-  completado: "var(--ok)", enTiempo: "var(--warn)", atrasado: "var(--bad)", futuro: "var(--info)",
-};
-const BAR_STATUS_LABEL: Record<BarStatus, string> = {
-  completado: "Completado", enTiempo: "En curso · a tiempo", atrasado: "Atrasado", futuro: "Aún no inicia",
-};
-
-/** Entrega tardía YA CONSUMADA (Salida en vivo real después del deadline de
- *  Entrega Desarrollo) — distinto de `barStatus`, que es el estado EN VIVO
- *  del step; este es el veredicto histórico de un hito ya completado. */
-function wasDeliveredLate(r: DevTimelineRow): boolean {
-  return !!(r.limit && r.entrega && r.entrega.getTime() > r.limit.getTime() + DAY);
-}
+// devStatusKind/barStatus/BAR_COLOR/BAR_STATUS_LABEL/wasDeliveredLate/monthTicks
+// viven en lib/devTimeline.ts — compartidos con el mini-Gantt de
+// ProjectReportModal (pestaña "Desarrollo Timeliness").
 
 export type RowStatus = "A futuro" | "En Curso" | "Completados";
 const STATUS_ORDER: RowStatus[] = ["A futuro", "En Curso", "Completados"];
@@ -120,15 +84,6 @@ const opt = (vals: string[]): MSOption[] => {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([value, count]) => ({ value, label: value, count }));
 };
-
-/** Ticks de inicio de mes entre min y max (inclusive). */
-function monthTicks(min: Date, max: Date): { date: Date; label: string }[] {
-  const ticks: { date: Date; label: string }[] = [];
-  for (let d = startOfMonth(min); d <= max; d = addMonth(d)) {
-    ticks.push({ date: new Date(d), label: `${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
-  }
-  return ticks;
-}
 
 // ── Geometría de una fila (posiciones en % sobre el eje [min,max]) ─────────
 // Los colores son SOLO para los puntos (marcadores); la barra es una sola,

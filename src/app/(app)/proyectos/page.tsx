@@ -1,23 +1,24 @@
 "use client";
 
 import React, { Suspense, useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { auth } from "@/lib/firebase";
 import { fmtDate, fmtMoney } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
-import { PROJ_ACTIVE_STS, calcBoardMetrics, deriveBoardHealth, type BoardHealthData } from "@/lib/proj";
-import { projPhaseKey, calcItemCalidad, calcItemNota, isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
-import { healthStatusFromIndex, HEALTH_CFG, type HealthStatus } from "@/lib/health";
+import { PROJ_ACTIVE_STS, calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
+import { calcItemCalidad, calcItemNota, isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import type { ProjBoard, ProjItem } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
-import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect from "@/components/MultiSelect";
 import ProjectReportModal from "@/components/ProjectReportModal";
+import StatusSelect from "@/components/StatusSelect";
+import { buildProjectMetrics, buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyResultModal from "@/components/SurveyResultModal";
+import BitacoraModal from "@/components/BitacoraModal";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard } from "@/components/ui";
 
 // El step del proyecto que habilita la encuesta de NPS y el estado que la activa.
@@ -50,14 +51,9 @@ export default function ProyectosPage() {
 }
 
 function ProyectosInner() {
-  const sp = useSearchParams();
-  const { data, loading, error, refresh } = useData();
+  const { data, loading, error, refresh, refreshBoard } = useData();
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_users");
-  const [pms, setPms] = useState<string[]>(() => {
-    const pm = sp.get("pm");
-    return pm ? [pm] : [];
-  });
   const [boardFilter, setBoardFilter] = useState<string[]>([]);
   const [openBoards, setOpenBoards] = useState<Set<string>>(new Set());
   const [filterNoDl, setFilterNoDl] = useState(false);
@@ -67,6 +63,10 @@ function ProyectosInner() {
   const [surveys, setSurveys] = useState<Map<string, SurveyDoc[]>>(new Map());
   const [sendTarget, setSendTarget] = useState<SurveyTarget | null>(null);
   const [resultToken, setResultToken] = useState<string | null>(null);
+
+  // Bitácora (Updates de Monday) por item/hito — mismo permiso que el dropdown de status.
+  const canComment = hasAction(me?.permissions, "edit_proj_status");
+  const [bitacoraTarget, setBitacoraTarget] = useState<{ id: string; name: string; email?: string } | null>(null);
 
   const loadSurveys = useCallback(async () => {
     try {
@@ -94,24 +94,35 @@ function ProyectosInner() {
   const projBoards = data.projBoards;
 
   const projItemBaselines = data.projItemBaselines;
+  // SPI/CPI/Scope/EVM salen de la medición única (projectMetrics.ts) — mismo
+  // dato que "Ver cálculo" de cada proyecto y que el Control Tower. `ac` sigue
+  // viniendo de calcBoardMetrics (no es parte de esa medición).
+  const projMetricsByBoard = new Map(
+    buildAllProjectMetrics(projBoards, projData, { baselines: projItemBaselines }).map((m) => [m.boardId, m]),
+  );
   const boardHealthMap = new Map<string, BoardHealthData>();
   projBoards.forEach((b) => {
-    boardHealthMap.set(
-      b.id,
-      deriveBoardHealth(calcBoardMetrics(projData.filter((r) => r.boardId === b.id), projItemBaselines)),
-    );
+    const m = projMetricsByBoard.get(b.id);
+    if (!m) return;
+    const { ac } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id), projItemBaselines);
+    boardHealthMap.set(b.id, boardHealthFromMetrics(m, ac));
   });
   const boardsOffTrack = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
   const boardsInRisk   = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;
   const boardsOnTrack  = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "on-track").length;
 
-  const toggleAcc = (id: string) =>
+  // Al abrir un proyecto se confirma su status real contra Monday (por si
+  // alguien lo cambió fuera de la app) antes de que el usuario lo edite de
+  // nuevo si hace falta — evita quedarse con un status viejo del fetch inicial.
+  const toggleAcc = (id: string) => {
+    if (!openBoards.has(id)) refreshBoard(id).catch(() => {});
     setOpenBoards((s) => {
       const n = new Set(s);
       if (n.has(id)) n.delete(id);
       else n.add(id);
       return n;
     });
+  };
 
   // ── Boards visibles ──
   const allBoardsSorted = [...projBoards].sort((a, b) => a.name.localeCompare(b.name));
@@ -119,8 +130,6 @@ function ProyectosInner() {
     value: b.id, label: b.name,
     count: projData.filter((r) => r.boardId === b.id && PROJ_ACTIVE_STS.has(r.status)).length,
   }));
-  const pmBoardIds = pms.length ? new Set(projBoards.filter((b) => pms.includes(b.pm)).map((b) => b.id)) : null;
-  const byPM = pmBoardIds ? projData.filter((r) => pmBoardIds.has(r.boardId)) : projData;
   const visibleBoards = allBoardsSorted.filter((b) =>
     !boardFilter.length || boardFilter.includes(b.id)
   );
@@ -151,12 +160,9 @@ function ProyectosInner() {
         <StatCard value={boardsOnTrack}  label="On Track"  color="#10b981" borderColor="#10b981" />
       </div>
 
-      {/* PM Health */}
-      <PMHealth projBoards={projBoards} boardHealthMap={boardHealthMap} selectedPm={pms.length === 1 ? pms[0] : null} onSelect={(pm) => setPms((cur) => (cur.length === 1 && cur[0] === pm ? [] : [pm]))} />
-
       {/* Filtro de proyecto */}
       {(() => {
-        const noDlCount = byPM.reduce((acc, r) => acc + r.subitems.filter((s) => s.deadline === null).length, 0);
+        const noDlCount = projData.reduce((acc, r) => acc + r.subitems.filter((s) => s.deadline === null).length, 0);
         return (
           <div className="mb-3.5 flex flex-wrap items-end gap-3.5">
             <MultiSelect label="Proyecto" options={boardOpts} selected={boardFilter} onToggle={(v, ch) => setBoardFilter((x) => (ch ? [...x, v] : x.filter((y) => y !== v)))} onToggleAll={() => setBoardFilter([])} />
@@ -182,11 +188,13 @@ function ProyectosInner() {
       {(() => {
         const accordions = visibleBoards
           .map((b) => {
-            const items = byPM.filter((r) => r.boardId === b.id);
+            const items = projData.filter((r) => r.boardId === b.id);
             if (!items.length) return null;
             const bh = boardHealthMap.get(b.id)!;
-            const allBoardItems = projData.filter((r) => r.boardId === b.id);
-            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} spi={bh.spi} cpi={bh.cpi} healthIndex={bh.healthIndex} healthStatus={bh.healthStatus} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} isAdmin={isAdmin} onResetBaseline={() => handleResetBaseline(b.id, allBoardItems)} surveysByReq={surveys} onOpenSurvey={setSendTarget} />;
+            // Ya no hay filtro de PM: `items` siempre es el board completo. Se
+            // sigue pasando como `allBoardItems` porque BoardAccordion la usa
+            // aparte para la medición (buildProjectMetrics) y el reset de baseline.
+            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} spi={bh.spi} cpi={bh.cpi} healthIndex={bh.healthIndex} healthStatus={bh.healthStatus} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} isAdmin={isAdmin} allBoardItems={items} onResetBaseline={() => handleResetBaseline(b.id, items)} surveysByReq={surveys} onOpenSurvey={setSendTarget} canComment={canComment} onOpenBitacora={setBitacoraTarget} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -204,56 +212,9 @@ function ProyectosInner() {
         />
       )}
       {resultToken && <SurveyResultModal token={resultToken} onClose={() => setResultToken(null)} />}
-    </div>
-  );
-}
-
-// ── PM Health ──────────────────────────────────────────────────────────
-function PMHealth({ projBoards, boardHealthMap, selectedPm, onSelect }: {
-  projBoards: ProjBoard[];
-  boardHealthMap: Map<string, BoardHealthData>;
-  selectedPm: string | null;
-  onSelect: (pm: string) => void;
-}) {
-  const pms = [...new Set(projBoards.filter((b) => b.pm).map((b) => b.pm))].sort();
-  return (
-    <div className="mb-7 flex flex-wrap gap-4">
-      {pms.map((pm) => {
-        const pmBoards = projBoards
-          .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null);
-        const boardsData = pmBoards.map((b) => boardHealthMap.get(b.id)!);
-        const onTrack  = boardsData.filter((h) => h.healthStatus === "on-track").length;
-        const inRisk   = boardsData.filter((h) => h.healthStatus === "in-risk").length;
-        const offTrack = boardsData.filter((h) => h.healthStatus === "off-track").length;
-
-        const hiValues = boardsData.map((h) => h.healthIndex).filter((v): v is number => v != null);
-        const pmHI = hiValues.length > 0 ? hiValues.reduce((a, b) => a + b, 0) / hiValues.length : null;
-        const pmStatus: HealthStatus = healthStatusFromIndex(pmHI) ?? "on-track";
-
-        const c = HEALTH_CFG[pmStatus];
-        const isActive = selectedPm === pm;
-        return (
-          <div
-            key={pm}
-            onClick={() => onSelect(pm)}
-            className="flex min-w-[190px] flex-1 cursor-pointer flex-col gap-1.5 rounded-xl border-2 p-[18px] transition-transform hover:-translate-y-0.5"
-            style={{ background: "var(--bg-surface)", borderColor: c.color, boxShadow: isActive ? "0 0 0 3px var(--accent)" : undefined }}
-          >
-            <div className="text-[0.9rem] font-semibold text-[var(--text-primary)]">{pm}</div>
-            <span className="w-fit rounded-full px-3 py-1 text-[0.78rem] font-bold" style={{ color: c.color, background: c.bg }}>
-              {c.icon} {c.label}{pmHI !== null ? ` · ${Math.round(pmHI * 100)}%` : ""}
-            </span>
-            <div className="text-[0.75rem] font-medium text-[var(--text-primary)]">
-              {pmBoards.length} proyecto{pmBoards.length !== 1 ? "s" : ""}
-            </div>
-            <div className="flex gap-3 text-[0.72rem] text-[var(--text-muted)]">
-              <span style={{ color: "var(--ok)" }}>✓ {onTrack} on track</span>
-              {inRisk > 0 && <span style={{ color: "var(--warn)" }}>⚠ {inRisk} in risk</span>}
-              <span style={{ color: "var(--bad)" }}>✕ {offTrack} off track</span>
-            </div>
-          </div>
-        );
-      })}
+      {bitacoraTarget && (
+        <BitacoraModal itemId={bitacoraTarget.id} itemName={bitacoraTarget.name} itemEmail={bitacoraTarget.email} onClose={() => setBitacoraTarget(null)} />
+      )}
     </div>
   );
 }
@@ -274,44 +235,26 @@ function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean })
 }
 
 // Celda "Entrega": ✓ a tiempo / ✕ atraso (solo Done). Compara fecha real vs Limit Date.
-// En un atraso, el Admin puede asignar el responsable (solo "PM" cuenta en el %).
-function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, limit: Date | null, itemId: string) {
+// SOLO informativa: asignar responsable de atraso se hace en /calidad-cumplimiento.
+function entregaCell(entrega: "on-time" | "late" | null, actual: Date | null, limit: Date | null) {
   if (!entrega) return <span className="text-[var(--text-disabled)]">—</span>;
   const title = `Real: ${fmtDate(actual)} · Límite: ${fmtDate(limit)}`;
-  const late = entrega === "late";
-  // El responsable se muestra SIEMPRE: el Admin lo asigna con el dropdown y los
-  // no-admin lo ven como texto. Solo un atraso "penaliza" el vacío (ámbar).
-  return (
-    <div className="flex flex-col items-start gap-0.5">
-      {late
-        ? <Pill tone="bad" small title={title}>✕ Atraso</Pill>
-        : <Pill tone="ok" small title={title}>✓ A tiempo</Pill>}
-      <ResponsibleSelect itemId={itemId} kind="delay" emptyPenalizes={late} />
-    </div>
-  );
+  return entrega === "late"
+    ? <Pill tone="bad" small title={title}>✕ Atraso</Pill>
+    : <Pill tone="ok" small title={title}>✓ A tiempo</Pill>;
 }
 
 // Celda "Calidad" del ITEM (step) que mide en su fase — ver isDesarrolloPorIteracionesStep
 // en lib/dashboard para cuáles steps de la Fase 3 miden. Nota 0/50/100 (ver
 // calcItemNota en lib/dashboard): 50% por el responsable asignado (SIEMPRE manual,
 // sin bypass automático) + 50% por "recuperado" (ningún hito con Limit Date después
-// del fin del CPM del item — ver calcItemCalidad/hitosFueraDeCpm; solo se verifica
-// el fin, no el inicio — ver el comentario de hitosFueraDeCpm para el porqué).
-// SOLO INFORMATIVA acá: la calificación (asignar responsable de reproceso) se hace
-// ÚNICAMENTE en /calidad-cumplimiento — el dropdown se pasa en modo readOnly.
-function reprocesoCell(nota: number, itemId: string, recuperado: boolean, cpmFin: string) {
+// del fin del CPM del item — ver calcItemCalidad/hitosFueraDeCpm). SOLO la
+// calificación final: asignar responsable y ver el detalle de recuperación se
+// hace ÚNICAMENTE en /calidad-cumplimiento.
+function reprocesoCell(nota: number) {
   const tone = nota === 100 ? "ok" : nota === 0 ? "bad" : "warn";
   const icon = nota === 100 ? "✓" : nota === 0 ? "✕" : "⚠";
-  const badge = recuperado
-    ? <span title={`Ningún hito tiene Limit Date después del fin del CPM del item (${cpmFin}).`} style={{ color: "var(--ok)", fontSize: ".62rem", fontWeight: 600 }}>↩ Recuperado</span>
-    : <span title={`Algún hito tiene Limit Date después del fin del CPM del item (${cpmFin}), o falta ese fin para verificarlo.`} style={{ color: "var(--bad)", fontSize: ".62rem", fontWeight: 600 }}>🔁 No se recuperó</span>;
-  return (
-    <div className="flex flex-col items-start gap-0.5">
-      <Pill tone={tone} small>{icon} {nota}%</Pill>
-      <ResponsibleSelect itemId={itemId} kind="reproceso" emptyPenalizes={nota !== 100} readOnly />
-      {badge}
-    </div>
-  );
+  return <Pill tone={tone} small>{icon} {nota}%</Pill>;
 }
 
 // Celda "Calidad" de un HITO — SOLO LECTURA: el dropdown vive en el item padre (y ese
@@ -332,9 +275,12 @@ function hitoCalidadReadOnly(entrega: "on-time" | "late" | null, fueraDeCpm: boo
   );
 }
 
-function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey }: { board: ProjBoard; items: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void }) {
+function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey, canComment, onOpenBitacora }: { board: ProjBoard; items: ProjItem[]; allBoardItems: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void; canComment: boolean; onOpenBitacora: (t: { id: string; name: string; email?: string }) => void }) {
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const { data: ctx, refreshBoard, refreshingBoards } = useData();
+  const [refreshErr, setRefreshErr] = useState(false);
+  const refreshingThis = refreshingBoards.has(board.id);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [resetting, setResetting] = useState(false);
   const [resetState, setResetState] = useState<"idle" | "ok" | "error">("idle");
@@ -342,7 +288,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
   const cpiColor   = cpi   === null ? "var(--text-muted)" : cpi   >= 1 ? "#10b981" : cpi   >= 0.85 ? "#f59e0b" : "#ef4444";
   const scopeColor = scope === null ? "var(--text-muted)" : scope >= 100 ? "#10b981" : scope >= 85 ? "#f59e0b" : "#ef4444";
 
-  // healthIndex/healthStatus vienen de deriveBoardHealth (fuente única) — no se recalculan aquí.
+  // healthIndex/healthStatus vienen de boardHealthFromMetrics (fuente única) — no se recalculan aquí.
   const badge = healthStatus ? HEALTH_CFG[healthStatus] : null;
 
   const toggleGroup = (g: string) =>
@@ -367,6 +313,17 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
           scope={scope}
           spi={spi}
           cpi={cpi}
+          metrics={buildProjectMetrics({
+            board,
+            items: allBoardItems,
+            baselines: ctx?.projItemBaselines,
+            delays: ctx?.delayAttributions,
+            reproceso: ctx?.reprocesoAttributions,
+            atrasoDetalles: ctx?.atrasoDetalles,
+            npsRecords: ctx?.npsRecords,
+            devTeamRoster: ctx?.devTeamRoster,
+            alcance: ctx?.boardAlcance[board.id]?.alcance ?? "",
+          })}
           onClose={() => setShowReport(false)}
         />
       )}
@@ -518,7 +475,26 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
           </button>
         )}
         <button
-          onClick={(e) => { e.stopPropagation(); setShowReport(true); }}
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (refreshingThis) return;
+            setRefreshErr(false);
+            try {
+              await refreshBoard(board.id);
+            } catch {
+              setRefreshErr(true);
+              setTimeout(() => setRefreshErr(false), 3000);
+            }
+          }}
+          title="Trae solo este proyecto de Monday, sin recargar los demás"
+          disabled={refreshingThis}
+          className="rounded-full border px-2.5 py-0.5 text-[0.7rem] font-semibold transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60"
+          style={{ borderColor: refreshErr ? "#ef4444" : "var(--border)", color: refreshErr ? "#ef4444" : "var(--text-secondary)" }}
+        >
+          {refreshingThis ? "…" : refreshErr ? "✕ Error" : "↻ Actualizar"}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowReport(true); refreshBoard(board.id).catch(() => {}); }}
           className="rounded-full border px-2.5 py-0.5 text-[0.7rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
           style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
         >
@@ -547,7 +523,6 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                 // Cumplimiento de Entrega mide progresivo (no espera a que la fase cierre):
                 // basta un step o hito YA evaluado y atrasado para que la fase entera cuente
                 // "con atraso" — un solo responsable decide la excusa de todos a la vez.
-                const gAtrasada = allGItems.some((r) => r.entrega === "late" || r.subitems.some((s) => s.entrega === "late"));
                 // Calidad (ex-Reproceso): solo en Fase 3. Si la fase tiene un step "Desarrollo
                 // por iteraciones..." (plantilla vieja), la unidad de Calidad son SUS hitos —
                 // ningún step de la fase (ni ese ni los demás) mide a nivel de step. Si no
@@ -569,18 +544,10 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                           <span className="text-[0.72rem] font-bold uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>
                             {grupo || "Sin grupo"}
                           </span>
-                          {/* Atraso de la fase — un responsable para toda la fase. Calidad ya no va
-                              acá: se muestra por fila (step o hito, según la plantilla — ver columna
-                              "Calidad" y desarrolloStep más abajo), pero solo se CALIFICA en
-                              /calidad-cumplimiento (acá el dropdown es readOnly). */}
-                          <div className="ml-auto flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[0.6rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Atraso</span>
-                              <ResponsibleSelect itemId={projPhaseKey(board.id, grupo)} kind="delay" emptyPenalizes={gAtrasada} />
-                            </div>
-                          </div>
+                          {/* Asignar responsable de atraso/calidad ya NO se hace acá — se hace
+                              en /calidad-cumplimiento. Este header solo informa. */}
                           <span
-                            className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                            className="ml-auto h-2.5 w-2.5 flex-shrink-0 rounded-full"
                             style={{ background: gOffTrack ? "#ef4444" : "#10b981" }}
                             title={gOffTrack ? "Hay items Off Track en esta fase" : "Fase On Track"}
                           />
@@ -595,7 +562,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
                     </tr>
                     {gOpen && gItems.map((r) => {
                       const [ecls, elbl] = estadoPill(r.status, r.estado, r.deadline);
-                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} pm={board.pm} surveysByReq={surveysByReq} onOpenSurvey={onOpenSurvey} desarrolloStepId={desarrolloStep?.id} />;
+                      return <Row key={r.id} r={r} ecls={ecls} elbl={elbl} filterNoDl={filterNoDl} pm={board.pm} surveysByReq={surveysByReq} onOpenSurvey={onOpenSurvey} desarrolloStepId={desarrolloStep?.id} canComment={canComment} onOpenBitacora={onOpenBitacora} />;
                     })}
                   </React.Fragment>
                 );
@@ -609,7 +576,7 @@ function BoardAccordion({ board, items, ev, pv, ac, scope, spi, cpi, healthIndex
   );
 }
 
-function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarrolloStepId }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean; pm: string; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void; desarrolloStepId?: string }) {
+function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarrolloStepId, canComment, onOpenBitacora }: { r: ProjItem; ecls: string; elbl: string; filterNoDl: boolean; pm: string; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void; desarrolloStepId?: string; canComment: boolean; onOpenBitacora: (t: { id: string; name: string; email?: string }) => void }) {
   const { data } = useData();
   const [open, setOpen] = useState(false);
   const allSubitems = r.subitems;
@@ -633,9 +600,19 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   const calc = stepMideCalidad ? calcItemCalidad(r) : null;
   const nota = calc?.qualifies ? calcItemNota(r.id, calc.recuperado, data?.reprocesoAttributions ?? {}) : null;
   const fueraDeCpmIds = new Set((calc?.fueraDeCpm ?? []).map((x) => x.id));
-  const cpmFin = r.deadline ? fmtDate(r.deadline) : "sin CPM";
 
   const SUB_BG = "var(--bg-hover)";
+
+  const commentBtn = (id: string, name: string, email?: string) => canComment && (
+    <button
+      onClick={(e) => { e.stopPropagation(); onOpenBitacora({ id, name, email }); }}
+      className="ml-2 rounded-md border px-1.5 py-0.5 align-middle text-[0.62rem] transition-colors hover:bg-[var(--bg-surface)]"
+      style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+      title="Bitácora · ver y agregar comentarios (Monday)"
+    >
+      💬
+    </button>
+  );
 
   return (
     <>
@@ -666,14 +643,17 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
               {allSubitems.length}
             </span>
           )}
+          {commentBtn(r.id, r.name, r.email)}
         </td>
         <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.responsible || <span className="text-[var(--text-disabled)]">—</span>}</td>
-        <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>{r.status || "—"}</td>
+        <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>
+          <StatusSelect boardId={r.boardId} itemId={r.id} columnId={r.statusColId} options={r.statusOptions} current={r.status} />
+        </td>
         <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
         <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
-        <td>{entregaCell(r.entrega, r.endDate, r.deadline, r.id)}</td>
+        <td>{entregaCell(r.entrega, r.endDate, r.deadline)}</td>
         <td>{nota != null && calc
-          ? reprocesoCell(nota, r.id, calc.recuperado, cpmFin)
+          ? reprocesoCell(nota)
           : <span className="text-[var(--text-disabled)]">—</span>}</td>
         <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
         <td style={{ textAlign: "right", fontWeight: 600, color: "var(--ok)", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
@@ -715,12 +695,15 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
                   </button>
                 );
               })()}
+              {commentBtn(s.id, s.name, s.email)}
             </td>
             <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.responsible || <span className="text-[var(--text-disabled)]">—</span>}</td>
-            <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>{s.status || "—"}</td>
+            <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>
+              <StatusSelect boardId={s.statusBoardId ?? ""} itemId={s.id} columnId={s.statusColId} options={s.statusOptions} current={s.status} />
+            </td>
             <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
             <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true })}</td>
-            <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline, s.id)}</td>
+            <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline)}</td>
             <td style={{ background: SUB_BG }}>
               {stepMideCalidad ? hitoCalidadReadOnly(s.entrega, fueraDeCpmIds.has(s.id)) : <span className="text-[var(--text-disabled)]">—</span>}
             </td>

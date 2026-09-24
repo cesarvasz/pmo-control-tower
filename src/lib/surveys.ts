@@ -142,6 +142,7 @@ export async function listNpsRecords(): Promise<NpsRecord[]> {
       respondentEmail: r.respondentEmail ?? "",
       submittedAt: r.submittedAt ?? "",
       reqCode: s.reqCode ?? "",
+      reqId: s.reqId ?? "",
     };
   });
 }
