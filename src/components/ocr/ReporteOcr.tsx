@@ -20,6 +20,7 @@ import {
 import FiltrosOcr from "./FiltrosOcr";
 import ResumenTiempoOcr from "./ResumenTiempoOcr";
 import ResumenDigitalizacionOcr from "./ResumenDigitalizacionOcr";
+import ResumenCostoPorFileOcr from "./ResumenCostoPorFileOcr";
 import GraficasOcr from "./GraficasOcr";
 import TablasOcr from "./TablasOcr";
 import NotaMetodologicaOcr from "./NotaMetodologicaOcr";
@@ -41,7 +42,7 @@ export default function ReporteOcr({ rows }: { rows: OcrRow[] }) {
 
   const set = (p: Partial<Filtros>) => setFiltros((x) => ({ ...x, ...p }));
   const hayFiltros =
-    f.clientes.length > 0 || f.maxHoras !== "todos" || f.soloCompletos ||
+    f.clientes.length > 0 || f.maxHoras !== "todos" || f.soloCompletos || f.licencia !== "todos" ||
     (!!f.desde && f.desde !== rango.desde) || (!!f.hasta && f.hasta !== rango.hasta);
   const limpiar = () => setFiltros({ ...FILTROS_VACIOS, agrupar: f.agrupar });
 
@@ -62,16 +63,17 @@ export default function ReporteOcr({ rows }: { rows: OcrRow[] }) {
         onLimpiar={limpiar}
       />
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <ResumenTiempoOcr k={kpis} stat={stat} onStat={setStat} />
         <ResumenDigitalizacionOcr k={kpis} />
+        <ResumenCostoPorFileOcr k={kpis} />
       </div>
 
       <GraficasOcr serie={puntos} stat={stat} />
 
       <TablasOcr clientes={clientes} files={detalleFiles} serie={puntos} stat={stat} />
 
-      <NotaMetodologicaOcr />
+      <NotaMetodologicaOcr tarifaHora={kpis.costoTiempo.tarifaHora} />
     </div>
   );
 }

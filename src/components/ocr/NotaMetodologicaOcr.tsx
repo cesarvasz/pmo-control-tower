@@ -2,7 +2,7 @@
 
 // Nota metodológica al pie de la pestaña "Digitalización OCR".
 
-export default function NotaMetodologicaOcr() {
+export default function NotaMetodologicaOcr({ tarifaHora }: { tarifaHora: number }) {
   return (
     <section className="mt-8 rounded-xl border p-4 text-[0.74rem] leading-relaxed text-[var(--text-secondary)]"
       style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
@@ -26,8 +26,7 @@ export default function NotaMetodologicaOcr() {
         </li>
         <li>
           El selector <strong>Promedio / Mediana</strong> de la tarjeta de tiempo gobierna a la vez
-          esos números y las líneas de la evolución en el tiempo. P90 y máximo se muestran siempre
-          como referencia.
+          esos números y las líneas de la evolución en el tiempo.
         </li>
         <li>
           <strong>Rango de fechas:</strong> filtra por <strong>Creación</strong> del file, que es
@@ -37,6 +36,25 @@ export default function NotaMetodologicaOcr() {
           <strong>Casos extremos (&quot;T1 ≤ N h&quot;):</strong> oculta los files cuya digitalización
           de documentos tardó más de N horas hábiles — sirve para ver el comportamiento normal sin los
           pendientes de varios días.
+        </li>
+        <li>
+          <strong>Costo de tiempo (${tarifaHora}/h):</strong> tarifa fija por hora hábil de T1 o de T2.
+          A diferencia de los tiempos de arriba (que son promedio o mediana <em>por file</em>), el costo
+          es una <strong>suma</strong>: cuánto costó TODO el T1 trabajado en el recorte, más TODO el T2
+          trabajado — por eso no cambia con el selector Promedio/Mediana, y por eso el costo de un file
+          sin carta de licencia todavía suma su T1. Es independiente del <strong>Costo</strong> de la
+          tarjeta de documentos y licencias (ese viene de la hoja, por licencias consumidas).
+        </li>
+        <li>
+          <strong>Costo por file:</strong> junta las dos sumas de arriba — costo de licencias (de la
+          hoja) + costo de tiempo (${tarifaHora}/h) — y las reparte entre los files del recorte.
+        </li>
+        <li>
+          <strong>Datos de licencia:</strong> un file &quot;sin datos&quot; es aquel donde Documents
+          Count, Pages Count, Licencias y Costo llegan TODOS en 0 — no es que consumió 0 licencias,
+          es que la hoja no trae ese dato para ese file. El filtro &quot;Datos de licencia&quot;
+          (Todos / Con datos / Sin datos) deja ver cuánto cambia el costo por file según se incluyan
+          o no.
         </li>
       </ul>
     </section>

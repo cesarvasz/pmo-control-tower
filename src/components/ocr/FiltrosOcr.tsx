@@ -5,7 +5,7 @@
 
 import { FilterReset } from "@/components/ui";
 import MultiSelect from "@/components/MultiSelect";
-import type { Filtros, Opcion, Agrupacion, MaxHoras } from "@/lib/digitalizacion";
+import type { Filtros, Opcion, Agrupacion, MaxHoras, FiltroLicencia } from "@/lib/digitalizacion";
 
 function Segmented<T extends string>({ label, value, options, onChange }: {
   label: string;
@@ -33,6 +33,9 @@ function Segmented<T extends string>({ label, value, options, onChange }: {
 const AGRUPAR: readonly (readonly [Agrupacion, string])[] = [["mes", "Mes"], ["semana", "Semana"], ["dia", "Día"]];
 const MAX_HORAS: readonly (readonly [MaxHoras, string])[] = [
   ["todos", "Todos"], ["8h", "T1 ≤ 8 h"], ["4h", "≤ 4 h"], ["2h", "≤ 2 h"], ["1h", "≤ 1 h"],
+];
+const LICENCIA: readonly (readonly [FiltroLicencia, string])[] = [
+  ["todos", "Todos"], ["con", "Con datos"], ["sin", "Sin datos"],
 ];
 
 export default function FiltrosOcr({
@@ -86,13 +89,16 @@ export default function FiltrosOcr({
             className="h-4 w-4 cursor-pointer" style={{ accentColor: "var(--accent)" }} />
           Solo files completos (T1 y T2)
         </label>
+        <Segmented label="Datos de licencia" value={f.licencia} options={LICENCIA} onChange={(v) => setF({ licencia: v })} />
         {hayFiltros && <FilterReset onClick={onLimpiar} />}
       </div>
 
       <p className="mt-2 text-[0.68rem] text-[var(--text-muted)]">
         &quot;Casos extremos&quot; descarta los files cuya <strong>T1</strong> (Creación→documentos)
         supere ese tiempo hábil — sirve para ver el comportamiento normal sin los pendientes de
-        varios días. El rango de fechas filtra por <strong>Creación</strong>.
+        varios días. El rango de fechas filtra por <strong>Creación</strong>. &quot;Datos de
+        licencia&quot; deja solo los files con (o sin) Documents/Pages Count, Licencias y Costo —
+        útil para comparar el costo por file con y sin esos datos.
       </p>
     </div>
   );

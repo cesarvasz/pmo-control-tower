@@ -109,6 +109,9 @@ export interface FileOcr {
   pagesCount: number;
   licencias: number;
   costo: number;
+  /** Documents/Pages Count, Licencias y Costo vienen TODOS en 0 — no es que
+   *  consumió 0 licencias, es que la hoja no trae el dato para este file. */
+  sinDatosLicencia: boolean;
 }
 
 const habilSeg = (a: number | null, b: number | null): number | null =>
@@ -134,6 +137,10 @@ export function construirFiles(rows: OcrRow[]): FileOcr[] {
     const cartaSeg = segDeFecha(r.Digit_carta_licencia);
     const t1Seg = habilSeg(creadoSeg, docsSeg);
     const t2Seg = habilSeg(docsSeg, cartaSeg);
+    const docsCount = num(r["Documents Count"]);
+    const pagesCount = num(r["Pages Count"]);
+    const licencias = num(r.Licencias);
+    const costo = num(r.Costo);
     out.push({
       id: String(r.id ?? ""),
       file,
@@ -146,10 +153,8 @@ export function construirFiles(rows: OcrRow[]): FileOcr[] {
       t1Seg, t2Seg,
       totalSeg: t1Seg != null && t2Seg != null ? t1Seg + t2Seg : null,
       completo: t1Seg != null && t2Seg != null,
-      docsCount: num(r["Documents Count"]),
-      pagesCount: num(r["Pages Count"]),
-      licencias: num(r.Licencias),
-      costo: num(r.Costo),
+      docsCount, pagesCount, licencias, costo,
+      sinDatosLicencia: docsCount === 0 && pagesCount === 0 && licencias === 0 && costo === 0,
     });
   }
   return out;
@@ -159,6 +164,9 @@ export function construirFiles(rows: OcrRow[]): FileOcr[] {
 export type Agrupacion = "mes" | "semana" | "dia";
 /** "Casos extremos": oculta los files cuya T1 supere este tope hábil. */
 export type MaxHoras = "todos" | "8h" | "4h" | "2h" | "1h";
+/** Filtro sobre `sinDatosLicencia` — para comparar el tablero con y sin los
+ *  files que no traen Documents/Pages Count/Licencias/Costo. */
+export type FiltroLicencia = "todos" | "con" | "sin";
 
 export interface Filtros {
   clientes: string[];
@@ -169,10 +177,12 @@ export interface Filtros {
   /** Solo files con los dos hitos de digitalización (T1 y T2 calculables). */
   soloCompletos: boolean;
   maxHoras: MaxHoras;
+  licencia: FiltroLicencia;
 }
 
 export const FILTROS_VACIOS: Filtros = {
   clientes: [], desde: "", hasta: "", agrupar: "mes", soloCompletos: false, maxHoras: "todos",
+  licencia: "todos",
 };
 
 const LIMITE_MAX_HORAS: Record<MaxHoras, number> = {
@@ -188,6 +198,8 @@ export function filtrar(files: FileOcr[], f: Filtros): FileOcr[] {
     if (f.hasta && (x.creado == null || claveDia(x.creado) > f.hasta)) return false;
     if (f.soloCompletos && !x.completo) return false;
     if (x.t1Seg != null && x.t1Seg > lim) return false;
+    if (f.licencia === "con" && x.sinDatosLicencia) return false;
+    if (f.licencia === "sin" && !x.sinDatosLicencia) return false;
     return true;
   });
 }
@@ -225,8 +237,55 @@ export interface DigitalizacionResumen {
   costo: number;
   /** Files con al menos 1 licencia. */
   conLicencia: number;
+  /** Files sin ningún dato de consumo de licencia (ver `sinDatosLicencia`). */
+  sinDatos: number;
   /** Costo ÷ files del recorte (todos, tengan o no licencia). */
   costoPorFile: number;
+}
+
+/** Tarifa fija de costo de tiempo: cada hora hábil de T1 o T2 cuesta esto. No
+ *  es la tarifa de horas-persona de otros reportes (ver horario.ts) ni tiene
+ *  editor en la UI — es un valor de negocio fijo para este tablero. */
+export const TARIFA_HORA_OCR = 6; // USD/hora
+
+/** Costo de TIEMPO (horas hábiles × tarifa fija) — distinto del costo de
+ *  licencias de `DigitalizacionResumen` (que viene de la hoja). Es una SUMA
+ *  sobre el recorte, no un promedio: "cuánto costó" todo el T1 trabajado más
+ *  todo el T2 trabajado, cuente o no cada file con el otro hito. */
+export interface CostoTiempo {
+  tarifaHora: number;
+  /** Σ T1 (horas, sobre los files con T1) × tarifa. */
+  t1: number;
+  /** Σ T2 (horas, sobre los files con T2) × tarifa. */
+  t2: number;
+  /** t1 + t2. */
+  total: number;
+}
+
+function costoDeTiempo(files: FileOcr[], tarifaHora = TARIFA_HORA_OCR): CostoTiempo {
+  const sumaSeg = (segs: (number | null)[]) => segs.reduce((s: number, v) => s + (v ?? 0), 0);
+  const t1 = (sumaSeg(files.map((f) => f.t1Seg)) / 3600) * tarifaHora;
+  const t2 = (sumaSeg(files.map((f) => f.t2Seg)) / 3600) * tarifaHora;
+  return { tarifaHora, t1, t2, total: t1 + t2 };
+}
+
+/** Costo por file: licencias (de la hoja) + tiempo (horas × tarifa fija), cada
+ *  una repartida entre los files del recorte — y la suma de ambas. Es la
+ *  tarjeta "Costo por file"; junta lo que están separados en
+ *  `DigitalizacionResumen.costo` y `CostoTiempo.total`. */
+export interface CostoFileResumen {
+  /** Σ costo de licencias. */
+  licencias: number;
+  /** Σ costo de tiempo. */
+  tiempo: number;
+  /** licencias + tiempo. */
+  total: number;
+  /** licencias ÷ files. */
+  porFileLicencia: number;
+  /** tiempo ÷ files. */
+  porFileTiempo: number;
+  /** total ÷ files — porFileLicencia + porFileTiempo. */
+  porFile: number;
 }
 
 // ── KPIs ───────────────────────────────────────────────────────────────
@@ -244,6 +303,8 @@ export interface KpisOcr {
   /** T1 + T2, solo sobre los files completos. */
   total: Stat;
   digitalizacion: DigitalizacionResumen;
+  costoTiempo: CostoTiempo;
+  costoFile: CostoFileResumen;
 }
 
 export function calcularKpis(files: FileOcr[]): KpisOcr {
@@ -251,6 +312,8 @@ export function calcularKpis(files: FileOcr[]): KpisOcr {
   const pagesCount = files.reduce((s, f) => s + f.pagesCount, 0);
   const licencias = files.reduce((s, f) => s + f.licencias, 0);
   const costo = files.reduce((s, f) => s + f.costo, 0);
+  const costoTiempo = costoDeTiempo(files);
+  const costoTotal = costo + costoTiempo.total;
   return {
     files: files.length,
     conT1: files.filter((f) => f.t1Seg != null).length,
@@ -262,7 +325,17 @@ export function calcularKpis(files: FileOcr[]): KpisOcr {
     digitalizacion: {
       docsCount, pagesCount, licencias, costo,
       conLicencia: files.filter((f) => f.licencias > 0).length,
+      sinDatos: files.filter((f) => f.sinDatosLicencia).length,
       costoPorFile: files.length ? costo / files.length : 0,
+    },
+    costoTiempo,
+    costoFile: {
+      licencias: costo,
+      tiempo: costoTiempo.total,
+      total: costoTotal,
+      porFileLicencia: files.length ? costo / files.length : 0,
+      porFileTiempo: files.length ? costoTiempo.total / files.length : 0,
+      porFile: files.length ? costoTotal / files.length : 0,
     },
   };
 }
