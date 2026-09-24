@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtMoney } from "@/lib/business";
 import { useData } from "@/context/DataContext";
-import { calcIniPMHealth, countPlanFuturoDue, INI_ACTIVE_STS, iniIsParaHoy } from "@/lib/ini";
+import { useMe } from "@/context/PermissionsContext";
+import { calcIniPMHealth, countPlanFuturoDue } from "@/lib/ini";
 import { calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
 import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
 import {
@@ -26,6 +27,8 @@ import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
 import EntregaDetailModal from "@/components/EntregaDetailModal";
 import { computeKpi, kpiColorFor } from "@/lib/kpi";
 import { buildVpaActions } from "@/lib/vpaActions";
+import WeeklyProgressChart from "@/components/WeeklyProgressChart";
+import NotificationsBell from "@/components/NotificationsBell";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -59,6 +62,8 @@ export default function ControlTowerPage() {
 
 function ControlTower({ data }: { data: DashboardData }) {
   const router = useRouter();
+  const { me } = useMe();
+  const greetName = me?.displayName || "";
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
   const [showReprocesoDetail, setShowReprocesoDetail] = useState(false);
@@ -71,14 +76,13 @@ function ControlTower({ data }: { data: DashboardData }) {
   // Todas las derivaciones dependen solo de los datos (estáticos entre refreshes) y del
   // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
   const {
-    boardHealthMap, boardsWithHealth, projBoardsOffTrack, projBoardsInRisk, projBoardsOnTrack,
+    boardHealthMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
-    G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
+    totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
   } = useMemo(() => {
-  const iniProc = ini.filter((r) => INI_ACTIVE_STS.has(r.status));
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
 
   // ── Board health map ──
@@ -98,9 +102,6 @@ function ControlTower({ data }: { data: DashboardData }) {
     boardHealthMap.set(b.id, boardHealthFromMetrics(m, ac));
   });
   const boardsWithHealth = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus !== null);
-  const projBoardsOffTrack = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
-  const projBoardsInRisk   = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;
-  const projBoardsOnTrack  = boardsWithHealth.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "on-track").length;
 
   const PM_ORDER = Object.keys(PM_PORTFOLIO);
   const allPMs = [...new Set([
@@ -140,17 +141,6 @@ function ControlTower({ data }: { data: DashboardData }) {
   const hBg    = teamCfg?.bg ?? "var(--health-neutral-bg)";
   const hLabel = teamCfg?.label ?? "Sin datos";
   const hIcon  = teamCfg?.icon ?? "—";
-
-  const G = {
-    iniTotal:       iniProc.length,
-    iniAtrasado:    iniProc.filter((r) => r.estado === "ATRASADO").length,
-    iniParaHoy:     ini.filter((r) => iniIsParaHoy(r, calMap)).length,
-    iniEnTiempo:    iniProc.filter((r) => r.estado === "EN TIEMPO" && !iniIsParaHoy(r, calMap)).length,
-    reqTotal:       reqProc.length,
-    reqEvmOffTrack: reqProc.filter((r) => r.vem !== null && (r.vem as number) < 0.85).length,
-    reqEvmInRisk:   reqProc.filter((r) => r.vem !== null && (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length,
-    reqEvmOnTrack:  reqProc.filter((r) => r.vem !== null && (r.vem as number) >= 0.95).length,
-  };
 
   // ── Costos y beneficios totales (REQ + Proyectos) ──
   // 3 etapas evaluadas de forma DESCENDENTE (Confirmación VPC > Aprobación VPB >
@@ -246,9 +236,9 @@ function ControlTower({ data }: { data: DashboardData }) {
   const kpiColor = kpiColorFor(kpi.ratio);
 
   return {
-    boardHealthMap, boardsWithHealth, projBoardsOffTrack, projBoardsInRisk, projBoardsOnTrack,
+    boardHealthMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
-    G, totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
+    totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
@@ -258,6 +248,17 @@ function ControlTower({ data }: { data: DashboardData }) {
 
   return (
     <div>
+      {/* Saludo + acceso directo a la campanita de notificaciones (arriba de todo). */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-5" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+        <span className="text-xl font-bold text-[var(--text-primary)]">
+          Hola{greetName ? `, ${greetName}` : ""} 👋
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[0.85rem] font-semibold text-[var(--text-secondary)]">Mira las acciones pendientes</span>
+          <NotificationsBell />
+        </div>
+      </div>
+
       {/* ── Resumen: tarjetas núcleo del equipo — mismo orden que las tarjetas de PM
           y la tabla de KPI: EVM, Beneficio, Calidad de Entregas, Cumplimiento de
           Entrega, NPS. VPA Actions (fuera del KPI) queda al final. ── */}
@@ -394,30 +395,6 @@ function ControlTower({ data }: { data: DashboardData }) {
 
       </div>
 
-      {/* Bloques globales */}
-      <div className="mb-2 flex flex-wrap rounded-xl border p-5" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
-        <GlobalBlock title="Iniciativas" onClick={() => router.push("/iniciativas")} stats={[
-          [`${G.iniTotal} total`, "var(--text-primary)"],
-          [`✕ ${G.iniAtrasado} Off Track`, "#ef4444"],
-          [`⚠ ${G.iniParaHoy} At Risk`, "#f59e0b"],
-          [`✓ ${G.iniEnTiempo} On Track`, "#10b981"],
-        ]} />
-        <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
-        <GlobalBlock title="PML" onClick={() => router.push("/req")} stats={[
-          [`${G.reqTotal} total`, "var(--text-primary)"],
-          [`✕ ${G.reqEvmOffTrack} Off Track`, "#ef4444"],
-          [`⚠ ${G.reqEvmInRisk} At Risk`, "#f59e0b"],
-          [`✓ ${G.reqEvmOnTrack} On Track`, "#10b981"],
-        ]} />
-        <div className="mx-1 w-px self-stretch" style={{ background: "var(--border)" }} />
-        <GlobalBlock title="PM" onClick={() => router.push("/proyectos")} stats={[
-          [`${boardsWithHealth.length} total`, "var(--text-primary)"],
-          [`${projBoardsOffTrack} off track`, "#ef4444"],
-          [`${projBoardsInRisk} in risk`, "#f59e0b"],
-          [`${projBoardsOnTrack} on track`, "#10b981"],
-        ]} />
-      </div>
-
       {/* Portafolios por PM */}
       <div className="mb-4 mt-6 flex items-center gap-2.5">
         <h2 className="text-base font-semibold text-[var(--text-primary)]">Portafolios por PM</h2>
@@ -448,25 +425,12 @@ function ControlTower({ data }: { data: DashboardData }) {
         </div>
       )}
 
+      <WeeklyProgressChart />
+
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
       {showReprocesoDetail && <ReprocesoDetailModal rows={mainReprocesoRows} onClose={() => setShowReprocesoDetail(false)} />}
       {showEntregaDetail && <EntregaDetailModal rows={entLateRows} onClose={() => setShowEntregaDetail(false)} />}
-    </div>
-  );
-}
-
-function GlobalBlock({ title, stats, onClick }: { title: string; stats: [string, string][]; onClick: () => void }) {
-  return (
-    <div onClick={onClick} className="min-w-[200px] flex-1 cursor-pointer rounded-lg px-5 py-1.5 transition-colors hover:bg-[var(--bg-hover)]">
-      <div className="mb-2.5 text-[0.75rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-        {title} <span className="text-[0.72rem] opacity-50">→ ver dashboard</span>
-      </div>
-      <div className="flex flex-wrap items-center gap-4">
-        {stats.map(([txt, color], i) => (
-          <span key={i} className="text-[0.88rem] font-semibold" style={{ color }}>{txt}</span>
-        ))}
-      </div>
     </div>
   );
 }
