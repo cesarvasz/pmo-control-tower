@@ -11,7 +11,7 @@
 // cualquier filtro — el acordeón no guarda copia de nada.
 
 import { useState } from "react";
-import type { Costo, Unitario, PuntoProyectado, AhorroDucafast } from "@/lib/tramites";
+import type { Costo, Unitario, PuntoProyectado, AhorroDucafast, PuntoAhorro } from "@/lib/tramites";
 import { UTILIZACION_OBJETIVO, etiquetaAlcance, recorridoAlcance } from "@/lib/tramites";
 
 const usd = (n: number) =>
@@ -25,17 +25,19 @@ const usdExacto = (n: number) =>
 const num = (n: number) => Math.round(n).toLocaleString("es-GT");
 
 export default function CostoUnitario({
-  costo, unitario, ahorro, proyeccion, onSeleccionarPeriodo,
+  costo, unitario, ahorro, serieAhorro, proyeccion, onSeleccionarPeriodo,
 }: {
   costo: Costo;
   unitario: Unitario;
   ahorro: AhorroDucafast;
+  serieAhorro: PuntoAhorro[];
   proyeccion: PuntoProyectado[];
   onSeleccionarPeriodo: (clave: string) => void;
 }) {
   const [abierto, setAbierto] = useState(false);
 
   const maxCosto = Math.max(1, ...proyeccion.map((p) => p.costo));
+  const maxAhorro = Math.max(1, ...serieAhorro.filter((p) => p.disponible).map((p) => Math.abs(p.ahorro)));
   const estimados = proyeccion.filter((p) => p.estimado);
   const dif = unitario.personasActuales - unitario.personasNecesarias;
   const tramo = etiquetaAlcance(costo.alcance);
@@ -147,6 +149,45 @@ export default function CostoUnitario({
               <p className="mt-2 text-[0.7rem] text-[var(--text-muted)]">
                 Este recorte no tiene Files con y sin Ducafast a la vez — no hay con qué comparar.
               </p>
+            )}
+
+            {/* Línea de tiempo del ahorro: mismo cálculo que el número grande,
+                por mes — ver serieAhorroDucafast en lib/tramites.ts. Barra
+                gris y delgada = ese mes no tenía ambos grupos (no comparable),
+                no cero. Clic filtra al mes, igual que "Costo por mes". */}
+            {serieAhorro.length > 1 && (
+              <div className="mt-3.5 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+                <div className="mb-2 flex flex-wrap items-baseline gap-2">
+                  <span className="text-[0.72rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+                    Ahorro por mes
+                  </span>
+                  <span className="text-[0.68rem] text-[var(--text-muted)]">gris = mes sin ambos grupos</span>
+                </div>
+                <div className="table-wrap pb-1">
+                  <div className="flex min-w-max items-end gap-1" style={{ height: 110 }}>
+                    {serieAhorro.map((p) => {
+                      const alto = p.disponible ? Math.max(2, (Math.abs(p.ahorro) / maxAhorro) * 74) : 2;
+                      const color = !p.disponible ? "var(--text-disabled)" : p.ahorro >= 0 ? "var(--ok)" : "var(--bad)";
+                      return (
+                        <div key={p.clave}
+                          onClick={() => onSeleccionarPeriodo(p.clave)}
+                          title={p.disponible
+                            ? `${p.label}\n${num(p.filesConDucafast)} Files con Ducafast × (${usdExacto(p.costoPorFileSinDucafast)} sin Ducafast − ${usdExacto(p.costoPorFileConDucafast)} con Ducafast) = ${usdConSigno(p.ahorro)}`
+                            : `${p.label}\nSin Files con y sin Ducafast a la vez — no comparable`}
+                          className="flex cursor-pointer flex-col items-center justify-end" style={{ width: 52 }}>
+                          <span className="mb-0.5 tabular-nums text-[0.58rem] font-bold"
+                            style={{ color: p.disponible ? "var(--text-secondary)" : "var(--text-disabled)" }}>
+                            {p.disponible ? usdConSigno(p.ahorro) : "—"}
+                          </span>
+                          <div className="w-full rounded-t-sm transition-opacity hover:opacity-80"
+                            style={{ height: alto, background: color, opacity: p.disponible ? 0.85 : 0.5 }} />
+                          <span className="mt-1 whitespace-nowrap text-[0.6rem] text-[var(--text-muted)]">{p.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 

@@ -7,7 +7,7 @@ import {
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
   unirIntervalos, costoPorPersona, ventanaDe, contarLicencias, costoUnitario, proyectarAnio,
-  ahorroDucafast,
+  ahorroDucafast, serieAhorroDucafast,
   etiquetaAlcance, recorridoAlcance, hitosDelAlcance,
   rangoEtapas, interseccionAlcance, totalEnAlcance,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS, ALCANCE_UNITARIO,
@@ -980,6 +980,40 @@ describe("ahorroDucafast", () => {
     const a = ahorroDucafast(exps, 6, ["t1"]);
     expect(a.costoPorFileConDucafast).toBeCloseTo(6 + 1.10, 8);
     expect(a.costoPorFileSinDucafast).toBeCloseTo(6 + 5.00, 8);
+  });
+});
+
+describe("serieAhorroDucafast", () => {
+  const con = fila({ c807_file: "C1", Docalpha: "Ducafast", Usuario: "ANA", Analista: "ANA", Licencias: "1", Costo: "1.10" });
+  const sinEne = fila({ c807_file: "S1", Docalpha: "No Ducafast", Usuario: "BETO", Analista: "BETO", Licencias: "1", Costo: "5.00" });
+  // Mismo patrón de fila() (5 h hábiles, un hito por hora) pero en febrero, sin
+  // ningún File con Ducafast ese mes — para probar el punto "no comparable".
+  const sinFeb = fila({
+    c807_file: "S2", Docalpha: "No Ducafast", Usuario: "DIEGO", Analista: "DIEGO", Licencias: "1", Costo: "5.00",
+    Creado: "2026-02-02T08:00:00", DPR: "2026-02-02T09:00:00", Clasificacion_exacta: "2026-02-02T10:00:00",
+    Creacion_Pre_DUCA: "2026-02-02T11:00:00", Revision_Analista: "2026-02-02T12:00:00", Solicitar_firma_def: "2026-02-02T13:00:00",
+  });
+
+  it("agrupa por mes de creación y aplica ahorroDucafast a cada bloque", () => {
+    const exps = construirExpedientes([con, sinEne, sinFeb]);
+    const serie = serieAhorroDucafast(exps, 6);
+    expect(serie.map((p) => p.clave)).toEqual(["2026-01", "2026-02"]);
+
+    const ene = serie.find((p) => p.clave === "2026-01")!;
+    expect(ene.disponible).toBe(true);
+    expect(ene.ahorro).toBeCloseTo(3.90, 8); // mismo cálculo que ahorroDucafast, ver arriba
+
+    const feb = serie.find((p) => p.clave === "2026-02")!;
+    expect(feb.disponible).toBe(false); // ese mes solo hay Files sin Ducafast
+    expect(feb.ahorro).toBe(0);
+  });
+
+  it("cada punto coincide con ahorroDucafast sobre el recorte de ese mes", () => {
+    const exps = construirExpedientes([con, sinEne, sinFeb]);
+    const esperado = ahorroDucafast(exps.filter((e) => e.mes === "2026-01"), 6);
+    const punto = serieAhorroDucafast(exps, 6).find((p) => p.clave === "2026-01")!;
+    expect(punto.ahorro).toBeCloseTo(esperado.ahorro, 8);
+    expect(punto.costoPorFileConDucafast).toBeCloseTo(esperado.costoPorFileConDucafast, 8);
   });
 });
 

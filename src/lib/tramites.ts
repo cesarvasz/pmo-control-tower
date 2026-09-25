@@ -1471,6 +1471,44 @@ export function ahorroDucafast(
   };
 }
 
+export interface PuntoAhorro extends AhorroDucafast {
+  clave: string;
+  label: string;
+}
+
+/**
+ * Evolución del ahorro de Ducafast mes a mes (o día a día con `porDia`), para
+ * la línea de tiempo bajo "Costo por File".
+ *
+ * Agrupa por el mes de CREACIÓN del expediente (mismo criterio que el resto
+ * de las series del reporte: serieTemporal, cargaYCapacidad, el timeline de
+ * "Costo por mes") y le aplica `ahorroDucafast` a cada bloque — así cada
+ * punto es exactamente el mismo cálculo que el número grande, solo que sobre
+ * el recorte de ese periodo en vez de todo el rango filtrado. Un mes sin
+ * ambos grupos (con y sin Ducafast) sale con `disponible: false`, no en cero.
+ */
+export function serieAhorroDucafast(
+  exps: Expediente[],
+  tarifa = TARIFA_HORA_DEFECTO,
+  porDia = false,
+  alcance: EtapaKey[] = ETAPA_KEYS,
+): PuntoAhorro[] {
+  const grupos = new Map<string, Expediente[]>();
+  for (const e of exps) {
+    const k = porDia ? diaDe(e.creado) : e.mes;
+    if (!k) continue;
+    const arr = grupos.get(k);
+    if (arr) arr.push(e); else grupos.set(k, [e]);
+  }
+  return [...grupos.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([clave, lista]) => ({
+      clave,
+      label: porDia ? etiquetaDia(clave) : etiquetaMes(clave),
+      ...ahorroDucafast(lista, tarifa, alcance),
+    }));
+}
+
 function intervalosPorPersonaFiltrado(
   exps: Expediente[], incluirBots: boolean, alcance: EtapaKey[] = ETAPA_KEYS,
 ): Map<string, Intervalo[]> {
