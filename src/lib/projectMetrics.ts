@@ -20,15 +20,22 @@
 //   Fase 3, plantilla nueva ... los ITEMS de la fase; su atraso lo derivan de
 //                               SUS SUBITEMS (ver unidadAtrasada)
 //
-// ATRASO DE UNA UNIDAD
+// ATRASO DE UNA UNIDAD (usado por SPI/Calidad/Cumplimiento — campo `atrasada`)
 //   entregada (Done) ..... atrasada ⟺ Actual End > Limit Date
+//   no entregada ......... atrasada ⟺ Status = Stuck
+//                                   O (hoy > Limit Date y Status ≠ Done)
+//
+// ATRASO PARA SCOPE (campo `atrasadaScope`, 2026-09-25) — a diferencia de lo
+// de arriba, un Done NUNCA cuenta, ni siquiera si se entregó tarde: Scope
+// mide problemas VIGENTES, no historial ya cerrado.
+//   entregada (Done) ..... nunca atrasada
 //   no entregada ......... atrasada ⟺ Status = Stuck
 //                                   O (hoy > Limit Date y Status ≠ Done)
 //
 // EVM
 //   SPI   = avance real / avance plan        (CONTEO de unidades, sin dinero)
 //   CPI   = EV / PV                          (DINERO, baseline de los items)
-//   Scope = 0 si hay algún atraso · 1 si no
+//   Scope = 0 si hay algún atrasadaScope · 1 si no
 //   EVM   = (SPI + CPI + Scope) / 3
 //
 // CALIDAD DE ENTREGAS (solo fase 3) — nota por unidad:
@@ -94,6 +101,10 @@ export interface MetricUnit {
   actualEnd: Date | null;
   entregada: boolean;         // status === "Done"
   atrasada: boolean;
+  /** Atraso PARA SCOPE — igual que `atrasada` pero un Done nunca cuenta (ver
+   *  contrato arriba). Úsalo para Scope; `atrasada` sigue siendo el correcto
+   *  para SPI/Calidad/Cumplimiento. */
+  atrasadaScope: boolean;
   stuck: boolean;
   /** Días hábiles de atraso: vencidos hasta hoy si sigue abierta, o de retraso
    *  en la entrega si ya cerró tarde. 0 si no está atrasada. */
@@ -120,6 +131,16 @@ function unidadAtrasada(
   return limitDate !== null && hoy.getTime() > limitDate.getTime();
 }
 
+/** ¿Está atrasada para SCOPE? Igual que `unidadAtrasada`, salvo que un Done
+ *  NUNCA cuenta (aunque se haya entregado tarde) — pedido explícito del
+ *  usuario: "excluyamos los Done, solo toma los que estan tarde y el status
+ *  no sea Done". Scope mide problemas vigentes, no historial ya cerrado. */
+function scopeAtrasada(status: string, limitDate: Date | null, hoy: Date): boolean {
+  if (isDone(status)) return false;
+  if (isStuck(status)) return true;
+  return limitDate !== null && hoy.getTime() > limitDate.getTime();
+}
+
 function diasDeAtraso(
   status: string, limitDate: Date | null, actualEnd: Date | null, hoy: Date,
 ): number {
@@ -134,13 +155,14 @@ function diasDeAtraso(
 export function buildUnits(items: ProjItem[], plantilla: Plantilla, hoy: Date): MetricUnit[] {
   const units: MetricUnit[] = [];
 
-  const pushItem = (it: ProjItem, atrasadaOverride?: boolean, diasOverride?: number) => {
+  const pushItem = (it: ProjItem, atrasadaOverride?: boolean, atrasadaScopeOverride?: boolean, diasOverride?: number) => {
     const atrasada = atrasadaOverride ?? unidadAtrasada(it.status, it.deadline, it.endDate, hoy);
+    const atrasadaScope = atrasadaScopeOverride ?? scopeAtrasada(it.status, it.deadline, hoy);
     units.push({
       id: it.id, name: it.name, kind: "item", fase: it.grupo, band: valorStageOf(it.grupo),
       esFase3: isFase3(it.grupo), status: it.status,
       limitDate: it.deadline, actualEnd: it.endDate,
-      entregada: isDone(it.status), atrasada,
+      entregada: isDone(it.status), atrasada, atrasadaScope,
       stuck: isStuck(it.status) || (diasOverride !== undefined && it.subitems.some((s) => isStuck(s.status))),
       diasAtraso: diasOverride ?? diasDeAtraso(it.status, it.deadline, it.endDate, hoy),
       ownerId: it.id, ownerName: it.name, ownerLimitDate: it.deadline,
@@ -167,6 +189,7 @@ export function buildUnits(items: ProjItem[], plantilla: Plantilla, hoy: Date): 
           limitDate: s.deadline, actualEnd: s.actualEnd,
           entregada: isDone(s.status),
           atrasada: unidadAtrasada(s.status, s.deadline, s.actualEnd, hoy),
+          atrasadaScope: scopeAtrasada(s.status, s.deadline, hoy),
           stuck: isStuck(s.status),
           diasAtraso: diasDeAtraso(s.status, s.deadline, s.actualEnd, hoy),
           ownerId: it.id, ownerName: it.name, ownerLimitDate: it.deadline,
@@ -180,10 +203,11 @@ export function buildUnits(items: ProjItem[], plantilla: Plantilla, hoy: Date): 
     // SUBITEMS (el item es el entregable; los subitems son su pipeline).
     if (it.subitems.length === 0) { pushItem(it); continue; }
     const subsAtrasados = it.subitems.filter((s) => unidadAtrasada(s.status, s.deadline, s.actualEnd, hoy));
+    const subsAtrasadosScope = it.subitems.filter((s) => scopeAtrasada(s.status, s.deadline, hoy));
     const dias = subsAtrasados.reduce(
       (max, s) => Math.max(max, diasDeAtraso(s.status, s.deadline, s.actualEnd, hoy)), 0,
     );
-    pushItem(it, subsAtrasados.length > 0, dias);
+    pushItem(it, subsAtrasados.length > 0, subsAtrasadosScope.length > 0, dias);
   }
 
   return units;
@@ -257,7 +281,7 @@ export function calcEvm(
   const cpi = pv > 0 ? ev / pv : null;
 
   // ── Scope ──
-  const scope = total > 0 ? (units.some((u) => u.atrasada) ? 0 : 1) : null;
+  const scope = total > 0 ? (units.some((u) => u.atrasadaScope) ? 0 : 1) : null;
 
   const evm = spi !== null && cpi !== null && scope !== null ? (spi + cpi + scope) / 3 : null;
 

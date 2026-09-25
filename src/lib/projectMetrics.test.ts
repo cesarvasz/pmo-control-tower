@@ -109,6 +109,31 @@ describe("regla de atraso de una unidad", () => {
   });
 });
 
+describe("atrasadaScope — regla de atraso PARA SCOPE (un Done nunca cuenta)", () => {
+  it("entregada tarde: atrasada=true pero atrasadaScope=false (Done nunca cuenta para Scope)", () => {
+    const u = buildUnits([item({ id: "i1", status: "Done", deadline: d(-10), endDate: AYER })], "nueva", HOY);
+    expect(u[0].atrasada).toBe(true);
+    expect(u[0].atrasadaScope).toBe(false);
+  });
+  it("sin entregar y vencida: atrasadaScope=true, igual que atrasada", () => {
+    const u = buildUnits([item({ id: "i1", status: "Working on it", deadline: AYER })], "nueva", HOY);
+    expect(u[0].atrasadaScope).toBe(true);
+  });
+  it("Stuck sigue atrasando para Scope", () => {
+    const u = buildUnits([item({ id: "i1", status: "Stuck", deadline: MANANA })], "nueva", HOY);
+    expect(u[0].atrasadaScope).toBe(true);
+  });
+  it("fase 3 nueva: un item Done con subitem Done-tarde no atrasa el Scope", () => {
+    const items = [item({
+      id: "e1", grupo: "Launch | Lanzamiento", status: "Done", deadline: MANANA,
+      subitems: [sub({ id: "s1", status: "Done", deadline: d(-10), actualEnd: AYER })],
+    })];
+    const u = buildUnits(items, "nueva", HOY);
+    expect(u[0].atrasada).toBe(true);      // sigue contando para SPI/Calidad
+    expect(u[0].atrasadaScope).toBe(false); // pero no para Scope
+  });
+});
+
 describe("calcEvm", () => {
   it("SPI = avance real / avance plan (conteo, sin dinero)", () => {
     const items = [
@@ -149,6 +174,11 @@ describe("calcEvm", () => {
     expect(calcEvm(buildUnits(ok, "nueva", HOY), ok, {}, HOY).scope).toBe(1);
     const mal = [...ok, item({ id: "b", status: "Working on it", deadline: AYER })];
     expect(calcEvm(buildUnits(mal, "nueva", HOY), mal, {}, HOY).scope).toBe(0);
+  });
+
+  it("Scope: un Done entregado tarde NO cuenta como atraso (solo lo que sigue abierto/vencido o Stuck)", () => {
+    const soloDoneTarde = [item({ id: "a", status: "Done", deadline: d(-10), endDate: AYER })];
+    expect(calcEvm(buildUnits(soloDoneTarde, "nueva", HOY), soloDoneTarde, {}, HOY).scope).toBe(1);
   });
 
   it("EVM = (SPI + CPI + Scope) / 3", () => {

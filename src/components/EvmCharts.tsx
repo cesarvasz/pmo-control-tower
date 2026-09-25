@@ -13,7 +13,10 @@ import {
 
 export default function EvmCharts({ m }: { m: ProjectMetrics }) {
   const { evm, units } = m;
-  const atrasadas = units.filter((u) => u.atrasada);
+  // Scope: un Done nunca cuenta (aunque se haya entregado tarde) — mismo
+  // criterio que calcEvm, ver projectMetrics.ts. Distinto de `atrasada`
+  // (usado en la sección SPI de abajo para el badge "Entregada con atraso").
+  const atrasadas = units.filter((u) => u.atrasadaScope);
 
   return (
     <div className="flex flex-col gap-7">
