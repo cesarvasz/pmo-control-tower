@@ -7,6 +7,7 @@ import {
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
   unirIntervalos, costoPorPersona, ventanaDe, contarLicencias, costoUnitario, proyectarAnio,
+  ahorroDucafast,
   etiquetaAlcance, recorridoAlcance, hitosDelAlcance,
   rangoEtapas, interseccionAlcance, totalEnAlcance,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS, ALCANCE_UNITARIO,
@@ -929,6 +930,56 @@ describe("costoUnitario y proyección", () => {
 
   it("una serie vacía no proyecta nada", () => {
     expect(proyectarAnio([], new Date(2026, 5, 1))).toEqual([]);
+  });
+});
+
+describe("ahorroDucafast", () => {
+  // Los 3 Files usan el ciclo por defecto de `fila()` (5 h hábiles, un hito por
+  // hora) con una persona DISTINTA cada uno, para que sus intervalos no se
+  // unan entre sí y el operativo por File salga limpio: 5 h × $6 = $30. Lo que
+  // varía es el costo de licencias, así la diferencia entre grupos es exacta
+  // y no depende de aritmética de horario.
+  const con = fila({ c807_file: "C1", Docalpha: "Ducafast", Usuario: "ANA", Analista: "ANA", Licencias: "1", Costo: "1.10" });
+  const sin1 = fila({ c807_file: "S1", Docalpha: "No Ducafast", Usuario: "BETO", Analista: "BETO", Licencias: "1", Costo: "5.00" });
+  const sin2 = fila({ c807_file: "S2", Docalpha: "No Ducafast", Usuario: "CARLA", Analista: "CARLA", Licencias: "1", Costo: "5.00" });
+
+  it("Files con Ducafast × (costo por File sin Ducafast − costo por File con Ducafast)", () => {
+    const exps = construirExpedientes([con, sin1, sin2]);
+    const a = ahorroDucafast(exps, 6);
+    expect(a.filesConDucafast).toBe(1);
+    expect(a.filesSinDucafast).toBe(2);
+    expect(a.costoPorFileConDucafast).toBeCloseTo(31.10, 8); // 30 operativo + 1.10 licencias
+    expect(a.costoPorFileSinDucafast).toBeCloseTo(35, 8);    // 30 operativo + 5.00 licencias
+    expect(a.disponible).toBe(true);
+    expect(a.ahorro).toBeCloseTo(1 * (35 - 31.10), 8); // 3.90
+  });
+
+  it("responde a los filtros: solo mira los Files que ya trae el recorte", () => {
+    // Un File sin Ducafast carísimo (Cliente "OTRO") que un filtro externo
+    // dejaría fuera. Con él adentro el ahorro sale distinto; filtrado (como
+    // hace ReporteTramites al pasar `exps` ya filtrado), vuelve al de arriba.
+    const caro = fila({ c807_file: "S3", Cliente: "OTRO", Docalpha: "No Ducafast", Usuario: "DIEGO", Analista: "DIEGO", Licencias: "1", Costo: "999" });
+    const sinFiltrar = construirExpedientes([con, sin1, sin2, caro]);
+    const filtrado = filtrarExpedientes(sinFiltrar, { ...FILTROS_VACIOS, clientes: ["CLIENTE A"] });
+
+    expect(ahorroDucafast(sinFiltrar, 6).ahorro).toBeGreaterThan(300); // "caro" infla el promedio sin Ducafast
+    expect(ahorroDucafast(filtrado, 6).ahorro).toBeCloseTo(3.90, 8);   // filtrado, "caro" queda fuera
+  });
+
+  it("sin ambos grupos en el recorte no hay con qué comparar", () => {
+    const soloDucafast = construirExpedientes([con]);
+    const a = ahorroDucafast(soloDucafast, 6);
+    expect(a.disponible).toBe(false);
+    expect(a.ahorro).toBe(0);
+  });
+
+  it("respeta el alcance del filtro global de Tiempo", () => {
+    const exps = construirExpedientes([con, sin1, sin2]);
+    // Con solo T1 (1 h × $6 = $6 de operativo) el costo por File baja, pero la
+    // comparación sigue siendo posible y sigue habiendo ahorro positivo.
+    const a = ahorroDucafast(exps, 6, ["t1"]);
+    expect(a.costoPorFileConDucafast).toBeCloseTo(6 + 1.10, 8);
+    expect(a.costoPorFileSinDucafast).toBeCloseTo(6 + 5.00, 8);
   });
 });
 

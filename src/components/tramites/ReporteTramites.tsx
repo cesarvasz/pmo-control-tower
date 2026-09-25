@@ -22,7 +22,7 @@ import { fmtHHMMSS, enDiasHabiles } from "@/lib/horario";
 import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
   calcularIndicadores, composicionCiclo,
-  costoTiempo, costoUnitario, costoPorPersona, ventanaDe,
+  costoTiempo, costoUnitario, costoPorPersona, ventanaDe, ahorroDucafast,
   proyectarAnio, TARIFA_HORA_DEFECTO,
   exportarCSV,
   rangoEtapas, etiquetaAlcance, recorridoAlcance,
@@ -115,6 +115,9 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   const costoUnit = useMemo(
     () => costoTiempo(exps, tarifa, porDia, false, alcance), [exps, tarifa, porDia, alcance]);
   const unitario = useMemo(() => costoUnitario(costoUnit), [costoUnit]);
+  // Ahorro real de Ducafast: parte el MISMO recorte `exps` por e.ducafast, con
+  // la misma tarifa y el mismo alcance — ver ahorroDucafast en lib/tramites.ts.
+  const ahorro = useMemo(() => ahorroDucafast(exps, tarifa, alcance), [exps, tarifa, alcance]);
   // La proyección arranca de la última actividad medida, no de la fecha del
   // navegador: si los datos van atrasados, proyectar desde "hoy" mentiría.
   const proyeccion = useMemo(
@@ -291,7 +294,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       {/* ── Costo por File (acordeón) ── */}
       <div className="mt-5">
         <CostoUnitario
-          costo={costoUnit} unitario={unitario} proyeccion={proyeccion}
+          costo={costoUnit} unitario={unitario} ahorro={ahorro} proyeccion={proyeccion}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
         />
       </div>

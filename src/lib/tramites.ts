@@ -1419,6 +1419,58 @@ export function costoTiempo(
   };
 }
 
+// ── Ahorro de Ducafast ────────────────────────────────────────────────────
+
+export interface AhorroDucafast {
+  /** Files con tiempo medido en cada grupo — misma base que su costo por File. */
+  filesConDucafast: number;
+  filesSinDucafast: number;
+  /** "Por File" (todo incluido: horas·tarifa + licencias ÷ Files) de cada grupo. */
+  costoPorFileConDucafast: number;
+  costoPorFileSinDucafast: number;
+  /** (Files con Ducafast × costo sin Ducafast) − (Files con Ducafast × costo con
+   *  Ducafast): lo que se habría pagado por esos MISMOS Files al ritmo "sin
+   *  Ducafast", menos lo que realmente costaron. */
+  ahorro: number;
+  /** false si falta alguno de los dos grupos en el recorte — no hay con qué comparar. */
+  disponible: boolean;
+}
+
+/**
+ * Ahorro real de Ducafast dentro del recorte filtrado.
+ *
+ * Parte los MISMOS `exps` que ya trae el reporte (con todos los filtros
+ * activos, incluido el tramo de "Tiempo") en dos grupos por `e.ducafast`, y
+ * calcula el costo por File de cada uno con el mismo `costoTiempo` /
+ * `costoUnitario` que arma el resto de esta sección — así usa la misma
+ * tarifa, el mismo alcance y la misma regla de base (n = Files con tiempo
+ * medido) que el tile "Por File".
+ *
+ * El ahorro NO es la diferencia de costo total entre grupos (que depende del
+ * volumen de cada uno): es cuánto costarían los Files que SÍ pasaron por
+ * Ducafast si hubieran costado lo que cuesta un File sin Ducafast, menos lo
+ * que de verdad costaron. Si el filtro "Ducafast" deja un solo grupo en el
+ * recorte, no hay con qué comparar y `disponible` sale en false.
+ */
+export function ahorroDucafast(
+  exps: Expediente[],
+  tarifa = TARIFA_HORA_DEFECTO,
+  alcance: EtapaKey[] = ETAPA_KEYS,
+): AhorroDucafast {
+  const con = costoUnitario(costoTiempo(exps.filter((e) => e.ducafast), tarifa, false, false, alcance));
+  const sin = costoUnitario(costoTiempo(exps.filter((e) => !e.ducafast), tarifa, false, false, alcance));
+  const disponible = con.expedientes > 0 && sin.expedientes > 0;
+
+  return {
+    filesConDucafast: con.expedientes,
+    filesSinDucafast: sin.expedientes,
+    costoPorFileConDucafast: con.porExpediente,
+    costoPorFileSinDucafast: sin.porExpediente,
+    ahorro: disponible ? con.expedientes * (sin.porExpediente - con.porExpediente) : 0,
+    disponible,
+  };
+}
+
 function intervalosPorPersonaFiltrado(
   exps: Expediente[], incluirBots: boolean, alcance: EtapaKey[] = ETAPA_KEYS,
 ): Map<string, Intervalo[]> {

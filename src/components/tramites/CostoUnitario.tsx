@@ -11,22 +11,25 @@
 // cualquier filtro — el acordeón no guarda copia de nada.
 
 import { useState } from "react";
-import type { Costo, Unitario, PuntoProyectado } from "@/lib/tramites";
+import type { Costo, Unitario, PuntoProyectado, AhorroDucafast } from "@/lib/tramites";
 import { UTILIZACION_OBJETIVO, etiquetaAlcance, recorridoAlcance } from "@/lib/tramites";
 
 const usd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)} M`
     : n >= 10_000 ? `$${Math.round(n / 1000).toLocaleString("es-GT")} K`
       : `$${n.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Igual que `usd`, con signo explícito — el ahorro puede salir negativo. */
+const usdConSigno = (n: number) => (n < 0 ? `-${usd(-n)}` : usd(n));
 const usdExacto = (n: number) =>
   `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (n: number) => Math.round(n).toLocaleString("es-GT");
 
 export default function CostoUnitario({
-  costo, unitario, proyeccion, onSeleccionarPeriodo,
+  costo, unitario, ahorro, proyeccion, onSeleccionarPeriodo,
 }: {
   costo: Costo;
   unitario: Unitario;
+  ahorro: AhorroDucafast;
   proyeccion: PuntoProyectado[];
   onSeleccionarPeriodo: (clave: string) => void;
 }) {
@@ -83,7 +86,7 @@ export default function CostoUnitario({
           )}
 
           {/* Desglose del costo unitario. Cada tile trae su fórmula en el hover (title). */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {[
               { l: "Por File", v: usdExacto(unitario.porExpediente), s: "todo incluido", fuerte: true,
                 tip: `Costo por File = Operativo + Licencias (misma base)\n= ${usdExacto(unitario.operativoPorExpediente)} + ${usdExacto(unitario.licenciasPorExpediente)} = ${usdExacto(unitario.porExpediente)}\n\nNumerador = horas·tarifa + costo de licencias; denominador = ${num(unitario.expedientes)} Files con tiempo medido.` },
@@ -93,6 +96,8 @@ export default function CostoUnitario({
                 tip: `Licencias por File = costo de licencias ÷ Files medidos\n= ${usdExacto(costo.licenciasBase.costo)} ÷ ${num(unitario.expedientes)} = ${usdExacto(unitario.licenciasPorExpediente)}\n\nEl costo viene de la hoja (columna "Costo"), tomado como MÁXIMO por File (no suma) y sumado solo sobre los ${num(unitario.expedientes)} con tiempo medido — la misma base que el denominador.\n\n${costo.licenciasBase.total.toLocaleString("es-GT")} licencias · ≈ ${usdExacto(costo.licenciasBase.precioUnitario)} por licencia` },
               { l: "Files", v: num(unitario.expedientes), s: tramo ? `con ${tramo} medido` : "con tiempo medido",
                 tip: `Files con tiempo medido${tramo ? ` en ${tramo}` : ""} (n).\nEs la base del denominador: el numerador (horas + licencias) y el denominador usan este mismo conjunto para no mezclar bases.` },
+              { l: "Costo Total", v: usd(unitario.costoTotal), s: `${num(unitario.expedientes)} Files`, fuerte: true,
+                tip: `Costo Total = Por File × Files\n= ${usdExacto(unitario.porExpediente)} × ${num(unitario.expedientes)} = ${usdExacto(unitario.costoTotal)}\n\nEs el mismo numerador de "Por File" (horas·tarifa + licencias) sobre los Files con tiempo medido — no una proyección, es lo que costó este recorte.` },
             ].map((c) => (
               <div key={c.l} title={c.tip} className="cursor-help rounded-lg px-3 py-2 transition-colors hover:bg-[var(--bg-accent-soft)]" style={{ background: "var(--bg-hover)" }}>
                 <div className="flex items-center gap-1 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
@@ -103,6 +108,46 @@ export default function CostoUnitario({
                 <div className="text-[0.64rem] text-[var(--text-muted)]">{c.s}</div>
               </div>
             ))}
+          </div>
+
+          {/* Ahorro real de Ducafast: Files con Ducafast × (costo sin Ducafast −
+              costo con Ducafast), sobre el MISMO recorte filtrado — ver
+              ahorroDucafast en lib/tramites.ts. La fórmula va en el title del
+              número grande; en pantalla solo los dos costos por File contra
+              sus Files, sin párrafo. */}
+          <div className="mt-4 rounded-lg border p-3.5" style={{ borderColor: "var(--border)" }}>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-[0.8rem] font-bold text-[var(--text-primary)]">
+                Ahorro real con Ducafast{tramo ? ` · ${tramo}` : ""}
+              </span>
+              <span className="tabular-nums cursor-help text-[1.7rem] font-extrabold leading-none"
+                title={ahorro.disponible
+                  ? `${num(ahorro.filesConDucafast)} Files con Ducafast × (${usdExacto(ahorro.costoPorFileSinDucafast)} sin Ducafast − ${usdExacto(ahorro.costoPorFileConDucafast)} con Ducafast) = ${usdExacto(ahorro.ahorro)}`
+                  : undefined}
+                style={{ color: !ahorro.disponible ? "var(--text-muted)" : ahorro.ahorro >= 0 ? "var(--ok)" : "var(--bad)" }}>
+                {ahorro.disponible ? usdConSigno(ahorro.ahorro) : "—"}
+              </span>
+
+              {ahorro.disponible && (
+                <span className="ml-auto flex flex-wrap gap-2">
+                  <span className="rounded-lg px-3 py-1.5" style={{ background: "var(--bg-hover)" }}>
+                    <span className="mr-1.5 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Con Ducafast</span>
+                    <span className="tabular-nums text-[0.86rem] font-bold text-[var(--text-primary)]">{usdExacto(ahorro.costoPorFileConDucafast)}</span>
+                    <span className="ml-1 text-[0.72rem] text-[var(--text-muted)]">× {num(ahorro.filesConDucafast)} Files</span>
+                  </span>
+                  <span className="rounded-lg px-3 py-1.5" style={{ background: "var(--bg-hover)" }}>
+                    <span className="mr-1.5 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Sin Ducafast</span>
+                    <span className="tabular-nums text-[0.86rem] font-bold text-[var(--text-primary)]">{usdExacto(ahorro.costoPorFileSinDucafast)}</span>
+                    <span className="ml-1 text-[0.72rem] text-[var(--text-muted)]">× {num(ahorro.filesSinDucafast)} Files</span>
+                  </span>
+                </span>
+              )}
+            </div>
+            {!ahorro.disponible && (
+              <p className="mt-2 text-[0.7rem] text-[var(--text-muted)]">
+                Este recorte no tiene Files con y sin Ducafast a la vez — no hay con qué comparar.
+              </p>
+            )}
           </div>
 
           {/* Plantilla necesaria */}
