@@ -122,9 +122,6 @@ export default function WeeklyProgressChart() {
         <h2 className="text-base font-semibold text-[var(--text-primary)]">
           Progreso semanal del portafolio · Semana {isoWeekNumber(new Date())}
         </h2>
-        <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">
-          {snapshots.length} semana{snapshots.length !== 1 ? "s" : ""}
-        </span>
       </div>
       {snapshots.length === 0 ? (
         <p className="rounded-xl border p-5 text-center text-[0.82rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border)" }}>
