@@ -36,7 +36,7 @@ const includesAny = (name: string, needles: string[]) => {
 
 /** El Business Case (Benefit $ / Cost $) se redacta una sola vez, en el primer ítem
  *  de la fase Valuación — los steps de aprobación/gates no traen su propio monto. */
-const findBusinessCase = (items: ProjItem[]) =>
+export const findBusinessCase = (items: ProjItem[]) =>
   items.find((it) => norm(it.grupo).includes("valuacion") && norm(it.name).includes("kick off project meeting"));
 
 // ── Costo/beneficio por PM: 3 etapas, evaluación DESCENDENTE (Confirmación > Aprobación > Validación) ──

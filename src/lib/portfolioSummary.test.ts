@@ -18,7 +18,7 @@ const mkRow = (o: Partial<PortfolioProjectRow>): PortfolioProjectRow => ({
   boardId: "x", code: "", name: "Proyecto", pm: "",
   healthStatus: "on-track", healthIndex: 1, spi: 1, cpi: 1, ev: 0, pv: 0,
   isComplete: false, progressPct: 0, plannedPct: 0,
-  budgetApproved: 0, budgetSpent: 0, pctConsumed: null,
+  budgetApproved: 0, budgetSpent: 0, pctConsumed: null, valorProyecto: null,
   worstOverdueDays: 0, overdueCount: 0, avgSlipDays: 0,
   mainRisk: { label: "—", severity: "low" },
   ...o,
@@ -40,6 +40,45 @@ describe("buildPortfolioRows", () => {
     expect(r.budgetSpent).toBe(150);
     expect(r.isComplete).toBe(true);
     expect(r.mainRisk.label).toMatch(/Cerrado/);
+  });
+
+  it("valorProyecto = Benefit $ del Business Case (primer ítem de Valuación) − Cost $ del board (suma de todos los items)", () => {
+    const boards = [board({ id: "b1", name: "PM-005 | Delta", pm: "Ana" })];
+    const proj = [
+      item({ id: "bc", boardId: "b1", name: "Kick Off Project Meeting", grupo: "Valuación", status: "Done", cost: 10, benefit: 1000 }),
+      item({ id: "val", boardId: "b1", name: "VPA valida Business Case", grupo: "Valuación", status: "Done", cost: 5 }),
+      item({ id: "dev", boardId: "b1", name: "Desarrollo", grupo: "Launch", status: "Working on it", cost: 200 }),
+    ];
+    const rows = buildPortfolioRows(boards, proj, {});
+    const r = rows[0];
+    expect(r.budgetApproved).toBe(215); // 10 + 5 + 200 — TODOS los items, no solo el Business Case
+    expect(r.valorProyecto).toBe(1000 - 215); // Benefit $ del Business Case − Cost $ total
+  });
+
+  it("valorProyecto NO exige ninguna etapa VALOR alcanzada: basta con que el Business Case tenga Benefit $, aunque siga 'Working on it'", () => {
+    const boards = [board({ id: "b1", name: "PM-008 | Theta", pm: "Ana" })];
+    const proj = [
+      item({ id: "bc", boardId: "b1", name: "Kick Off Project Meeting", grupo: "Valuación", status: "Working on it", cost: 10, benefit: 1000 }),
+    ];
+    const rows = buildPortfolioRows(boards, proj, {});
+    expect(rows[0].valorProyecto).toBe(1000 - 10);
+  });
+
+  it("Benefit Type SoftSaving → valorProyecto null, aunque el proyecto tenga benefit y cost", () => {
+    const boards = [board({ id: "b1", name: "PM-006 | Epsilon", pm: "Ana", benefitType: "SoftSaving" })];
+    const proj = [
+      item({ id: "bc", boardId: "b1", name: "Kick Off Project Meeting", grupo: "Valuación", status: "Done", cost: 10, benefit: 1000 }),
+      item({ id: "val", boardId: "b1", name: "VPA valida Business Case", grupo: "Valuación", status: "Done", cost: 5 }),
+    ];
+    const rows = buildPortfolioRows(boards, proj, {});
+    expect(rows[0].valorProyecto).toBeNull();
+  });
+
+  it("sin Business Case (Kick Off Project Meeting) en el board → valorProyecto null (no se inventa un benefit)", () => {
+    const boards = [board({ id: "b1", name: "PM-007 | Zeta", pm: "Ana" })];
+    const proj = [item({ id: "i1", boardId: "b1", status: "Working on it", cost: 50 })];
+    const rows = buildPortfolioRows(boards, proj, {});
+    expect(rows[0].valorProyecto).toBeNull();
   });
 
   it("detecta atraso activo y lo refleja como riesgo principal", () => {

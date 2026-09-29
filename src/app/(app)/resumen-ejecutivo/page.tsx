@@ -52,21 +52,23 @@ function truncateWords(text: string | undefined, maxWords = 10): string {
 // ── Transformadores puros para los 2 gráficos (no tocan portfolioSummary.ts:
 // consumen su salida ya calculada — rows/delayRadar — y solo reagrupan) ────
 
-/** Dona "Portfolio Status por Valor": suma de Valor del Proyecto por Status.
+/** Dona "Portfolio Status por Valor": suma de `valorProyecto` (Benefit $ del
+ *  Business Case − Cost $ del board, ver portfolioSummary.ts) por Status.
  *  Exactamente 3 categorías (Sano/En Riesgo/Crítico, pedidas por el usuario) —
  *  un proyecto Completado se cuenta como Sano (sin riesgo abierto, mismo
  *  criterio que `mainRisk` en portfolioSummary.ts); uno sin salud calculable
  *  (Monday sin costos/fechas) se excluye del todo — nunca se le asigna un
- *  status a ojo. */
+ *  status a ojo. Un proyecto sin `valorProyecto` (SoftSaving o sin Business
+ *  Case redactado todavía) aporta $0 a su bucket, no se excluye de él. */
 interface StatusMoneySlice { key: HealthStatus; label: string; icon: string; color: string; value: number; pct: number }
 function buildStatusMoneyBreakdown(rows: PortfolioProjectRow[]): { slices: StatusMoneySlice[]; sinClasificar: number } {
   const buckets: Record<HealthStatus, number> = { "on-track": 0, "in-risk": 0, "off-track": 0 };
   let sinClasificar = 0;
   for (const r of rows) {
-    if (r.isComplete || r.healthStatus === "on-track") buckets["on-track"] += r.budgetApproved;
-    else if (r.healthStatus === "in-risk") buckets["in-risk"] += r.budgetApproved;
-    else if (r.healthStatus === "off-track") buckets["off-track"] += r.budgetApproved;
-    else sinClasificar += r.budgetApproved;
+    if (r.isComplete || r.healthStatus === "on-track") buckets["on-track"] += r.valorProyecto ?? 0;
+    else if (r.healthStatus === "in-risk") buckets["in-risk"] += r.valorProyecto ?? 0;
+    else if (r.healthStatus === "off-track") buckets["off-track"] += r.valorProyecto ?? 0;
+    else sinClasificar += r.valorProyecto ?? 0;
   }
   const total = buckets["on-track"] + buckets["in-risk"] + buckets["off-track"];
   const order: HealthStatus[] = ["on-track", "in-risk", "off-track"];
@@ -278,8 +280,7 @@ function PortfolioView({ fetchedAt, rows, totals, boardAlcance, delayRadar, onSe
                   <th>Status</th>
                   <th>Días de atraso</th>
                   <th>Responsable del atraso</th>
-                  <th>¿Culpa del PM?</th>
-                  <th>Action item de HOY</th>
+                  <th>Plan de Acción</th>
                   <th></th>
                 </tr>
               </thead>
@@ -307,7 +308,7 @@ function PortfolioView({ fetchedAt, rows, totals, boardAlcance, delayRadar, onSe
                         </div>
                       </td>
                       <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 200, wordBreak: "break-word" }}>{truncateWords(boardAlcance[r.boardId]?.alcance)}</td>
-                      <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: "var(--text-primary)" }}>{fmtMoney(r.budgetApproved)}</td>
+                      <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: "var(--text-primary)" }}>{fmtMoney(r.valorProyecto)}</td>
                       <td>
                         <span className="rounded-full px-2 py-0.5 text-[0.68rem] font-bold whitespace-nowrap" style={{ color: cfg.color, background: cfg.bg }}>
                           {cfg.icon} {cfg.label}
@@ -318,9 +319,6 @@ function PortfolioView({ fetchedAt, rows, totals, boardAlcance, delayRadar, onSe
                       </td>
                       <td style={{ fontSize: ".75rem", fontWeight: dr ? 700 : 400, whiteSpace: "nowrap", color: dr ? (RESPONSIBLE_COLOR[dr.responsable] ?? "var(--text-secondary)") : "var(--text-muted)" }}>
                         {dr?.responsable ?? "—"}
-                      </td>
-                      <td style={{ fontSize: ".75rem", fontWeight: 600, whiteSpace: "nowrap", color: !dr ? "var(--text-muted)" : dr.esCulpaPm === "Sí" ? "var(--bad)" : dr.esCulpaPm === "No" ? "var(--text-secondary)" : "var(--text-muted)" }}>
-                        {dr?.esCulpaPm ?? "—"}
                       </td>
                       <td style={{ fontSize: ".75rem", color: "var(--text-secondary)", maxWidth: 260, wordBreak: "break-word" }}>{dr?.actionItem ?? "—"}</td>
                       <td className="whitespace-nowrap text-[0.72rem] font-semibold" style={{ color: "var(--accent-light)" }}>Ver Status Card →</td>

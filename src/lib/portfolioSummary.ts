@@ -8,7 +8,7 @@ import { fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, splitBoardName } from "@/lib/proj";
 import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
 import { buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
-import { isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
+import { isFase3, isDesarrolloPorIteracionesStep, findBusinessCase } from "@/lib/dashboard";
 import { atrasoReparto } from "@/lib/delay";
 import type { HealthStatus } from "@/lib/health";
 import type { AtrasoDetalle, ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
@@ -32,6 +32,11 @@ export interface PortfolioProjectRow {
   budgetApproved: number;    // suma de Cost $ de todos los items del board
   budgetSpent: number;       // AC — costo real de lo hecho (o atrasado en curso)
   pctConsumed: number | null;
+  /** Benefit $ del Business Case (primer ítem de la fase Valuación, "Kick Off
+   *  Project Meeting") − Cost $ del board (suma de Cost $ de todos los items).
+   *  null si el proyecto es Benefit Type "SoftSaving" (ahí no aplica) o si el
+   *  board todavía no tiene ese ítem (Business Case aún no redactado). */
+  valorProyecto: number | null;
   worstOverdueDays: number;
   overdueCount: number;
   avgSlipDays: number;
@@ -80,13 +85,20 @@ export function buildPortfolioRows(
     const budgetSpent = health.ac;
     const pctConsumed = budgetApproved > 0 ? Math.round((budgetSpent / budgetApproved) * 100) : null;
 
+    // Beneficio = Benefit $ del Business Case, el primer ítem de la fase
+    // Valuación ("Kick Off Project Meeting") — se redacta una sola vez, no se
+    // suma por item ni depende de que ya se haya validado/aprobado/confirmado.
+    const bc = findBusinessCase(items);
+    const isSoftSaving = b.benefitType === "SoftSaving";
+    const valorProyecto = !isSoftSaving && bc ? bc.benefit - budgetApproved : null;
+
     const base = {
       boardId: b.id, code, name, pm: b.pm,
       healthStatus: health.healthStatus, healthIndex: health.healthIndex,
       spi: health.spi, cpi: health.cpi, ev: health.ev, pv: health.pv,
       isComplete: summary.completion.isComplete,
       progressPct: summary.progress.pct, plannedPct: calcPlannedProgress(summary.units, summary.phases),
-      budgetApproved, budgetSpent, pctConsumed,
+      budgetApproved, budgetSpent, pctConsumed, valorProyecto,
       worstOverdueDays: summary.delay.worstOverdueDays, overdueCount: summary.delay.overdueCount,
       avgSlipDays: summary.delay.avgSlipDays,
     };
@@ -236,7 +248,6 @@ export interface DelayRadarRow {
   name: string;
   diasAtraso: number;
   responsable: string;            // rol dominante, o "N/D" si no hay atribución de Fase 3
-  esCulpaPm: "Sí" | "No" | "N/D";
   actionItem: string;
 }
 
@@ -285,11 +296,10 @@ export function buildDelayRadar(
         if (top) responsable = top[0];
         if (peor) {
           const motivo = atrasoDetalles?.[peor.id]?.motivo;
-          actionItem = motivo || `Destrabar "${peor.name}" (a cargo de ${peor.responsible || "sin asignar"}).`;
+          actionItem = motivo || `Quitar atasco "${peor.name}" (a cargo de ${peor.responsible || "sin asignar"}).`;
         }
       }
-      const esCulpaPm: DelayRadarRow["esCulpaPm"] = responsable === "N/D" ? "N/D" : responsable === "PM" ? "Sí" : "No";
-      return { boardId: r.boardId, code: r.code, name: r.name, diasAtraso, responsable, esCulpaPm, actionItem };
+      return { boardId: r.boardId, code: r.code, name: r.name, diasAtraso, responsable, actionItem };
     })
     .sort((a, b) => b.diasAtraso - a.diasAtraso);
 }
