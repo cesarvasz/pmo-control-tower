@@ -31,6 +31,7 @@ import { EmptyRow, ErrorBox, Loader } from "@/components/ui";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
 import { AlcanceInput } from "@/components/AlcanceInlineEdit";
+import WeeklyProgressChart from "@/components/WeeklyProgressChart";
 import type { BoardAlcance, ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
 
 /** Status en español, para la lectura de 3 segundos de la Carátula Light
@@ -260,6 +261,13 @@ function PortfolioView({ fetchedAt, rows, totals, boardAlcance, delayRadar, onSe
           <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <PortfolioStatusDonut data={statusMoney} />
             <TopBottlenecksBar data={bottleneckRanking} />
+          </div>
+
+          {/* Histórico semanal del portafolio (mismo componente/data que Control
+              Tower, ver components/WeeklyProgressChart.tsx) — cierra la lectura
+              de 3 segundos de Salud Global con la tendencia semana a semana. */}
+          <div className="mb-4">
+            <WeeklyProgressChart />
           </div>
 
           {/* ── 2. RESUMEN EJECUTIVO GENERAL — todos los proyectos, con el
