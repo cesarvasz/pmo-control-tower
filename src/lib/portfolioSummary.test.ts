@@ -29,7 +29,7 @@ describe("buildPortfolioRows", () => {
     const boards = [board({ id: "b1", name: "PM-001 | Alfa", pm: "Luis" })];
     const proj = [
       item({ id: "i1", boardId: "b1", status: "Done", cost: 100 }),
-      item({ id: "i2", boardId: "b1", status: "Done", cost: 50 }),
+      item({ id: "i2", boardId: "b1", grupo: "Operación", status: "Done", cost: 50 }),
     ];
     const rows = buildPortfolioRows(boards, proj, {});
     expect(rows).toHaveLength(1);

@@ -360,21 +360,31 @@ export function calcCompletionEstimate(units: WorkUnit[], worstOverdueDays: numb
   const t = today();
   const pending = units.filter((u) => u.status !== "Done");
 
-  if (units.length > 0 && pending.length === 0) {
-    const finishes = units.map((u) => u.actualEnd).filter((d): d is Date => d !== null);
-    const actualFinish = finishes.length ? new Date(Math.max(...finishes.map((d) => d.getTime()))) : null;
-    return { isComplete: true, actualFinish, plannedFinish: null, estimatedFinish: actualFinish, scheduleSlipDays: 0 };
-  }
-
   // Plantilla vieja: "Cierre VMO (OP) del proyecto" (Fase 5) fija el cierre plan
   // directamente — reemplaza el máximo de Fase 4 (que sigue siendo el criterio
   // para la plantilla nueva, donde ese item no existe). Ver isCierreVmoStep.
   // Siempre a nivel ITEM (stepName/stepDeadline) — un hito no define el cierre
   // del proyecto ni de la fase, solo su propio item padre.
   const cierreVmo = units.find((u) => isCierreVmoStep(u.stepName))?.stepDeadline ?? null;
+  const fase4Units = units.filter((u) => isFase4(u.grupo));
+  const fase4Deadlines = fase4Units.map((u) => u.stepDeadline).filter((d): d is Date => d !== null);
+  // El proyecto solo puede estar "completado" si ya llegó a su fase de cierre
+  // (existe al menos un item de Operación/Fase 4, con o sin deadline propio, o
+  // el step "Cierre VMO" de la plantilla vieja). Que todo lo que EXISTE hoy en
+  // Monday esté Done no basta: un proyecto en Launch cuyas fases de Operación/
+  // Revisión todavía no se han creado como items pasaría esta prueba por error
+  // (PM-014) — sigue en curso, solo que sus fases finales aún no tienen filas
+  // en el board.
+  const reachedClosingPhase = cierreVmo !== null || fase4Units.length > 0;
+
+  if (units.length > 0 && pending.length === 0 && reachedClosingPhase) {
+    const finishes = units.map((u) => u.actualEnd).filter((d): d is Date => d !== null);
+    const actualFinish = finishes.length ? new Date(Math.max(...finishes.map((d) => d.getTime()))) : null;
+    return { isComplete: true, actualFinish, plannedFinish: null, estimatedFinish: actualFinish, scheduleSlipDays: 0 };
+  }
+
   let plannedFinish = cierreVmo;
   if (!plannedFinish) {
-    const fase4Deadlines = units.filter((u) => isFase4(u.grupo)).map((u) => u.stepDeadline).filter((d): d is Date => d !== null);
     if (!fase4Deadlines.length) {
       return { isComplete: false, actualFinish: null, plannedFinish: null, estimatedFinish: null, scheduleSlipDays: 0 };
     }

@@ -294,15 +294,27 @@ describe("calcAtrasoActualDias (unión de días hábiles atrasados, no la suma n
 });
 
 describe("calcCompletionEstimate", () => {
-  it("todo Done → isComplete=true, estimatedFinish = fecha real más tardía", () => {
+  it("todo Done Y ya llegó a Fase 4 (Operación) → isComplete=true, estimatedFinish = fecha real más tardía", () => {
     const units = flattenBoardUnits([
-      item({ id: "1", status: "Done", endDate: new Date(2026, 0, 10) }),
-      item({ id: "2", status: "Done", endDate: new Date(2026, 0, 20) }),
+      item({ id: "1", grupo: "Valuación", status: "Done", endDate: new Date(2026, 0, 10) }),
+      item({ id: "2", grupo: "Operación", status: "Done", endDate: new Date(2026, 0, 20) }),
     ]);
     const c = calcCompletionEstimate(units, 0);
     expect(c.isComplete).toBe(true);
     expect(c.actualFinish).toEqual(new Date(2026, 0, 20));
     expect(c.estimatedFinish).toEqual(new Date(2026, 0, 20));
+  });
+
+  it("todo Done pero TODAVÍA no llegó a Fase 4/Cierre VMO (como PM-014: Operación y Revisión ni existen aún en Monday) → isComplete=false, no 'Completado' por error", () => {
+    const units = flattenBoardUnits([
+      item({ id: "1", grupo: "Valuación", status: "Done" }),
+      item({ id: "2", grupo: "Aprobación", status: "Done" }),
+      item({ id: "3", grupo: "Launch | Lanzamiento", status: "Done" }),
+    ]);
+    const c = calcCompletionEstimate(units, 0);
+    expect(c.isComplete).toBe(false);
+    expect(c.plannedFinish).toBeNull();
+    expect(c.estimatedFinish).toBeNull();
   });
 
   it("con pendientes y sin atraso histórico → estimatedFinish = fin planificado de Fase 4 (Operación)", () => {
