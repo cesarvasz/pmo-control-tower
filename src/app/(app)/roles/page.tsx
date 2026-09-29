@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useGroups } from "@/context/GroupsContext";
 import { authedFetch } from "@/lib/api";
 import type { Permissions, Role } from "@/lib/permissions";
-import { ACTIONS, PAGES, resolvePermissions, withCatalog } from "@/lib/registry";
+import { ACTIONS, canSeePage, PAGES, resolvePermissions, withCatalog } from "@/lib/registry";
 import Modal from "@/components/Modal";
 import { ErrorBox, Loader, SectionHeader } from "@/components/ui";
 
@@ -124,7 +124,13 @@ export default function RolesPage() {
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
         {roles.map((r) => {
           const eff = resolvePermissions(r.permissions, groups);
-          const pages = PAGES.filter((p) => eff.pages[p.key]);
+          // Solo páginas de contenido (sin requiredAction): las de administración
+          // se rigen por "Puede hacer", no tiene sentido listarlas como ve/no ve.
+          // canSeePage (no el mapa crudo eff.pages) porque las públicas (VALOR,
+          // Desarrollo Timeliness, Visor) se ven siempre, tengan o no el checkbox.
+          const contentPages = PAGES.filter((p) => !p.requiredAction);
+          const pages = contentPages.filter((p) => canSeePage(eff, p));
+          const hiddenPages = contentPages.filter((p) => !canSeePage(eff, p));
           const acts = ACTIONS.filter((a) => eff.actions[a.key]);
           const grantedGroups = groups.filter((g) => r.permissions.groups?.[g.id]);
           return (
@@ -153,6 +159,10 @@ export default function RolesPage() {
               <div>
                 <div className="mb-1 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Puede ver</div>
                 <div className="text-[0.8rem] text-[var(--text-secondary)]">{pages.length ? pages.map((p) => p.label).join(", ") : <span className="text-[var(--text-disabled)]">—</span>}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">No ve</div>
+                <div className="text-[0.8rem] text-[var(--text-disabled)]">{hiddenPages.length ? hiddenPages.map((p) => p.label).join(", ") : "—"}</div>
               </div>
               <div>
                 <div className="mb-1 text-[0.68rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Puede hacer</div>
