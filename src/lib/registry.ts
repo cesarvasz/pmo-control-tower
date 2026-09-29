@@ -84,6 +84,14 @@ export function pathToPageKey(pathname: string): string | null {
   return CONTENT_PAGES.find((p) => p.href === pathname)?.key ?? null;
 }
 
+/** ¿El usuario con estos permisos puede ver esta página? Misma regla usada
+ *  por el sidebar y por el gating de (app)/layout.tsx. */
+export function canSeePage(perms: Permissions | undefined, page: PageDef): boolean {
+  if (page.public) return true;
+  if (page.requiredAction) return !!perms?.actions?.[page.requiredAction];
+  return !!perms?.pages?.[page.key];
+}
+
 // ── Resolución: aplana los grupos concedidos a sus páginas ─────────────
 export function resolvePermissions(stored: Permissions, groups: Group[]): Permissions {
   const pages = { ...stored.pages };
@@ -106,19 +114,12 @@ export type NavNode =
  * Primero van las páginas sueltas, luego los grupos.
  */
 export function buildNav(perms: Permissions | undefined, groups: Group[]): NavNode[] {
-  const canSee = (p: PageDef) =>
-    p.public
-      ? true
-      : p.requiredAction
-        ? !!perms?.actions?.[p.requiredAction]
-        : !!perms?.pages?.[p.key];
-
   const nodes: NavNode[] = [];
   const grouped = new Set(groups.flatMap((g) => g.pageKeys));
 
   // Páginas sueltas primero.
   for (const p of PAGES) {
-    if (!grouped.has(p.key) && canSee(p)) {
+    if (!grouped.has(p.key) && canSeePage(perms, p)) {
       nodes.push({ type: "item", item: { href: p.href, label: p.label, icon: p.icon } });
     }
   }
@@ -128,7 +129,7 @@ export function buildNav(perms: Permissions | undefined, groups: Group[]): NavNo
     const items: NavLeaf[] = [];
     for (const key of g.pageKeys) {
       const p = pageByKey(key);
-      if (p && canSee(p)) items.push({ href: p.href, label: p.label, icon: p.icon });
+      if (p && canSeePage(perms, p)) items.push({ href: p.href, label: p.label, icon: p.icon });
     }
     if (items.length) nodes.push({ type: "group", key: g.id, label: g.name, icon: g.icon, items });
   }

@@ -5,7 +5,7 @@ import { useMe } from "@/context/PermissionsContext";
 import { useGroups } from "@/context/GroupsContext";
 import { authedFetch } from "@/lib/api";
 import type { AppUser, Role } from "@/lib/permissions";
-import { ACTIONS, PAGES, resolvePermissions } from "@/lib/registry";
+import { ACTIONS, canSeePage, PAGES, resolvePermissions } from "@/lib/registry";
 import { ErrorBox, Loader, SectionHeader } from "@/components/ui";
 
 export default function UsuariosPage() {
@@ -44,6 +44,11 @@ export default function UsuariosPage() {
     setDirty((s) => new Set(s).add(uid));
   };
 
+  const changeDefaultPage = (uid: string, defaultPage: string) => {
+    setUsers((list) => list.map((u) => (u.uid === uid ? { ...u, defaultPage: defaultPage || null } : u)));
+    setDirty((s) => new Set(s).add(uid));
+  };
+
   const save = async (u: AppUser) => {
     setSavingUid(u.uid);
     setError(null);
@@ -51,7 +56,7 @@ export default function UsuariosPage() {
       const res = await authedFetch(`/api/users/${u.uid}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roleId: u.roleId }),
+        body: JSON.stringify({ roleId: u.roleId, defaultPage: u.defaultPage }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
       const updated = (await res.json()) as AppUser;
@@ -90,6 +95,7 @@ export default function UsuariosPage() {
             <tr>
               <th>Usuario</th>
               <th>Rol</th>
+              <th>Página principal</th>
               <th>Acceso del rol</th>
               <th style={{ textAlign: "right" }}>Acción</th>
             </tr>
@@ -102,6 +108,9 @@ export default function UsuariosPage() {
               const eff = role ? resolvePermissions(role.permissions, groups) : null;
               const grantedPages = eff ? PAGES.filter((p) => eff.pages[p.key]).map((p) => p.label) : [];
               const grantedActions = eff ? ACTIONS.filter((a) => eff.actions[a.key]).map((a) => a.label) : [];
+              // Solo páginas de contenido que este usuario puede ver con su rol actual
+              // (sin sentido mandarlo de landing a una página a la que no tiene acceso).
+              const landingOptions = eff ? PAGES.filter((p) => p.key !== "overview" && !p.requiredAction && canSeePage(eff, p)) : [];
               return (
                 <tr key={u.uid}>
                   <td>
@@ -118,6 +127,20 @@ export default function UsuariosPage() {
                       {!u.roleId && <option value="">(sin rol)</option>}
                       {roles.map((r) => (
                         <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={u.defaultPage ?? ""}
+                      onChange={(e) => changeDefaultPage(u.uid, e.target.value)}
+                      disabled={landingOptions.length === 0}
+                      className="rounded-md border px-2 py-1 text-sm disabled:opacity-40"
+                      style={{ background: "var(--bg-base)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    >
+                      <option value="">Control Tower (por defecto)</option>
+                      {landingOptions.map((p) => (
+                        <option key={p.key} value={p.key}>{p.label}</option>
                       ))}
                     </select>
                   </td>

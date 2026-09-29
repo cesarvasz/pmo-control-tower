@@ -39,6 +39,9 @@ export interface AppUser {
   roleId: string | null;
   roleName: string;
   permissions: Permissions; // efectivos (resueltos desde el rol)
+  /** Página (key de PAGES) a la que se le redirige al entrar a "/" en vez de
+   *  Control Tower. null = sin override, usa Control Tower como siempre. */
+  defaultPage: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

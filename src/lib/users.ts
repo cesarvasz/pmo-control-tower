@@ -15,6 +15,7 @@ interface UserRecord {
   email: string;
   displayName: string;
   roleId: string | null;
+  defaultPage: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -25,6 +26,7 @@ function dataToRecord(uid: string, d: FirebaseFirestore.DocumentData): UserRecor
     email: d.email ?? "",
     displayName: d.displayName ?? d.email ?? "",
     roleId: d.roleId ?? null,
+    defaultPage: d.defaultPage ?? null,
     createdAt: d.createdAt ?? undefined,
     updatedAt: d.updatedAt ?? undefined,
   };
@@ -75,6 +77,7 @@ function recordToAppUserSync(
     roleName,
     // Permisos EFECTIVOS: los grupos concedidos se aplanan a sus páginas.
     permissions: resolvePermissions(permissions, groups),
+    defaultPage: rec.defaultPage,
     createdAt: rec.createdAt,
     updatedAt: rec.updatedAt,
   };
@@ -104,16 +107,30 @@ export async function listUsers(): Promise<AppUser[]> {
   return users.sort((a, b) => a.email.localeCompare(b.email));
 }
 
-export async function assignRole(uid: string, roleId: string): Promise<AppUser> {
-  const role = await getRole(roleId);
-  if (!role) throw new Error("role-not-found");
+/** Actualiza rol y/o página principal de un usuario. Ambos campos son opcionales
+ *  e independientes (solo se escribe lo que venga en el patch). */
+export async function updateUser(
+  uid: string,
+  patch: { roleId?: string; defaultPage?: string | null }
+): Promise<AppUser> {
   const db = getAdminDb();
   const ref = db.collection(COLL).doc(uid);
   if (!(await ref.get()).exists) throw new Error("user-not-found");
-  await ref.set({ roleId, updatedAt: new Date().toISOString() }, { merge: true });
+
+  const write: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (patch.roleId !== undefined) {
+    if (!(await getRole(patch.roleId))) throw new Error("role-not-found");
+    write.roleId = patch.roleId;
+  }
+  if (patch.defaultPage !== undefined) write.defaultPage = patch.defaultPage;
+
+  await ref.set(write, { merge: true });
   const rec = dataToRecord(uid, (await ref.get()).data()!);
-  const groups = await listGroups();
-  return recordToAppUserSync(rec, groups, role.name, role.permissions);
+  const [role, groups] = await Promise.all([
+    rec.roleId ? getRole(rec.roleId) : Promise.resolve(null),
+    listGroups(),
+  ]);
+  return recordToAppUserSync(rec, groups, role?.name ?? "(sin rol)", role?.permissions ?? emptyPermissions());
 }
 
 /** Verifica token + exige una acción concreta. Devuelve el solicitante. */
