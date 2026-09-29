@@ -8,6 +8,7 @@ import {
   today,
   mondayOfWeek,
   ymd,
+  isoWeekNumber,
   parseYMD,
   parseCreation,
   fmtMoney,
@@ -159,6 +160,22 @@ describe("ymd", () => {
   it("formatea YYYY-MM-DD con ceros a la izquierda", () => {
     expect(ymd(d(2026, 1, 5))).toBe("2026-01-05");
     expect(ymd(d(2025, 12, 31))).toBe("2025-12-31");
+  });
+});
+
+describe("isoWeekNumber", () => {
+  it("la semana 1 empieza el lunes que contiene el primer jueves del año", () => {
+    // jue 01-ene-2026 → semana 1; esa semana arranca el lunes 29-dic-2025.
+    expect(isoWeekNumber(d(2026, 1, 1))).toBe(1);
+    expect(isoWeekNumber(d(2025, 12, 31))).toBe(1); // mismo lunes-domingo, aunque el año calendario diga 2025
+  });
+  it("avanza de 1 en 1 cada lunes siguiente", () => {
+    expect(isoWeekNumber(d(2026, 1, 5))).toBe(2);  // lunes siguiente
+    expect(isoWeekNumber(d(2026, 1, 9))).toBe(2);  // viernes, misma semana
+    expect(isoWeekNumber(d(2026, 1, 12))).toBe(3); // otro lunes más
+  });
+  it("cuenta correctamente bien entrado el año", () => {
+    expect(isoWeekNumber(d(2026, 3, 2))).toBe(10); // 9 lunes después del 29-dic-2025
   });
 });
 

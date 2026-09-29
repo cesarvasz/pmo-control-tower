@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { authedFetch } from "@/lib/api";
-import { fmtMoney, parseYMD } from "@/lib/business";
+import { fmtMoney, isoWeekNumber, parseYMD } from "@/lib/business";
 import type { WeeklySnapshotDoc } from "@/types";
 
 interface MetricCfg {
@@ -28,7 +28,15 @@ const METRICS: MetricCfg[] = [
   { key: "nps", label: "NPS", color: "#f59e0b", fmt: (v) => `${Math.round(v)}` },
 ];
 
+// Título de cada punto: número de semana ISO del año (pedido del usuario:
+// "si estamos en la semana 30 y asi") — la fecha exacta queda como detalle
+// en el subtítulo del tooltip, no en el título.
 const weekLabel = (weekOf: string): string => {
+  const d = parseYMD(weekOf);
+  return d ? `Semana ${isoWeekNumber(d)}` : weekOf;
+};
+
+const weekDateLabel = (weekOf: string): string => {
   const d = parseYMD(weekOf);
   return d ? d.toLocaleDateString("es-GT", { day: "2-digit", month: "short" }) : weekOf;
 };
@@ -39,6 +47,7 @@ function MiniTooltip({ active, payload, fmt }: { active?: boolean; payload?: { v
   return (
     <div className="rounded-lg border px-2.5 py-1.5 text-[0.72rem] shadow-lg" style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}>
       <div className="font-semibold">{weekLabel(p.payload!.weekOf)}</div>
+      <div className="text-[0.66rem] text-[var(--text-muted)]">{weekDateLabel(p.payload!.weekOf)}</div>
       <div className="text-[var(--text-secondary)]">{fmt(p.value!)}</div>
     </div>
   );
@@ -67,7 +76,14 @@ function MetricChart({ cfg, snapshots }: { cfg: MetricCfg; snapshots: WeeklySnap
       <div style={{ height: 90 }} className="mt-2">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={points} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-            <XAxis dataKey="weekOf" tickFormatter={weekLabel} tick={{ fontSize: 9, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+            <XAxis
+              dataKey="weekOf"
+              tickFormatter={(weekOf: string) => { const d = parseYMD(weekOf); return d ? String(isoWeekNumber(d)) : weekOf; }}
+              tick={{ fontSize: 9, fill: "var(--text-muted)" }}
+              axisLine={false}
+              tickLine={false}
+              interval="preserveStartEnd"
+            />
             <YAxis hide domain={["auto", "auto"]} />
             <Tooltip content={<MiniTooltip fmt={cfg.fmt} />} />
             <Line type="monotone" dataKey="value" stroke={cfg.color} strokeWidth={2} dot={{ r: 3, fill: cfg.color, strokeWidth: 0 }} connectNulls activeDot={{ r: 4 }} />
@@ -103,7 +119,9 @@ export default function WeeklyProgressChart() {
   return (
     <div className="mt-6">
       <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-base font-semibold text-[var(--text-primary)]">Progreso semanal del portafolio</h2>
+        <h2 className="text-base font-semibold text-[var(--text-primary)]">
+          Progreso semanal del portafolio · Semana {isoWeekNumber(new Date())}
+        </h2>
         <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">
           {snapshots.length} semana{snapshots.length !== 1 ? "s" : ""}
         </span>

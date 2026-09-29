@@ -124,6 +124,19 @@ export function ymd(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Número de semana ISO 8601 (1-52/53) — la semana 1 es la que contiene el
+ *  primer jueves del año; las semanas empiezan en lunes. Usado para titular
+ *  cada punto del histórico semanal del portafolio ("Semana 30"). */
+export function isoWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = (d.getUTCDay() + 6) % 7; // lunes=0 .. domingo=6
+  d.setUTCDate(d.getUTCDate() - dayNum + 3); // jueves de esta semana
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  return 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 86400000));
+}
+
 /** Parsea "YYYY-MM-DD..." (o con timeline "YYYY-MM-DD - YYYY-MM-DD") → Date local. */
 export function parseYMD(s: string | null | undefined): Date | null {
   if (!s || !s.trim()) return null;
