@@ -139,6 +139,15 @@ describe("projProcess", () => {
     expect(r.pm).toBe("Luis");
   });
 
+  it("excluye por completo los items con Status 'Out Of Scope' (no cuentan en nada, como si no existieran)", () => {
+    const rows = projProcess("Board X", "b1", [
+      mkProj("Descartado", [pcol("Status", "Out Of Scope"), pcol("Cost $", "500")]),
+      mkProj("Vigente", [pcol("Status", "Working on it"), pcol("Cost $", "100")]),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe("Vigente");
+  });
+
   it("lee Benefit $ desde una columna espejo/formateada (display_value con $ y comas)", () => {
     const [r] = projProcess("B", "b1", [mkProj("I", [
       pcol("Status", "Done"),

@@ -111,8 +111,17 @@ function statusMeta(cv: MondayColumnValue[]): { colId: string; options: string[]
   }
 }
 
+// "Out Of Scope" (label agregada por algunos boards, ej. PM-011 | ROAD): un
+// entregable removido del alcance del proyecto — se excluye por completo
+// (ni EVM, ni Status Card, ni % de avance lo ven), como si nunca hubiera
+// existido en el board. Distinto de "Stuck": ese SÍ sigue siendo trabajo
+// pendiente (atrasado), este ya no es trabajo del proyecto.
+const isOutOfScope = (status: string) => status?.trim().toLowerCase() === "out of scope";
+
 export function projProcess(boardName: string, boardId: string, items: MondayItem[]): ProjItem[] {
-  return items.map((item): ProjItem => {
+  return items
+    .filter((item) => !isOutOfScope(colByTitle(item.column_values || [], PROJ_COL.status)))
+    .map((item): ProjItem => {
     const cv = item.column_values || [];
     const pm = colByTitle(cv, PROJ_COL.pm);
     const resp = colByTitle(cv, PROJ_COL.resp);
