@@ -12,7 +12,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { authedFetch } from "@/lib/api";
-import { ATRASO_RESPONSABLES } from "@/lib/delay";
+import { ATRASO_RESPONSABLES, foldAtrasoTramos, savedAtrasoTramos } from "@/lib/delay";
 import { atrasoRespSlot } from "@/lib/reportTheme";
 import { respToneColor } from "@/components/StatusReport";
 import type { AtrasoReparto } from "@/types";
@@ -42,17 +42,6 @@ const pillStyle = (resp: string): React.CSSProperties => {
   const c = respToneColor(atrasoRespSlot(resp));
   return { background: `${c}15`, color: c, border: `1px solid ${c}55` };
 };
-
-/** Tramos guardados de un detalle, migrando el `responsable` legacy a un tramo
- *  con todos los días. Vacío si nunca se asignó nada (no inventa "Sin asignar"). */
-function savedTramos(
-  det: { reparto?: AtrasoReparto[]; responsable?: string } | undefined,
-  totalDias: number,
-): AtrasoReparto[] {
-  if (det?.reparto?.length) return det.reparto;
-  if (det?.responsable) return [{ dias: totalDias, resp: det.responsable }];
-  return [];
-}
 
 function DiasSelect({ value, max, onChange }: { value: number; max: number; onChange: (n: number) => void }) {
   const hi = Math.max(max, value, 1);
@@ -108,21 +97,37 @@ function PendingLine({ rem, withDias, onAdd }: {
 }
 
 /** Celda "Responsable": reparto de los `totalDias` de atraso entre roles.
- *  `totalDias === 0` (solo "Stuck") → un único selector de rol sin días. */
+ *  `totalDias === 0` (solo "Stuck") → un único selector de rol sin días. Un
+ *  tramo puede marcarse 📌 "actual": los días que se sumen mañana (el atraso
+ *  crece solo, sin que nadie edite nada) se acreditan ahí de forma automática
+ *  (ver foldAtrasoTramos) — ya no hace falta reasignar cada día. Si al editar
+ *  queda un ÚNICO tramo que cubre el 100% de `totalDias`, se etiqueta solo
+ *  (sin ambigüedad: un solo responsable, ya cerrado); si queda parcial (el
+ *  usuario apenas va armando un desglose entre varios) NO se etiqueta, para no
+ *  tragarse el resto y bloquear que se sigan agregando tramos. */
 export function AtrasoRespReparto({ itemId, totalDias }: { itemId: string; totalDias: number }) {
   const { det, save } = useSaveAtraso(itemId);
   const motivo = det?.motivo ?? "";
 
-  const tramos = savedTramos(det, totalDias);
+  const base = savedAtrasoTramos(det, totalDias);
+  const tramos = foldAtrasoTramos(base, totalDias);
 
   const used = tramos.reduce((s, r) => s + r.dias, 0);
   const rem = Math.max(0, totalDias - used);
 
-  const commit = (next: AtrasoReparto[]) => save(next.filter((r) => r.resp), motivo);
+  const rawCommit = (next: AtrasoReparto[]) => save(next.filter((r) => r.resp), motivo);
+  // Autoetiqueta SOLO cuando la edición deja un único tramo balanceado al 100%
+  // (sin ambigüedad). No se aplica al togglear 📌 a mano (setActual usa rawCommit
+  // directo) para no pelearle al usuario su elección explícita.
+  const commit = (next: AtrasoReparto[]) => {
+    const filtered = next.filter((r) => r.resp);
+    rawCommit(filtered.length === 1 ? [{ ...filtered[0], actual: filtered[0].dias === totalDias }] : filtered);
+  };
   const setDias = (i: number, d: number) => commit(tramos.map((r, j) => (j === i ? { ...r, dias: d } : r)));
   const setResp = (i: number, resp: string) =>
     commit(resp ? tramos.map((r, j) => (j === i ? { ...r, resp } : r)) : tramos.filter((_, j) => j !== i));
   const addTramo = (dias: number, resp: string) => { if (resp) commit([...tramos, { dias, resp }]); };
+  const setActual = (i: number) => rawCommit(tramos.map((r, j) => ({ ...r, actual: j === i ? !r.actual : false })));
 
   const showPending = totalDias === 0 ? tramos.length === 0 : rem > 0;
 
@@ -146,6 +151,18 @@ export function AtrasoRespReparto({ itemId, totalDias }: { itemId: string; total
           >
             {ATRASO_RESPONSABLES.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
+          {totalDias > 0 && tramos.length >= 1 && (
+            <button
+              type="button"
+              className={`reparto-tag${r.actual ? " active" : ""}`}
+              title={r.actual
+                ? "Responsable actual: los días que se sumen mañana se le acreditan aquí solos. Click para quitar la etiqueta."
+                : "Marcar como responsable actual — los días nuevos se le sumarán aquí automáticamente"}
+              onClick={() => setActual(i)}
+            >
+              {r.actual ? "📌 Actual" : "Marcar actual"}
+            </button>
+          )}
           <button type="button" className="reparto-rm" title="Quitar tramo" onClick={() => setResp(i, "")}>×</button>
         </div>
       ))}
@@ -168,7 +185,7 @@ export function AtrasoRespReparto({ itemId, totalDias }: { itemId: string; total
  *  guarda y sale; Esc revierte; también guarda al perder foco. */
 export function AtrasoMotivoInput({ itemId, totalDias }: { itemId: string; totalDias: number }) {
   const { det, save } = useSaveAtraso(itemId);
-  const reparto = savedTramos(det, totalDias);
+  const reparto = savedAtrasoTramos(det, totalDias);
   const [motivo, setMotivo] = useState(det?.motivo ?? "");
   const [prev, setPrev] = useState(det?.motivo ?? "");
   const ref = useRef<HTMLTextAreaElement>(null);

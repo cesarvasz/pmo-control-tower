@@ -206,6 +206,12 @@ export type AttributionKind = "delay" | "reproceso";
 export interface AtrasoReparto {
   dias: number; // días hábiles atribuidos a este rol (entero ≥ 0)
   resp: string; // rol — ver DELAY_RESPONSIBLES en lib/delay.ts, o "Sin asignar"
+  /** Tramo "actual": a lo sumo UNO por reparto. Cuando pasan días nuevos sin
+   *  editar el reparto (el atraso crece pero nadie reasignó), ese remanente se
+   *  suma automáticamente aquí en vez de quedar sin asignar — ver
+   *  foldAtrasoTramos en lib/delay.ts. Con un solo tramo no hace falta (no hay
+   *  ambigüedad a quién sumarle). */
+  actual?: boolean;
 }
 
 // Documentación libre de un step atrasado/stuck (tabla Atrasos): el reparto de

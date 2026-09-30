@@ -19,18 +19,23 @@ export const dynamic = "force-dynamic";
 const MAX_LEN = 500;
 const MAX_TRAMOS = 12;
 
-/** Sanea el `reparto` del body: tramos con `dias` entero ≥ 0 y `resp` en el
- *  catálogo ATRASO_RESPONSABLES. Descarta lo inválido, tope MAX_TRAMOS. */
+/** Sanea el `reparto` del body: tramos con `dias` entero ≥ 0, `resp` en el
+ *  catálogo ATRASO_RESPONSABLES y `actual` opcional (a lo sumo UN tramo
+ *  marcado — si el body trae varios, solo se respeta el primero). Descarta lo
+ *  inválido, tope MAX_TRAMOS. */
 function parseReparto(v: unknown): AtrasoReparto[] {
   if (!Array.isArray(v)) return [];
   const out: AtrasoReparto[] = [];
+  let actualUsed = false;
   for (const el of v) {
     if (!el || typeof el !== "object") continue;
     const dias = Math.floor(Number((el as { dias?: unknown }).dias));
     const resp = (el as { resp?: unknown }).resp;
     if (!Number.isFinite(dias) || dias < 0 || dias > 9999) continue;
     if (!isAtrasoResp(resp)) continue;
-    out.push({ dias, resp });
+    const actual = (el as { actual?: unknown }).actual === true && !actualUsed;
+    if (actual) actualUsed = true;
+    out.push(actual ? { dias, resp, actual } : { dias, resp });
     if (out.length >= MAX_TRAMOS) break;
   }
   return out;

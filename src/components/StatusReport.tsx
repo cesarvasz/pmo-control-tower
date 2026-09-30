@@ -201,6 +201,12 @@ const CSS = `
 .pmo-report .reparto-rm{ border:0; background:none; color:var(--ink-muted); font-size:9pt;
   line-height:1; padding:0 2px; cursor:pointer; }
 .pmo-report .reparto-rm:hover{ color:var(--critical); }
+.pmo-report .reparto-tag{ font-size:6.6pt; font-weight:700; padding:1px 6px; border-radius:8px;
+  white-space:nowrap; cursor:pointer; border:1px dashed var(--neutral-line); background:#fff;
+  color:var(--ink-muted); }
+.pmo-report .reparto-tag:hover{ border-color:var(--warning); color:var(--warning); }
+.pmo-report .reparto-tag.active{ border:1px solid var(--warning); background:var(--warning-bg);
+  color:var(--warning); }
 .pmo-report .reparto-pending-role{ color:var(--ink-muted); font-weight:500;
   background:#fff; border:1px dashed var(--neutral-line); }
 .pmo-report .reparto-foot{ font-size:6.4pt; font-weight:700; margin-top:1px; }

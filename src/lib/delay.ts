@@ -23,18 +23,53 @@ const ATRASO_RESP_SET = new Set<string>(ATRASO_RESPONSABLES);
 export const isAtrasoResp = (v: unknown): v is string =>
   typeof v === "string" && ATRASO_RESP_SET.has(v);
 
-/** Reparto efectivo de los días de un atraso. Prioridad:
- *  1) `det.reparto` si tiene tramos;
- *  2) `det.responsable` legacy → un único tramo con TODOS los días;
- *  3) sin detalle → un tramo "Sin asignar".
- *  `totalDias` = días de atraso del step (0 si el step solo está "Stuck"). */
-export function atrasoReparto(
+/** Tramos GUARDADOS de un atraso, tal cual (migra el `responsable` legacy a un
+ *  único tramo con todos los días). [] si nunca se asignó nada — a diferencia
+ *  de `atrasoReparto`, no inventa un tramo "Sin asignar" (la UI editable no
+ *  quiere persistir un tramo fantasma con solo abrir la celda). */
+export function savedAtrasoTramos(
   det: { reparto?: AtrasoReparto[]; responsable?: string } | undefined,
   totalDias: number,
 ): AtrasoReparto[] {
   if (det?.reparto && det.reparto.length > 0) return det.reparto;
   if (det?.responsable) return [{ dias: totalDias, resp: det.responsable }];
-  return [{ dias: totalDias, resp: "Sin asignar" }];
+  return [];
+}
+
+/** Autocompleta el remanente (totalDias − suma de tramos guardados — crece 1
+ *  día hábil por cada día que pasa sin que nadie toque el reparto) sumándolo
+ *  al tramo marcado `actual`. SOLO con marca explícita — un único tramo NO se
+ *  autocompleta por sí solo (aunque no haya ambigüedad de A QUIÉN dárselo, sí
+ *  la hay de si el hueco es "días nuevos que le tocan" o "un desglose a medias
+ *  que el usuario todavía no termina de repartir" — ver AtrasoRespReparto en
+ *  components/AtrasoInlineEdit.tsx, que etiqueta solo automáticamente cuando
+ *  un tramo único queda balanceado al 100% al guardar). Sin ningún tramo
+ *  marcado, se devuelve tal cual, con el remanente fuera (el caller decide qué
+ *  hacer — ver `atrasoReparto` abajo). */
+export function foldAtrasoTramos(base: AtrasoReparto[], totalDias: number): AtrasoReparto[] {
+  const used = base.reduce((s, r) => s + r.dias, 0);
+  const rem = totalDias - used;
+  if (rem <= 0) return base;
+  const idx = base.findIndex((r) => r.actual);
+  if (idx === -1) return base;
+  return base.map((r, i) => (i === idx ? { ...r, dias: r.dias + rem } : r));
+}
+
+/** Reparto efectivo de los días de un atraso, para lectura/agregación (KPIs,
+ *  Carátula Light, Status Card en modo estático): `savedAtrasoTramos` +
+ *  `foldAtrasoTramos`, y si aun así queda remanente (2+ tramos sin marcar
+ *  "actual", o nunca se asignó nada) se agrega como tramo "Sin asignar" —
+ *  la suma de `dias` de todos los tramos SIEMPRE da `totalDias`.
+ *  `totalDias` = días de atraso del step (0 si el step solo está "Stuck"). */
+export function atrasoReparto(
+  det: { reparto?: AtrasoReparto[]; responsable?: string } | undefined,
+  totalDias: number,
+): AtrasoReparto[] {
+  const base = savedAtrasoTramos(det, totalDias);
+  if (base.length === 0) return [{ dias: totalDias, resp: "Sin asignar" }];
+  const folded = foldAtrasoTramos(base, totalDias);
+  const rem = totalDias - folded.reduce((s, r) => s + r.dias, 0);
+  return rem > 0 ? [...folded, { dias: rem, resp: "Sin asignar" }] : folded;
 }
 
 /** Opciones del dropdown de Reproceso: incluye "Sin reproceso" (no penaliza). */
