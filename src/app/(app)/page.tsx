@@ -8,6 +8,7 @@ import { useMe } from "@/context/PermissionsContext";
 import { calcIniPMHealth, countPlanFuturoDue } from "@/lib/ini";
 import { calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
 import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
+import { buildProjectSummary } from "@/lib/projSummary";
 import {
   reqStageAmounts, projStageAmounts, sumStageAmounts, type StageAmounts,
   pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
@@ -76,7 +77,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   // Todas las derivaciones dependen solo de los datos (estáticos entre refreshes) y del
   // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
   const {
-    boardHealthMap,
+    boardHealthMap, boardCompleteMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
     totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
@@ -95,11 +96,20 @@ function ControlTower({ data }: { data: DashboardData }) {
     buildAllProjectMetrics(projBoards, proj, { baselines: projItemBaselines }).map((m) => [m.boardId, m]),
   );
   const boardHealthMap = new Map<string, BoardHealthData>();
+  // Completado (mismo criterio que Resumen Ejecutivo: llegó a su fase de
+  // cierre, ver calcCompletionEstimate) — para ocultar del listado de la
+  // tarjeta del PM los proyectos ya terminados, sin tocar su Player/KPI (que
+  // siguen usando boardHealthMap/pmProjBoards tal cual, sin filtrar). NO es
+  // healthIndex: un proyecto activo y sano también puede mostrar 100% ahí
+  // sin haber terminado, y ese no debe ocultarse.
+  const boardCompleteMap = new Map<string, boolean>();
   projBoards.forEach((b) => {
     const m = projMetricsByBoard.get(b.id);
     if (!m) return;
-    const { ac } = calcBoardMetrics(proj.filter((r) => r.boardId === b.id), projItemBaselines);
+    const boardItems = proj.filter((r) => r.boardId === b.id);
+    const { ac } = calcBoardMetrics(boardItems, projItemBaselines);
     boardHealthMap.set(b.id, boardHealthFromMetrics(m, ac));
+    boardCompleteMap.set(b.id, buildProjectSummary(boardItems).completion.isComplete);
   });
   const boardsWithHealth = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus !== null);
 
@@ -236,7 +246,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const kpiColor = kpiColorFor(kpi.ratio);
 
   return {
-    boardHealthMap,
+    boardHealthMap, boardCompleteMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
     totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
@@ -419,7 +429,7 @@ function ControlTower({ data }: { data: DashboardData }) {
           {allPMs.map((pm) => {
             const q = encodeURIComponent(pm);
             return (
-              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} boardCompleteMap={boardCompleteMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
             );
           })}
         </div>
@@ -482,10 +492,10 @@ const PROJ_HEALTH_COLOR: Record<string, string> = {
 };
 
 function PMPortfolioCard({
-  pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[];
-  projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; calMap: CalMap;
+  projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; boardCompleteMap: Map<string, boolean>; calMap: CalMap;
   npsRecords: NpsRecord[]; delays: DelayMap; reproceso: DelayMap;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
@@ -589,13 +599,12 @@ function PMPortfolioCard({
   const player = playerPalette(pmKpiPct);
 
   // Proyectos que se listan en la sección "PM" de la tarjeta: se ocultan los
-  // que ya muestran 100% (mismo healthIndex de la línea de cada uno) — pero
+  // ya Completados (boardCompleteMap) — NO por healthIndex=100%, porque un
+  // proyecto activo y sano también puede mostrar 100% ahí sin haber terminado.
   // pmProjBoards SIN filtrar sigue siendo la base de pmProjHIs/pmProjAvgHI/
   // pmKpi más arriba, así que esos proyectos siguen contribuyendo al Player/KPI
   // aunque no aparezcan acá. El encabezado "PM (N)" cuenta lo visible, no el total.
-  const visiblePmProjBoards = pmProjBoards.filter(
-    (b) => Math.round((boardHealthMap.get(b.id)?.healthIndex ?? 0) * 100) !== 100
-  );
+  const visiblePmProjBoards = pmProjBoards.filter((b) => !boardCompleteMap.get(b.id));
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
