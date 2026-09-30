@@ -7,11 +7,11 @@
 
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { addMonth, startOfMonth } from "@/lib/dateAxis";
-import { isFase3, isFase4, isFase5, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts, shortPhaseName } from "@/lib/dashboard";
+import { isFase3, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts, shortPhaseName } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
   buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, currentPhaseIndex, enScope,
-  evaluarFaseAtraso, evaluarHitosAtraso, evaluarStepAtraso, groupFase3Units,
+  evaluarHitosAtraso, evaluarStepAtraso, groupFase3Units,
   type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { valorLateStages, valorProgress, valorStageOf } from "@/lib/valorStepper";
@@ -443,23 +443,15 @@ export function buildStatusReportDataForBoard(input: BuildStatusReportForBoardIn
 
   // Atrasos de Fase 3 (Launch): plantilla vieja → una fila por HITO atrasado del
   // step "Desarrollo por iteraciones..."; plantilla nueva → una fila por STEP.
+  // Solo Fase 3 recibe responsable/reparto — Operación/Revisión/Valuación/
+  // Aprobación quedan fuera de "Causas de atraso" (no se les asigna nada).
   const hoy = today();
   const fase3Items = items.filter((it) => isFase3(it.grupo));
   const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
-  const fase3Atrasos = desarrolloItem
+  const atrasos = (desarrolloItem
     ? evaluarHitosAtraso(desarrolloItem, hoy)
-    : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null);
-  // Operación (Fase 4) y Revisión (Fase 5): fases administrativas/checklist —
-  // no se itemiza por entregable como en Launch. Si cualquier item de la fase
-  // está atrasado, la FASE completa cuenta como una sola fila, con un único
-  // responsable asignable a la fase (no al item puntual). Antes esos atrasos
-  // no aparecían en "Causas de atraso" ni se podían atribuir (quedaban en
-  // "N/D" en el radar del portafolio). Valuación/Aprobación quedan fuera —
-  // solo Operación/Revisión reciben este tratamiento.
-  const fase4Atraso = evaluarFaseAtraso(board.id, "operacion", items.filter((it) => isFase4(it.grupo)), hoy);
-  const fase5Atraso = evaluarFaseAtraso(board.id, "revision", items.filter((it) => isFase5(it.grupo)), hoy);
-  const atrasos = [...fase3Atrasos, ...[fase4Atraso, fase5Atraso].filter((x): x is StepAtraso => x !== null)]
-    .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
+    : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null)
+  ).sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
 
   // Distribución de responsabilidad del atraso, ponderada por días.
   const responsabilidadAtraso: Responsabilidad[] = (() => {

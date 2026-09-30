@@ -7,8 +7,8 @@
 import { fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, splitBoardName } from "@/lib/proj";
 import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
-import { buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, evaluarFaseAtraso, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
-import { isFase3, isFase4, isFase5, isDesarrolloPorIteracionesStep, findBusinessCase, shortPhaseName } from "@/lib/dashboard";
+import { buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
+import { isFase3, isDesarrolloPorIteracionesStep, findBusinessCase } from "@/lib/dashboard";
 import { atrasoReparto } from "@/lib/delay";
 import type { HealthStatus } from "@/lib/health";
 import type { AtrasoDetalle, ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
@@ -233,22 +233,19 @@ export function buildCrossRisks(
 
 // ── Radar de Atascos — "¿quién es el responsable del atraso hoy?" ────────
 // Para la Carátula Light del portafolio (/resumen-ejecutivo): una fila por
-// proyecto CON atraso activo (worstOverdueDays > 0), con sus días de atraso,
-// el responsable dominante (más días atribuidos) y un action item concreto.
-// Los días de atraso se calculan igual que el Status Card (calcAtrasoActualDias:
-// unión de los períodos de atraso, sin duplicar traslapes) para que el número
-// sea el MISMO en el portafolio y al entrar al proyecto. El responsable se
-// conoce para: Fase 3/Launch (por entregable, evaluarStepAtraso/evaluarHitosAtraso)
-// y Operación/Revisión (por FASE completa, evaluarFaseAtraso — si algo de esa
-// fase está atrasado, se asigna un responsable a la fase, no al item puntual).
-// Valuación/Aprobación quedan fuera de este detalle; si el atraso vive solo ahí,
-// "N/D" sigue apareciendo (no hay dónde atribuirlo todavía).
+// proyecto con atraso ATRIBUIBLE en Fase 3/Launch (única fase con la tabla de
+// "Causas de atraso" + reparto por rol, ver projSummary/statusReportData) —
+// con sus días de atraso, el responsable dominante (más días atribuidos) y un
+// action item concreto. Un proyecto atrasado en otra fase (Operación/Revisión/
+// Valuación/Aprobación) NO aparece acá: no hay dónde atribuirlo, y mostrar un
+// "N/D" a medias es peor que no mostrar nada (la fila completa desaparece,
+// no solo el responsable).
 export interface DelayRadarRow {
   boardId: string;
   code: string;
   name: string;
   diasAtraso: number;
-  responsable: string;            // rol dominante, "Sin asignar" si nadie lo atribuyó, o "N/D" (Valuación/Aprobación)
+  responsable: string;            // rol dominante, o "Sin asignar" si nadie lo atribuyó
   actionItem: string;
 }
 
@@ -263,57 +260,37 @@ export function buildDelayRadar(
 
   return rows
     .filter((r) => !r.isComplete && r.worstOverdueDays > 0)
-    .map((r) => {
+    .map((r): DelayRadarRow | null => {
       const board = boardById.get(r.boardId);
       const items = board ? proj.filter((it) => it.boardId === board.id) : [];
       const fase3Items = items.filter((it) => isFase3(it.grupo));
       const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
-      const fase3Atrasos = desarrolloItem
+      const atrasos = desarrolloItem
         ? evaluarHitosAtraso(desarrolloItem, hoy)
         : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null);
-      // Operación (Fase 4) y Revisión (Fase 5): fases administrativas/checklist
-      // — si cualquier item de la fase está atrasado, la FASE completa cuenta
-      // como un solo "atraso" con un único responsable (no cada item por
-      // separado). Antes se ignoraban y el proyecto quedaba en "N/D" sin poder
-      // atribuirle nada, aunque el atraso fuera real y ya visible. Valuación/
-      // Aprobación quedan fuera — solo Operación/Revisión reciben esto.
-      const fase4Atraso = evaluarFaseAtraso(board?.id ?? r.boardId, "operacion", items.filter((it) => isFase4(it.grupo)), hoy);
-      const fase5Atraso = evaluarFaseAtraso(board?.id ?? r.boardId, "revision", items.filter((it) => isFase5(it.grupo)), hoy);
-      const atrasos = [...fase3Atrasos, ...[fase4Atraso, fase5Atraso].filter((x): x is StepAtraso => x !== null)];
+      if (atrasos.length === 0) return null; // sin atraso de Fase 3 → fuera del radar
 
       // Días de atraso: la UNIÓN de los períodos [deadline, hoy] de cada atraso
-      // encontrado — igual que el KPI "Atraso actual" del Status Card
+      // de Fase 3 — igual que el KPI "Atraso actual" del Status Card
       // (calcAtrasoActualDias en statusReportData.ts) — así el número que ve
       // el gerente en el portafolio es EL MISMO que ve al entrar al proyecto,
       // sin duplicar días cuando dos entregables se atrasan en paralelo.
-      let diasAtraso = r.worstOverdueDays;
-      let responsable = "N/D";
-      let actionItem = `Atender: ${r.mainRisk.label}`;
-      if (atrasos.length > 0) {
-        diasAtraso = calcAtrasoActualDias(atrasos, hoy);
-        const diasPorResp: Record<string, number> = {};
-        let peor: StepAtraso | null = null;
-        for (const a of atrasos) {
-          if (!peor || (a.daysLate ?? 0) > (peor.daysLate ?? 0)) peor = a;
-          const td = a.daysLate != null && a.daysLate > 0 ? a.daysLate : 0;
-          for (const rep of atrasoReparto(atrasoDetalles?.[a.id], td)) {
-            diasPorResp[rep.resp] = (diasPorResp[rep.resp] ?? 0) + rep.dias;
-          }
-        }
-        const top = Object.entries(diasPorResp).sort((a, b) => b[1] - a[1])[0];
-        if (top) responsable = top[0];
-        if (peor) {
-          const motivo = atrasoDetalles?.[peor.id]?.motivo;
-          const fase = shortPhaseName(peor.grupo);
-          // Operación/Revisión: `peor.name` YA ES el nombre de la fase (evaluarFaseAtraso),
-          // así que no se repite entre comillas — solo Launch itemiza por entregable.
-          const esFaseCompleta = isFase4(peor.grupo) || isFase5(peor.grupo);
-          actionItem = motivo || (esFaseCompleta
-            ? `Fase ${fase} atrasada (a cargo de ${peor.responsible || "sin asignar"}).`
-            : `Fase ${fase}: quitar atasco "${peor.name}" (a cargo de ${peor.responsible || "sin asignar"}).`);
+      const diasAtraso = calcAtrasoActualDias(atrasos, hoy);
+      const diasPorResp: Record<string, number> = {};
+      let peor: StepAtraso | null = null;
+      for (const a of atrasos) {
+        if (!peor || (a.daysLate ?? 0) > (peor.daysLate ?? 0)) peor = a;
+        const td = a.daysLate != null && a.daysLate > 0 ? a.daysLate : 0;
+        for (const rep of atrasoReparto(atrasoDetalles?.[a.id], td)) {
+          diasPorResp[rep.resp] = (diasPorResp[rep.resp] ?? 0) + rep.dias;
         }
       }
+      const top = Object.entries(diasPorResp).sort((a, b) => b[1] - a[1])[0];
+      const responsable = top ? top[0] : "Sin asignar";
+      const motivo = peor ? atrasoDetalles?.[peor.id]?.motivo : undefined;
+      const actionItem = motivo || (peor ? `Quitar atasco "${peor.name}" (a cargo de ${peor.responsible || "sin asignar"}).` : `Atender: ${r.mainRisk.label}`);
       return { boardId: r.boardId, code: r.code, name: r.name, diasAtraso, responsable, actionItem };
     })
+    .filter((x): x is DelayRadarRow => x !== null)
     .sort((a, b) => b.diasAtraso - a.diasAtraso);
 }
