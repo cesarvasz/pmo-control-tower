@@ -197,9 +197,9 @@ export function AtrasoMotivoInput({ itemId, totalDias }: { itemId: string; total
         else if (e.key === "Escape") { setMotivo(det?.motivo ?? ""); (e.target as HTMLTextAreaElement).blur(); }
       }}
       onClick={(e) => e.stopPropagation()}
-      placeholder="Motivo del atraso…"
+      placeholder="Plan de Acción…"
       maxLength={MAX_LEN}
-      title="Motivo del atraso — Enter: salto de línea · Ctrl+Enter: guardar"
+      title="Plan de Acción — Enter: salto de línea · Ctrl+Enter: guardar"
     />
   );
 }

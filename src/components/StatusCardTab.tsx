@@ -44,7 +44,7 @@ export default function StatusCardTab({ board, items }: { board: ProjBoard; item
     <div>
       <p className="mb-3 text-[0.78rem] text-[var(--text-muted)]">
         El mismo Status Card de /resumen-ejecutivo — acá en solo lectura. Para editar Alcance, Responsable
-        o Motivo de un atraso, hazlo desde ahí.
+        o Plan de Acción de un atraso, hazlo desde ahí.
       </p>
       <div
         ref={boxRef}
