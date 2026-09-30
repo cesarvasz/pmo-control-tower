@@ -378,7 +378,7 @@ function AtrasoRows({ data, renderResp, renderMotivo }: {
   renderMotivo?: (a: StatusAtraso, i: number) => ReactNode;
 }) {
   if (data.atrasos.length === 0) {
-    return <tr><td colSpan={5} style={{ color: GOOD, fontWeight: 600 }}>Sin atrasos 🎉</td></tr>;
+    return <tr><td colSpan={6} style={{ color: GOOD, fontWeight: 600 }}>Sin atrasos 🎉</td></tr>;
   }
   return (
     <>
@@ -388,6 +388,7 @@ function AtrasoRows({ data, renderResp, renderMotivo }: {
             <div className="hito-name">{a.hito}</div>
             <div className="hito-meta">{a.actividades} · comprometido {a.fecha}</div>
           </td>
+          <td className="c-fase">{a.fase}</td>
           <td className="c-acargo">{a.acargo}</td>
           <td className="c-dias"><span className="pill-dias">{a.dias}</span></td>
           <td>{renderResp ? renderResp(a, i) : <RepartoPills reparto={a.reparto} />}</td>
@@ -521,11 +522,12 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
           <table className="atrasos">
             <thead>
               <tr>
-                <th style={{ width: "21%" }}>Entregable</th>
-                <th style={{ width: "12%" }}>A cargo</th>
+                <th style={{ width: "18%" }}>Entregable</th>
+                <th style={{ width: "11%" }}>Fase</th>
+                <th style={{ width: "11%" }}>A cargo</th>
                 <th style={{ width: "9%" }}>Atraso</th>
-                <th style={{ width: "23%" }}>Responsable</th>
-                <th>Motivo</th>
+                <th style={{ width: "21%" }}>Responsable</th>
+                <th>Plan de Acción</th>
               </tr>
             </thead>
             <tbody><AtrasoRows data={data} renderResp={renderResp} renderMotivo={renderMotivo} /></tbody>

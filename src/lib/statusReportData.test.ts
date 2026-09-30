@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { buildStatusReportData, shortPhaseName } from "./statusReportData";
+import { buildStatusReportData, buildStatusReportDataForBoard, shortPhaseName } from "./statusReportData";
 import { buildProjectSummary } from "./projSummary";
 import { deriveBoardHealth, calcBoardMetrics } from "./proj";
-import { today } from "./business";
+import { businessDays, today } from "./business";
 import { evaluarStepAtraso, evaluarHitosAtraso, type StepAtraso } from "./projSummary";
 import type { ProjBoard, ProjItem, ProjSubitem } from "@/types";
 
@@ -93,6 +93,7 @@ describe("buildStatusReportData", () => {
     expect(mesa2.resp).toBe("CKU");
     expect(mesa2.motivo).toBe("Aduana pendiente");
     expect(mesa2.actividades).toContain("Stuck");
+    expect(mesa2.fase).toBe("Launch"); // shortPhaseName("Launch | Lanzamiento")
   });
 
   it("Causas de atraso: migra el `responsable` legacy a un tramo del reparto", () => {
@@ -307,5 +308,58 @@ describe("buildStatusReportData — Fase 3 plantilla nueva: varios entregables '
 
   it("xDocking (nada arrancó) → A futuro", () => {
     expect(steps.find((p) => p.name === "xDocking")).toMatchObject({ status: "future", state: "A futuro" });
+  });
+});
+
+// Operación (Fase 4) y Revisión (Fase 5) también pueden atrasarse — antes
+// buildStatusReportDataForBoard solo miraba Fase 3 (Launch), así que un
+// proyecto atrasado ahí no mostraba nada en "Causas de atraso" y no se le
+// podía asignar responsable. A diferencia de Launch (una fila por entregable),
+// acá es UNA fila por FASE completa: si cualquier item de Operación/Revisión
+// está atrasado, se asigna un responsable a la fase, no al item puntual.
+// Valuación/Aprobación quedan fuera de este detalle (siguen sin aparecer).
+describe("buildStatusReportDataForBoard — atrasos de fase completa (Operación/Revisión)", () => {
+  it("un checkpoint atrasado en Operación aparece en data.atrasos con fase 'Operación', aunque no haya nada atrasado en Launch", () => {
+    const items: ProjItem[] = [
+      item({ id: "v1", name: "Kick Off Project Meeting", grupo: "Valuación | Formulación del proyecto", status: "Done", deadline: daysFromToday(-40), endDate: daysFromToday(-40) }),
+      item({ id: "o1", name: "BAT CKU", grupo: "Operación | Implementación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-6) }),
+      item({ id: "l1", name: "MESA 2 · GT", grupo: "Launch | Lanzamiento", status: "Working on it", deadline: daysFromToday(10) }),
+    ];
+    const data = buildStatusReportDataForBoard({ board: board({}), items, now: today().getTime() });
+    const fila = data.atrasos.find((a) => a.fase === "Operación");
+    expect(fila).toBeDefined();
+    expect(fila!.hito).toBe("Operación"); // el "entregable" es el nombre de la FASE, no el item puntual (BAT CKU)
+    expect(fila!.diasNum).toBeGreaterThan(0);
+  });
+
+  it("un checkpoint atrasado en Aprobación NO aparece en 'Causas de atraso' (solo Launch/Operación/Revisión)", () => {
+    const items: ProjItem[] = [
+      item({ id: "a1", name: "Value Gate", grupo: "Aprobación | Value Gate", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-6) }),
+    ];
+    const data = buildStatusReportDataForBoard({ board: board({}), items, now: today().getTime() });
+    expect(data.atrasos).toHaveLength(0);
+  });
+
+  it("2 items atrasados en Operación → UNA sola fila (la fase), no dos", () => {
+    const items: ProjItem[] = [
+      item({ id: "o1", name: "BAT CKU", grupo: "Operación | Implementación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-6) }),
+      item({ id: "o2", name: "Cierre Go Live", grupo: "Operación | Implementación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-2) }),
+    ];
+    const data = buildStatusReportDataForBoard({ board: board({}), items, now: today().getTime() });
+    const filas = data.atrasos.filter((a) => a.fase === "Operación");
+    expect(filas).toHaveLength(1);
+    expect(filas[0].hito).toBe("Operación"); // nunca "BAT CKU" ni "Cierre Go Live"
+    expect(filas[0].diasNum).toBe(businessDays(daysFromToday(-6), today(), true)); // el peor de los 2 (6d vs 2d) sí define los días
+  });
+
+  it("los atrasos de Launch (Fase 3) siguen apareciendo junto con los de Operación/Revisión, ordenados por peor atraso", () => {
+    const items: ProjItem[] = [
+      item({ id: "o1", name: "BAT CKU", grupo: "Operación | Implementación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-3) }),
+      item({ id: "l1", name: "MESA 2 · GT", grupo: "Launch | Lanzamiento", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-10) }),
+    ];
+    const data = buildStatusReportDataForBoard({ board: board({}), items, now: today().getTime() });
+    // Launch itemiza (hito = nombre del entregable); Operación colapsa a la fase.
+    expect(data.atrasos.map((a) => a.hito)).toEqual(["MESA 2 · GT", "Operación"]); // el peor (10d) primero
+    expect(data.atrasos.find((a) => a.hito === "MESA 2 · GT")!.fase).toBe("Launch");
   });
 });

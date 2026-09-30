@@ -7,8 +7,8 @@
 import { fmtMoney, today } from "@/lib/business";
 import { calcBoardMetrics, splitBoardName } from "@/lib/proj";
 import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
-import { buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
-import { isFase3, isDesarrolloPorIteracionesStep, findBusinessCase } from "@/lib/dashboard";
+import { buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, evaluarFaseAtraso, evaluarHitosAtraso, evaluarStepAtraso, type StepAtraso } from "@/lib/projSummary";
+import { isFase3, isFase4, isFase5, isDesarrolloPorIteracionesStep, findBusinessCase, shortPhaseName } from "@/lib/dashboard";
 import { atrasoReparto } from "@/lib/delay";
 import type { HealthStatus } from "@/lib/health";
 import type { AtrasoDetalle, ProjBoard, ProjItem, ProjItemBaseline } from "@/types";
@@ -237,17 +237,18 @@ export function buildCrossRisks(
 // el responsable dominante (más días atribuidos) y un action item concreto.
 // Los días de atraso se calculan igual que el Status Card (calcAtrasoActualDias:
 // unión de los períodos de atraso, sin duplicar traslapes) para que el número
-// sea el MISMO en el portafolio y al entrar al proyecto. El responsable solo
-// se conoce para atrasos de Fase 3/Launch (única fase con la tabla de "Causas
-// de atraso" + reparto por rol, ver projSummary/statusReportData) — un
-// proyecto atrasado en otra fase, sin ese detalle, cae en "N/D" en vez de
-// inventar un responsable.
+// sea el MISMO en el portafolio y al entrar al proyecto. El responsable se
+// conoce para: Fase 3/Launch (por entregable, evaluarStepAtraso/evaluarHitosAtraso)
+// y Operación/Revisión (por FASE completa, evaluarFaseAtraso — si algo de esa
+// fase está atrasado, se asigna un responsable a la fase, no al item puntual).
+// Valuación/Aprobación quedan fuera de este detalle; si el atraso vive solo ahí,
+// "N/D" sigue apareciendo (no hay dónde atribuirlo todavía).
 export interface DelayRadarRow {
   boardId: string;
   code: string;
   name: string;
   diasAtraso: number;
-  responsable: string;            // rol dominante, o "N/D" si no hay atribución de Fase 3
+  responsable: string;            // rol dominante, "Sin asignar" si nadie lo atribuyó, o "N/D" (Valuación/Aprobación)
   actionItem: string;
 }
 
@@ -267,17 +268,24 @@ export function buildDelayRadar(
       const items = board ? proj.filter((it) => it.boardId === board.id) : [];
       const fase3Items = items.filter((it) => isFase3(it.grupo));
       const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
-      const atrasos = desarrolloItem
+      const fase3Atrasos = desarrolloItem
         ? evaluarHitosAtraso(desarrolloItem, hoy)
         : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null);
+      // Operación (Fase 4) y Revisión (Fase 5): fases administrativas/checklist
+      // — si cualquier item de la fase está atrasado, la FASE completa cuenta
+      // como un solo "atraso" con un único responsable (no cada item por
+      // separado). Antes se ignoraban y el proyecto quedaba en "N/D" sin poder
+      // atribuirle nada, aunque el atraso fuera real y ya visible. Valuación/
+      // Aprobación quedan fuera — solo Operación/Revisión reciben esto.
+      const fase4Atraso = evaluarFaseAtraso(board?.id ?? r.boardId, "operacion", items.filter((it) => isFase4(it.grupo)), hoy);
+      const fase5Atraso = evaluarFaseAtraso(board?.id ?? r.boardId, "revision", items.filter((it) => isFase5(it.grupo)), hoy);
+      const atrasos = [...fase3Atrasos, ...[fase4Atraso, fase5Atraso].filter((x): x is StepAtraso => x !== null)];
 
       // Días de atraso: la UNIÓN de los períodos [deadline, hoy] de cada atraso
-      // de Fase 3 — igual que el KPI "Atraso actual" del Status Card
+      // encontrado — igual que el KPI "Atraso actual" del Status Card
       // (calcAtrasoActualDias en statusReportData.ts) — así el número que ve
       // el gerente en el portafolio es EL MISMO que ve al entrar al proyecto,
       // sin duplicar días cuando dos entregables se atrasan en paralelo.
-      // Fallback a worstOverdueDays solo si el proyecto no tiene atrasos de
-      // Fase 3 (su atraso activo vive en otra fase, sin ese detalle).
       let diasAtraso = r.worstOverdueDays;
       let responsable = "N/D";
       let actionItem = `Atender: ${r.mainRisk.label}`;
@@ -296,7 +304,13 @@ export function buildDelayRadar(
         if (top) responsable = top[0];
         if (peor) {
           const motivo = atrasoDetalles?.[peor.id]?.motivo;
-          actionItem = motivo || `Quitar atasco "${peor.name}" (a cargo de ${peor.responsible || "sin asignar"}).`;
+          const fase = shortPhaseName(peor.grupo);
+          // Operación/Revisión: `peor.name` YA ES el nombre de la fase (evaluarFaseAtraso),
+          // así que no se repite entre comillas — solo Launch itemiza por entregable.
+          const esFaseCompleta = isFase4(peor.grupo) || isFase5(peor.grupo);
+          actionItem = motivo || (esFaseCompleta
+            ? `Fase ${fase} atrasada (a cargo de ${peor.responsible || "sin asignar"}).`
+            : `Fase ${fase}: quitar atasco "${peor.name}" (a cargo de ${peor.responsible || "sin asignar"}).`);
         }
       }
       return { boardId: r.boardId, code: r.code, name: r.name, diasAtraso, responsable, actionItem };

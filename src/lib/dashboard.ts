@@ -395,6 +395,9 @@ export const isFase3 = (grupo: string): boolean => (grupo ?? "").trim().toLowerC
  *  por eso se normaliza (sin acentos) antes de comparar. */
 export const isFase4 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("operacion");
 
+/** Fase 5 = Revisión — el cierre administrativo/ROI que sigue a Operación. */
+export const isFase5 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("revision");
+
 // La plantilla "vieja" de Fase 3 tiene siempre 4 steps fijos que son CHECKPOINTS, no
 // entregables ("Analisis técnico...", "Value Gate (BC)...", "Agenda BAT/UAT CKU" y
 // "Desarrollo por iteraciones (Hitos) / Entrega(s) CKU") — el mismo hito real aparece
@@ -416,6 +419,14 @@ export const isDesarrolloPorIteracionesStep = (name: string): boolean => DESARRO
 // calcCompletionEstimate en projSummary.ts). La plantilla nueva no tiene este item.
 const CIERRE_VMO_RE = /cierre\s*vmo\s*\(op\)\s*del\s*proyecto/i;
 export const isCierreVmoStep = (name: string): boolean => CIERRE_VMO_RE.test(name);
+
+/** Nombre corto de una fase para mostrar en una sola línea (Gantt, tabla de
+ *  Causas de atraso): la parte ANTES del primer " | " ("Valuación | Formulación
+ *  del proyecto" → "Valuación"), o el grupo tal cual si no tiene separador. */
+export function shortPhaseName(grupo: string): string {
+  const i = grupo.indexOf(" | ");
+  return (i >= 0 ? grupo.slice(0, i) : grupo).trim() || grupo.trim();
+}
 
 /** Unidad de medición de Calidad dentro de una Fase 3: SIEMPRE un ITEM (step) —
  *  ver isDesarrolloPorIteracionesStep arriba para cuáles steps de la fase miden.

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   flattenBoardUnits, calcProgress, calcPlannedProgress, buildPhaseSummaries, groupFase3Units, calcDelaySummary, calcCompletionEstimate,
-  calcAtrasoActualDias, currentPhaseIndex, phaseState, evaluarHitosAtraso, type PhaseSummary,
+  calcAtrasoActualDias, currentPhaseIndex, phaseState, evaluarFaseAtraso, evaluarHitosAtraso, type PhaseSummary,
 } from "./projSummary";
 import { businessDays, today } from "./business";
 import type { ProjItem, ProjSubitem } from "@/types";
@@ -460,5 +460,50 @@ describe("evaluarHitosAtraso (Fase 3 plantilla vieja: cada hito atrasado de \"De
   it("sin hitos en scope → []", () => {
     const desarrollo = item({ id: "d", name: "Desarrollo por iteraciones", grupo: "Launch", subitems: [sub({ id: "h1", status: "Done" })] });
     expect(evaluarHitosAtraso(desarrollo, today())).toEqual([]);
+  });
+});
+
+describe("evaluarFaseAtraso (Operación/Revisión: UNA fila por FASE, no por item)", () => {
+  const hoy = today();
+
+  it("sin nada atrasado en la fase → null", () => {
+    const items = [item({ id: "o1", name: "BAT CKU", grupo: "Operación", status: "Done" })];
+    expect(evaluarFaseAtraso("b1", "operacion", items, hoy)).toBeNull();
+  });
+
+  it("un solo item atrasado → una fila con su id sintético (fase, no item) y name = nombre de la FASE, no del item", () => {
+    const items = [
+      item({ id: "o1", name: "BAT CKU", grupo: "Operación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-6) }),
+    ];
+    const r = evaluarFaseAtraso("b1", "operacion", items, hoy);
+    expect(r).toMatchObject({ id: "fase-operacion-b1", name: "Operación", nHitos: 1 });
+    expect(r!.daysLate).toBe(businessDays(daysFromToday(-6), hoy, true));
+  });
+
+  it("2 items atrasados → colapsa a UNA fila (la del peor atraso), name sigue siendo el de la fase, no el del item que peor está", () => {
+    const items = [
+      item({ id: "o1", name: "BAT CKU", grupo: "Operación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-6) }),
+      item({ id: "o2", name: "Cierre Go Live", grupo: "Operación", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-2) }),
+    ];
+    const r = evaluarFaseAtraso("b1", "operacion", items, hoy);
+    expect(r!.name).toBe("Operación"); // nunca "BAT CKU" ni "Cierre Go Live"
+    expect(r!.daysLate).toBe(businessDays(daysFromToday(-6), hoy, true)); // el peor (6d) sí define daysLate/deadline
+    expect(r!.nHitos).toBe(2); // igual refleja cuántos entregables de la fase están afectados
+  });
+
+  it("Revisión también usa el nombre de la fase, no el del item", () => {
+    const items = [item({ id: "r1", name: "Informe ejecutivo", grupo: "Revisión", status: "Stuck" })];
+    expect(evaluarFaseAtraso("b1", "revision", items, hoy)!.name).toBe("Revisión");
+  });
+
+  it("id sintético incluye el boardId: dos boards distintos no colisionan", () => {
+    const items = [item({ id: "o1", name: "BAT CKU", grupo: "Operación", status: "Stuck" })];
+    expect(evaluarFaseAtraso("b1", "operacion", items, hoy)!.id).toBe("fase-operacion-b1");
+    expect(evaluarFaseAtraso("b2", "operacion", items, hoy)!.id).toBe("fase-operacion-b2");
+  });
+
+  it("Revisión usa su propio id sintético (fase-revision-<boardId>)", () => {
+    const items = [item({ id: "r1", name: "Informe ejecutivo", grupo: "Revisión", status: "Stuck" })];
+    expect(evaluarFaseAtraso("b1", "revision", items, hoy)!.id).toBe("fase-revision-b1");
   });
 });

@@ -7,11 +7,11 @@
 
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { addMonth, startOfMonth } from "@/lib/dateAxis";
-import { isFase3, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts } from "@/lib/dashboard";
+import { isFase3, isFase4, isFase5, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts, shortPhaseName } from "@/lib/dashboard";
 import { classifyDev } from "@/lib/devTimeline";
 import {
   buildProjectSummary, calcAtrasoActualDias, calcPlannedProgress, currentPhaseIndex, enScope,
-  evaluarHitosAtraso, evaluarStepAtraso, groupFase3Units,
+  evaluarFaseAtraso, evaluarHitosAtraso, evaluarStepAtraso, groupFase3Units,
   type PhaseSummary, type ProjectSummary, type Responsabilidad, type StepAtraso, type WorkUnit,
 } from "@/lib/projSummary";
 import { valorLateStages, valorProgress, valorStageOf } from "@/lib/valorStepper";
@@ -46,6 +46,7 @@ export interface StatusRepartoTramo {
 export interface StatusAtraso {
   id: string;                    // itemId de Monday (para editar reparto/Motivo en pantalla)
   hito: string;
+  fase: string;                  // fase del entregable (antes solo se mostraban atrasos de Launch)
   fecha: string;
   acargo: string;
   dias: string;                  // etiqueta ("11 d" | "Stuck" | "—")
@@ -99,13 +100,10 @@ const bandOf = (grupo: string): StatusBand | undefined => {
   return s >= 0 ? STAGE_LETTER[s] : undefined;
 };
 
-/** Nombre corto de una fase para la etiqueta del Gantt (una sola línea): la
- *  parte ANTES del primer " | " ("Valuación | Formulación..." → "Valuación"),
- *  o el grupo tal cual si no tiene separador. */
-export function shortPhaseName(grupo: string): string {
-  const i = grupo.indexOf(" | ");
-  return (i >= 0 ? grupo.slice(0, i) : grupo).trim() || grupo.trim();
-}
+// shortPhaseName vive en dashboard.ts (compartida con portfolioSummary.ts para
+// la tabla de Causas de atraso fuera de Fase 3) — se reexporta acá porque este
+// módulo es su consumidor histórico (Gantt, statusReportData.test.ts).
+export { shortPhaseName };
 
 const HEALTH_LABEL: Record<string, string> = { "on-track": "On Track", "in-risk": "At Risk", "off-track": "Off Track" };
 const HEALTH_TONE: Record<string, Tone> = { "on-track": "good", "in-risk": "warn", "off-track": "crit" };
@@ -351,6 +349,7 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
     return {
       id: a.id,
       hito: a.name,
+      fase: shortPhaseName(a.grupo),
       fecha: fmtDate(a.deadline),
       acargo: a.responsible || "—",
       dias: a.daysLate != null && a.daysLate > 0 ? `${a.daysLate} d` : a.stuck ? "Stuck" : "—",
@@ -442,15 +441,25 @@ export function buildStatusReportDataForBoard(input: BuildStatusReportForBoardIn
   const avancePlanificado = calcPlannedProgress(summary.units, summary.phases);
   const { code, name } = splitBoardName(board.name);
 
-  // Atrasos de Fase 3: plantilla vieja → una fila por HITO atrasado del step
-  // "Desarrollo por iteraciones..."; plantilla nueva → una fila por STEP.
+  // Atrasos de Fase 3 (Launch): plantilla vieja → una fila por HITO atrasado del
+  // step "Desarrollo por iteraciones..."; plantilla nueva → una fila por STEP.
   const hoy = today();
   const fase3Items = items.filter((it) => isFase3(it.grupo));
   const desarrolloItem = fase3Items.find((it) => isDesarrolloPorIteracionesStep(it.name));
-  const atrasos = (desarrolloItem
+  const fase3Atrasos = desarrolloItem
     ? evaluarHitosAtraso(desarrolloItem, hoy)
-    : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null)
-  ).sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
+    : fase3Items.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null);
+  // Operación (Fase 4) y Revisión (Fase 5): fases administrativas/checklist —
+  // no se itemiza por entregable como en Launch. Si cualquier item de la fase
+  // está atrasado, la FASE completa cuenta como una sola fila, con un único
+  // responsable asignable a la fase (no al item puntual). Antes esos atrasos
+  // no aparecían en "Causas de atraso" ni se podían atribuir (quedaban en
+  // "N/D" en el radar del portafolio). Valuación/Aprobación quedan fuera —
+  // solo Operación/Revisión reciben este tratamiento.
+  const fase4Atraso = evaluarFaseAtraso(board.id, "operacion", items.filter((it) => isFase4(it.grupo)), hoy);
+  const fase5Atraso = evaluarFaseAtraso(board.id, "revision", items.filter((it) => isFase5(it.grupo)), hoy);
+  const atrasos = [...fase3Atrasos, ...[fase4Atraso, fase5Atraso].filter((x): x is StepAtraso => x !== null)]
+    .sort((a, b) => (b.daysLate ?? 0) - (a.daysLate ?? 0));
 
   // Distribución de responsabilidad del atraso, ponderada por días.
   const responsabilidadAtraso: Responsabilidad[] = (() => {

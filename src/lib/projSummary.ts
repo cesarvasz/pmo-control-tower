@@ -91,6 +91,41 @@ export function evaluarHitosAtraso(it: ProjItem, hoy: Date): StepAtraso[] {
 }
 
 /**
+ * Operación y Revisión (Fase 4/5): a diferencia de Fase 3 (Launch), acá NO se
+ * itemiza por entregable — son fases administrativas/checklist donde lo que
+ * importa es que LA FASE está bloqueada, no cuál casilla puntual. Colapsa
+ * TODOS los items/hitos en scope de la fase a UNA sola fila (la del peor
+ * atraso, como referencia de qué está trabando), con un id sintético estable
+ * por board+fase para poder asignarle un responsable a la FASE completa —
+ * AtrasoRespReparto/AtrasoMotivoInput ya son genéricos por id, no necesitan
+ * que ese id corresponda a un item real de Monday. null si nada de la fase
+ * está atrasado/Stuck hoy.
+ */
+const FASE_LABEL: Record<"operacion" | "revision", string> = { operacion: "Operación", revision: "Revisión" };
+
+export function evaluarFaseAtraso(
+  boardId: string,
+  faseKey: "operacion" | "revision",
+  faseItems: ProjItem[],
+  hoy: Date,
+): StepAtraso | null {
+  const candidatos = faseItems.map((it) => evaluarStepAtraso(it, hoy)).filter((x): x is StepAtraso => x !== null);
+  if (candidatos.length === 0) return null;
+  let peor = candidatos[0];
+  for (const c of candidatos) if ((c.daysLate ?? 0) > (peor.daysLate ?? 0)) peor = c;
+  return {
+    id: `fase-${faseKey}-${boardId}`,
+    name: FASE_LABEL[faseKey], // el "entregable" de esta fila ES la fase, no el item puntual que la trabó
+    grupo: peor.grupo,
+    deadline: peor.deadline,
+    responsible: peor.responsible,
+    daysLate: peor.daysLate,
+    stuck: candidatos.some((c) => c.stuck),
+    nHitos: candidatos.length,
+  };
+}
+
+/**
  * "Atraso actual" del proyecto, en días hábiles: la UNIÓN de los períodos de
  * atraso [deadline, hoy] de cada step en `atrasos` (ver evaluarStepAtraso),
  * NO la suma de sus daysLate — si dos steps se atrasan en paralelo (ej.

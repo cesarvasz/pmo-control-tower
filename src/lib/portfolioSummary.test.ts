@@ -200,14 +200,52 @@ describe("buildDelayRadar", () => {
     expect(radar[0].diasAtraso).not.toBe(999);
   });
 
-  it("sin atrasos de Fase 3, cae a worstOverdueDays (el proyecto igual aparece en el radar)", () => {
+  it("atraso en Valuación/Aprobación (fuera de Launch/Operación/Revisión): sigue en N/D — no hay dónde atribuirlo", () => {
     const boards = [board({ id: "b2", name: "PM-021 | Epsilon", pm: "Ana" })];
     const proj = [
       item({ id: "i3", boardId: "b2", grupo: "Aprobación", name: "Checkpoint fuera de Launch", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-3) }),
     ];
     const rows = [mkRow({ boardId: "b2", code: "PM-021", name: "Epsilon", worstOverdueDays: 42 })];
     const radar = buildDelayRadar(rows, boards, proj, {});
-    expect(radar[0].diasAtraso).toBe(42);
+    expect(radar[0].diasAtraso).toBe(42); // cae al fallback, como antes
     expect(radar[0].responsable).toBe("N/D");
+  });
+
+  it("Operación (Fase 4) atrasada: cuenta como UNA fila por FASE, no por item — el responsable se asigna a la fase completa", () => {
+    const boards = [board({ id: "b3", name: "PM-022 | Zeta", pm: "Ana" })];
+    const proj = [
+      item({ id: "i4", boardId: "b3", grupo: "Operación", name: "BAT CKU", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-5) }),
+      item({ id: "i5", boardId: "b3", grupo: "Operación", name: "Cierre Go Live", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-2) }),
+    ];
+    // worstOverdueDays deliberadamente distinto: si el radar todavía cayera a
+    // ese fallback, el test lo detectaría.
+    const rows = [mkRow({ boardId: "b3", code: "PM-022", name: "Zeta", worstOverdueDays: 999 })];
+    const radar = buildDelayRadar(rows, boards, proj, {});
+    expect(radar).toHaveLength(1); // una sola fila para toda la fase, no una por item
+    expect(radar[0].diasAtraso).toBe(businessDays(daysFromToday(-5), hoy, true)); // el peor de los 2 items
+    expect(radar[0].responsable).toBe("Sin asignar"); // sin atrasoDetalles, ya no "N/D": se puede asignar
+    expect(radar[0].actionItem).toContain("Operación");
+  });
+
+  it("responsable asignado a la FASE (Operación) — no a un item puntual — se refleja en el radar", () => {
+    const boards = [board({ id: "b4", name: "PM-023 | Eta", pm: "Ana" })];
+    const proj = [
+      item({ id: "i6", boardId: "b4", grupo: "Operación", name: "Cierre operativo", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-5) }),
+    ];
+    const rows = [mkRow({ boardId: "b4", code: "PM-023", name: "Eta", worstOverdueDays: 5 })];
+    // La atribución se guarda con el id SINTÉTICO de la fase (fase-operacion-<boardId>),
+    // no con el id del item real — así lo persiste evaluarFaseAtraso/AtrasoRespReparto.
+    const radar = buildDelayRadar(rows, boards, proj, { "fase-operacion-b4": { responsable: "IT" } });
+    expect(radar[0].responsable).toBe("IT");
+  });
+
+  it("Revisión (Fase 5) atrasada también cuenta como fila por fase", () => {
+    const boards = [board({ id: "b5", name: "PM-024 | Theta", pm: "Ana" })];
+    const proj = [
+      item({ id: "i7", boardId: "b5", grupo: "Revisión", name: "Informe ejecutivo de valor", status: "Working on it", estado: "ATRASADO", deadline: daysFromToday(-12) }),
+    ];
+    const rows = [mkRow({ boardId: "b5", code: "PM-024", name: "Theta", worstOverdueDays: 12 })];
+    const radar = buildDelayRadar(rows, boards, proj, {});
+    expect(radar[0].actionItem).toContain("Revisión");
   });
 });
