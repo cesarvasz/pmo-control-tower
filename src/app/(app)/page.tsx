@@ -588,6 +588,15 @@ function PMPortfolioCard({
   // Mismo esquema de color del "Player" que la tabla de KPIs (por rango de %).
   const player = playerPalette(pmKpiPct);
 
+  // Proyectos que se listan en la sección "PM" de la tarjeta: se ocultan los
+  // que ya muestran 100% (mismo healthIndex de la línea de cada uno) — pero
+  // pmProjBoards SIN filtrar sigue siendo la base de pmProjHIs/pmProjAvgHI/
+  // pmKpi más arriba, así que esos proyectos siguen contribuyendo al Player/KPI
+  // aunque no aparezcan acá. El encabezado "PM (N)" cuenta lo visible, no el total.
+  const visiblePmProjBoards = pmProjBoards.filter(
+    (b) => Math.round((boardHealthMap.get(b.id)?.healthIndex ?? 0) * 100) !== 100
+  );
+
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
       <div className="flex items-center justify-between border-b px-[18px] py-3.5" style={{ borderColor: "var(--border)" }}>
@@ -668,13 +677,13 @@ function PMPortfolioCard({
           <Stat n={rEvmOn} color="#10b981" label="On Track" />
         </Section>
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-        <Section label={`PM (${pmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (
+        <Section label={`PM (${visiblePmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (
             <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ppc.color, background: ppc.bg }}>
               {ppc.icon} {ppc.label} · {Math.round(pmProjAvgHI * 100)}%
             </span>
           ) : undefined}>
           <div className="flex flex-col gap-1.5 pt-0.5">
-            {pmProjBoards.map((b) => {
+            {visiblePmProjBoards.map((b) => {
               const bh = boardHealthMap.get(b.id);
               const hs = bh?.healthStatus;
               const color = hs ? PROJ_HEALTH_COLOR[hs] : "#6b7280";
