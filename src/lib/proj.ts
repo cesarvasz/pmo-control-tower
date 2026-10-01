@@ -114,8 +114,11 @@ function statusMeta(cv: MondayColumnValue[]): { colId: string; options: string[]
 // "Out Of Scope" (label agregada por algunos boards, ej. PM-011 | ROAD): un
 // entregable removido del alcance del proyecto — se excluye por completo
 // (ni EVM, ni Status Card, ni % de avance lo ven), como si nunca hubiera
-// existido en el board. Distinto de "Stuck": ese SÍ sigue siendo trabajo
-// pendiente (atrasado), este ya no es trabajo del proyecto.
+// existido en el board. Se aplica tanto a items como a subitems/hitos: un
+// hito "Out Of Scope" no debe contar en el total de su fase (si no, esa
+// fase nunca llega a done===total y currentPhaseIndex la deja "en curso"
+// para siempre, ej. PM-002/Valuación). Distinto de "Stuck": ese SÍ sigue
+// siendo trabajo pendiente (atrasado), este ya no es trabajo del proyecto.
 const isOutOfScope = (status: string) => status?.trim().toLowerCase() === "out of scope";
 
 export function projProcess(boardName: string, boardId: string, items: MondayItem[]): ProjItem[] {
@@ -136,7 +139,9 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const estado = calcProjEstado(deadline);
     const { colId: statusColId, options: statusOptions } = statusMeta(cv);
 
-    const subitems = (item.subitems || []).map((sub) => {
+    const subitems = (item.subitems || [])
+      .filter((sub) => !isOutOfScope(colByTitle(sub.column_values || [], PROJ_COL.status)))
+      .map((sub) => {
       const scv = sub.column_values || [];
       const sdl = resolveDeadline(scv, FORMULA_FALLBACK_COL.subTimeline);
       const sStartDate = resolveStartDate(scv, FORMULA_FALLBACK_COL.subTimeline);

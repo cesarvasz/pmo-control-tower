@@ -148,6 +148,15 @@ describe("projProcess", () => {
     expect(rows[0].name).toBe("Vigente");
   });
 
+  it("excluye por completo los SUBITEMS con Status 'Out Of Scope' (mismo criterio que el item)", () => {
+    const [r] = projProcess("Board X", "b1", [mkProj("I", [pcol("Status", "Done")], [
+      { id: "s1", name: "Descartado", column_values: [pcol("Status", "Out Of Scope")] },
+      { id: "s2", name: "Vigente", column_values: [pcol("Status", "Done")] },
+    ])]);
+    expect(r.subitems).toHaveLength(1);
+    expect(r.subitems[0].name).toBe("Vigente");
+  });
+
   it("lee Benefit $ desde una columna espejo/formateada (display_value con $ y comas)", () => {
     const [r] = projProcess("B", "b1", [mkProj("I", [
       pcol("Status", "Done"),
