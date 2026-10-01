@@ -55,6 +55,13 @@ const fmtMoneyShort = (n: number | null | undefined): string => {
 
 const INI_HEALTH_CFG = HEALTH_CFG;
 
+// Proyectos ocultos de la VISTA del Control Tower por decisión de negocio —
+// no se excluyen de ningún cálculo (Player/KPI, EVM, Beneficio, etc.), solo
+// de las listas/tarjetas que los muestran por nombre (Value Gate, la lista
+// de proyectos de su PM, VPA Actions).
+const HIDDEN_FROM_CONTROL_TOWER = ["PM-014"];
+const isHiddenFromControlTower = (boardName: string) => HIDDEN_FROM_CONTROL_TOWER.some((code) => boardName.startsWith(code));
+
 export default function ControlTowerPage() {
   const { data, loading, error } = useData();
   if (loading && !data) return <Loader />;
@@ -76,6 +83,9 @@ function ControlTower({ data }: { data: DashboardData }) {
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tarjetas"); // vista de Portafolios por PM (default: Tarjetas)
 
   const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
+  // Para listas que muestran proyectos por nombre (Value Gate) — projBoards
+  // SIN filtrar sigue siendo la base de todos los cálculos/KPIs.
+  const visibleProjBoards = projBoards.filter((b) => !isHiddenFromControlTower(b.name));
 
   // Todas las derivaciones dependen solo de los datos (estáticos entre refreshes) y del
   // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
@@ -256,9 +266,12 @@ function ControlTower({ data }: { data: DashboardData }) {
   // Nota general del EVM de la tarjeta Value Gate: promedio simple de la
   // salud (healthIndex/vem) de TODO lo que aparece en las 3 columnas —
   // proyectos + PML — sin ponderar por tipo, para tener un solo número que
-  // resuma el estado de Valuación+Aprobación+Revisión.
+  // resuma el estado de Valuación+Aprobación+Revisión. Los proyectos ocultos
+  // de la vista (HIDDEN_FROM_CONTROL_TOWER) tampoco entran acá — el badge
+  // dice explícitamente que resume "todo lo listado abajo".
+  const hiddenBoardIdsVG = new Set(projBoards.filter((b) => isHiddenFromControlTower(b.name)).map((b) => b.id));
   const valueGateHealthValues = [
-    ...[...boardPhase125.values()].map((p) => p.healthIndex),
+    ...[...boardPhase125.entries()].filter(([id]) => !hiddenBoardIdsVG.has(id)).map(([, p]) => p.healthIndex),
     ...[...reqPhase125.values()].map((p) => p.healthIndex),
   ].filter((v): v is number => v != null);
   const valueGateAvgHealth = valueGateHealthValues.length
@@ -269,7 +282,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   // Acciones que debe realizar el VPA, con visibilidad de su estado — toda la
   // lógica (qué steps de Proyecto / qué fases de REQ cuentan) vive en
   // lib/vpaActions.ts (pura, con test).
-  const vpaActions = buildVpaActions(proj, req);
+  const vpaActions = buildVpaActions(proj, req).filter((a) => a.source !== "PM" || !isHiddenFromControlTower(a.title));
   const vpaPending = vpaActions.filter((a) => !a.done);
   const vgEnTiempo = vpaPending.filter((a) => a.estado === "EN TIEMPO").length;
   const vgHoy      = vpaPending.filter((a) => a.estado === "PARA HOY").length;
@@ -518,11 +531,11 @@ function ControlTower({ data }: { data: DashboardData }) {
             })()}
           </div>
           <div className="flex border-t" style={{ borderColor: "var(--border)" }}>
-            <ValueGateColumn label="Valuación" rows={valueGateRows("valuacion", projBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
+            <ValueGateColumn label="Valuación" rows={valueGateRows("valuacion", visibleProjBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
             <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-            <ValueGateColumn label="Aprobación" rows={valueGateRows("aprobacion", projBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
+            <ValueGateColumn label="Aprobación" rows={valueGateRows("aprobacion", visibleProjBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
             <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-            <ValueGateColumn label="Revisión" rows={valueGateRows("revision", projBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
+            <ValueGateColumn label="Revisión" rows={valueGateRows("revision", visibleProjBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
           </div>
         </div>
 
@@ -831,7 +844,7 @@ function PMPortfolioCard({
   // pmProjBoards SIN filtrar sigue siendo la base de pmProjHIs/pmProjAvgHI/
   // pmKpi más arriba, así que esos proyectos siguen contribuyendo al Player/KPI
   // aunque no aparezcan acá. El encabezado "PM (N)" cuenta lo visible, no el total.
-  const visiblePmProjBoards = pmProjBoards.filter((b) => !boardCompleteMap.get(b.id));
+  const visiblePmProjBoards = pmProjBoards.filter((b) => !boardCompleteMap.get(b.id) && !isHiddenFromControlTower(b.name));
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
