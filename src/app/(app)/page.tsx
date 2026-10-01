@@ -2,19 +2,20 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fmtMoney } from "@/lib/business";
+import { fmtMoney, today } from "@/lib/business";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { calcIniPMHealth, countPlanFuturoDue } from "@/lib/ini";
 import { calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
-import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
-import { buildProjectSummary } from "@/lib/projSummary";
+import { buildAllProjectMetrics, boardHealthFromMetrics, buildUnits, calcEvm, detectPlantilla } from "@/lib/projectMetrics";
+import { buildProjectSummary, currentPhaseIndex } from "@/lib/projSummary";
 import {
   reqStageAmounts, projStageAmounts, sumStageAmounts, type StageAmounts,
   pmWorstStatus, calcPmValue, calcPmMetrics, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
+  isFase1, isFase2, isFase5,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { healthStatusFromIndex, weightedEvm, HEALTH_CFG, type HealthStatus } from "@/lib/health";
+import { healthStatusFromIndex, weightedEvm, vemCfg, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -22,6 +23,7 @@ import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 import NpsRangesModal from "@/components/NpsRangesModal";
 import ValueGateModal from "@/components/ValueGateModal";
+import ValueGatePendingModal from "@/components/ValueGatePendingModal";
 import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
 import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
@@ -67,6 +69,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const greetName = me?.displayName || "";
   const [showNps, setShowNps] = useState(false);
   const [showValueGate, setShowValueGate] = useState(false);
+  const [vgPendingRow, setVgPendingRow] = useState<ValueGateRow | null>(null);
   const [showReprocesoDetail, setShowReprocesoDetail] = useState(false);
   const [showEntregaDetail, setShowEntregaDetail] = useState(false);
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
@@ -80,6 +83,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     boardHealthMap, boardCompleteMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
     totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
+    pipelineAgg, boardPhase125, reqPhase125, valueGateAvgHealth,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
@@ -182,6 +186,85 @@ function ControlTower({ data }: { data: DashboardData }) {
   const colConfirmacionCost = colAgg.confirmacion.cost, colConfirmacionBenefit = colAgg.confirmacion.benefit;
   const totalCost = colAgg.totalCost;
 
+  // ── Pipeline (tarjeta fija a Solo HardSaving, independiente del toggle
+  // "hardOnly" de la tarjeta Costo & Beneficio de arriba) ──
+  const pipelineReqStages = req
+    .filter((r) => r.benefitType === "HardSaving")
+    .map(reqStageAmounts)
+    .filter((s): s is StageAmounts => s != null);
+  const pipelineProjItemsByBoard = new Map<string, ProjItem[]>();
+  for (const r of proj) {
+    if (!hardBoardIds.has(r.boardId)) continue;
+    const arr = pipelineProjItemsByBoard.get(r.boardId);
+    if (arr) arr.push(r); else pipelineProjItemsByBoard.set(r.boardId, [r]);
+  }
+  const pipelineProjStages = [...pipelineProjItemsByBoard.values()].map(projStageAmounts).filter((s): s is StageAmounts => s != null);
+  const pipelineAgg = sumStageAmounts([...pipelineReqStages, ...pipelineProjStages]);
+
+  // ── Value Gate (Fase 1/2/5): en qué fase está CADA proyecto AHORA MISMO
+  // (currentPhaseIndex — la primera fase que aún no está 100% Done), y su
+  // salud EVM calculada SOLO con units/items de Valuación+Aprobación+Revisión
+  // (buildUnits + calcEvm, misma fórmula única de projectMetrics.ts, pero con
+  // el input filtrado a esas 3 fases). Un proyecto cuya fase actual sea Launch
+  // (Fase 3) u Operación (Fase 4) no entra en ninguna columna de esta tarjeta.
+  // Los proyectos ya completados (cerrados) SÍ se muestran — quedan en
+  // Revisión como constancia de que ya pasaron por esa fase.
+  const hoy = today();
+  const boardPhase125 = new Map<string, { faseKey: "valuacion" | "aprobacion" | "revision"; healthIndex: number | null; healthStatus: HealthStatus | null; pending: ValueGatePendingRow[] }>();
+  projBoards.forEach((b) => {
+    const boardItems = proj.filter((r) => r.boardId === b.id);
+    if (boardItems.length === 0) return;
+    const curPhases = buildProjectSummary(boardItems).phases;
+    const curIdx = currentPhaseIndex(curPhases);
+    let faseKey: "valuacion" | "aprobacion" | "revision" | null;
+    if (curIdx === -1) {
+      faseKey = "revision"; // proyecto completo — ya pasó por Revisión
+    } else {
+      const curGrupo = curPhases[curIdx].grupo;
+      faseKey = isFase1(curGrupo) ? "valuacion" : isFase2(curGrupo) ? "aprobacion" : isFase5(curGrupo) ? "revision" : null;
+    }
+    if (!faseKey) return; // fase actual es Launch u Operación → fuera de esta tarjeta
+
+    const plantilla = detectPlantilla(boardItems);
+    const units125 = buildUnits(boardItems, plantilla, hoy).filter((u) => isFase1(u.fase) || isFase2(u.fase) || isFase5(u.fase));
+    const items125 = boardItems.filter((it) => isFase1(it.grupo) || isFase2(it.grupo) || isFase5(it.grupo));
+    const healthIndex = calcEvm(units125, items125, projItemBaselines, hoy).evm;
+    // Pendientes = las mismas units125 que ya no están Done — el detalle que
+    // se ve al hacer clic en el proyecto (ver ValueGatePendingModal).
+    const pending: ValueGatePendingRow[] = units125
+      .filter((u) => !u.entregada)
+      .map((u) => ({ name: u.name, fase: u.fase, deadline: u.limitDate, status: u.status, atrasada: u.atrasada }));
+    boardPhase125.set(b.id, { faseKey, healthIndex, healthStatus: healthStatusFromIndex(healthIndex), pending });
+  });
+
+  // PML (Requerimientos) en fase 1/2/5: r.grupo YA es el label corto
+  // (reqProcess lo resuelve con REQ_GROUP_LABEL), así que el match es directo.
+  // La salud es r.vem, la misma métrica que usa la Sección "PML" de la
+  // tarjeta de PM — no hay que recalcular EVM como en proyectos.
+  const REQ_FASEKEY_BY_GRUPO: Record<string, "valuacion" | "aprobacion" | "revision"> = {
+    "Valuación": "valuacion",
+    "Aprobación": "aprobacion",
+    "Cierre ROI": "revision",
+  };
+  const reqPhase125 = new Map<string, { faseKey: "valuacion" | "aprobacion" | "revision"; healthIndex: number | null; healthStatus: HealthStatus | null }>();
+  req.forEach((r) => {
+    const faseKey = REQ_FASEKEY_BY_GRUPO[r.grupo];
+    if (!faseKey) return;
+    reqPhase125.set(r.id, { faseKey, healthIndex: r.vem, healthStatus: healthStatusFromIndex(r.vem) });
+  });
+
+  // Nota general del EVM de la tarjeta Value Gate: promedio simple de la
+  // salud (healthIndex/vem) de TODO lo que aparece en las 3 columnas —
+  // proyectos + PML — sin ponderar por tipo, para tener un solo número que
+  // resuma el estado de Valuación+Aprobación+Revisión.
+  const valueGateHealthValues = [
+    ...[...boardPhase125.values()].map((p) => p.healthIndex),
+    ...[...reqPhase125.values()].map((p) => p.healthIndex),
+  ].filter((v): v is number => v != null);
+  const valueGateAvgHealth = valueGateHealthValues.length
+    ? valueGateHealthValues.reduce((s, v) => s + v, 0) / valueGateHealthValues.length
+    : null;
+
   // ── VPA Actions ──
   // Acciones que debe realizar el VPA, con visibilidad de su estado — toda la
   // lógica (qué steps de Proyecto / qué fases de REQ cuentan) vive en
@@ -249,6 +332,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     boardHealthMap, boardCompleteMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
     totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
+    pipelineAgg, boardPhase125, reqPhase125, valueGateAvgHealth,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
@@ -405,6 +489,72 @@ function ControlTower({ data }: { data: DashboardData }) {
 
       </div>
 
+      {/* Fases 1·2·5 (Valuación/Aprobación/Revisión) + Pipeline HardSaving —
+          entre las tarjetas principales y Portafolios por PM. */}
+      <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+        {/* Value Gate: en qué fase (Valuación/Aprobación/Revisión) está cada
+            proyecto Y cada PML AHORA MISMO, con su salud calculada solo con
+            esas 3 fases (boardPhase125 para proyectos vía EVM escalado;
+            reqPhase125 para PML vía su propio VEM). Launch (Fase 3) y
+            Operación (Fase 4) no entran — ni como columna ni en el cálculo
+            de salud. Mismas líneas divisorias verticales que separan las
+            secciones (Iniciativas/PML/PM) en las tarjetas de PM, para que
+            las 3 columnas no se vean corridas entre sí. */}
+        <div className="rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+          <div className="flex items-center justify-between gap-2 px-5 pt-5 pb-3">
+            <span className="text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Value Gate</span>
+            {valueGateAvgHealth != null && (() => {
+              const cfg = vemCfg(valueGateAvgHealth);
+              return (
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none"
+                  style={{ color: cfg.color, background: cfg.bg }}
+                  title="EVM promedio de todo lo listado abajo (proyectos + PML en Valuación/Aprobación/Revisión)"
+                >
+                  {cfg.icon} {cfg.label} · {Math.round(valueGateAvgHealth * 100)}%
+                </span>
+              );
+            })()}
+          </div>
+          <div className="flex border-t" style={{ borderColor: "var(--border)" }}>
+            <ValueGateColumn label="Valuación" rows={valueGateRows("valuacion", projBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
+            <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
+            <ValueGateColumn label="Aprobación" rows={valueGateRows("aprobacion", projBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
+            <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
+            <ValueGateColumn label="Revisión" rows={valueGateRows("revision", projBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
+          </div>
+        </div>
+
+        {/* Pipeline — solo el Beneficio HardSaving de cada etapa, como funnel
+            (barras decrecientes): Validación → Aprobación → Confirmación. */}
+        <div className="rounded-xl border-2 p-5" style={{ background: "var(--bg-surface)", borderColor: "var(--ok)" }}>
+          <div className="mb-3 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Pipeline · HardSaving</div>
+          <div className="flex flex-col gap-3">
+            {(() => {
+              const stages = [
+                { label: "Validación", value: pipelineAgg.validacion.benefit },
+                { label: "Aprobación", value: pipelineAgg.aprobacion.benefit },
+                { label: "Confirmación", value: pipelineAgg.confirmacion.benefit },
+              ];
+              const max = Math.max(stages[0].value, 1);
+              return stages.map((s) => (
+                <div key={s.label} className="flex flex-col gap-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[0.78rem] font-semibold text-[var(--text-secondary)]">{s.label}</span>
+                    <span className="text-[1.05rem] font-extrabold" style={{ color: "var(--ok)" }}>{fmtMoney(s.value)}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
+                    <div className="h-2 rounded-full" style={{ width: `${Math.round((s.value / max) * 100)}%`, background: "var(--ok)" }} />
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+
+      </div>
+
       {/* Portafolios por PM */}
       <div className="mb-4 mt-6 flex items-center gap-2.5">
         <h2 className="text-base font-semibold text-[var(--text-primary)]">Portafolios por PM</h2>
@@ -439,6 +589,14 @@ function ControlTower({ data }: { data: DashboardData }) {
 
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
+      {vgPendingRow && (
+        <ValueGatePendingModal
+          code={vgPendingRow.code}
+          title={vgPendingRow.title}
+          rows={vgPendingRow.pending}
+          onClose={() => setVgPendingRow(null)}
+        />
+      )}
       {showReprocesoDetail && <ReprocesoDetailModal rows={mainReprocesoRows} onClose={() => setShowReprocesoDetail(false)} />}
       {showEntregaDetail && <EntregaDetailModal rows={entLateRows} onClose={() => setShowEntregaDetail(false)} />}
     </div>
@@ -490,6 +648,75 @@ const PROJ_HEALTH_COLOR: Record<string, string> = {
   "in-risk":   "#f59e0b",
   "off-track": "#ef4444",
 };
+
+/** Un pendiente (unidad/step no Done) de un proyecto o PML del Value Gate —
+ *  lo que se ve al hacer clic en una fila (ver ValueGatePendingModal). Para
+ *  un PML (que no se descompone en steps) la lista es el ítem mismo. */
+export type ValueGatePendingRow = { name: string; fase: string; deadline: Date | null; status: string; atrasada: boolean };
+
+type ValueGateRow = { id: string; code: string; title: string; healthIndex: number | null; healthStatus: HealthStatus | null; pending: ValueGatePendingRow[] };
+
+/** Arma las filas de una columna del Value Gate mezclando proyectos (código =
+ *  nombre del board, ej. "PM-002") y PML (código = r.id, ej. "PML-022") que
+ *  estén actualmente en esa fase — mismo formato de fila que PMPortfolioCard
+ *  usa para listar proyectos (punto de color + código + % de salud). */
+function valueGateRows(
+  faseKey: "valuacion" | "aprobacion" | "revision",
+  projBoards: ProjBoard[],
+  boardPhase125: Map<string, { faseKey: string; healthIndex: number | null; healthStatus: HealthStatus | null; pending: ValueGatePendingRow[] }>,
+  req: ReqItem[],
+  reqPhase125: Map<string, { faseKey: string; healthIndex: number | null; healthStatus: HealthStatus | null }>,
+): ValueGateRow[] {
+  const projRows: ValueGateRow[] = projBoards
+    .filter((b) => boardPhase125.get(b.id)?.faseKey === faseKey)
+    .map((b) => {
+      const p = boardPhase125.get(b.id)!;
+      return { id: b.id, code: b.name.slice(0, 6), title: b.name, healthIndex: p.healthIndex, healthStatus: p.healthStatus, pending: p.pending };
+    });
+  const reqRows: ValueGateRow[] = req
+    .filter((r) => reqPhase125.get(r.id)?.faseKey === faseKey)
+    .map((r) => {
+      const p = reqPhase125.get(r.id)!;
+      // El PML no se descompone en steps — el "pendiente" es el ítem mismo,
+      // ya que estar en Valuación/Aprobación/Revisión significa que esa fase
+      // todavía no cierra para él.
+      const pending: ValueGatePendingRow[] = [{ name: r.name, fase: r.grupo, deadline: r.deadline, status: r.estado, atrasada: r.estado === "ATRASADO" }];
+      return { id: r.id, code: r.id, title: r.name, healthIndex: p.healthIndex, healthStatus: p.healthStatus, pending };
+    });
+  return [...projRows, ...reqRows];
+}
+
+/** Una columna del Value Gate — mismo formato de fila que usa PMPortfolioCard
+ *  para listar proyectos (punto de color + código + % de salud). Cada fila
+ *  es clicable → muestra sus pendientes (ValueGatePendingModal). */
+function ValueGateColumn({ label, rows, onSelect }: { label: string; rows: ValueGateRow[]; onSelect: (row: ValueGateRow) => void }) {
+  return (
+    <div className="min-w-0 flex-1 px-[18px] py-3.5">
+      <div className="mb-2 text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+        {label} <span className="font-normal text-[var(--text-disabled)]">({rows.length})</span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {rows.length === 0 ? (
+          <span className="text-[0.75rem] text-[var(--text-disabled)]">—</span>
+        ) : rows.map((row) => {
+          const color = row.healthStatus ? PROJ_HEALTH_COLOR[row.healthStatus] : "#6b7280";
+          return (
+            <button
+              key={row.id}
+              onClick={() => onSelect(row)}
+              title={`Ver pendientes de ${row.title}`}
+              className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]"
+            >
+              <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+              <span className="text-[0.75rem] font-mono text-[var(--text-secondary)]">{row.code}</span>
+              {row.healthIndex != null && <span className="ml-auto text-[0.72rem] font-bold tabular-nums" style={{ color }}>{Math.round(row.healthIndex * 100)}%</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function PMPortfolioCard({
   pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, onGoIni, onGoReq, onGoProj,

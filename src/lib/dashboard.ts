@@ -395,6 +395,15 @@ export const isFase3 = (grupo: string): boolean => (grupo ?? "").trim().toLowerC
  *  por eso se normaliza (sin acentos) antes de comparar. */
 export const isFase4 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("operacion");
 
+/** Fase 1 = Valuación — formulación/Business Case, el arranque del proyecto. */
+export const isFase1 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("valuacion");
+
+/** Fase 2 = Aprobación — Value Gate, el checkpoint antes de Launch. */
+export const isFase2 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("aprobacion");
+
+/** Fase 5 = Revisión — el cierre administrativo/ROI que sigue a Operación. */
+export const isFase5 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("revision");
+
 // La plantilla "vieja" de Fase 3 tiene siempre 4 steps fijos que son CHECKPOINTS, no
 // entregables ("Analisis técnico...", "Value Gate (BC)...", "Agenda BAT/UAT CKU" y
 // "Desarrollo por iteraciones (Hitos) / Entrega(s) CKU") — el mismo hito real aparece
