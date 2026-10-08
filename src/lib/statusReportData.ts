@@ -88,6 +88,13 @@ export interface StatusReportData {
   phases: StatusPhase[];
   atrasos: StatusAtraso[];
   resp_dist: StatusRespDist[];
+  /** Desglose del % de CKU por nombre de "A cargo": CKU es un rol/departamento
+   *  con varias personas distintas — cuando entregables diferentes se le
+   *  atribuyen a CKU, cada uno puede tener un "A cargo" distinto, y
+   *  `resp_dist` los lumpea a todos bajo un solo "CKU". `value` = % de ese
+   *  nombre sobre el total de días de atraso del PROYECTO completo (mismo
+   *  denominador que `resp_dist`). [] si nadie tiene atraso atribuido a CKU hoy. */
+  cku_dist: StatusRespDist[];
   footer_left: string;
   footer_right: string;
 }
@@ -366,6 +373,28 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
     label: r.label, value: r.pct, color: atrasoRespSlot(r.label),
   }));
 
+  // cku_dist: de los tramos atribuidos a "CKU" (cualquier entregable), agrupa
+  // por "A cargo" (acargo) — % de ese nombre sobre el total de días de atraso
+  // del proyecto COMPLETO (mismo denominador que `responsabilidadAtraso`/
+  // `resp_dist`, no solo el total de CKU — más fácil de leer en el reporte).
+  const ckuDias: Record<string, number> = {};
+  let totalDiasProyecto = 0;
+  for (const a of statusAtrasos) {
+    for (const r of a.reparto) {
+      totalDiasProyecto += r.dias;
+      if (r.resp !== "CKU" || r.dias <= 0) continue;
+      const nombre = a.acargo !== "—" ? a.acargo : "Sin asignar";
+      ckuDias[nombre] = (ckuDias[nombre] ?? 0) + r.dias;
+    }
+  }
+  const ckuDist: StatusRespDist[] = Object.entries(ckuDias)
+    .map(([label, v]) => ({
+      label,
+      value: totalDiasProyecto > 0 ? Math.round((v / totalDiasProyecto) * 100) : 0,
+      color: "blue",
+    }))
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+
   return {
     project: {
       id: code, name,
@@ -399,6 +428,7 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
     phases: statusPhases,
     atrasos: statusAtrasos,
     resp_dist: respDist,
+    cku_dist: ckuDist,
     footer_left: `${code ? `${code} ` : ""}${name} · Reporte Ejecutivo PMO`,
     footer_right: "Confidencial · Uso interno",
   };

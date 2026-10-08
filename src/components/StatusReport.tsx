@@ -218,6 +218,7 @@ const CSS = `
   white-space:pre-wrap; word-break:break-word; overflow:hidden; min-height:1.35em; }
 .pmo-report .c-motivo-input:focus{ background:#fffdf3; box-shadow:0 0 0 1px var(--warning-fill); border-radius:3px; }
 .pmo-report .c-acargo{ color:var(--ink-sec); white-space:nowrap; }
+.pmo-report .side-stack{ display:flex; flex-direction:column; gap:10px; }
 .pmo-report .side-card{ border:1px solid var(--grid); border-radius:8px; padding:6px 12px; background:${CARD_BG}; }
 .pmo-report .side-card h3{ font-size:8.6pt; margin:0 0 8px 0; color:var(--navy); font-weight:700; }
 .pmo-report .dist-legend{ display:flex; flex-direction:column; gap:6px; margin-top:2px; }
@@ -538,13 +539,25 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
             </thead>
             <tbody><AtrasoRows data={data} renderResp={renderResp} renderMotivo={renderMotivo} /></tbody>
           </table>
-          <div className="side-card">
-            <h3>Distribución de responsabilidad</h3>
-            <div className="dist-legend">
-              {data.resp_dist.map((d, i) => (
-                <span key={i} className="dist-legend-item"><span>{d.label}</span><b>{d.value}%</b></span>
-              ))}
+          <div className="side-stack">
+            <div className="side-card">
+              <h3>Distribución de responsabilidad</h3>
+              <div className="dist-legend">
+                {data.resp_dist.map((d, i) => (
+                  <span key={i} className="dist-legend-item"><span>{d.label}</span><b>{d.value}%</b></span>
+                ))}
+              </div>
             </div>
+            {data.cku_dist.length > 0 && (
+              <div className="side-card">
+                <h3>CKU por responsable</h3>
+                <div className="dist-legend">
+                  {data.cku_dist.map((d, i) => (
+                    <span key={i} className="dist-legend-item"><span>{d.label}</span><b>{d.value}%</b></span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

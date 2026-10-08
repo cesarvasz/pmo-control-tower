@@ -107,6 +107,11 @@ describe("buildStatusReportData", () => {
     expect(data.resp_dist).toEqual([{ label: "CKU", value: 100, color: "blue" }]);
   });
 
+  it("cku_dist reparte el % de CKU (sobre el total del proyecto) por el 'A cargo' (acargo) del entregable", () => {
+    // único atraso del proyecto, todo atribuido a CKU → 100% del proyecto.
+    expect(data.cku_dist).toEqual([{ label: "Victoria Escobar", value: 100, color: "blue" }]);
+  });
+
   it("fechas del timeline en YYYY-MM-DD", () => {
     expect(data.timeline_start).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(data.timeline_end).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -341,5 +346,49 @@ describe("buildStatusReportDataForBoard — Operación/Revisión NO cuentan como
     const data = buildStatusReportDataForBoard({ board: board({}), items, now: today().getTime() });
     expect(data.atrasos.map((a) => a.hito)).toEqual(["MESA 2 · GT"]);
     expect(data.atrasos[0].fase).toBe("Launch");
+  });
+});
+
+// CKU es un rol/departamento con varias personas distintas — cku_dist reparte
+// el % de CKU (sobre el total del PROYECTO, mismo denominador que resp_dist)
+// entre los nombres de "A cargo" de cada entregable atribuido a CKU.
+describe("buildStatusReportData — cku_dist", () => {
+  it("reparte el % de CKU, sobre el total de días del proyecto, por 'A cargo' distinto", () => {
+    const items: ProjItem[] = [
+      item({ id: "x1", name: "Entregable 1", grupo: "Launch | Lanzamiento", status: "Stuck", responsible: "Ana" }),
+      item({ id: "x2", name: "Entregable 2", grupo: "Launch | Lanzamiento", status: "Stuck", responsible: "Beto" }),
+    ];
+    const summary = buildProjectSummary(items);
+    const health = deriveBoardHealth(calcBoardMetrics(items, {}));
+    const atrasos = items.map((it) => evaluarStepAtraso(it, today())).filter((x): x is StepAtraso => x !== null);
+    const atrasoDetalles = {
+      x1: { reparto: [{ dias: 5, resp: "CKU" }] },
+      x2: { reparto: [{ dias: 3, resp: "CKU" }, { dias: 2, resp: "PM" }] },
+    };
+    const data = buildStatusReportData({
+      board: board({}), code: "PM-999", name: "Test",
+      summary, health, atrasos, atrasoDetalles, responsabilidadAtraso: [],
+      avancePlanificado: 0, valorProyecto: null, roi: null, payback: null, now: today().getTime(),
+    });
+    // 10 días totales del proyecto (5 de x1 + 5 de x2, incluyendo el tramo de
+    // PM de x2) → Ana (CKU, 5d) = 50%, Beto (CKU, 3d) = 30%.
+    expect(data.cku_dist).toEqual([
+      { label: "Ana", value: 50, color: "blue" },
+      { label: "Beto", value: 30, color: "blue" },
+    ]);
+  });
+
+  it("sin ningún tramo de CKU hoy → []", () => {
+    const items: ProjItem[] = [item({ id: "x1", name: "Entregable 1", grupo: "Launch | Lanzamiento", status: "Stuck", responsible: "Ana" })];
+    const summary = buildProjectSummary(items);
+    const health = deriveBoardHealth(calcBoardMetrics(items, {}));
+    const atrasos = items.map((it) => evaluarStepAtraso(it, today())).filter((x): x is StepAtraso => x !== null);
+    const atrasoDetalles = { x1: { reparto: [{ dias: 5, resp: "PM" }] } };
+    const data = buildStatusReportData({
+      board: board({}), code: "PM-999", name: "Test",
+      summary, health, atrasos, atrasoDetalles, responsabilidadAtraso: [],
+      avancePlanificado: 0, valorProyecto: null, roi: null, payback: null, now: today().getTime(),
+    });
+    expect(data.cku_dist).toEqual([]);
   });
 });
