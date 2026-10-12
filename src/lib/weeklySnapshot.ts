@@ -17,20 +17,18 @@
 import { calcIniPMHealth } from "@/lib/ini";
 import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMetrics";
 import { calcBoardMetrics } from "@/lib/proj";
-import {
-  reqStageAmounts, projStageAmounts, sumStageAmounts,
-  calcEntregaStatsRaw, calcReprocesoStatsRaw, type StageAmounts,
-} from "@/lib/dashboard";
+import { calcEntregaStatsRaw, calcReprocesoStatsRaw } from "@/lib/dashboard";
 import { weightedEvm } from "@/lib/health";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
-import type { DashboardData, ProjItem } from "@/types";
+import type { DashboardData } from "@/types";
 
 export interface WeeklySnapshotMetrics {
   /** EVM del equipo, 0–100 (igual que la tarjeta "Salud del equipo"). */
   evm: number | null;
-  /** Beneficio $ de la etapa Confirmación, SIEMPRE HardSaving (igual que el
-   *  componente "Beneficio HardSaving" del KPI — no depende del toggle "Solo
-   *  HardSaving" de la tarjeta Costo &amp; Beneficio, que es solo de UI). */
+  /** Beneficio $ de la etapa Confirmación — ver calcConfirmacionRoi en
+   *  lib/dashboard.ts (Ahorro real con Ducafast + Ahorro $ de Clonación, vía
+   *  ROI). Ya NO sale de Monday: el caller (api/cron/weekly-snapshot) lo pasa
+   *  calculado, porque este archivo no tiene acceso a las filas de ROI. */
   beneficioConfirmado: number;
   /** "Calidad de Entregas", 0–100 (variante real sin filtros de la tarjeta principal). */
   calidad: number | null;
@@ -40,7 +38,7 @@ export interface WeeklySnapshotMetrics {
   nps: number | null;
 }
 
-export function computeWeeklySnapshotMetrics(data: DashboardData): WeeklySnapshotMetrics {
+export function computeWeeklySnapshotMetrics(data: DashboardData, confirmacionRoi: number): WeeklySnapshotMetrics {
   const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, reprocesoAttributions: reproceso } = data;
 
   // ── EVM del equipo: promedio ponderado Iniciativas 10% · REQ 20% · Proyectos 70% ──
@@ -74,27 +72,9 @@ export function computeWeeklySnapshotMetrics(data: DashboardData): WeeklySnapsho
   const teamVem = weightedEvm({ ini: teamIniHealth, req: teamReqHealth, proj: teamProjHealth });
   const evm = teamVem !== null ? Math.round(teamVem * 100) : null;
 
-  // ── Beneficio $ Confirmado (HardSaving) ──
-  const hardBoardIds = new Set(projBoards.filter((b) => b.benefitType === "HardSaving").map((b) => b.id));
-  const kpiReqStages = req
-    .filter((r) => r.benefitType === "HardSaving")
-    .map(reqStageAmounts)
-    .filter((s): s is StageAmounts => s != null);
-  const kpiProjItemsByBoard = new Map<string, ProjItem[]>();
-  for (const r of proj) {
-    if (!hardBoardIds.has(r.boardId)) continue;
-    const arr = kpiProjItemsByBoard.get(r.boardId);
-    if (arr) arr.push(r); else kpiProjItemsByBoard.set(r.boardId, [r]);
-  }
-  const kpiProjStages = [...kpiProjItemsByBoard.values()]
-    .map(projStageAmounts)
-    .filter((s): s is StageAmounts => s != null);
-  const kpiAgg = sumStageAmounts([...kpiReqStages, ...kpiProjStages]);
-  const beneficioConfirmado = kpiAgg.confirmacion.benefit;
-
   // ── Calidad de Entregas / Cumplimiento de Entrega (variantes reales, sin excusas) ──
   const { pct: calidad } = calcReprocesoStatsRaw(req, proj, reproceso);
   const { pct: cumplimiento } = calcEntregaStatsRaw(req, proj);
 
-  return { evm, beneficioConfirmado, calidad, cumplimiento, nps: nps.nps };
+  return { evm, beneficioConfirmado: confirmacionRoi, calidad, cumplimiento, nps: nps.nps };
 }

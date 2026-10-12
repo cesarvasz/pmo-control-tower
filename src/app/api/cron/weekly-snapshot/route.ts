@@ -18,6 +18,9 @@ import { listNpsRecords } from "@/lib/surveys";
 import { getReqBaselines, getProjItemBaselines, getAttributions, getAtrasoDetalles, getBoardAlcances, saveWeeklySnapshot } from "@/lib/firebase-admin";
 import { buildDashboardData } from "@/lib/dashboardData";
 import { computeWeeklySnapshotMetrics } from "@/lib/weeklySnapshot";
+import { calcConfirmacionRoi } from "@/lib/dashboard";
+import { fetchRoiRows } from "@/lib/roi";
+import { fetchClonacionRows } from "@/lib/clonacion";
 import { mondayOfWeek, ymd } from "@/lib/business";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +35,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [raw, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, atrasoDetalles, boardAlcance] = await Promise.all([
+    const [raw, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, atrasoDetalles, boardAlcance, roi, clonacion] = await Promise.all([
       fetchDashboardRaw(),
       getReqBaselines(),
       getProjItemBaselines(),
@@ -41,6 +44,8 @@ export async function GET(request: Request) {
       getAttributions("reproceso"),
       getAtrasoDetalles(),
       getBoardAlcances(),
+      fetchRoiRows(),
+      fetchClonacionRows(),
     ]);
 
     const data = buildDashboardData({
@@ -48,7 +53,10 @@ export async function GET(request: Request) {
       delayAttributions, reprocesoAttributions, atrasoDetalles, boardAlcance,
     });
 
-    const metrics = computeWeeklySnapshotMetrics(data);
+    // Confirmación vía ROI (Ahorro Ducafast + Ahorro Clonación) — reemplaza a
+    // la de Monday, ver calcConfirmacionRoi en lib/dashboard.ts.
+    const confirmacionRoi = calcConfirmacionRoi(roi.rows, clonacion.rows);
+    const metrics = computeWeeklySnapshotMetrics(data, confirmacionRoi);
     const weekOf = ymd(mondayOfWeek(new Date()));
     await saveWeeklySnapshot(weekOf, metrics);
 

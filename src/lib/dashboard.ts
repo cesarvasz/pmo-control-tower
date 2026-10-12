@@ -11,8 +11,10 @@ import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
 import { computeKpi } from "@/lib/kpi";
 import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
+import { construirExpedientes, ahorroDucafast, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "@/lib/tramites";
+import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "@/lib/clonaciones";
 import type {
-  CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem,
+  CalMap, ClonacionRow, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem, RoiRow,
 } from "@/types";
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -177,6 +179,23 @@ export function sumStageAmounts(list: StageAmounts[]) {
     totalCost: validacion.cost + aprobacion.cost,
     totalBenefit: validacion.benefit + aprobacion.benefit,
   };
+}
+
+/** Confirmación del PORTAFOLIO (tarjetas Costo & Beneficio, Pipeline e
+ *  histórico semanal): reemplaza por completo la Confirmación por
+ *  proyecto/REQ de arriba (evalConfirmacion/reqStage) para esos 3 usos — es
+ *  la suma del "Ahorro real con Ducafast" (ROI, pestaña 003) + el "Ahorro $"
+ *  de Clonación de Files, ambos SIN filtros de UI (todo el histórico, tarifa
+ *  default de cada módulo). NO tiene PM ni proyecto dueño, así que el KPI por
+ *  PM (lib/kpi.ts, BENEFIT_SPLIT.confirmacion) y los reportes por proyecto
+ *  (projectMetrics.ts/statusReportData.ts) siguen usando la Confirmación de
+ *  Monday — ahí sí hace falta atribuirle el monto a un PM/proyecto. No hay
+ *  costo asociado (es puro ahorro, no una inversión): solo retorna el
+ *  beneficio. */
+export function calcConfirmacionRoi(roiRows: RoiRow[], clonacionRows: ClonacionRow[]): number {
+  const ahorroDuca = ahorroDucafast(construirExpedientes(roiRows), TARIFA_HORA_DEFECTO, ETAPA_KEYS).ahorro;
+  const ahorroClon = costoClonacionPorOrigen(construirRegistros(clonacionRows), TARIFA_CLONACION_DEFECTO).contrafactual.ahorro;
+  return ahorroDuca + ahorroClon;
 }
 
 /** Mapa boardId → salud (EV/PV/AC + VEM) de cada board de Proyectos. */
@@ -371,7 +390,7 @@ export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[]): Entrega
   return { total, onTime, late, pct };
 }
 
-// ── Reproceso (componente del KPI, peso 20) ──────────────────────────────
+// ── Reproceso (componente del KPI, peso 15) ──────────────────────────────
 /** Clave sintética de atribución de una fase (grupo) de un proyecto. Usada por
  *  Cumplimiento de Entrega (Atraso, a nivel fase — ver groupFaseEntrega y la UI de
  *  Proyectos, cabecera de cada fase). Reproceso ya NO la usa: atribuye por step

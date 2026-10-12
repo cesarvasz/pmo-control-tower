@@ -19,11 +19,14 @@ import {
   buildLateResponsibleRows,
   buildLateResponsibleRowsRaw,
   buildReprocesoRows,
+  calcConfirmacionRoi,
 } from "./dashboard";
 import { today } from "./business";
 import type { BoardHealthData } from "./proj";
 import type { DelayMap } from "./delay";
-import type { ProjBoard, ProjItem, ProjSubitem, ReqItem } from "@/types";
+import { construirExpedientes, ahorroDucafast, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "./tramites";
+import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "./clonaciones";
+import type { ProjBoard, ProjItem, ProjSubitem, ReqItem, RoiRow, ClonacionRow } from "@/types";
 
 // Fixtures mínimos: solo se rellenan los campos que leen las funciones.
 const req = (o: Partial<ReqItem>): ReqItem => o as ReqItem;
@@ -983,5 +986,48 @@ describe("calcPmMetrics", () => {
     expect(m.health).toBe("on-track");
     expect(m.kpi.components).toHaveLength(5);
     expect(m.kpiPct).toBe(Math.round(m.kpi.score));
+  });
+});
+
+describe("calcConfirmacionRoi (Confirmación del portafolio vía ROI — reemplaza a la de Monday en Costo & Beneficio/Pipeline/histórico semanal)", () => {
+  it("sin filas de ninguna fuente, da 0", () => {
+    expect(calcConfirmacionRoi([], [])).toBe(0);
+  });
+
+  it("suma el Ahorro real con Ducafast (003) + el Ahorro $ de Clonación, cada uno recalculado con su propia función pura (sin magic numbers)", () => {
+    const roiFila = (o: Partial<RoiRow>): RoiRow => ({
+      c807_file: "F1", Proceso: "Aduana", Cliente: "CLIENTE A",
+      Usuario: "ANA", Analista: "BETO", Embarque: "Marítimo",
+      Documento: "CONOCIMIENTO DE EMBARQUE", Mesa: "Mesa 1", Docalpha: "No Ducafast",
+      Creado: "2026-01-05T08:00:00", DPR: "2026-01-05T09:00:00",
+      Clasificacion_exacta: "2026-01-05T10:00:00", Creacion_Pre_DUCA: "2026-01-05T11:00:00",
+      Revision_Analista: "2026-01-05T12:00:00", Solicitar_firma_def: "2026-01-05T13:00:00",
+      ...o,
+    } as RoiRow);
+    const roiRows = [
+      roiFila({ c807_file: "F1", Docalpha: "No Ducafast" }),
+      roiFila({
+        c807_file: "F2", Docalpha: "Ducafast",
+        Creado: "2026-01-05T08:00:00", DPR: "2026-01-05T08:30:00",
+        Clasificacion_exacta: "2026-01-05T09:00:00", Creacion_Pre_DUCA: "2026-01-05T09:30:00",
+        Revision_Analista: "2026-01-05T10:00:00", Solicitar_firma_def: "2026-01-05T10:30:00",
+      }),
+    ];
+
+    const clonRow = (file: string, solicitud: string, creacion: string, comentario = ""): ClonacionRow => ({
+      c807_file: file, Fecha: "", Solicitud_fecha: solicitud, Creacion_fecha: creacion,
+      Usuario: "U", Cliente: "C", Mesa: "", Proceso: "", Comentario: comentario,
+    });
+    const clonRows = [
+      clonRow("GT-2026-00001", "2026-01-05T08:00:00", "2026-01-05T08:30:00"), // padre
+      clonRow("GT-2026-00002", "2026-01-05T09:00:00", "2026-01-05T09:15:00", "Creado como réplica del file GT-2026-00001"), // "v"
+    ];
+
+    const total = calcConfirmacionRoi(roiRows, clonRows);
+    const expectedDuca = ahorroDucafast(construirExpedientes(roiRows), TARIFA_HORA_DEFECTO, ETAPA_KEYS).ahorro;
+    const expectedClon = costoClonacionPorOrigen(construirRegistros(clonRows), TARIFA_CLONACION_DEFECTO).contrafactual.ahorro;
+    expect(expectedDuca).toBeGreaterThan(0);
+    expect(expectedClon).not.toBe(0); // confirma que el registro "v" sí se reconoció (si fuera 0, nFilesV=0)
+    expect(total).toBeCloseTo(expectedDuca + expectedClon, 5);
   });
 });

@@ -28,32 +28,26 @@ const mkData = (o: Partial<DashboardData>): DashboardData => ({
 
 describe("computeWeeklySnapshotMetrics", () => {
   it("con datos vacíos, todo sale en null/0", () => {
-    const m = computeWeeklySnapshotMetrics(mkData({}));
+    const m = computeWeeklySnapshotMetrics(mkData({}), 0);
     expect(m).toEqual({ evm: null, beneficioConfirmado: 0, calidad: null, cumplimiento: null, nps: null });
   });
 
   it("pasa el NPS del equipo tal cual viene en data.nps", () => {
     const m = computeWeeklySnapshotMetrics(mkData({
       nps: { nps: 42, promoters: 0, passives: 0, detractors: 0, total: 0, responses: [], questions: [], overallAvg: null },
-    }));
+    }), 0);
     expect(m.nps).toBe(42);
   });
 
-  it("Beneficio $ Confirmado: solo suma REQ/Proyectos HardSaving en etapa Confirmación (grupo Cerrados)", () => {
-    const m = computeWeeklySnapshotMetrics(mkData({
-      req: [
-        req({ id: "r1", grupo: "Cerrados", benefit: 1000, benefitType: "HardSaving" }),
-        req({ id: "r2", grupo: "Cerrados", benefit: 500, benefitType: "SoftSaving" }), // no cuenta: no es HardSaving
-        req({ id: "r3", grupo: "Valuación", benefit: 999, benefitType: "HardSaving" }), // no cuenta: no llegó a Confirmación
-      ],
-    }));
-    expect(m.beneficioConfirmado).toBe(1000);
+  it("Beneficio $ Confirmado: viene del parámetro confirmacionRoi tal cual (ya no sale de Monday — ver calcConfirmacionRoi en dashboard.ts)", () => {
+    const m = computeWeeklySnapshotMetrics(mkData({}), 70668.3);
+    expect(m.beneficioConfirmado).toBe(70668.3);
   });
 
   it("Calidad y Cumplimiento salen de las variantes 'reales' (calcReprocesoStatsRaw/calcEntregaStatsRaw)", () => {
     const m = computeWeeklySnapshotMetrics(mkData({
       req: [req({ id: "r1", grupo: "Cerrados", estado: "CERRADO" })],
-    }));
+    }), 0);
     // Ambos deben quedar en un número (no null) una vez hay al menos una unidad evaluable.
     expect(typeof m.calidad === "number" || m.calidad === null).toBe(true);
     expect(typeof m.cumplimiento === "number" || m.cumplimiento === null).toBe(true);
@@ -65,7 +59,7 @@ describe("computeWeeklySnapshotMetrics", () => {
       req: [req({ id: "r1", pm: "Ana", vem: 1 })],
       proj: [proj({ id: "p1", boardId: "b1", status: "Done" })],
       projBoards: [board({ id: "b1" })],
-    }));
+    }), 0);
     expect(m.evm).not.toBeNull();
     expect(Number.isInteger(m.evm)).toBe(true);
     expect(m.evm as number).toBeGreaterThanOrEqual(0);
