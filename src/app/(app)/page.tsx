@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtMoney, today } from "@/lib/business";
+import { authedFetch } from "@/lib/api";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { calcIniPMHealth, countPlanFuturoDue } from "@/lib/ini";
@@ -28,7 +29,7 @@ import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
 import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
 import EntregaDetailModal from "@/components/EntregaDetailModal";
-import { computeKpi, kpiColorFor } from "@/lib/kpi";
+import { computeKpi, kpiColorFor, KPI_W } from "@/lib/kpi";
 import { buildVpaActions } from "@/lib/vpaActions";
 import WeeklyProgressChart from "@/components/WeeklyProgressChart";
 import NotificationsBell from "@/components/NotificationsBell";
@@ -87,12 +88,25 @@ function ControlTower({ data }: { data: DashboardData }) {
   // SIN filtrar sigue siendo la base de todos los cálculos/KPIs.
   const visibleProjBoards = projBoards.filter((b) => !isHiddenFromControlTower(b.name));
 
+  // Confirmación del PORTAFOLIO (Costo & Beneficio + Pipeline), vía ROI — ver
+  // calcConfirmacionRoi en lib/dashboard.ts. Fetch APARTE del dashboard
+  // principal (fuente externa más lenta, Google Sheets vía Apps Script) —
+  // null mientras carga; el KPI por PM sigue con su propia Confirmación de
+  // Monday (pmValueHard.confirmacionBenefit, sin cambios).
+  const [confirmacionRoi, setConfirmacionRoi] = useState<number | null>(null);
+  useEffect(() => {
+    authedFetch("/api/dashboard/confirmacion-roi")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((d: { confirmacionBenefit: number }) => setConfirmacionRoi(d.confirmacionBenefit))
+      .catch((err) => console.warn("Confirmación ROI: no se pudo cargar:", err));
+  }, []);
+
   // Todas las derivaciones dependen solo de los datos (estáticos entre refreshes) y del
   // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
   const {
     boardHealthMap, boardCompleteMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
-    totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
+    totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit,
     pipelineAgg, boardPhase125, reqPhase125, valueGateAvgHealth,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
@@ -193,7 +207,6 @@ function ControlTower({ data }: { data: DashboardData }) {
   const colAgg = sumStageAmounts([...reqStages, ...projStages]);
   const colValidacionCost = colAgg.validacion.cost, colValidacionBenefit = colAgg.validacion.benefit;
   const colAprobacionCost = colAgg.aprobacion.cost, colAprobacionBenefit = colAgg.aprobacion.benefit;
-  const colConfirmacionCost = colAgg.confirmacion.cost, colConfirmacionBenefit = colAgg.confirmacion.benefit;
   const totalCost = colAgg.totalCost;
 
   // ── Pipeline (tarjeta fija a Solo HardSaving, independiente del toggle
@@ -213,12 +226,12 @@ function ControlTower({ data }: { data: DashboardData }) {
 
   // ── Value Gate (Fase 1/2/5): en qué fase está CADA proyecto AHORA MISMO
   // (currentPhaseIndex — la primera fase que aún no está 100% Done), y su
-  // salud EVM calculada SOLO con units/items de Valuación+Aprobación+Revisión
+  // salud EVM calculada SOLO con units/items de Valuación+Aprobación+Confirmación
   // (buildUnits + calcEvm, misma fórmula única de projectMetrics.ts, pero con
   // el input filtrado a esas 3 fases). Un proyecto cuya fase actual sea Launch
   // (Fase 3) u Operación (Fase 4) no entra en ninguna columna de esta tarjeta.
   // Los proyectos ya completados (cerrados) SÍ se muestran — quedan en
-  // Revisión como constancia de que ya pasaron por esa fase.
+  // Confirmación como constancia de que ya pasaron por esa fase.
   const hoy = today();
   const boardPhase125 = new Map<string, { faseKey: "valuacion" | "aprobacion" | "revision"; healthIndex: number | null; healthStatus: HealthStatus | null; pending: ValueGatePendingRow[] }>();
   projBoards.forEach((b) => {
@@ -228,7 +241,7 @@ function ControlTower({ data }: { data: DashboardData }) {
     const curIdx = currentPhaseIndex(curPhases);
     let faseKey: "valuacion" | "aprobacion" | "revision" | null;
     if (curIdx === -1) {
-      faseKey = "revision"; // proyecto completo — ya pasó por Revisión
+      faseKey = "revision"; // proyecto completo — ya pasó por esa fase (ahora "Confirmación" en la UI)
     } else {
       const curGrupo = curPhases[curIdx].grupo;
       faseKey = isFase1(curGrupo) ? "valuacion" : isFase2(curGrupo) ? "aprobacion" : isFase5(curGrupo) ? "revision" : null;
@@ -266,7 +279,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   // Nota general del EVM de la tarjeta Value Gate: promedio simple de la
   // salud (healthIndex/vem) de TODO lo que aparece en las 3 columnas —
   // proyectos + PML — sin ponderar por tipo, para tener un solo número que
-  // resuma el estado de Valuación+Aprobación+Revisión. Los proyectos ocultos
+  // resuma el estado de Valuación+Aprobación+Confirmación. Los proyectos ocultos
   // de la vista (HIDDEN_FROM_CONTROL_TOWER) tampoco entran acá — el badge
   // dice explícitamente que resume "todo lo listado abajo".
   const hiddenBoardIdsVG = new Set(projBoards.filter((b) => isHiddenFromControlTower(b.name)).map((b) => b.id));
@@ -335,7 +348,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const kpiBenefitAprobado = kpiAgg.aprobacion.benefit;
   const kpiBenefitConfirmado = kpiAgg.confirmacion.benefit;
 
-  // Reproceso del equipo (5º componente del KPI, peso 20) — ver teamReprocesoPct arriba.
+  // Reproceso del equipo (5º componente del KPI, peso 15) — ver teamReprocesoPct arriba.
   const kpi = computeKpi({ evm: teamVem, nps: nps.nps, benefitAprobado: kpiBenefitAprobado, benefitConfirmado: kpiBenefitConfirmado, entregasPct: entPct, reprocesoPct: teamReprocesoPct });
   const kpiPct = Math.round(kpi.score);
   const kpiAchievable = kpi.achievable; // 80 hoy (el 5º componente está pendiente)
@@ -344,7 +357,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   return {
     boardHealthMap, boardCompleteMap,
     allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
-    totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit, colConfirmacionCost, colConfirmacionBenefit,
+    totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit,
     pipelineAgg, boardPhase125, reqPhase125, valueGateAvgHealth,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
@@ -401,7 +414,9 @@ function ControlTower({ data }: { data: DashboardData }) {
             <div className="flex flex-col gap-0.5 pt-3 text-[0.72rem] font-semibold text-[var(--text-muted)]">
               <span>Validación <span style={{ color: "var(--info)" }}>{fmtMoney(colValidacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colValidacionBenefit)}</span></span>
               <span>Aprobación <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobacionBenefit)}</span></span>
-              <span>Confirmación <span style={{ color: "var(--info)" }}>{fmtMoney(colConfirmacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colConfirmacionBenefit)}</span></span>
+              <span title="Ahorro real con Ducafast (ROI 003) + Ahorro $ de Clonación de Files — ya no sale de Monday, no tiene costo asociado (es puro ahorro) ni cambia con el toggle Solo HardSaving">
+                Confirmación (ROI) <span style={{ color: "var(--ok)" }}>{confirmacionRoi != null ? fmtMoney(confirmacionRoi) : "…"}</span>
+              </span>
               <button
                 onClick={() => setHardOnly((v) => !v)}
                 title="Filtrar Costo y Beneficio a solo HardSaving (afecta también el beneficio por PM)"
@@ -502,11 +517,11 @@ function ControlTower({ data }: { data: DashboardData }) {
 
       </div>
 
-      {/* Fases 1·2·5 (Valuación/Aprobación/Revisión) + Pipeline HardSaving —
+      {/* Fases 1·2·5 (Valuación/Aprobación/Confirmación) + Pipeline HardSaving —
           entre las tarjetas principales y Portafolios por PM. */}
       <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
 
-        {/* Value Gate: en qué fase (Valuación/Aprobación/Revisión) está cada
+        {/* Value Gate: en qué fase (Valuación/Aprobación/Confirmación) está cada
             proyecto Y cada PML AHORA MISMO, con su salud calculada solo con
             esas 3 fases (boardPhase125 para proyectos vía EVM escalado;
             reqPhase125 para PML vía su propio VEM). Launch (Fase 3) y
@@ -523,7 +538,7 @@ function ControlTower({ data }: { data: DashboardData }) {
                 <span
                   className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none"
                   style={{ color: cfg.color, background: cfg.bg }}
-                  title="EVM promedio de todo lo listado abajo (proyectos + PML en Valuación/Aprobación/Revisión)"
+                  title="EVM promedio de todo lo listado abajo (proyectos + PML en Valuación/Aprobación/Confirmación)"
                 >
                   {cfg.icon} {cfg.label} · {Math.round(valueGateAvgHealth * 100)}%
                 </span>
@@ -535,7 +550,7 @@ function ControlTower({ data }: { data: DashboardData }) {
             <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
             <ValueGateColumn label="Aprobación" rows={valueGateRows("aprobacion", visibleProjBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
             <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-            <ValueGateColumn label="Revisión" rows={valueGateRows("revision", visibleProjBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
+            <ValueGateColumn label="Confirmación" rows={valueGateRows("revision", visibleProjBoards, boardPhase125, req, reqPhase125)} onSelect={setVgPendingRow} />
           </div>
         </div>
 
@@ -545,23 +560,61 @@ function ControlTower({ data }: { data: DashboardData }) {
           <div className="mb-3 text-[0.82rem] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Pipeline · HardSaving</div>
           <div className="flex flex-col gap-3">
             {(() => {
-              const stages = [
+              // Validación/Aprobación: funnel clásico, barras relativas a Validación.
+              const funnelStages = [
                 { label: "Validación", value: pipelineAgg.validacion.benefit },
                 { label: "Aprobación", value: pipelineAgg.aprobacion.benefit },
-                { label: "Confirmación", value: pipelineAgg.confirmacion.benefit },
               ];
-              const max = Math.max(stages[0].value, 1);
-              return stages.map((s) => (
-                <div key={s.label} className="flex flex-col gap-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[0.78rem] font-semibold text-[var(--text-secondary)]">{s.label}</span>
-                    <span className="text-[1.05rem] font-extrabold" style={{ color: "var(--ok)" }}>{fmtMoney(s.value)}</span>
+              const max = Math.max(funnelStages[0].value, 1);
+
+              // Confirmación (ROI): ya NO es un paso del funnel — es una barra de
+              // PROGRESO contra la meta "a la fecha": la meta ANUAL ($250k, ver
+              // META_CONFIRMACION_ROI_ANUAL) dividida en 12 y multiplicada por los
+              // MESES COMPLETOS que ya pasaron del año (el mes en curso no cuenta,
+              // todavía no cierra) — así se compara contra cómo deberíamos ir hoy,
+              // no contra el total del año. El semáforo (semaforoPct) y el % se
+              // calculan sobre ESE resultado, no sobre los $250k completos.
+              const mesesCompletos = today().getMonth(); // Enero=0 ⇒ en Octubre (9) ya pasaron 9 meses (Ene–Sep)
+              const metaAFecha = (META_CONFIRMACION_ROI_ANUAL / 12) * mesesCompletos;
+              const confirmacionValue = confirmacionRoi ?? 0;
+              const confirmacionPct = metaAFecha > 0 ? confirmacionValue / metaAFecha : (confirmacionValue > 0 ? 2 : 0);
+              const confirmacionColor = semaforoPct(confirmacionPct);
+
+              return (
+                <>
+                  {funnelStages.map((s) => (
+                    <div key={s.label} className="flex flex-col gap-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-[0.78rem] font-semibold text-[var(--text-secondary)]">{s.label}</span>
+                        <span className="text-[1.05rem] font-extrabold" style={{ color: "#000000" }}>{fmtMoney(s.value)}</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
+                        <div className="h-2 rounded-full" style={{ width: `${Math.round((s.value / max) * 100)}%`, background: "#000000" }} />
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[0.78rem] font-semibold text-[var(--text-secondary)]">Confirmación (ROI)</span>
+                      <span className="text-[1.05rem] font-extrabold" style={{ color: confirmacionColor }}>
+                        {fmtMoney(confirmacionValue)}
+                        <span className="ml-1 text-[0.78rem] font-bold">({Math.round(confirmacionPct * 100)}%)</span>
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
+                      <div className="h-2 rounded-full" style={{ width: `${Math.min(Math.round(confirmacionPct * 100), 100)}%`, background: confirmacionColor }} />
+                    </div>
+                    <div
+                      className="text-right text-[0.66rem] font-semibold text-[var(--text-muted)]"
+                      title={`Meta anual $${META_CONFIRMACION_ROI_ANUAL.toLocaleString("es-GT")} ÷ 12 × ${mesesCompletos} meses completos ya transcurridos`}
+                    >
+                      Meta a la fecha ({mesesCompletos} {mesesCompletos === 1 ? "mes" : "meses"}) {fmtMoney(metaAFecha)}
+                      <span className="ml-1 font-normal text-[var(--text-disabled)]">· Meta anual {fmtMoney(META_CONFIRMACION_ROI_ANUAL)}</span>
+                    </div>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
-                    <div className="h-2 rounded-full" style={{ width: `${Math.round((s.value / max) * 100)}%`, background: "var(--ok)" }} />
-                  </div>
-                </div>
-              ));
+                </>
+              );
             })()}
           </div>
         </div>
@@ -662,6 +715,21 @@ const PROJ_HEALTH_COLOR: Record<string, string> = {
   "off-track": "#ef4444",
 };
 
+/** Meta ANUAL de Confirmación (ROI) del Pipeline — se prorratea a "meta a la
+ *  fecha" según los meses completos transcurridos del año (ver la tarjeta
+ *  Pipeline), que es contra lo que se mide el avance real. */
+const META_CONFIRMACION_ROI_ANUAL = 250_000;
+
+/** Semáforo por % de avance contra la meta (ya prorrateada por el caller):
+ *  rojo por debajo de 25%, amarillo 25–60%, verde 60–100%, y rojo otra vez
+ *  por encima de 100% (dato fuera de rango esperado). */
+function semaforoPct(pct: number): string {
+  if (pct > 1) return "#ef4444";
+  if (pct >= 0.6) return "#10b981";
+  if (pct >= 0.25) return "#f59e0b";
+  return "#ef4444";
+}
+
 /** Un pendiente (unidad/step no Done) de un proyecto o PML del Value Gate —
  *  lo que se ve al hacer clic en una fila (ver ValueGatePendingModal). Para
  *  un PML (que no se descompone en steps) la lista es el ítem mismo. */
@@ -691,7 +759,7 @@ function valueGateRows(
     .map((r) => {
       const p = reqPhase125.get(r.id)!;
       // El PML no se descompone en steps — el "pendiente" es el ítem mismo,
-      // ya que estar en Valuación/Aprobación/Revisión significa que esa fase
+      // ya que estar en Valuación/Aprobación/Confirmación significa que esa fase
       // todavía no cierra para él.
       const pending: ValueGatePendingRow[] = [{ name: r.name, fase: r.grupo, deadline: r.deadline, status: r.estado, atrasada: r.estado === "ATRASADO" }];
       return { id: r.id, code: r.id, title: r.name, healthIndex: p.healthIndex, healthStatus: p.healthStatus, pending };
@@ -1000,11 +1068,13 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
             <th className={`${th} text-center w-12`}>#</th>
             <th className={`${th} text-left w-48`}>Portafolio · PM</th>
             <th className={`${th} text-center w-32`}>Player</th>
-            <th className={`${th} text-center w-32`}>EVM<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 30</span></th>
-            <th className={`${th} text-center w-32`}>Beneficio<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 25</span></th>
-            <th className={`${th} text-center w-32`}>Calidad de Entregas<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 20</span></th>
-            <th className={`${th} text-center w-32`}>Cumplimiento de Entrega<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 15</span></th>
-            <th className={`${th} text-center w-32`}>NPS<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso 10</span></th>
+            {/* Columnas ordenadas por peso del KPI (desc.): EVM/Beneficio 30 ·
+                NPS/Calidad de Entregas 15 · Cumplimiento de Entrega 10. */}
+            <th className={`${th} text-center w-32`}>EVM<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso {KPI_W.evm}</span></th>
+            <th className={`${th} text-center w-32`}>Beneficio<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso {KPI_W.benefit}</span></th>
+            <th className={`${th} text-center w-32`}>NPS<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso {KPI_W.nps}</span></th>
+            <th className={`${th} text-center w-32`}>Calidad de Entregas<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso {KPI_W.reproceso}</span></th>
+            <th className={`${th} text-center w-32`}>Cumplimiento de Entrega<span className="block text-[0.6rem] font-normal text-[var(--text-muted)]">peso {KPI_W.entregas}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -1043,7 +1113,7 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                   <div className="tabular-nums font-bold" style={{ color: evmColor }}>{r.evmPct !== null ? `${r.evmPct}%` : "—"}</div>
                   {r.evmPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("evm")} pts</div>}
                 </td>
-                {/* Beneficio HardSaving confirmado (peso 25) */}
+                {/* Beneficio HardSaving confirmado (peso 30) */}
                 <td className={`${td} text-center`}>
                   <button
                     onClick={() => setValuePm(r.pm)}
@@ -1055,20 +1125,20 @@ function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap,
                   </button>
                   <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
                 </td>
-                {/* Calidad de Entregas — reproceso (peso 20) */}
+                {/* NPS (peso 15) */}
+                <td className={`${td} text-center`}>
+                  <div className="tabular-nums font-bold" style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</div>
+                  {r.nps.nps !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("nps")} pts</div>}
+                </td>
+                {/* Calidad de Entregas — reproceso (peso 15) */}
                 <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : "% de unidades limpias (PML cerrados + fases completadas) sin reproceso imputable al PM"}>
                   <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</div>
                   {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
                 </td>
-                {/* Cumplimiento de Entrega — % a tiempo (peso 15) */}
+                {/* Cumplimiento de Entrega — % a tiempo (peso 10) */}
                 <td className={`${td} text-center`}>
                   <div className="tabular-nums font-bold" style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</div>
                   {r.entPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("entregas")} pts</div>}
-                </td>
-                {/* NPS (peso 10) */}
-                <td className={`${td} text-center`}>
-                  <div className="tabular-nums font-bold" style={{ color: npsColor }}>{r.nps.nps !== null ? r.nps.nps : "s/d"}</div>
-                  {r.nps.nps !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("nps")} pts</div>}
                 </td>
               </tr>
             );

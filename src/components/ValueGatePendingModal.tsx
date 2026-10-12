@@ -37,7 +37,7 @@ export default function ValueGatePendingModal({ code, title, rows, onClose }: {
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {sorted.length === 0 ? (
             <div className="py-8 text-center text-[0.85rem] text-[var(--text-muted)]">
-              Sin pendientes en Valuación/Aprobación/Revisión.
+              Sin pendientes en Valuación/Aprobación/Confirmación.
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
