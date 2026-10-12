@@ -146,7 +146,7 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                 <Row label="Total (Validación + Aprobación)" c={value.totalCost} b={value.totalBenefit} strong />
               </div>
 
-              {/* Cómo pesa el Beneficio en el KPI (peso 25, siempre HardSaving) */}
+              {/* Cómo pesa el Beneficio en el KPI (peso 30, siempre HardSaving) */}
               {(() => {
                 const bk = computeBenefitKpi(valueHard.aprobacionBenefit, valueHard.confirmacionBenefit);
                 return (

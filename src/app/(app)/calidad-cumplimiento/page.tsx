@@ -1,9 +1,9 @@
 "use client";
 
 // Auditoría cruzada de las dos métricas de "entregas" del KPI:
-//   · Cumplimiento de Entrega (peso 15): REQ + items/subitems de Proyecto con
+//   · Cumplimiento de Entrega (peso 10): REQ + items/subitems de Proyecto con
 //     veredicto on-time/late.
-//   · Calidad de Entregas (peso 20, "reproceso"): REQ CERRADOS + steps de
+//   · Calidad de Entregas (peso 15, "reproceso"): REQ CERRADOS + steps de
 //     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
 // Objetivo: ver cuántos casos hay de cada tipo y QUIÉN ha sido el responsable
 // asignado, para medir patrones y poder asignar responsables desde aquí mismo

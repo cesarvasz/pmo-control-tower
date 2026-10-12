@@ -3,7 +3,7 @@
 // Métrica ponderada general (global y por PM). Cada componente aporta
 // (logro × peso), con logro = min(real / meta, 100%) y piso 0%. La meta es el valor
 // que rinde el 100% del peso (no un tope de la métrica). Los pesos suman 100:
-//   EVM 30 · NPS 10 · Beneficio HardSaving 25 · Cumplimiento de Entrega 15 · Reproceso 20.
+//   EVM 30 · NPS 15 · Beneficio HardSaving 30 · Cumplimiento de Entrega 10 · Reproceso 15.
 //   · EVM: el % rinde directo el peso (90% → 0.9×30). NPS: escalonado por rango, ver
 //     npsLogro() abajo. Beneficio: ver computeBenefitKpi() abajo. Entregas y Reproceso:
 //     el % es directamente la fracción del peso (85% → 0.85×peso).
@@ -27,9 +27,9 @@
 import { fmtMoney, today } from "@/lib/business";
 import { NPS_RANGES } from "@/lib/nps";
 
-export const KPI_META = { evm: 1.0, nps: 50, benefitAnnual: 135000, entregas: 1.0, reproceso: 1.0 };
-export const KPI_W = { evm: 30, nps: 10, benefit: 25, entregas: 15, reproceso: 20 };
-// Beneficio (peso 25) se reparte 70% Aprobación VPB / 30% Confirmación VPC.
+export const KPI_META = { evm: 1.0, nps: 50, benefitAnnual: 85000, entregas: 1.0, reproceso: 1.0 };
+export const KPI_W = { evm: 30, nps: 15, benefit: 30, entregas: 10, reproceso: 15 };
+// Beneficio (peso 30) se reparte 70% Aprobación VPB / 30% Confirmación VPC.
 export const BENEFIT_SPLIT = { aprobacion: 0.70, confirmacion: 0.30 };
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -44,24 +44,24 @@ function npsLogro(nps: number | null): number {
 
 export interface BenefitKpiBreakdown {
   month: number;             // mes del año (1-12) usado para la meta acumulada
-  metaAnual: number;         // $135,000
+  metaAnual: number;         // $85,000
   metaMensual: number;       // metaAnual / 12
   metaAcumulada: number;     // metaMensual × mes actual — lo que se "debería llevar" a la fecha
   benefitAprobado: number;
   benefitConfirmado: number;
   logroAprobacion: number;   // benefitAprobado / metaAcumulada, tope 100%
   logroConfirmacion: number; // benefitConfirmado / metaAcumulada, tope 100%
-  pesoAprobacion: number;    // 25 × 70% = 17.5
-  pesoConfirmacion: number;  // 25 × 30% = 7.5
+  pesoAprobacion: number;    // 30 × 70% = 21
+  pesoConfirmacion: number;  // 30 × 30% = 9
   ptsAprobacion: number;     // logroAprobacion × pesoAprobacion
   ptsConfirmacion: number;   // logroConfirmacion × pesoConfirmacion
-  total: number;             // ptsAprobacion + ptsConfirmacion (0..25)
+  total: number;             // ptsAprobacion + ptsConfirmacion (0..30)
 }
 
 /**
- * Componente "Beneficio HardSaving" del KPI (peso 25), repartido 70/30 entre
- * Aprobación VPB y Confirmación VPC. La meta anual ($135,000) se prorratea por mes
- * calendario: metaAcumulada = (135000/12) × mes_actual — "lo que se debería llevar"
+ * Componente "Beneficio HardSaving" del KPI (peso 30), repartido 70/30 entre
+ * Aprobación VPB y Confirmación VPC. La meta anual ($85,000) se prorratea por mes
+ * calendario: metaAcumulada = (85000/12) × mes_actual — "lo que se debería llevar"
  * a la fecha. Cada mitad se mide por separado: Beneficio de esa etapa / metaAcumulada,
  * con tope en 100%. `month` es 1-12; por defecto el mes calendario actual.
  */

@@ -9,40 +9,41 @@ import {
   type KpiComponent,
 } from "./kpi";
 
-// Pesos: EVM 30 · NPS 10 · Beneficio 25 · Entregas 15 · Reproceso 20.
-// Beneficio (peso 25) = 70% Aprobación + 30% Confirmación, cada mitad contra la meta
-// mensual acumulada ($135,000/12 × mes). month=12 (meta acumulada = meta anual completa)
-// se usa en la mayoría de estos tests para que $11,250×12=135,000 sea fácil de razonar.
+// Pesos: EVM 30 · NPS 15 · Beneficio 30 · Entregas 10 · Reproceso 15.
+// Beneficio (peso 30) = 70% Aprobación + 30% Confirmación, cada mitad contra la meta
+// mensual acumulada ($85,000/12 × mes). month=12 (meta acumulada = meta anual completa,
+// $85,000 — un número redondo) se usa en la mayoría de estos tests para que sea fácil
+// de razonar; month=7 solo en el test del prorrateo en sí.
 describe("computeBenefitKpi (70% Aprobación / 30% Confirmación contra meta acumulada)", () => {
-  it("meta acumulada = (135000/12) × mes", () => {
+  it("meta acumulada = (85000/12) × mes", () => {
     const b = computeBenefitKpi(0, 0, 7);
-    expect(b.metaMensual).toBeCloseTo(11250, 5);
-    expect(b.metaAcumulada).toBeCloseTo(78750, 5); // 11250 × 7
+    expect(b.metaMensual).toBeCloseTo(85000 / 12, 5);
+    expect(b.metaAcumulada).toBeCloseTo((85000 / 12) * 7, 5);
   });
 
-  it("logro 100% en ambas mitades cuando el beneficio iguala la meta acumulada → total 25", () => {
-    const b = computeBenefitKpi(78750, 78750, 7);
+  it("logro 100% en ambas mitades cuando el beneficio iguala la meta acumulada → total 30", () => {
+    const b = computeBenefitKpi(85000, 85000, 12); // mes 12 ⇒ meta acumulada = meta anual completa
     expect(b.logroAprobacion).toBeCloseTo(1, 5);
     expect(b.logroConfirmacion).toBeCloseTo(1, 5);
-    expect(b.ptsAprobacion).toBeCloseTo(17.5, 5); // 70% de 25
-    expect(b.ptsConfirmacion).toBeCloseTo(7.5, 5); // 30% de 25
-    expect(b.total).toBeCloseTo(25, 5);
+    expect(b.ptsAprobacion).toBeCloseTo(21, 5); // 70% de 30
+    expect(b.ptsConfirmacion).toBeCloseTo(9, 5); // 30% de 30
+    expect(b.total).toBeCloseTo(30, 5);
   });
 
   it("topa el logro en 100% aunque el beneficio supere la meta acumulada", () => {
-    const b = computeBenefitKpi(200000, 200000, 7);
+    const b = computeBenefitKpi(200000, 200000, 12);
     expect(b.logroAprobacion).toBe(1);
     expect(b.logroConfirmacion).toBe(1);
-    expect(b.total).toBeCloseTo(25, 5);
+    expect(b.total).toBeCloseTo(30, 5);
   });
 
   it("cada mitad se mide independiente (Aprobación al 50%, Confirmación en 0)", () => {
-    const b = computeBenefitKpi(39375, 0, 7); // 39375 = 50% de 78750
+    const b = computeBenefitKpi(42500, 0, 12); // 42500 = 50% de 85000
     expect(b.logroAprobacion).toBeCloseTo(0.5, 5);
     expect(b.logroConfirmacion).toBe(0);
-    expect(b.ptsAprobacion).toBeCloseTo(8.75, 5); // 50% de 17.5
+    expect(b.ptsAprobacion).toBeCloseTo(10.5, 5); // 50% de 21
     expect(b.ptsConfirmacion).toBe(0);
-    expect(b.total).toBeCloseTo(8.75, 5);
+    expect(b.total).toBeCloseTo(10.5, 5);
   });
 
   it("usa el mes calendario actual si no se pasa `month`", () => {
@@ -52,15 +53,15 @@ describe("computeBenefitKpi (70% Aprobación / 30% Confirmación contra meta acu
 });
 
 describe("computeKpi", () => {
-  it("sin reproceso: logro perfecto en los otros 4 → score 80, achievable 80, ratio 1", () => {
-    const r = computeKpi({ evm: 1.0, nps: 50, benefitAprobado: 78750, benefitConfirmado: 78750, entregasPct: 100, month: 7 });
-    expect(r.score).toBeCloseTo(80, 5);
-    expect(r.achievable).toBe(80);
+  it("sin reproceso: logro perfecto en los otros 4 → score 85, achievable 85, ratio 1", () => {
+    const r = computeKpi({ evm: 1.0, nps: 50, benefitAprobado: 85000, benefitConfirmado: 85000, entregasPct: 100, month: 12 });
+    expect(r.score).toBeCloseTo(85, 5);
+    expect(r.achievable).toBe(85);
     expect(r.ratio).toBeCloseTo(1, 5);
   });
 
   it("con reproceso 100%: logro perfecto en los 5 → score 100, achievable 100", () => {
-    const r = computeKpi({ evm: 1.0, nps: 50, benefitAprobado: 78750, benefitConfirmado: 78750, entregasPct: 100, reprocesoPct: 100, month: 7 });
+    const r = computeKpi({ evm: 1.0, nps: 50, benefitAprobado: 85000, benefitConfirmado: 85000, entregasPct: 100, reprocesoPct: 100, month: 12 });
     expect(r.score).toBeCloseTo(100, 5);
     expect(r.achievable).toBe(100);
     const rep = r.components.find((c) => c.key === "reproceso")!;
@@ -68,22 +69,22 @@ describe("computeKpi", () => {
     expect(rep.logro).toBeCloseTo(1, 5);
   });
 
-  it("reproceso 50% aporta 10 (0.5 × 20)", () => {
+  it("reproceso 50% aporta 7.5 (0.5 × 15)", () => {
     const r = computeKpi({ evm: null, nps: null, benefitAprobado: 0, benefitConfirmado: 0, entregasPct: null, reprocesoPct: 50 });
-    expect(r.score).toBeCloseTo(10, 5);
+    expect(r.score).toBeCloseTo(7.5, 5);
     expect(r.achievable).toBe(100);
   });
 
-  it("todo nulo/cero → score 0, achievable 80, ratio 0", () => {
+  it("todo nulo/cero → score 0, achievable 85, ratio 0", () => {
     const r = computeKpi({ evm: null, nps: null, benefitAprobado: 0, benefitConfirmado: 0, entregasPct: null });
     expect(r.score).toBe(0);
-    expect(r.achievable).toBe(80);
+    expect(r.achievable).toBe(85);
     expect(r.ratio).toBe(0);
   });
 
   it("clampa el logro a 100% aunque el real supere la meta", () => {
     const r = computeKpi({ evm: 1.5, nps: 60, benefitAprobado: 999999, benefitConfirmado: 999999, entregasPct: 200, month: 7 });
-    expect(r.score).toBeCloseTo(80, 5);
+    expect(r.score).toBeCloseTo(85, 5);
     const evm = r.components.find((c) => c.key === "evm")!;
     expect(evm.logro).toBe(1);
     const benefit = r.components.find((c) => c.key === "benefit")!;
@@ -94,14 +95,14 @@ describe("computeKpi", () => {
     // Solo EVM al 90%: 0.9 * 30 = 27
     const r = computeKpi({ evm: 0.9, nps: null, benefitAprobado: 0, benefitConfirmado: 0, entregasPct: null });
     expect(r.score).toBeCloseTo(27, 5);
-    expect(r.ratio).toBeCloseTo(27 / 80, 5);
+    expect(r.ratio).toBeCloseTo(27 / 85, 5);
   });
 
   it("entregas: el % es directamente la fracción del peso (85% → logro 0.85)", () => {
     const r = computeKpi({ evm: null, nps: null, benefitAprobado: 0, benefitConfirmado: 0, entregasPct: 85 });
     const ent = r.components.find((c) => c.key === "entregas")!;
     expect(ent.logro).toBeCloseTo(0.85, 5);
-    expect(r.score).toBeCloseTo(0.85 * KPI_W.entregas, 5); // 12.75
+    expect(r.score).toBeCloseTo(0.85 * KPI_W.entregas, 5); // 8.5
   });
 
   it("NPS: logro escalonado por rango (PMO Riesgo/Soporte/Táctica/Gobernanza/Estratégica)", () => {
@@ -120,10 +121,10 @@ describe("computeKpi", () => {
   });
 
   it("beneficio: el componente refleja el reparto 70/30 de computeBenefitKpi", () => {
-    const r = computeKpi({ evm: null, nps: null, benefitAprobado: 39375, benefitConfirmado: 0, entregasPct: null, month: 7 });
+    const r = computeKpi({ evm: null, nps: null, benefitAprobado: 42500, benefitConfirmado: 0, entregasPct: null, month: 12 });
     const benefit = r.components.find((c) => c.key === "benefit")!;
-    expect(benefit.logro).toBeCloseTo(0.35, 5); // 8.75 / 25
-    expect(r.score).toBeCloseTo(8.75, 5);
+    expect(benefit.logro).toBeCloseTo(0.35, 5); // 10.5 / 30
+    expect(r.score).toBeCloseTo(10.5, 5);
   });
 
   it("expone 5 componentes; el 5º es 'reproceso', pendiente cuando no se pasa su %", () => {
