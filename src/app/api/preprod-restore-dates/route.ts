@@ -2,10 +2,11 @@
 // Fechas de restauración de Pre-producción (banner del Control Tower).
 // El calendario se auto-completa en cada request vía ensurePreprodSchedule:
 // siempre quedan PREPROD_FUTURE_COUNT fechas a futuro (encadenando cada
-// PREPROD_INTERVAL_BUSINESS_DAYS días HÁBILES desde la última conocida, sin
-// excluir asuetos) y el histórico se recorta a las PREPROD_HISTORY_COUNT más
-// recientes — ver lib/preprodSchedule.ts. Si el cálculo cambia la lista
-// guardada, se persiste de una vez (así la ventana se desliza sola con el tiempo).
+// PREPROD_INTERVAL_DAYS días CALENDARIO desde la última conocida — en la
+// práctica, "sábado sí, sábado no") y el histórico se recorta a las
+// PREPROD_HISTORY_COUNT más recientes — ver lib/preprodSchedule.ts. Si el
+// cálculo cambia la lista guardada, se persiste de una vez (así la ventana
+// se desliza sola con el tiempo).
 // GET: cualquier usuario autenticado (solo lee, igual que /api/dashboard/confirmacion-roi).
 // DELETE: requiere acceso a la página "overview" (Control Tower) — cualquiera con
 // esa página puede cancelar una fecha puntual, no solo Admin (mismo criterio que

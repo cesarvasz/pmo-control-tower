@@ -86,6 +86,16 @@ export function fmtDate(date: Date | null | undefined): string {
   });
 }
 
+/** Igual que fmtDate pero con el día de la semana y el mes completo —
+ *  "sábado 24 octubre 2026" (es-GT, sin "de"). null → "—". */
+export function fmtDateWithWeekday(date: Date | null | undefined): string {
+  if (!date) return "—";
+  const weekday = date.toLocaleDateString("es-GT", { weekday: "long" });
+  const month = date.toLocaleDateString("es-GT", { month: "long" });
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${weekday} ${day} ${month} ${date.getFullYear()}`;
+}
+
 /** ¿La fecha cae hoy (comparando solo el día)? */
 export function isToday(date: Date | null | undefined): boolean {
   if (!date) return false;

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fmtMoney, fmtDate, today, parseYMD, businessDays } from "@/lib/business";
+import { fmtMoney, fmtDateWithWeekday, today, parseYMD, businessDays } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
@@ -405,7 +405,7 @@ function ControlTower({ data }: { data: DashboardData }) {
           <span className="font-semibold text-[var(--text-primary)]">Próxima restauración de Pre-producción:</span>
           {nextPreprodDate ? (
             <>
-              <span>{fmtDate(nextPreprodDate)}</span>
+              <span className="capitalize">{fmtDateWithWeekday(nextPreprodDate)}</span>
               <span className="text-[var(--text-muted)]">(faltan {preprodBusinessDays} día{preprodBusinessDays === 1 ? "" : "s"})</span>
             </>
           ) : (

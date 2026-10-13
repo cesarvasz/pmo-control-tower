@@ -3,16 +3,16 @@
 // Popup "Próximas fechas" de restauración de Pre-producción (banner del
 // Control Tower): el calendario se calcula solo (ver ensurePreprodSchedule
 // en lib/preprodSchedule.ts) — siempre 5 fechas a futuro, cada 14 días
-// hábiles, y un histórico de las 3 más recientes. Este popup es de solo
-// lectura salvo "Quitar" (p. ej. para cancelar un ciclo puntual; el que
-// sigue se vuelve a generar solo). No hay opción de agregar fechas a mano.
-// El banner afuera solo muestra la más próxima a futuro — ver nextPreprodDate
-// en page.tsx.
+// calendario ("sábado sí, sábado no"), y un histórico de las 3 más
+// recientes. Este popup es de solo lectura salvo "Quitar" (p. ej. para
+// cancelar un ciclo puntual; el que sigue se vuelve a generar solo). No hay
+// opción de agregar fechas a mano. El banner afuera solo muestra la más
+// próxima a futuro — ver nextPreprodDate en page.tsx.
 
 import { useState } from "react";
 import Modal from "@/components/Modal";
 import { authedFetch } from "@/lib/api";
-import { fmtDate, parseYMD, today } from "@/lib/business";
+import { fmtDateWithWeekday, parseYMD, today } from "@/lib/business";
 
 export default function PreprodRestoreDatesModal({ dates, onChange, onClose }: {
   dates: string[];
@@ -80,7 +80,7 @@ export default function PreprodRestoreDatesModal({ dates, onChange, onClose }: {
                   }}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-[0.85rem] font-semibold" style={{ color }}>{fmtDate(parseYMD(d))}</span>
+                    <span className="text-[0.85rem] font-semibold capitalize" style={{ color }}>{fmtDateWithWeekday(parseYMD(d))}</span>
                     {isNext && (
                       <span
                         className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold uppercase leading-none"
@@ -106,7 +106,7 @@ export default function PreprodRestoreDatesModal({ dates, onChange, onClose }: {
 
       <div className="border-t px-6 py-4" style={{ borderColor: "var(--border)" }}>
         <div className="text-[0.72rem] text-[var(--text-muted)]">
-          El calendario se completa solo cada 14 días hábiles, siempre con 5 fechas a futuro.
+          El calendario se completa solo cada 14 días (sábado sí, sábado no), siempre con 5 fechas a futuro.
         </div>
         {err && <div className="mt-2 text-[0.8rem]" style={{ color: "var(--bad)" }}>{err}</div>}
       </div>

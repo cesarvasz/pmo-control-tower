@@ -4,6 +4,7 @@ import {
   unionBusinessDays,
   addBusinessDays,
   fmtDate,
+  fmtDateWithWeekday,
   isToday,
   today,
   mondayOfWeek,
@@ -120,6 +121,22 @@ describe("fmtDate", () => {
     expect(s).toContain("2026");
     expect(s).toContain("02");
     expect(s).not.toBe("—");
+  });
+});
+
+describe("fmtDateWithWeekday", () => {
+  it("null/undefined → guion", () => {
+    expect(fmtDateWithWeekday(null)).toBe("—");
+    expect(fmtDateWithWeekday(undefined)).toBe("—");
+  });
+
+  it("incluye el día de la semana y el mes completo, sin 'de'", () => {
+    const s = fmtDateWithWeekday(d(2026, 10, 24)); // sábado
+    expect(s.toLowerCase()).toContain("sábado");
+    expect(s.toLowerCase()).toContain("octubre");
+    expect(s).toContain("2026");
+    expect(s).toContain("24");
+    expect(s).not.toMatch(/\bde\b/);
   });
 });
 
