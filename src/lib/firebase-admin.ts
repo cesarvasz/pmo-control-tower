@@ -192,6 +192,25 @@ export async function listWeeklySnapshots(): Promise<WeeklySnapshotDoc[]> {
   return snap.docs.map((d) => d.data() as WeeklySnapshotDoc);
 }
 
+// ── Fechas de restauración de Pre-producción (Control Tower) ──────────────
+// Colección `preprod_restore_dates`, un solo doc ("list") con el arreglo
+// completo de fechas ("YYYY-MM-DD") — se administran a mano desde el popup,
+// no vienen de Monday ni de Sheets. Mismo criterio de edición que
+// `board_alcance` (cualquiera con acceso a la página, no requiere Admin).
+export async function getPreprodRestoreDates(): Promise<string[]> {
+  const db = getAdminDb();
+  const doc = await db.collection("preprod_restore_dates").doc("list").get();
+  const dates = (doc.data()?.dates as string[] | undefined) ?? [];
+  return [...dates].sort();
+}
+
+export async function savePreprodRestoreDates(dates: string[], by: string): Promise<string[]> {
+  const db = getAdminDb();
+  const sorted = [...new Set(dates)].sort();
+  await db.collection("preprod_restore_dates").doc("list").set({ dates: sorted, by, at: new Date().toISOString() });
+  return sorted;
+}
+
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!token) throw new Error("no-token");

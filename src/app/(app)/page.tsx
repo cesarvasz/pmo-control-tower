@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fmtMoney, today } from "@/lib/business";
+import { fmtMoney, fmtDate, today, parseYMD, businessDays } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
@@ -33,6 +33,7 @@ import { computeKpi, kpiColorFor, KPI_W } from "@/lib/kpi";
 import { buildVpaActions } from "@/lib/vpaActions";
 import WeeklyProgressChart from "@/components/WeeklyProgressChart";
 import NotificationsBell from "@/components/NotificationsBell";
+import PreprodRestoreDatesModal from "@/components/PreprodRestoreDatesModal";
 
 const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
   "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
@@ -80,6 +81,7 @@ function ControlTower({ data }: { data: DashboardData }) {
   const [vgPendingRow, setVgPendingRow] = useState<ValueGateRow | null>(null);
   const [showReprocesoDetail, setShowReprocesoDetail] = useState(false);
   const [showEntregaDetail, setShowEntregaDetail] = useState(false);
+  const [showPreprodDates, setShowPreprodDates] = useState(false);
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tarjetas"); // vista de Portafolios por PM (default: Tarjetas)
 
@@ -100,6 +102,28 @@ function ControlTower({ data }: { data: DashboardData }) {
       .then((d: { confirmacionBenefit: number }) => setConfirmacionRoi(d.confirmacionBenefit))
       .catch((err) => console.warn("Confirmación ROI: no se pudo cargar:", err));
   }, []);
+
+  // Fechas de restauración de Pre-producción, administradas a mano en el popup
+  // (ver PreprodRestoreDatesModal) — null mientras carga. El banner solo
+  // muestra la más próxima A FUTURO (hoy incluido); las pasadas quedan en la
+  // lista (atenuadas en el popup) por si sirven de referencia.
+  const [preprodDates, setPreprodDates] = useState<string[] | null>(null);
+  useEffect(() => {
+    authedFetch("/api/preprod-restore-dates")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((d: { dates: string[] }) => setPreprodDates(d.dates))
+      .catch((err) => console.warn("Fechas de restauración Pre-producción: no se pudo cargar:", err));
+  }, []);
+  const nextPreprodDate = useMemo(() => {
+    if (!preprodDates) return null;
+    const todayMs = today().getTime();
+    const future = preprodDates
+      .map((d) => parseYMD(d))
+      .filter((d): d is Date => !!d && d.getTime() >= todayMs)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return future[0] ?? null;
+  }, [preprodDates]);
+  const preprodBusinessDays = nextPreprodDate ? businessDays(today(), nextPreprodDate, true) : null;
 
   // Todas las derivaciones dependen solo de los datos (estáticos entre refreshes) y del
   // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
@@ -368,11 +392,34 @@ function ControlTower({ data }: { data: DashboardData }) {
 
   return (
     <div>
+      {/* Próxima restauración de Pre-producción — fechas administradas a mano
+          (ver PreprodRestoreDatesModal). Afuera del cuadro de saludo/campanita,
+          alineado a la derecha ("float right"), tamaño justo al contenido. */}
+      <div className="mb-2 flex justify-end">
+        <button
+          onClick={() => setShowPreprodDates(true)}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[0.78rem] whitespace-nowrap"
+          style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+          title="Ver y administrar las próximas fechas de restauración de Pre-producción"
+        >
+          <span className="font-semibold text-[var(--text-primary)]">Próxima restauración de Pre-producción:</span>
+          {nextPreprodDate ? (
+            <>
+              <span>{fmtDate(nextPreprodDate)}</span>
+              <span className="text-[var(--text-muted)]">(faltan {preprodBusinessDays} día{preprodBusinessDays === 1 ? "" : "s"})</span>
+            </>
+          ) : (
+            <span className="text-[var(--text-muted)]">sin fecha programada</span>
+          )}
+        </button>
+      </div>
+
       {/* Saludo + acceso directo a la campanita de notificaciones (arriba de todo). */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-5" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
         <span className="text-xl font-bold text-[var(--text-primary)]">
           Hola{greetName ? `, ${greetName}` : ""} 👋
         </span>
+
         <div className="flex items-center gap-2">
           <span className="text-[0.85rem] font-semibold text-[var(--text-secondary)]">Mira las acciones pendientes</span>
           <NotificationsBell />
@@ -655,6 +702,13 @@ function ControlTower({ data }: { data: DashboardData }) {
 
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
       {showValueGate && <ValueGateModal items={vpaActions} onClose={() => setShowValueGate(false)} />}
+      {showPreprodDates && (
+        <PreprodRestoreDatesModal
+          dates={preprodDates ?? []}
+          onChange={setPreprodDates}
+          onClose={() => setShowPreprodDates(false)}
+        />
+      )}
       {vgPendingRow && (
         <ValueGatePendingModal
           code={vgPendingRow.code}
