@@ -125,6 +125,71 @@ function Breakdown({ title, data }: { title: string; data: Group[] }) {
   );
 }
 
+type HorasGroup = { label: string; pm: number; vga: number; total: number; proyectos: number };
+
+// Horas (PM + VGA) y proyectos por país. "Proyectos" = boards distintos de los Hitos del país;
+// los PML no pertenecen a un board de proyecto, así que no entran en ese conteo.
+function groupHoras(rows: Row[], key: (r: Row) => string): HorasGroup[] {
+  const m = new Map<string, { pm: number; vga: number; boards: Set<string> }>();
+  for (const r of rows) {
+    const k = (key(r) || "").trim() || "(sin dato)";
+    const e = m.get(k) ?? { pm: 0, vga: 0, boards: new Set<string>() };
+    e.pm += r.hrsPm ?? 0;
+    e.vga += r.hrsVga ?? 0;
+    if (r.kind === "Hito" && r.boardId) e.boards.add(r.boardId);
+    m.set(k, e);
+  }
+  return [...m.entries()]
+    .map(([label, v]) => ({ label, pm: v.pm, vga: v.vga, total: v.pm + v.vga, proyectos: v.boards.size }))
+    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+}
+
+// Barras horizontales apiladas (Hrs PM + Hrs VGA) por categoría. Medida: horas.
+function HorasBreakdown({ title, data }: { title: string; data: HorasGroup[] }) {
+  const max = Math.max(1, ...data.map((d) => d.total));
+  return (
+    <div className="rounded-xl border p-4" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+      <div className="mb-1 text-[0.78rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">{title}</div>
+      <div className="mb-3 flex flex-wrap items-center gap-4 text-[0.72rem] text-[var(--text-secondary)]">
+        <span className="flex items-center gap-1.5"><Swatch v="var(--series-req)" /> Hrs PM</span>
+        <span className="flex items-center gap-1.5"><Swatch v="var(--series-hito)" /> Hrs VGA</span>
+        <span className="text-[var(--text-muted)]">· Hrs Dev aún sin dato</span>
+      </div>
+
+      {data.length === 0 ? (
+        <div className="py-6 text-center text-[0.8rem] text-[var(--text-disabled)]">Sin datos</div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {data.map((g) => (
+            <div key={g.label} className="flex items-center gap-3"
+              title={`${g.label}\nHrs PM: ${g.pm}\nHrs VGA: ${g.vga}\nTotal: ${g.total} h\nProyectos con Hitos: ${g.proyectos}`}>
+              <span className="w-32 shrink-0 truncate text-right text-[0.78rem] text-[var(--text-secondary)]">{g.label}</span>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="viz-track" style={{ width: `${(g.total / max) * 100}%` }}>
+                  {g.total > 0 && (
+                    <>
+                      <div className={`viz-seg ${g.vga > 0 ? "viz-seg--first" : "viz-seg--only"}`}
+                        style={{ width: `${(g.pm / g.total) * 100}%`, background: "var(--series-req)" }} />
+                      {g.vga > 0 && (
+                        <div className={`viz-seg ${g.pm > 0 ? "viz-seg--last" : "viz-seg--only"}`}
+                          style={{ width: `${(g.vga / g.total) * 100}%`, background: "var(--series-hito)" }} />
+                      )}
+                    </>
+                  )}
+                </div>
+                <span className="shrink-0 text-[0.82rem] font-semibold tabular-nums text-[var(--text-primary)]">
+                  {g.total.toLocaleString("es-GT")} h
+                </span>
+                <span className="shrink-0 text-[0.7rem] text-[var(--text-muted)]">· {g.proyectos} proy.</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Swatch({ v }: { v: string }) {
   return <span className="inline-block h-2.5 w-3.5 rounded-sm" style={{ background: v }} />;
 }
@@ -134,6 +199,7 @@ export default function CostoUnidadNegocioPage() {
   const [tab, setTab] = useState<"tabla" | "analisis">("tabla");
   const [fType, setFType] = useState<"" | "REQ" | "Proyecto">("");
   const [fItem, setFItem] = useState(""); // id de REQ o boardId de proyecto
+  const [aTipo, setATipo] = useState<"" | "REQ" | "Proyecto">(""); // filtro de la pestaña Análisis
 
   const rows = useMemo<Row[]>(() => {
     if (!data) return [];
@@ -204,9 +270,21 @@ export default function CostoUnidadNegocioPage() {
     return out;
   }, [data]);
 
-  const byUNeg = useMemo(() => groupCount(rows, (r) => r.uNeg), [rows]);
-  const bySponsor = useMemo(() => groupCount(rows, (r) => r.sponsor), [rows]);
-  const byTld = useMemo(() => groupCount(rows, (r) => r.tld), [rows]);
+  // Filas del Análisis: PML, Proyecto (Hitos de sus boards) o ambos.
+  const aRows = useMemo(
+    () => (aTipo === "REQ" ? rows.filter((r) => r.kind === "REQ")
+      : aTipo === "Proyecto" ? rows.filter((r) => r.kind === "Hito") : rows),
+    [rows, aTipo],
+  );
+  const byUNeg = useMemo(() => groupCount(aRows, (r) => r.uNeg), [aRows]);
+  const byPais = useMemo(() => groupCount(aRows, (r) => r.pais), [aRows]);
+  const horasPais = useMemo(() => groupHoras(aRows, (r) => r.pais), [aRows]);
+  const nProyectos = useMemo(
+    () => new Set(aRows.filter((r) => r.kind === "Hito" && r.boardId).map((r) => r.boardId)).size,
+    [aRows],
+  );
+  const bySponsor = useMemo(() => groupCount(aRows, (r) => r.sponsor), [aRows]);
+  const byTld = useMemo(() => groupCount(aRows, (r) => r.tld), [aRows]);
 
   // Opciones del dropdown dependiente: REQ (id — name) o Proyecto (código — nombre del board).
   const reqOptions = useMemo(
@@ -248,8 +326,8 @@ export default function CostoUnidadNegocioPage() {
   if (!data) return <Loader />;
 
   const sinUNeg = rows.filter((r) => !r.uNeg).length;
-  const nReq = rows.filter((r) => r.kind === "REQ").length;
-  const nHito = rows.length - nReq;
+  const nReq = aRows.filter((r) => r.kind === "REQ").length;
+  const nHito = aRows.length - nReq;
   const muted = (v: string) => v || <span style={{ color: "var(--text-disabled)" }}>—</span>;
   const numCell = (v: number | null) =>
     v == null ? <span style={{ color: "var(--text-disabled)" }}>—</span> : v;
@@ -376,12 +454,30 @@ export default function CostoUnidadNegocioPage() {
         </>
       ) : (
         <div className="viz flex flex-col gap-5">
+          {/* Filtro: PML, Proyectos o ambos */}
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={aTipo}
+              onChange={(e) => setATipo(e.target.value as "" | "REQ" | "Proyecto")}
+              className={selectCls}
+              style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}
+            >
+              <option value="">Ambos (PML + Proyectos)</option>
+              <option value="REQ">Solo PML</option>
+              <option value="Proyecto">Solo Proyectos</option>
+            </select>
+            <span className="text-sm text-[var(--text-muted)]">{aRows.length} de {rows.length} ítems</span>
+          </div>
+
           {/* KPIs */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard value={rows.length} label="Ítems totales" />
+            <StatCard value={aRows.length} label="Ítems totales" />
             <StatCard value={nReq} label="PML" />
             <StatCard value={nHito} label="Hitos" />
             <StatCard value={byUNeg.length} label="Unidades de Negocio" />
+            <StatCard value={nProyectos} label="Proyectos con Hitos" />
+            <StatCard value={byPais.filter((g) => g.label !== "(sin dato)").length} label="Países" />
+            <StatCard value={horasPais.reduce((s, g) => s + g.total, 0).toLocaleString("es-GT")} label="Horas PM + VGA" />
           </div>
 
           {/* Leyenda + medida */}
@@ -395,6 +491,10 @@ export default function CostoUnidadNegocioPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <Breakdown title="Por Unidad de Negocio" data={byUNeg} />
             <Breakdown title="Por TLD" data={byTld} />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Breakdown title="Cantidad por País" data={byPais} />
+            <HorasBreakdown title="Costo en horas por País" data={horasPais} />
           </div>
           <Breakdown title="Por Sponsor" data={bySponsor} />
         </div>

@@ -25,11 +25,12 @@ const usdExacto = (n: number) =>
 const num = (n: number) => Math.round(n).toLocaleString("es-GT");
 
 export default function CostoUnitario({
-  costo, unitario, ahorro, serieAhorro, proyeccion, onSeleccionarPeriodo,
+  costo, unitario, ahorro, ahorroTiempos, serieAhorro, proyeccion, onSeleccionarPeriodo,
 }: {
   costo: Costo;
   unitario: Unitario;
   ahorro: AhorroDucafast;
+  ahorroTiempos: { t13: AhorroDucafast; t45: AhorroDucafast; total: AhorroDucafast };
   serieAhorro: PuntoAhorro[];
   proyeccion: PuntoProyectado[];
   onSeleccionarPeriodo: (clave: string) => void;
@@ -145,6 +146,32 @@ export default function CostoUnitario({
                 </span>
               )}
             </div>
+            {/* Beneficio por tiempos: fijo (no sigue el filtro de "Tiempo"). El
+                total se calcula sobre T1–T5 completo, no es la suma de los dos. */}
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {[
+                { l: "Beneficio T1 → T3", a: ahorroTiempos.t13 },
+                { l: "Beneficio T4 → T5", a: ahorroTiempos.t45 },
+                { l: "Beneficio total T1 → T5", a: ahorroTiempos.total },
+              ].map(({ l, a }) => (
+                <div key={l} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-hover)" }}
+                  title={a.disponible
+                    ? `${num(a.filesConDucafast)} Files con Ducafast × (${usdExacto(a.costoPorFileSinDucafast)} sin Ducafast − ${usdExacto(a.costoPorFileConDucafast)} con Ducafast) = ${usdExacto(a.ahorro)}`
+                    : "Sin Files con y sin Ducafast a la vez en este tramo — no comparable"}>
+                  <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{l}</div>
+                  <div className="tabular-nums text-[1.3rem] font-extrabold leading-tight"
+                    style={{ color: !a.disponible ? "var(--text-muted)" : a.ahorro >= 0 ? "var(--ok)" : "var(--bad)" }}>
+                    {a.disponible ? usdConSigno(a.ahorro) : "—"}
+                  </div>
+                  {a.disponible && (
+                    <div className="text-[0.64rem] text-[var(--text-muted)]">
+                      {usdExacto(a.costoPorFileSinDucafast)} − {usdExacto(a.costoPorFileConDucafast)} × {num(a.filesConDucafast)} Files
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
             {!ahorro.disponible && (
               <p className="mt-2 text-[0.7rem] text-[var(--text-muted)]">
                 Este recorte no tiene Files con y sin Ducafast a la vez — no hay con qué comparar.

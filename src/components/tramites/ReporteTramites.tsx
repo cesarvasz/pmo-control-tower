@@ -23,7 +23,7 @@ import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
   calcularIndicadores, composicionCiclo,
   costoTiempo, costoUnitario, costoPorPersona, ventanaDe, ahorroDucafast, serieAhorroDucafast,
-  proyectarAnio, TARIFA_HORA_DEFECTO,
+  proyectarAnio, TARIFA_HORA_DEFECTO, ETAPA_KEYS,
   exportarCSV,
   rangoEtapas, etiquetaAlcance, recorridoAlcance,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
@@ -118,6 +118,14 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   // Ahorro real de Ducafast: parte el MISMO recorte `exps` por e.ducafast, con
   // la misma tarifa y el mismo alcance — ver ahorroDucafast en lib/tramites.ts.
   const ahorro = useMemo(() => ahorroDucafast(exps, tarifa, alcance), [exps, tarifa, alcance]);
+  // Ahorro por tiempos, fijo e independiente del filtro de "Tiempo": T1–T3,
+  // T4–T5 y el total T1–T5 (se calcula completo, no se suman los dos tramos:
+  // las horas salen de unir intervalos y eso no es aditivo).
+  const ahorroTiempos = useMemo(() => ({
+    t13: ahorroDucafast(exps, tarifa, rangoEtapas("t1", "t3")),
+    t45: ahorroDucafast(exps, tarifa, rangoEtapas("t4", "t5")),
+    total: ahorroDucafast(exps, tarifa, ETAPA_KEYS),
+  }), [exps, tarifa]);
   // Mismo ahorro, mes a mes (o día a día con un solo mes elegido) — la línea
   // de tiempo bajo "Costo por File".
   const serieAhorro = useMemo(
@@ -298,7 +306,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       {/* ── Costo por File (acordeón) ── */}
       <div className="mt-5">
         <CostoUnitario
-          costo={costoUnit} unitario={unitario} ahorro={ahorro} serieAhorro={serieAhorro} proyeccion={proyeccion}
+          costo={costoUnit} unitario={unitario} ahorro={ahorro} ahorroTiempos={ahorroTiempos} serieAhorro={serieAhorro} proyeccion={proyeccion}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
         />
       </div>
