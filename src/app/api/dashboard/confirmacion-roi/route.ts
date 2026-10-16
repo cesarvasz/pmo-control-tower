@@ -3,7 +3,9 @@
 // calcConfirmacionRoi) — Ahorro real con Ducafast (003) + Ahorro $ de
 // Clonación de Files, sin filtros. Reemplaza a la Confirmación calculada por
 // Monday SOLO en las tarjetas de portafolio (Costo & Beneficio, Pipeline,
-// histórico semanal) — ver el comentario de calcConfirmacionRoi.
+// histórico semanal) — ver el comentario de calcConfirmacionRoi. También
+// devuelve `porPm`: la Confirmación de Luis (T0 + T4→T5) y David (T1→T3) para
+// sus Players — ver CONFIRMACION_ROI_PM.
 //
 // Fetch APARTE del dashboard principal (/api/dashboard): son fuentes externas
 // más lentas (Google Sheets vía Apps Script, con reintentos) y no todos los
@@ -16,7 +18,7 @@ import { NextResponse } from "next/server";
 import { verifyRequest } from "@/lib/firebase-admin";
 import { fetchRoiRows } from "@/lib/roi";
 import { fetchClonacionRows } from "@/lib/clonacion";
-import { calcConfirmacionRoi } from "@/lib/dashboard";
+import { calcConfirmacionRoiDetalle, confirmacionRoiPorPm } from "@/lib/dashboard";
 import { apiError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +30,10 @@ export async function GET(request: Request) {
       fetchRoiRows(),
       fetchClonacionRows(),
     ]);
-    const confirmacionBenefit = calcConfirmacionRoi(roiRows, clonacionRows);
-    return NextResponse.json({ confirmacionBenefit });
+    // Un solo cálculo: el total del portafolio y su reparto por PM salen del
+    // mismo detalle por tramos (T0 + T1→T3 + T4→T5 = total).
+    const detalle = calcConfirmacionRoiDetalle(roiRows, clonacionRows);
+    return NextResponse.json({ confirmacionBenefit: detalle.total, porPm: confirmacionRoiPorPm(detalle) });
   } catch (err) {
     return apiError(err);
   }

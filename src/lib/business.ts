@@ -170,3 +170,13 @@ export function fmtMoney(n: number | null | undefined): string {
     n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
   );
 }
+
+// Formato compacto de dinero para celdas de métrica ($1.2M / $980K).
+// El detalle exacto (fmtMoney) sigue disponible en el modal al hacer clic.
+export const fmtMoneyShort = (n: number | null | undefined): string => {
+  if (!n) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(abs >= 1e7 ? 0 : 1)}M`;
+  if (abs >= 1e3) return `$${Math.round(n / 1e3)}K`;
+  return `$${Math.round(n)}`;
+};

@@ -1,0 +1,76 @@
+import { describe, it, expect } from "vitest";
+import { swapPmCku } from "@/lib/players";
+import { lateExcused, type DelayMap } from "@/lib/delay";
+
+const m = (responsible: string | null): DelayMap =>
+  ({ x: { responsible } } as unknown as DelayMap);
+
+describe("swapPmCku — para un CKU penaliza 'CKU' en vez de 'PM'", () => {
+  it("CKU penaliza, PM excusa", () => {
+    expect(lateExcused("x", swapPmCku(m("CKU")))).toBe(false);
+    expect(lateExcused("x", swapPmCku(m("PM")))).toBe(true);
+  });
+  it("sin asignar sigue penalizando y los demás responsables excusan", () => {
+    expect(lateExcused("x", swapPmCku({}))).toBe(false);
+    expect(lateExcused("x", swapPmCku(m("Sponsor")))).toBe(true);
+    expect(lateExcused("x", swapPmCku(m("Sin reproceso")))).toBe(true);
+  });
+  it("no muta el mapa original", () => {
+    const orig = m("CKU");
+    swapPmCku(orig);
+    expect(orig.x.responsible).toBe("CKU");
+  });
+});
+
+import { buildCkuScope, ckuNameForEmail } from "@/lib/players";
+import { calcNpsFromRecords } from "@/lib/nps";
+import type { MondayItem, NpsRecord } from "@/types";
+
+const hr = (name: string, email: string, role: string) =>
+  ({ id: name, name, group: { title: "x" }, column_values: [
+    { id: "email_mkz5qg4v", text: email }, { id: "dropdown_mkz53tjj", text: role },
+  ] } as unknown as MondayItem);
+
+describe("ckuNameForEmail", () => {
+  const items = [hr("Javier Juarez", "JJ@x.com", "CKU"), hr("Ana PM", "ana@x.com", "PM"), hr("Multi", "m@x.com", "DEV, CKU")];
+  it("devuelve el nombre solo si el Role incluye CKU (sin importar mayúsculas)", () => {
+    expect(ckuNameForEmail(items, "jj@x.com")).toBe("Javier Juarez");
+    expect(ckuNameForEmail(items, "m@x.com")).toBe("Multi");
+    expect(ckuNameForEmail(items, "ana@x.com")).toBeNull();
+    expect(ckuNameForEmail(items, "otro@x.com")).toBeNull();
+    expect(ckuNameForEmail(items, "")).toBeNull();
+  });
+});
+
+const rec = (over: Partial<NpsRecord>): NpsRecord => ({
+  answers: { nps: 10 }, pm: "", invalidated: false, respondentEmail: "", submittedAt: "", reqCode: "", reqId: "", ...over,
+});
+
+describe("NPS de encuestas enviadas por CKU", () => {
+  it("no entran al NPS global ni al de un PM", () => {
+    const records = [rec({ pm: "PM1", reqId: "r1" }), rec({ pm: "PM1", reqId: "r1", cku: "Javier Juarez" })];
+    expect(calcNpsFromRecords(records).total).toBe(1);
+    expect(calcNpsFromRecords(records, "PM1").total).toBe(1);
+  });
+  it("solo cuentan para el player de ese CKU, no las de los PM sobre sus PML", () => {
+    const base = { ini: [], proj: [], projBoards: [] } as never as Parameters<typeof buildCkuScope>[1];
+    const data = {
+      ...base,
+      req: [{ id: "r1", cku: "Javier Juarez" }] as never,
+      npsRecords: [
+        rec({ pm: "PM1", reqId: "r1" }),                                  // enviada por el PM → no cuenta
+        rec({ pm: "PM1", reqId: "r1", cku: "Javier Juarez" }),           // enviada por el CKU → cuenta
+        rec({ pm: "PM1", reqId: "r1", cku: "Victoria Escobar" }),        // de otro CKU → no cuenta
+      ],
+    } as Parameters<typeof buildCkuScope>[1];
+    const s = buildCkuScope("Javier Juarez", data);
+    expect(s.npsRecords).toHaveLength(1);
+    expect(calcNpsFromRecords(s.npsRecords, "Javier Juarez").total).toBe(1);
+  });
+  it("sin encuestas propias el NPS del CKU queda sin dato", () => {
+    const data = { ini: [], proj: [], projBoards: [], req: [{ id: "r1", cku: "Javier Juarez" }] as never,
+      npsRecords: [rec({ pm: "PM1", reqId: "r1" })] } as Parameters<typeof buildCkuScope>[1];
+    const s = buildCkuScope("Javier Juarez", data);
+    expect(calcNpsFromRecords(s.npsRecords, "Javier Juarez").nps).toBeNull();
+  });
+});

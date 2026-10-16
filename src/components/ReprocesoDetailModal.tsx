@@ -4,7 +4,7 @@ import Modal from "@/components/Modal";
 import { RESPONSIBLE_COLOR } from "@/lib/delay";
 import type { ReprocesoRawRow } from "@/lib/dashboard";
 
-const SOURCE_LABEL: Record<ReprocesoRawRow["source"], string> = { REQ: "PML", Proyecto: "Proyecto" };
+const SOURCE_LABEL: Record<ReprocesoRawRow["source"], string> = { REQ: "PML", Proyecto: "Proyecto", Iniciativa: "Iniciativa" };
 
 /** Pop-up de detalle de "Calidad de Entregas" (tarjeta principal): desglose de qué
  *  opción se seleccionó más para el reproceso (conteo + %) y el listado nombre/id

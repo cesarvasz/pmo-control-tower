@@ -20,7 +20,7 @@ const board = (o: Partial<ProjBoard>): ProjBoard => ({ id: "b1", name: "PM-001 |
 const mkData = (o: Partial<DashboardData>): DashboardData => ({
   ini: [], req: [], proj: [], projBoards: [], projItemBaselines: {}, calMap: new Map(),
   nps: { nps: null, promoters: 0, passives: 0, detractors: 0, total: 0, responses: [], questions: [], overallAvg: null },
-  npsRecords: [], delayAttributions: {}, reprocesoAttributions: {}, atrasoDetalles: {},
+  npsRecords: [], delayAttributions: {}, reprocesoAttributions: {}, metodologiaCalifs: {}, atrasoDetalles: {},
   boardAlcance: {}, directorio: [], devTeamRoster: new Set(), estrategiaMap: new Map(),
   reminderMap: new Map(), fetchedAt: new Date(),
   ...o,

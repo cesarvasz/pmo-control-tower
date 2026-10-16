@@ -31,6 +31,12 @@ var CACHE_NOMBRE = "roi-clonacion-cache.json";
 var CACHE_MAX_MIN = 180;                           // más viejo que esto, el doGet lo rehace
 var REFRESCO_MIN = 30;                             // cada cuánto corre el disparador
 
+// Token para forzar la regeneración del caché a demanda (p. ej. desde n8n) sin
+// esperar al disparador de cada REFRESCO_MIN minutos: GET .../exec?action=regenerar&token=<REFRESH_TOKEN>.
+// Vacío por defecto = deshabilitado (ningún valor de `token` hace match contra "").
+// Ponle un valor largo y random antes de usarlo, y vuelve a desplegar el WebApp.
+var REFRESH_TOKEN = "";
+
 /**
  * Época de referencia para las fechas. Los hitos se mandan como SEGUNDOS desde
  * aquí en vez de como texto ISO: 8 dígitos en lugar de 19 caracteres.
@@ -68,8 +74,21 @@ function segundosDeCelda(v) {
   );
 }
 
-/** Punto de entrada del WebApp: sirve el caché, sin tocar la hoja. */
-function doGet() {
+/** Punto de entrada del WebApp: sirve el caché, sin tocar la hoja — salvo el
+ *  modo de refresco a demanda (ver REFRESH_TOKEN arriba). */
+function doGet(e) {
+  var params = (e && e.parameter) || {};
+
+  // Refresco manual: ?action=regenerar&token=<REFRESH_TOKEN>. Solo responde si
+  // REFRESH_TOKEN está configurado Y coincide; si no, cae al payload normal de
+  // solo lectura (así el endpoint público no puede forzar regeneraciones).
+  if (params.action === "regenerar" && REFRESH_TOKEN && params.token === REFRESH_TOKEN) {
+    var regenerado = JSON.parse(regenerarCache());
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, generado: regenerado.generado }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   var txt = leerCache();
   if (txt === null) txt = regenerarCache();
   return ContentService.createTextOutput(txt).setMimeType(ContentService.MimeType.JSON);

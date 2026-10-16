@@ -251,6 +251,9 @@ export interface EvmResult {
 
 export function calcEvm(
   units: MetricUnit[], items: ProjItem[], baselines: Record<string, ProjItemBaseline>, hoy: Date,
+  /** cpiOpcional: si el CPI no se puede calcular (PV = 0: ningún item con costo vencido o
+   *  entregado), el EVM promedia SPI y Scope en vez de quedar sin dato. Solo para soloFase3. */
+  opts: { cpiOpcional?: boolean } = {},
 ): EvmResult {
   // ── SPI: conteo de unidades ──
   const total = units.length;
@@ -283,7 +286,10 @@ export function calcEvm(
   // ── Scope ──
   const scope = total > 0 ? (units.some((u) => u.atrasadaScope) ? 0 : 1) : null;
 
-  const evm = spi !== null && cpi !== null && scope !== null ? (spi + cpi + scope) / 3 : null;
+  const evm = spi !== null && scope !== null
+    ? cpi !== null ? (spi + cpi + scope) / 3
+    : opts.cpiOpcional ? (spi + scope) / 2 : null
+    : null;
 
   return {
     spi, cpi, scope, evm, estado: healthStatusFromIndex(evm),
@@ -541,13 +547,18 @@ export function calcValor(items: ProjItem[]): ValorResult {
 // ─────────────────────────────────────────────────────────────────────
 /** Respuestas de encuesta que pertenecen a ESTE board: las lanzadas desde los
  *  subitems del step "Encuesta para NPS" (survey.reqId = id de ese subitem). */
-export function calcNpsProyecto(items: ProjItem[], npsRecords: NpsRecord[]): NpsData {
+export function npsStepIds(items: ProjItem[]): Set<string> {
   const ids = new Set<string>();
   for (const it of items) {
     if (!NPS_STEP_RE.test(it.name)) continue;
     for (const s of it.subitems) ids.add(s.id);
     ids.add(it.id); // por si la encuesta se lanzó desde el step mismo
   }
+  return ids;
+}
+
+export function calcNpsProyecto(items: ProjItem[], npsRecords: NpsRecord[]): NpsData {
+  const ids = npsStepIds(items);
   return calcNpsFromRecords(npsRecords.filter((r) => r.reqId && ids.has(r.reqId)));
 }
 
@@ -568,6 +579,10 @@ export interface ProjectMetricsInput {
   alcance?: string;
   /** "hoy" fijado, para que un reporte no cambie entre renders. */
   now?: Date;
+  /** Mide el EVM SOLO con la Fase 3 (Launch), en ambas plantillas: SPI y Scope con las
+   *  unidades de Fase 3, CPI con los items de Fase 3. Calidad, Cumplimiento, fechas, etc.
+   *  no cambian. Hoy solo lo usa /players (CKU); el resto de la app mide el EVM completo. */
+  soloFase3?: boolean;
 }
 
 export interface ProjectMetrics {
@@ -597,7 +612,7 @@ export interface ProjectMetrics {
 export function buildProjectMetrics(input: ProjectMetricsInput): ProjectMetrics {
   const {
     board, items, baselines = {}, delays = {}, reproceso = {},
-    atrasoDetalles, npsRecords = [], devTeamRoster = new Set<string>(), alcance = "",
+    atrasoDetalles, npsRecords = [], devTeamRoster = new Set<string>(), alcance = "", soloFase3 = false,
   } = input;
   const hoy = input.now ?? today();
 
@@ -612,7 +627,9 @@ export function buildProjectMetrics(input: ProjectMetricsInput): ProjectMetrics 
     estrategia: board.estrategia || "", alcance,
     plantilla,
     units,
-    evm: calcEvm(units, items, baselines, hoy),
+    evm: soloFase3
+      ? calcEvm(units.filter((u) => u.esFase3), items.filter((it) => isFase3(it.grupo)), baselines, hoy, { cpiOpcional: true })
+      : calcEvm(units, items, baselines, hoy),
     calidad: calcCalidad(units, reproceso, hoy),
     cumplimiento: calcCumplimiento(units, board.id, delays),
     atrasos,

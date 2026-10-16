@@ -73,7 +73,7 @@ export function computeWeeklySnapshotMetrics(data: DashboardData, confirmacionRo
   const evm = teamVem !== null ? Math.round(teamVem * 100) : null;
 
   // ── Calidad de Entregas / Cumplimiento de Entrega (variantes reales, sin excusas) ──
-  const { pct: calidad } = calcReprocesoStatsRaw(req, proj, reproceso);
+  const { pct: calidad } = calcReprocesoStatsRaw(req, proj, reproceso, ini);
   const { pct: cumplimiento } = calcEntregaStatsRaw(req, proj);
 
   return { evm, beneficioConfirmado: confirmacionRoi, calidad, cumplimiento, nps: nps.nps };

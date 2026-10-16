@@ -71,6 +71,9 @@ export interface SurveyDoc {
   answered: boolean;
   answeredAt: string | null;
   invalidated: boolean;   // marcada por un admin para NO contar en métricas
+  /** CKU que envió la encuesta (vacío = la envió un PM/admin). Las encuestas de un CKU
+   *  cuentan SOLO en su Player (/players), no en el NPS de PM, proyecto ni global. */
+  cku?: string;
 }
 
 /** Respuesta enviada por el destinatario (inmutable). */

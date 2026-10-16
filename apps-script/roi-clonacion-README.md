@@ -80,6 +80,26 @@ que cada 30 minutos deja el JSON armado en un archivo de Drive
   `CLONACION_SHEET_ID`, existe la pestaña `clonacion`, cuántas filas trae?
 - **`verificarFechas()`** — confirma que la codificación de fechas da la vuelta exacta.
 
+## Forzar el refresco desde n8n (opcional)
+
+El caché se refresca solo cada `REFRESCO_MIN` minutos (disparador) o al
+vuelo si está vencido. Para forzarlo bajo demanda, p. ej. desde un workflow
+de n8n después de actualizar la hoja:
+
+1. En el `.gs`, pon un valor largo y random en `REFRESH_TOKEN` (cerca del
+   inicio del archivo — viene vacío, es decir deshabilitado, por defecto).
+2. **Implementar → Administrar implementaciones → Editar → Nueva versión**
+   para que el cambio quede activo en la URL del WebApp (no te da una URL
+   nueva).
+3. En n8n, un nodo **HTTP Request** (GET) a:
+   ```
+   https://script.google.com/macros/s/TU_ID/exec?action=regenerar&token=TU_REFRESH_TOKEN
+   ```
+   Responde `{"ok": true, "generado": "<ISO>"}`. No requiere credenciales de
+   Google — el token hace de guardia. Sin `action=regenerar` o con el token
+   equivocado, el endpoint se comporta exactamente igual que antes (sirve el
+   caché de solo lectura).
+
 ## Notas
 
 - Lee siempre la pestaña `clonacion` (variable `SHEET_TAB` en el script) — si

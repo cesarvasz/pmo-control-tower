@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
-import { lookupEstrategia } from "@/lib/proj";
+import { lookupEstrategia, splitBoardName } from "@/lib/proj";
+import { CLASES, PAISES_TODOS, PROYECTO_SIN_ID, claseDeCodigo, type Clase } from "@/lib/claseProyecto";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
 // El step (ítem) que contiene los Hitos como subelementos, en la fase "Launch | Desarrollo".
@@ -190,6 +191,93 @@ function HorasBreakdown({ title, data }: { title: string; data: HorasGroup[] }) 
   );
 }
 
+const CLASE_COLOR: Record<Clase, string> = {
+  A: "var(--accent)",
+  B: "var(--series-hito)",
+  C: "var(--series-req)",
+  "Sin clasificar": "var(--text-disabled)",
+};
+
+type ClaseItem = { nombre: string; clase: Clase; paises: readonly string[] };
+type FilaClase = { label: string } & Record<Clase, number> & { total: number; nombres: Record<Clase, string[]> };
+const nombresVacios = (): Record<Clase, string[]> => ({ A: [], B: [], C: [], "Sin clasificar": [] });
+
+// Barras apiladas por clase. Cada fila es una categoría (clase o país) con su conteo por clase.
+// Clic en un color abre un pop up con los nombres que lo componen.
+function ClaseBars({ title, nota, data }: { title: string; nota?: string; data: FilaClase[] }) {
+  const max = Math.max(1, ...data.map((d) => d.total));
+  const [det, setDet] = useState<{ fila: string; clase: Clase; nombres: string[] } | null>(null);
+  useEffect(() => {
+    if (!det) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setDet(null); };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [det]);
+  return (
+    <div className="rounded-xl border p-4" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+      <div className="mb-1 text-[0.78rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">{title}</div>
+      <div className="mb-3 flex flex-wrap items-center gap-4 text-[0.72rem] text-[var(--text-secondary)]">
+        {CLASES.map((c) => (
+          <span key={c} className="flex items-center gap-1.5"><Swatch v={CLASE_COLOR[c]} /> {c === "Sin clasificar" ? c : `Clase ${c}`}</span>
+        ))}
+      </div>
+      <div className="flex flex-col gap-2">
+        {data.map((g) => {
+          const segs = CLASES.filter((c) => g[c] > 0);
+          return (
+            <div key={g.label} className="flex items-center gap-3"
+              title={`${g.label}\n${CLASES.map((c) => `${c}: ${g[c]}`).join("\n")}\nTotal: ${g.total}`}>
+              <span className="w-32 shrink-0 truncate text-right text-[0.78rem] text-[var(--text-secondary)]">{g.label}</span>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="viz-track" style={{ width: `${(g.total / max) * 100}%` }}>
+                  {segs.map((c, i) => (
+                    <div key={c}
+                      onClick={() => setDet({ fila: g.label, clase: c, nombres: g.nombres[c] })}
+                      className={`viz-seg cursor-pointer hover:opacity-80 ${segs.length === 1 ? "viz-seg--only" : i === 0 ? "viz-seg--first" : i === segs.length - 1 ? "viz-seg--last" : ""}`}
+                      style={{ width: `${(g[c] / g.total) * 100}%`, background: CLASE_COLOR[c] }} />
+                  ))}
+                </div>
+                <span className="shrink-0 text-[0.82rem] font-semibold tabular-nums text-[var(--text-primary)]">{g.total}</span>
+                <span className="shrink-0 text-[0.7rem] text-[var(--text-muted)]">
+                  {segs.map((c) => `${c === "Sin clasificar" ? "S/C" : c} ${g[c]}`).join(" · ")}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {nota && <p className="mt-3 text-[0.7rem] leading-relaxed text-[var(--text-muted)]">{nota}</p>}
+      <p className="mt-1 text-[0.68rem] text-[var(--text-disabled)]">Clic en un color para ver los nombres.</p>
+
+      {det && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }}
+          onClick={() => setDet(null)}>
+          <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}
+            className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border shadow-2xl"
+            style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+            <div className="flex items-start gap-3 border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
+              <span className="mt-1 inline-block h-3 w-4 shrink-0 rounded-sm" style={{ background: CLASE_COLOR[det.clase] }} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.9rem] font-bold text-[var(--text-primary)]">
+                  {det.fila} · {det.clase === "Sin clasificar" ? det.clase : `Clase ${det.clase}`}
+                </div>
+                <div className="text-[0.72rem] text-[var(--text-muted)]">{det.nombres.length} {det.nombres.length === 1 ? "elemento" : "elementos"}</div>
+              </div>
+              <button onClick={() => setDet(null)} aria-label="Cerrar"
+                className="rounded-md px-2 text-[1.1rem] leading-none text-[var(--text-muted)] hover:text-[var(--text-primary)]">×</button>
+            </div>
+            <ul className="overflow-y-auto px-4 py-3 text-[0.8rem] text-[var(--text-secondary)]">
+              {det.nombres.map((n, i) => (
+                <li key={`${n}-${i}`} className="border-b py-1.5 last:border-b-0" style={{ borderColor: "var(--border)" }}>{n}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Swatch({ v }: { v: string }) {
   return <span className="inline-block h-2.5 w-3.5 rounded-sm" style={{ background: v }} />;
 }
@@ -199,6 +287,7 @@ export default function CostoUnidadNegocioPage() {
   const [tab, setTab] = useState<"tabla" | "analisis">("tabla");
   const [fType, setFType] = useState<"" | "REQ" | "Proyecto">("");
   const [fItem, setFItem] = useState(""); // id de REQ o boardId de proyecto
+  const [fPais, setFPais] = useState(""); // filtro de país del bloque "Proyectos"
   const [aTipo, setATipo] = useState<"" | "REQ" | "Proyecto">(""); // filtro de la pestaña Análisis
 
   const rows = useMemo<Row[]>(() => {
@@ -269,6 +358,78 @@ export default function CostoUnidadNegocioPage() {
     });
     return out;
   }, [data]);
+
+  // Proyectos propiamente dichos (un board = un proyecto, sin contar Hitos) con su
+  // país vía la Estrategia. Independiente del filtro PML/Proyectos de arriba.
+  const proyectos = useMemo(() => {
+    if (!data) return [];
+    return data.projBoards.map((b) => {
+      const info = lookupEstrategia(data.estrategiaMap, b.estrategia || "");
+      return { id: b.id, name: b.name, pais: (info?.pais ?? "").trim() || "(sin dato)" };
+    });
+  }, [data]);
+  const proyPaises = useMemo(
+    () => [...new Set(proyectos.map((p) => p.pais))].sort((a, b) => a.localeCompare(b)),
+    [proyectos],
+  );
+  const proyFiltrados = useMemo(
+    () => (fPais ? proyectos.filter((p) => p.pais === fPais) : proyectos),
+    [proyectos, fPais],
+  );
+  const proyPorPais = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of proyFiltrados) m.set(p.pais, (m.get(p.pais) ?? 0) + 1);
+    return [...m.entries()].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
+  }, [proyFiltrados]);
+
+  // Clasificación A/B/C. Proyectos: cada board según su código PM-XXX + el proyecto
+  // sin ID. Clase C: todos los PML (su país sale de la Estrategia). Un proyecto
+  // fuera de la tabla queda "Sin clasificar" y no se sabe a qué países aplica.
+  const clasificados = useMemo<ClaseItem[]>(() => {
+    const out: ClaseItem[] = [];
+    for (const b of data?.projBoards ?? []) {
+      const { code } = splitBoardName(b.name);
+      const info = claseDeCodigo(code);
+      out.push({ nombre: b.name, clase: info?.clase ?? "Sin clasificar", paises: info?.paises ?? [] });
+    }
+    out.push({ nombre: PROYECTO_SIN_ID.nombre, clase: PROYECTO_SIN_ID.info.clase, paises: PROYECTO_SIN_ID.info.paises });
+    for (const r of rows) {
+      if (r.kind === "REQ") out.push({ nombre: r.id ? `${r.id} — ${r.name}` : r.name, clase: "C", paises: [r.pais.trim() || "(sin dato)"] });
+    }
+    return out;
+  }, [data, rows]);
+
+  const porClase = useMemo<FilaClase[]>(() => CLASES.map((c) => {
+    const nombres = nombresVacios();
+    nombres[c] = clasificados.filter((x) => x.clase === c).map((x) => x.nombre).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return { label: c === "Sin clasificar" ? c : `Clase ${c}`, A: 0, B: 0, C: 0, "Sin clasificar": 0, [c]: nombres[c].length, total: nombres[c].length, nombres } as FilaClase;
+  }), [clasificados]);
+
+  const porClasePais = useMemo<FilaClase[]>(() => {
+    const m = new Map<string, FilaClase>();
+    const fila = (p: string) => {
+      let f = m.get(p);
+      if (!f) { f = { label: p, A: 0, B: 0, C: 0, "Sin clasificar": 0, total: 0, nombres: nombresVacios() }; m.set(p, f); }
+      return f;
+    };
+    for (const p of PAISES_TODOS) fila(p);
+    for (const x of clasificados) {
+      for (const p of x.paises) { const f = fila(p); f[x.clase] += 1; f.total += 1; f.nombres[x.clase].push(x.nombre); }
+    }
+    for (const f of m.values()) for (const c of CLASES) f.nombres[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const orden = (l: string) => { const i = (PAISES_TODOS as readonly string[]).indexOf(l); return i < 0 ? 99 : i; };
+    return [...m.values()].sort((a, b) => orden(a.label) - orden(b.label) || a.label.localeCompare(b.label));
+  }, [clasificados]);
+  // Proyectos (no PML) que abarcan algún país distinto de GT, con esos países.
+  const fueraDeGT = useMemo(
+    () => clasificados
+      .filter((x) => x.clase !== "C")
+      .map((x) => ({ ...x, otros: x.paises.filter((p) => p !== "GT"), conGT: x.paises.includes("GT") }))
+      .filter((x) => x.otros.length > 0)
+      .sort((a, b) => b.otros.length - a.otros.length || a.nombre.localeCompare(b.nombre, undefined, { numeric: true })),
+    [clasificados],
+  );
+  const sinClasificar = clasificados.filter((x) => x.clase === "Sin clasificar");
 
   // Filas del Análisis: PML, Proyecto (Hitos de sus boards) o ambos.
   const aRows = useMemo(
@@ -454,6 +615,47 @@ export default function CostoUnidadNegocioPage() {
         </>
       ) : (
         <div className="viz flex flex-col gap-5">
+          {/* Proyectos (sin Hitos) por país */}
+          <div className="rounded-xl border p-4" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <span className="text-[0.78rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+                Proyectos por País
+              </span>
+              <select
+                value={fPais}
+                onChange={(e) => setFPais(e.target.value)}
+                className={selectCls}
+                style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}
+              >
+                <option value="">Todos los países</option>
+                {proyPaises.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <span className="ml-auto text-right">
+                <span className="tabular-nums text-[1.8rem] font-extrabold leading-none text-[var(--card-value-total)]">
+                  {proyFiltrados.length}
+                </span>
+                <span className="ml-2 text-[0.76rem] text-[var(--text-muted)]">
+                  proyectos{fPais ? ` en ${fPais}` : ""} (sin Hitos)
+                </span>
+              </span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {proyPorPais.map((g) => (
+                <div key={g.label} className="flex items-center gap-3">
+                  <span className="w-32 shrink-0 truncate text-right text-[0.78rem] text-[var(--text-secondary)]" title={g.label}>
+                    {g.label}
+                  </span>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <div className="viz-track" style={{ width: `${(g.n / Math.max(1, proyPorPais[0].n)) * 100}%` }}>
+                      <div className="viz-seg viz-seg--only" style={{ width: "100%", background: "var(--series-hito)" }} />
+                    </div>
+                    <span className="shrink-0 text-[0.82rem] font-semibold tabular-nums text-[var(--text-primary)]">{g.n}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Filtro: PML, Proyectos o ambos */}
           <div className="flex flex-wrap items-center gap-3">
             <select
@@ -497,6 +699,61 @@ export default function CostoUnidadNegocioPage() {
             <HorasBreakdown title="Costo en horas por País" data={horasPais} />
           </div>
           <Breakdown title="Por Sponsor" data={bySponsor} />
+
+          {/* Clasificación A / B / C (Clase C = todos los PML) */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ClaseBars
+              title="Cantidad por Clase"
+              nota={`Clase A y B = proyectos; Clase C = PML. El proyecto "${PROYECTO_SIN_ID.nombre}" no tiene PM ID y cuenta en Clase A.${sinClasificar.length ? ` Sin clasificar: ${sinClasificar.map((x) => splitBoardName(x.nombre).code || x.nombre).join(", ")}.` : ""}`}
+              data={porClase}
+            />
+            <ClaseBars
+              title="Por País y Clase"
+              nota="Un proyecto cuenta una vez en cada país al que aplica (por eso la suma supera el total de proyectos). Los PML cuentan en su país de Estrategia. Los proyectos sin clasificar no tienen países asignados y no aparecen aquí."
+              data={porClasePais}
+            />
+          </div>
+
+          {/* Proyectos que abarcan países distintos de GT */}
+          <div className="rounded-xl border p-4" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
+            <div className="mb-1 flex flex-wrap items-baseline gap-3">
+              <span className="text-[0.78rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+                Proyectos que abarcan países fuera de GT
+              </span>
+              <span className="ml-auto">
+                <span className="tabular-nums text-[1.8rem] font-extrabold leading-none text-[var(--card-value-total)]">{fueraDeGT.length}</span>
+                <span className="ml-2 text-[0.76rem] text-[var(--text-muted)]">proyectos</span>
+              </span>
+            </div>
+            <div className="mb-3 flex flex-wrap items-center gap-4 text-[0.72rem] text-[var(--text-secondary)]">
+              {(["A", "B"] as const).map((c) => (
+                <span key={c} className="flex items-center gap-1.5"><Swatch v={CLASE_COLOR[c]} /> Clase {c}</span>
+              ))}
+              <span className="text-[var(--text-muted)]">· Largo de la barra = países fuera de GT</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {fueraDeGT.map((x) => (
+                <div key={x.nombre} className="flex items-center gap-3">
+                  <span className="w-48 shrink-0 truncate text-right text-[0.78rem] text-[var(--text-secondary)]" title={x.nombre}>
+                    {x.nombre}
+                  </span>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <div className="viz-track" style={{ width: `${(x.otros.length / Math.max(1, fueraDeGT[0].otros.length)) * 100}%` }}>
+                      <div className="viz-seg viz-seg--only" style={{ width: "100%", background: CLASE_COLOR[x.clase] }} />
+                    </div>
+                    <span className="shrink-0 text-[0.82rem] font-semibold tabular-nums text-[var(--text-primary)]">{x.otros.length}</span>
+                    <span className="shrink-0 text-[0.72rem] text-[var(--text-muted)]">
+                      {x.otros.join(", ")}{x.conGT ? " · y GT" : ""}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[0.7rem] leading-relaxed text-[var(--text-muted)]">
+              Solo proyectos clasificados (A y B) con países asignados. &quot;y GT&quot; indica que además aplican a Guatemala.
+              PM-006 no aparece hasta que se definan sus países.
+            </p>
+          </div>
         </div>
       )}
     </div>

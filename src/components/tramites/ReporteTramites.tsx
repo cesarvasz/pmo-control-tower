@@ -15,21 +15,22 @@ import MultiSelect from "@/components/MultiSelect";
 import BuscableSelect from "@/components/tramites/BuscableSelect";
 import BarraCiclo from "@/components/tramites/BarraCiclo";
 import TimelineMeses from "@/components/tramites/TimelineMeses";
-import CostoUnitario from "@/components/tramites/CostoUnitario";
+import CostoUnitario, { type BeneficioT0 } from "@/components/tramites/CostoUnitario";
 import CapacidadInstalada from "@/components/tramites/CapacidadInstalada";
 import ReporteDucafast from "@/components/tramites/ReporteDucafast";
 import { fmtHHMMSS, enDiasHabiles } from "@/lib/horario";
 import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
   calcularIndicadores, composicionCiclo,
-  costoTiempo, costoUnitario, costoPorPersona, ventanaDe, ahorroDucafast, serieAhorroDucafast,
-  proyectarAnio, TARIFA_HORA_DEFECTO, ETAPA_KEYS,
+  costoTiempo, costoUnitario, costoPorPersona, ventanaDe, ahorroDucafast, ahorroPorTiempos, serieAhorroDucafast,
+  proyectarAnio, TARIFA_HORA_DEFECTO,
   exportarCSV,
   rangoEtapas, etiquetaAlcance, recorridoAlcance,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
   type EtapaKey, type Filtros, type Metrica,
 } from "@/lib/tramites";
-import type { RoiRow } from "@/types";
+import { construirRegistros, costoClonacionPorOrigen } from "@/lib/clonaciones";
+import type { ClonacionRow, RoiRow } from "@/types";
 
 type DimFiltro = "meses" | "usuarios" | "analistas" | "clientes" | "mesas" | "procesos" | "documentos" | "embarques" | "impexp";
 
@@ -74,7 +75,11 @@ function IndicadorCard({ label, sub, valor, dias, variacion, cobertura, n }: {
   );
 }
 
-export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
+export default function ReporteTramites({ rows, clonacion }: {
+  rows: RoiRow[];
+  /** Hoja de Clonación de Files (carga aparte en la página ROI) — de ahí sale el Beneficio T0. */
+  clonacion: { rows: ClonacionRow[] | null; error: string | null };
+}) {
   const [f, setF] = useState<Filtros>(FILTROS_VACIOS);
   const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
   const [tarifa, setTarifa] = useState(TARIFA_HORA_DEFECTO);
@@ -118,14 +123,19 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
   // Ahorro real de Ducafast: parte el MISMO recorte `exps` por e.ducafast, con
   // la misma tarifa y el mismo alcance — ver ahorroDucafast en lib/tramites.ts.
   const ahorro = useMemo(() => ahorroDucafast(exps, tarifa, alcance), [exps, tarifa, alcance]);
-  // Ahorro por tiempos, fijo e independiente del filtro de "Tiempo": T1–T3,
-  // T4–T5 y el total T1–T5 (se calcula completo, no se suman los dos tramos:
-  // las horas salen de unir intervalos y eso no es aditivo).
-  const ahorroTiempos = useMemo(() => ({
-    t13: ahorroDucafast(exps, tarifa, rangoEtapas("t1", "t3")),
-    t45: ahorroDucafast(exps, tarifa, rangoEtapas("t4", "t5")),
-    total: ahorroDucafast(exps, tarifa, ETAPA_KEYS),
-  }), [exps, tarifa]);
+  // Ahorro por tiempos, fijo e independiente del filtro de "Tiempo": T1–T3 y
+  // T4–T5 son un REPARTO del total T1–T5 (suman exacto, sin horas ni
+  // licencias duplicadas) — ver ahorroPorTiempos en lib/tramites.ts.
+  const ahorroTiempos = useMemo(() => ahorroPorTiempos(exps, tarifa), [exps, tarifa]);
+  // Beneficio T0: el "Ahorro $" de Clonación de Files — mismo cálculo que esa
+  // pestaña (todos los registros, sin filtros), con la tarifa de aquí.
+  const registrosClon = useMemo(() => (clonacion.rows ? construirRegistros(clonacion.rows) : null), [clonacion.rows]);
+  const beneficioT0 = useMemo<BeneficioT0>(
+    () => registrosClon
+      ? { estado: "ok", contrafactual: costoClonacionPorOrigen(registrosClon, tarifa).contrafactual }
+      : { estado: clonacion.error ? "error" : "cargando" },
+    [registrosClon, tarifa, clonacion.error],
+  );
   // Mismo ahorro, mes a mes (o día a día con un solo mes elegido) — la línea
   // de tiempo bajo "Costo por File".
   const serieAhorro = useMemo(
@@ -306,7 +316,7 @@ export default function ReporteTramites({ rows }: { rows: RoiRow[] }) {
       {/* ── Costo por File (acordeón) ── */}
       <div className="mt-5">
         <CostoUnitario
-          costo={costoUnit} unitario={unitario} ahorro={ahorro} ahorroTiempos={ahorroTiempos} serieAhorro={serieAhorro} proyeccion={proyeccion}
+          costo={costoUnit} unitario={unitario} ahorro={ahorro} ahorroTiempos={ahorroTiempos} beneficioT0={beneficioT0} serieAhorro={serieAhorro} proyeccion={proyeccion}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
         />
       </div>

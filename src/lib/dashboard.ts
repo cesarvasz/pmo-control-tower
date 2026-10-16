@@ -9,9 +9,10 @@ import { healthStatusFromIndex, weightedEvm, type HealthStatus } from "@/lib/hea
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
-import { computeKpi } from "@/lib/kpi";
+import { computeKpi, type KpiWeights } from "@/lib/kpi";
+import { metodologiaActual, type MetodologiaMap } from "@/lib/metodologia";
 import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
-import { construirExpedientes, ahorroDucafast, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "@/lib/tramites";
+import { construirExpedientes, ahorroDucafast, ahorroPorTiempos, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "@/lib/tramites";
 import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "@/lib/clonaciones";
 import type {
   CalMap, ClonacionRow, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem, RoiRow,
@@ -57,6 +58,8 @@ export interface PmValue {
   validacionCost: number; validacionBenefit: number;      // Validación VPA
   aprobacionCost: number; aprobacionBenefit: number;      // Aprobación VPB
   confirmacionCost: number; confirmacionBenefit: number;  // Confirmación VPC
+  /** Presente si confirmacionBenefit viene de ROI y no de Monday: de qué tramos (ver CONFIRMACION_ROI_PM). */
+  confirmacionRoi?: string;
   detail: {
     reqs: PmValueItem[];
     projects: PmValueItem[];
@@ -196,6 +199,41 @@ export function calcConfirmacionRoi(roiRows: RoiRow[], clonacionRows: ClonacionR
   const ahorroDuca = ahorroDucafast(construirExpedientes(roiRows), TARIFA_HORA_DEFECTO, ETAPA_KEYS).ahorro;
   const ahorroClon = costoClonacionPorOrigen(construirRegistros(clonacionRows), TARIFA_CLONACION_DEFECTO).contrafactual.ahorro;
   return ahorroDuca + ahorroClon;
+}
+
+/** La misma Confirmación vía ROI, partida en los tramos del "Beneficio por
+ *  tiempos" de la pestaña 003: T0 = Clonación de Files, T1→T3 y T4→T5 = reparto
+ *  del Ducafast T1–T5 (ver ahorroPorTiempos). t0 + t13 + t45 = total =
+ *  calcConfirmacionRoi. Sin filtros y con las tarifas por defecto, igual que esa. */
+export interface ConfirmacionRoiDetalle { t0: number; t13: number; t45: number; total: number }
+
+export function calcConfirmacionRoiDetalle(roiRows: RoiRow[], clonacionRows: ClonacionRow[]): ConfirmacionRoiDetalle {
+  const tiempos = ahorroPorTiempos(construirExpedientes(roiRows), TARIFA_HORA_DEFECTO);
+  const t0 = costoClonacionPorOrigen(construirRegistros(clonacionRows), TARIFA_CLONACION_DEFECTO).contrafactual.ahorro;
+  return { t0, t13: tiempos.t13.ahorro, t45: tiempos.t45.ahorro, total: t0 + tiempos.total.ahorro };
+}
+
+/** PMs cuya Confirmación VPC (Beneficio Confirmado de su Player/KPI) sale de ROI
+ *  en vez de Monday, y de qué tramos. Entre los dos cubren la Confirmación vía ROI
+ *  completa (T0 + T1→T3 + T4→T5), sin repetir ningún tramo. */
+export const CONFIRMACION_ROI_PM: Record<string, { tramos: ("t0" | "t13" | "t45")[]; etiqueta: string }> = {
+  "Luis Aguilar": { tramos: ["t0", "t45"], etiqueta: "ROI · T0 Clonación + T4 → T5" },
+  "David Guzmán": { tramos: ["t13"], etiqueta: "ROI · T1 → T3" },
+};
+
+export interface ConfirmacionRoiPm { monto: number; etiqueta: string }
+
+export function confirmacionRoiPorPm(d: ConfirmacionRoiDetalle): Record<string, ConfirmacionRoiPm> {
+  return Object.fromEntries(Object.entries(CONFIRMACION_ROI_PM).map(([pm, c]) => [
+    pm, { monto: c.tramos.reduce((s, k) => s + d[k], 0), etiqueta: c.etiqueta },
+  ]));
+}
+
+/** Sustituye la Confirmación VPC de Monday de un PM por la de ROI, si le aplica.
+ *  Solo cambia el beneficio confirmado (ROI no trae costo); Aprobación y el
+ *  detalle por PML/proyecto siguen siendo los de Monday. */
+export function conConfirmacionRoi(v: PmValue, c: ConfirmacionRoiPm | undefined): PmValue {
+  return c ? { ...v, confirmacionBenefit: c.monto, confirmacionRoi: c.etiqueta } : v;
 }
 
 /** Mapa boardId → salud (EV/PV/AC + VEM) de cada board de Proyectos. */
@@ -691,6 +729,14 @@ export function calcItemNota(id: string, recuperado: boolean, reproceso: DelayMa
 
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
+/** Unidades de Calidad de INICIATIVAS: las ya aprobadas (PM Aprobado / PML Aprobado,
+ *  estado "APROBADA"). Como un REQ cerrado, su nota es binaria: 100 si el Admin la
+ *  excusa con un responsable ≠ "PM" (o "Sin reproceso"), 0 si no (sin asignar
+ *  penaliza). Se atribuyen por el id de la iniciativa (ini.id). Las demás etapas del
+ *  embudo (New, Meeting 1/2, En Espera, Plan Futuro…) todavía no miden Calidad. */
+export const iniUnidadesCalidad = (ini: IniItem[]): IniItem[] =>
+  ini.filter((i) => i.estado === "APROBADA" && i.id);
+
 /** Desglose de "Calidad de Entregas" (nota promedio de las unidades en scope). Las
  *  unidades en scope son los REQ CERRADOS + las unidades de Calidad de la FASE 3 de
  *  Proyecto (ver calidadUnits) — las demás fases del proyecto no entran (ver isFase3).
@@ -701,13 +747,15 @@ export interface ReprocesoStats { total: number; limpias: number; conReproceso: 
  *  después del fin de su propio CPM, ver hitosFueraDeCpm).
  *  `pct` es el PROMEDIO de las notas (no la fracción de unidades 100% limpias);
  *  `limpias`/`conReproceso` siguen siendo conteos, para las tarjetas de resumen. */
-export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
+export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
   const reqUnits = reqs.filter((r) => r.estado === "CERRADO");
   const stepUnits = calidadUnits(projs);
-  const total = reqUnits.length + stepUnits.length;
+  const iniUnits = iniUnidadesCalidad(ini);
+  const total = reqUnits.length + stepUnits.length + iniUnits.length;
   const notas = [
     ...reqUnits.map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
     ...stepUnits.map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
+    ...iniUnits.map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
   ];
   const limpias = notas.filter((n) => n === 100).length;
   const conReproceso = total - limpias;
@@ -717,8 +765,8 @@ export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso
 
 /** % de unidades "limpias" de reproceso (ideal 100%). null si no hay unidades en scope
  *  (→ componente pendiente). Ver calcReprocesoStats para el desglose completo. */
-export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): number | null {
-  return calcReprocesoStats(reqs, projs, reproceso).pct;
+export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): number | null {
+  return calcReprocesoStats(reqs, projs, reproceso, ini).pct;
 }
 
 /** Variante "real, sin filtros" de Calidad de Entregas — SOLO para la tarjeta
@@ -726,10 +774,11 @@ export function calcReprocesoPct(reqs: ReqItem[], projs: ProjItem[], reproceso: 
  *  cuenta unidades (REQ CERRADO / step Done) que YA tienen responsable asignado:
  *  "Sin reproceso" → limpia; otros (incluido "PM") → con reproceso. Sin selección
  *  se ignoran — ignora el veredicto automático por fechas. */
-export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap): ReprocesoStats {
+export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
   const units = [
     ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
     ...calidadUnits(projs).map((u) => u.id),
+    ...iniUnidadesCalidad(ini).map((i) => i.id),
   ];
   const assigned = units.filter((id) => reproceso[id]?.responsible != null);
   const total = assigned.length;
@@ -874,10 +923,10 @@ export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], 
 }
 
 export interface ReprocesoRow {
-  id: string;                        // r.id (REQ) / CalidadUnit.id (item de Proyecto) — atribución "reproceso"
-  source: "REQ" | "Proyecto";
-  unitKind: "req" | "step";
-  tipo: "PM" | "PML";                // Proyecto → "PM"; REQ → "PML"
+  id: string;                        // r.id (REQ) / CalidadUnit.id (item de Proyecto) / ini.id (Iniciativa) — atribución "reproceso"
+  source: "REQ" | "Proyecto" | "Iniciativa";
+  unitKind: "req" | "step" | "ini";
+  tipo: "PM" | "PML" | "INI";        // Proyecto → "PM"; REQ → "PML"; Iniciativa → "INI"
   name: string;                      // REQ: r.name. Proyecto: nombre del item (el entregable)
   context: string;                   // REQ: grupo. Proyecto: "board · grupo"
   projCode: string;                  // "PM-003" del board; "" en REQ
@@ -959,7 +1008,7 @@ export function calcReprocesoCascade(p: ProjItem): ReprocesoCascade {
 
 /** Filas de "Calidad de Entregas": una por cada REQ CERRADO y una por cada unidad de
  *  Calidad de Fase 3 (ver calidadUnits: siempre un item, con veredicto progresivo). */
-export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap): ReprocesoRow[] {
+export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: ReprocesoRow[] = [];
   for (const r of reqs) {
@@ -989,12 +1038,24 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
       allDone: u.allDone,
     });
   }
+  // Iniciativas aprobadas: nota binaria como un REQ cerrado. No tienen CPM ni fecha de
+  // aprobación, así que fechas y detalle quedan vacíos; ya están aprobadas (allDone).
+  for (const i of iniUnidadesCalidad(ini)) {
+    const nota = lateExcused(i.id, reproceso) ? 100 : 0;
+    rows.push({
+      id: i.id, source: "Iniciativa", unitKind: "ini", tipo: "INI", name: i.name, context: i.grupo,
+      projCode: "", projName: "", fase: i.grupo, pm: i.pm, status: i.status, deadline: null,
+      startDate: null, actualEnd: null,
+      verdict: nota === 100 ? "clean" : "reproceso", nota,
+      itemsDone: [], totalDone: 0, recuperado: null, cascade: null, pendingAtrasados: [], fueraDeCpm: [], allDone: true,
+    });
+  }
   return rows;
 }
 
 export interface ReprocesoRawRow {
-  id: string;                        // r.id / projPhaseKey(boardId, grupo) — atribución "reproceso"
-  source: "REQ" | "Proyecto";
+  id: string;                        // r.id / projPhaseKey(boardId, grupo) / ini.id — atribución "reproceso"
+  source: "REQ" | "Proyecto" | "Iniciativa";
   name: string;
   pm: string;
   responsible: DelayResponsible;     // opción elegida en el dropdown (incluye "Sin reproceso")
@@ -1005,7 +1066,7 @@ export interface ReprocesoRawRow {
 /** Filas RAW de "Calidad de Entregas" — solo unidades con responsable YA seleccionado,
  *  con la opción elegida tal cual (incluye "Sin reproceso"). Para detalle de tarjeta
  *  principal del Control Tower. */
-export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap): ReprocesoRawRow[] {
+export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoRawRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: ReprocesoRawRow[] = [];
   for (const r of reqs) {
@@ -1021,6 +1082,11 @@ export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBo
     const { code: projCode } = splitBoardName(u.boardName);
     rows.push({ id: u.id, source: "Proyecto", name: u.name, pm, responsible, projCode });
   }
+  for (const i of iniUnidadesCalidad(ini)) {
+    const responsible = reproceso[i.id]?.responsible;
+    if (responsible == null) continue;
+    rows.push({ id: i.id, source: "Iniciativa", name: i.name, pm: i.pm, responsible, projCode: "" });
+  }
   return rows;
 }
 
@@ -1029,7 +1095,11 @@ export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBo
 export function calcPmMetrics(
   pm: string, ini: IniItem[], req: ReqItem[], proj: ProjItem[], projBoards: ProjBoard[],
   boardHealthMap: Map<string, BoardHealthData>, calMap: CalMap, npsRecords: NpsRecord[],
-  delays: DelayMap = {}, reproceso: DelayMap = {},
+  delays: DelayMap = {}, reproceso: DelayMap = {}, weights?: KpiWeights,
+  /** Notas mensuales de Metodología VALOR (la vigente del PM es la del mes en curso, ver lib/metodologia.ts). */
+  metodologia: MetodologiaMap = {},
+  /** Confirmación vía ROI de los PMs de CONFIRMACION_ROI_PM (reemplaza la de Monday). */
+  confirmacionRoiPm: Record<string, ConfirmacionRoiPm> = {},
 ) {
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
@@ -1059,8 +1129,8 @@ export function calcPmMetrics(
     delays,
   );
 
-  const pmValueAll = calcPmValue(pm, req, proj, projBoards, false);
-  const pmValueHard = calcPmValue(pm, req, proj, projBoards, true);
+  const pmValueAll = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, false), confirmacionRoiPm[pm]);
+  const pmValueHard = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, true), confirmacionRoiPm[pm]);
   // Beneficio mostrado (scoreboard) = solo Aprobación VPB, igual que la tarjeta de PM.
   const benefit = pmValueHard.aprobacionBenefit;
 
@@ -1068,13 +1138,15 @@ export function calcPmMetrics(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     reproceso,
+    ini.filter((i) => i.pm === pm),
   );
+  const metodologiaPct = metodologiaActual(metodologia, pm);
   const kpi = computeKpi({
     evm: evmRaw, nps: nps.nps,
     benefitAprobado: pmValueHard.aprobacionBenefit, benefitConfirmado: pmValueHard.confirmacionBenefit,
-    entregasPct: entPct, reprocesoPct,
+    entregasPct: entPct, reprocesoPct, metodologiaPct, weights,
   });
   const health = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
 
-  return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, reprocesoPct, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };
+  return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, reprocesoPct, metodologiaPct, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };
 }

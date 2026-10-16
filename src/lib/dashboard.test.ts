@@ -10,6 +10,8 @@ import {
   calcEntregaStatsRaw,
   calcReprocesoPct,
   calcReprocesoStats,
+  calcReprocesoStatsRaw,
+  iniUnidadesCalidad,
   calcReprocesoCascade,
   calidadUnits,
   calcItemCalidad,
@@ -19,14 +21,19 @@ import {
   buildLateResponsibleRows,
   buildLateResponsibleRowsRaw,
   buildReprocesoRows,
+  buildReprocesoRowsRaw,
   calcConfirmacionRoi,
+  calcConfirmacionRoiDetalle,
+  confirmacionRoiPorPm,
+  type ConfirmacionRoiPm,
 } from "./dashboard";
 import { today } from "./business";
+import { metodologiaKey, mesDe } from "./metodologia";
 import type { BoardHealthData } from "./proj";
 import type { DelayMap } from "./delay";
 import { construirExpedientes, ahorroDucafast, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "./tramites";
 import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "./clonaciones";
-import type { ProjBoard, ProjItem, ProjSubitem, ReqItem, RoiRow, ClonacionRow } from "@/types";
+import type { IniItem, ProjBoard, ProjItem, ProjSubitem, ReqItem, RoiRow, ClonacionRow } from "@/types";
 
 // Fixtures mínimos: solo se rellenan los campos que leen las funciones.
 const req = (o: Partial<ReqItem>): ReqItem => o as ReqItem;
@@ -915,6 +922,65 @@ describe("calidadProjectStatus (trayectoria de Calidad por proyecto: Done + pend
   });
 });
 
+describe("Calidad de Entregas con Iniciativas (aprobadas, nota binaria como un PML cerrado)", () => {
+  const ini = (o: Partial<IniItem>): IniItem => ({ grupo: "G", status: "PM Aprobado", estado: "APROBADA", pm: "Luis", ...o }) as IniItem;
+  const aprobadas = [ini({ id: "INI-1", name: "Uno" }), ini({ id: "INI-2", name: "Dos" })];
+
+  it("solo cuentan las APROBADAS (PM / PML Aprobado) y con id; el resto del embudo no mide Calidad", () => {
+    const resto = [
+      ini({ id: "INI-3", estado: "EN TIEMPO", status: "New" }), ini({ id: "INI-4", estado: "POR_DEFINIR", status: "Meeting 2" }),
+      ini({ id: "INI-5", estado: "EN_ESPERA", status: "Sin Valor Def" }), ini({ id: "", name: "sin id" }),
+    ];
+    expect(iniUnidadesCalidad([...aprobadas, ...resto]).map((i) => i.id)).toEqual(["INI-1", "INI-2"]);
+    expect(calcReprocesoStats([], [], {}, resto).total).toBe(0);
+    expect(calcReprocesoPct([], [], {}, resto)).toBeNull();
+  });
+
+  it("sin asignar y PM penalizan; un responsable ≠ PM o \"Sin reproceso\" excusa (como un PML cerrado)", () => {
+    expect(calcReprocesoPct([], [], {}, aprobadas)).toBe(0);
+    expect(calcReprocesoPct([], [], { "INI-1": { responsible: "PM" }, "INI-2": { responsible: "PM" } }, aprobadas)).toBe(0);
+    expect(calcReprocesoPct([], [], { "INI-1": { responsible: "Sin reproceso" } }, aprobadas)).toBe(50);
+    expect(calcReprocesoPct([], [], { "INI-1": { responsible: "Sponsor" }, "INI-2": { responsible: "VPA" } }, aprobadas)).toBe(100);
+  });
+
+  it("se promedian junto con los PML cerrados", () => {
+    const reqs = [req({ id: "R1", pm: "Luis", estado: "CERRADO" })];
+    // 1 PML excusado (100) + 2 iniciativas: una excusada (100) y una sin asignar (0) → 200/3
+    const m = { R1: { responsible: "VPA" as const }, "INI-1": { responsible: "Sin reproceso" as const } };
+    expect(calcReprocesoStats(reqs, [], m, aprobadas)).toMatchObject({ total: 3, limpias: 2, conReproceso: 1, pct: 67 });
+  });
+
+  it("calcReprocesoStatsRaw solo cuenta las iniciativas con selección hecha", () => {
+    const raw = calcReprocesoStatsRaw([], [], { "INI-1": { responsible: "Sin reproceso" } }, aprobadas);
+    expect(raw).toMatchObject({ total: 1, limpias: 1, conReproceso: 0, pct: 100 });
+  });
+
+  it("buildReprocesoRows lista la iniciativa como unidad INI, siempre calificable", () => {
+    const rows = buildReprocesoRows([], [], [], { "INI-1": { responsible: "PM" } }, aprobadas);
+    expect(rows.map((r) => [r.id, r.source, r.tipo, r.unitKind, r.verdict, r.allDone])).toEqual([
+      ["INI-1", "Iniciativa", "INI", "ini", "reproceso", true],
+      ["INI-2", "Iniciativa", "INI", "ini", "reproceso", true],
+    ]);
+    const limpia = buildReprocesoRows([], [], [], { "INI-1": { responsible: "VPA" } }, aprobadas)[0];
+    expect(limpia).toMatchObject({ verdict: "clean", nota: 100, pm: "Luis" });
+  });
+
+  it("buildReprocesoRowsRaw lista solo las iniciativas con responsable elegido", () => {
+    const rows = buildReprocesoRowsRaw([], [], [], { "INI-2": { responsible: "PM" } }, aprobadas);
+    expect(rows).toEqual([{ id: "INI-2", source: "Iniciativa", name: "Dos", pm: "Luis", responsible: "PM", projCode: "" }]);
+  });
+
+  it("calcPmMetrics suma solo las iniciativas de ESE PM al % de Calidad de su KPI", () => {
+    const todas = [...aprobadas, ini({ id: "INI-9", pm: "Otro" })];
+    const sinNada = calcPmMetrics("Luis", todas, [], [], [], new Map(), new Map(), []);
+    expect(sinNada.reprocesoPct).toBe(0); // 2 iniciativas de Luis sin asignar
+    const m = { "INI-1": { responsible: "VPA" as const }, "INI-2": { responsible: "VPA" as const } };
+    const conTodo = calcPmMetrics("Luis", todas, [], [], [], new Map(), new Map(), [], {}, m);
+    expect(conTodo.reprocesoPct).toBe(100);
+    const otro = calcPmMetrics("Otro", todas, [], [], [], new Map(), new Map(), []);
+    expect(otro.reprocesoPct).toBe(0); // INI-9 de "Otro" sin asignar
+  });
+});
 describe("calcPmMetrics", () => {
   it("EVM del PM = promedio ponderado (INI 10% · REQ 20% · Proyectos 70%) y eso alimenta el KPI", () => {
     // 1 board 100% Done y en tiempo → healthIndex 1 (Proyectos = 1.0)
@@ -933,12 +999,12 @@ describe("calcPmMetrics", () => {
     expect(m.evmRaw).toBeCloseTo(0.8 / 0.9, 10);
     expect(m.evmPct).toBe(89);
 
-    // El componente EVM del KPI (peso 30, meta 100%) usa ese mismo valor.
+    // El componente EVM del KPI (peso 25, meta 100%) usa ese mismo valor.
     const evmComp = m.kpi.components.find((c) => c.key === "evm")!;
-    expect(evmComp.weight).toBe(30);
+    expect(evmComp.weight).toBe(25);
     expect(evmComp.logro).toBeCloseTo(0.8 / 0.9, 10);
     expect(evmComp.real).toBe("89%");
-    expect(evmComp.logro * evmComp.weight).toBeCloseTo((0.8 / 0.9) * 30, 6);
+    expect(evmComp.logro * evmComp.weight).toBeCloseTo((0.8 / 0.9) * 25, 6);
   });
 
   it("Reproceso (5º componente): PM y sin asignar penalizan, ≠PM excusa; afecta el KPI", () => {
@@ -984,7 +1050,7 @@ describe("calcPmMetrics", () => {
     expect(m.entOn).toBe(1);
     expect(m.entPct).toBe(100);
     expect(m.health).toBe("on-track");
-    expect(m.kpi.components).toHaveLength(5);
+    expect(m.kpi.components).toHaveLength(6);
     expect(m.kpiPct).toBe(Math.round(m.kpi.score));
   });
 });
@@ -1029,5 +1095,77 @@ describe("calcConfirmacionRoi (Confirmación del portafolio vía ROI — reempla
     expect(expectedDuca).toBeGreaterThan(0);
     expect(expectedClon).not.toBe(0); // confirma que el registro "v" sí se reconoció (si fuera 0, nFilesV=0)
     expect(total).toBeCloseTo(expectedDuca + expectedClon, 5);
+
+    // El detalle por tramos es la misma cifra, partida: T0 = Clonación, T1→T3 + T4→T5 = Ducafast.
+    const d = calcConfirmacionRoiDetalle(roiRows, clonRows);
+    expect(d.total).toBeCloseTo(total, 5);
+    expect(d.t0).toBeCloseTo(expectedClon, 5);
+    expect(d.t13 + d.t45).toBeCloseTo(expectedDuca, 5);
+  });
+});
+
+describe("Confirmación vía ROI por PM (Luis: T0 + T4→T5 · David: T1→T3)", () => {
+  const detalle = { t0: 2_000, t13: 50_000, t45: 18_000, total: 70_000 };
+
+  it("reparte los tramos entre Luis y David sin repetir ninguno: entre los dos suman el total", () => {
+    const porPm = confirmacionRoiPorPm(detalle);
+    expect(porPm["Luis Aguilar"].monto).toBe(20_000);  // T0 + T4→T5
+    expect(porPm["David Guzmán"].monto).toBe(50_000);  // T1→T3
+    expect(Object.values(porPm).reduce((s, c) => s + c.monto, 0)).toBe(detalle.total);
+  });
+
+  it("calcPmMetrics usa la Confirmación de ROI en vez de la de Monday y eso mueve el KPI", () => {
+    const projBoards = [board({ id: "b1", pm: "Luis Aguilar", benefitType: "HardSaving" })];
+    const projItems = [proj({ boardId: "b1", boardName: "P1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 100, benefit: 500 })];
+    const bhm = buildBoardHealthMap(projItems, projBoards, {});
+    const run = (roi: Record<string, ConfirmacionRoiPm>) =>
+      calcPmMetrics("Luis Aguilar", [], [], projItems, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, roi);
+
+    const monday = run({});
+    const conRoi = run(confirmacionRoiPorPm(detalle));
+    expect(monday.pmValueHard.confirmacionRoi).toBeUndefined();
+    expect(conRoi.pmValueHard.confirmacionBenefit).toBe(20_000);
+    expect(conRoi.pmValueHard.confirmacionRoi).toMatch(/T0/);
+    expect(conRoi.pmValueAll.confirmacionBenefit).toBe(20_000);
+    expect(conRoi.pmValueHard.aprobacionBenefit).toBe(monday.pmValueHard.aprobacionBenefit); // Aprobación sigue de Monday
+    expect(conRoi.kpi.score).toBeGreaterThan(monday.kpi.score);
+  });
+
+  it("a un PM sin reparto de ROI no le toca nada", () => {
+    const projBoards = [board({ id: "b1", pm: "Otro PM" })];
+    const bhm = buildBoardHealthMap([], projBoards, {});
+    const m = calcPmMetrics("Otro PM", [], [], [], projBoards, bhm, new Map(), [], {}, {}, undefined, {}, confirmacionRoiPorPm(detalle));
+    expect(m.pmValueHard.confirmacionRoi).toBeUndefined();
+    expect(m.pmValueHard.confirmacionBenefit).toBe(0);
+  });
+});
+
+describe("Metodología VALOR en el KPI del PM (nota vigente = la del mes en curso)", () => {
+  const boards = [board({ id: "b1", pm: "Luis Aguilar" })];
+  const run = (m: Record<string, { score: number }>, pm = "Luis Aguilar") =>
+    calcPmMetrics(pm, [], [], [], boards, buildBoardHealthMap([], boards, {}), new Map(), [], {}, {}, undefined, m);
+
+  it("sin notas editadas el PM arranca en 100% y el componente suma sus 15 puntos", () => {
+    const m = run({});
+    expect(m.metodologiaPct).toBe(100);
+    const comp = m.kpi.components.find((c) => c.key === "metodologia")!;
+    expect(comp.weight).toBe(15);
+    expect(comp.pending).toBeFalsy();
+    expect(comp.logro).toBe(1);
+  });
+
+  it("usa la nota editada por el Admin del mes en curso", () => {
+    const mes = mesDe(today());
+    const m = run({ [metodologiaKey(mes, "Luis Aguilar")]: { score: 80 } });
+    expect(m.metodologiaPct).toBe(80);
+    const comp = m.kpi.components.find((c) => c.key === "metodologia")!;
+    expect(comp.logro).toBeCloseTo(0.8, 8);
+    expect(run({}).kpi.score - m.kpi.score).toBeCloseTo(0.2 * 15, 8); // 3 pts menos
+  });
+
+  it("la nota de otro PM o de otro mes no le afecta", () => {
+    const mes = mesDe(today());
+    const m = run({ [metodologiaKey(mes, "David Guzmán")]: { score: 10 }, [metodologiaKey("2020-01", "Luis Aguilar")]: { score: 10 } });
+    expect(m.metodologiaPct).toBe(100);
   });
 });

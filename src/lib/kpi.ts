@@ -3,8 +3,13 @@
 // Métrica ponderada general (global y por PM). Cada componente aporta
 // (logro × peso), con logro = min(real / meta, 100%) y piso 0%. La meta es el valor
 // que rinde el 100% del peso (no un tope de la métrica). Los pesos suman 100:
-//   EVM 30 · NPS 15 · Beneficio HardSaving 30 · Cumplimiento de Entrega 10 · Reproceso 15.
-//   · EVM: el % rinde directo el peso (90% → 0.9×30). NPS: escalonado por rango, ver
+//   EVM 25 · NPS 15 · Beneficio HardSaving 25 · Cumplimiento de Entrega 10 · Reproceso 10 ·
+//   Cumplimiento Metodología VALOR 15.
+//   · Metodología VALOR: la nota (0-100) VIGENTE del PM, o sea la del mes en curso. Cada mes
+//     arranca en 100% y un admin la baja a mano en /calidad-cumplimiento → Metodología
+//     (ver lib/metodologia.ts). Antes de que empiece la medición queda "pendiente" y no
+//     resta del máximo alcanzable.
+//   · EVM: el % rinde directo el peso (90% → 0.9×25). NPS: escalonado por rango, ver
 //     npsLogro() abajo. Beneficio: ver computeBenefitKpi() abajo. Entregas y Reproceso:
 //     el % es directamente la fracción del peso (85% → 0.85×peso).
 // El Reproceso mide la NOTA PROMEDIO de sus unidades (ideal 100%): REQ cerrados +
@@ -27,10 +32,15 @@
 import { fmtMoney, today } from "@/lib/business";
 import { NPS_RANGES } from "@/lib/nps";
 
-export const KPI_META = { evm: 1.0, nps: 50, benefitAnnual: 85000, entregas: 1.0, reproceso: 1.0 };
-export const KPI_W = { evm: 30, nps: 15, benefit: 30, entregas: 10, reproceso: 15 };
-// Beneficio (peso 30) se reparte 70% Aprobación VPB / 30% Confirmación VPC.
-export const BENEFIT_SPLIT = { aprobacion: 0.70, confirmacion: 0.30 };
+export const KPI_META = { evm: 1.0, nps: 50, benefitAnnual: 84000, entregas: 1.0, reproceso: 1.0, metodologia: 1.0 };
+export type KpiWeights = { evm: number; nps: number; benefit: number; entregas: number; reproceso: number; metodologia: number };
+export const KPI_W: KpiWeights = { evm: 25, nps: 15, benefit: 25, entregas: 10, reproceso: 10, metodologia: 15 };
+/** Pesos del KPI de los Players por CKU (/players): EVM 25 · Beneficio 25 · Cumplimiento de
+ *  Entrega ("Compromiso") 20 · Calidad de Entregas (reproceso) 20 · NPS 10. Suman 100.
+ *  Metodología VALOR no aplica a los CKU (peso 0 → el componente no se muestra). */
+export const KPI_W_CKU: KpiWeights = { evm: 25, nps: 10, benefit: 25, entregas: 20, reproceso: 20, metodologia: 0 };
+// Beneficio (peso 25) se reparte 90% Aprobación VPB / 10% Confirmación VPC.
+export const BENEFIT_SPLIT = { aprobacion: 0.90, confirmacion: 0.10 };
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -42,45 +52,66 @@ function npsLogro(nps: number | null): number {
   return r ? r.logro : 0;
 }
 
+/** Meta del Beneficio CONFIRMADO de un PM a la fecha: $84,000 ÷ 12 × meses YA
+ *  terminados del año (el mes en curso no cuenta: el 15-oct son 9, no 10). En
+ *  enero es 0 — todavía no hay mes cerrado contra el cual medir. `month` es 1-12. */
+export function metaConfirmacionAcumulada(month: number = today().getMonth() + 1): number {
+  return (KPI_META.benefitAnnual / 12) * Math.max(0, month - 1);
+}
+
+/** Semáforo del Confirmado: fracción de su meta a meses terminados (0 si aún no hay meta). */
+export function ratioConfirmacion(benefitConfirmado: number, month?: number): number {
+  const meta = metaConfirmacionAcumulada(month);
+  return meta > 0 ? benefitConfirmado / meta : 0;
+}
+
 export interface BenefitKpiBreakdown {
   month: number;             // mes del año (1-12) usado para la meta acumulada
-  metaAnual: number;         // $85,000
+  metaAnual: number;         // $84,000
   metaMensual: number;       // metaAnual / 12
   metaAcumulada: number;     // metaMensual × mes actual — lo que se "debería llevar" a la fecha
+  mesesTerminados: number;   // month − 1: el mes en curso NO cuenta para la Confirmación
+  metaConfirmacion: number;  // metaMensual × mesesTerminados
   benefitAprobado: number;
   benefitConfirmado: number;
   logroAprobacion: number;   // benefitAprobado / metaAcumulada, tope 100%
-  logroConfirmacion: number; // benefitConfirmado / metaAcumulada, tope 100%
-  pesoAprobacion: number;    // 30 × 70% = 21
-  pesoConfirmacion: number;  // 30 × 30% = 9
+  logroConfirmacion: number; // benefitConfirmado / metaConfirmacion, tope 100%
+  pesoAprobacion: number;    // 25 × 90% = 22.5
+  pesoConfirmacion: number;  // 25 × 10% = 2.5
   ptsAprobacion: number;     // logroAprobacion × pesoAprobacion
   ptsConfirmacion: number;   // logroConfirmacion × pesoConfirmacion
   total: number;             // ptsAprobacion + ptsConfirmacion (0..30)
 }
 
 /**
- * Componente "Beneficio HardSaving" del KPI (peso 30), repartido 70/30 entre
- * Aprobación VPB y Confirmación VPC. La meta anual ($85,000) se prorratea por mes
- * calendario: metaAcumulada = (85000/12) × mes_actual — "lo que se debería llevar"
- * a la fecha. Cada mitad se mide por separado: Beneficio de esa etapa / metaAcumulada,
- * con tope en 100%. `month` es 1-12; por defecto el mes calendario actual.
+ * Componente "Beneficio HardSaving" del KPI (peso 25), repartido 90/10 entre
+ * Aprobación VPB y Confirmación VPC. La meta anual ($84,000) se prorratea por mes
+ * calendario: metaAcumulada = (84000/12) × mes_actual — "lo que se debería llevar"
+ * a la fecha. Cada mitad se mide por separado, con tope en 100%:
+ *   · Aprobación: benefitAprobado / metaAcumulada (incluye el mes en curso).
+ *   · Confirmación: benefitConfirmado / metaConfirmacion, con SOLO los meses ya
+ *     terminados (15-oct → 9 meses, no 10) — ver metaConfirmacionAcumulada.
+ * `month` es 1-12; por defecto el mes calendario actual.
  */
 export function computeBenefitKpi(
   benefitAprobado: number,
   benefitConfirmado: number,
   month: number = today().getMonth() + 1,
+  weights: KpiWeights = KPI_W,
 ): BenefitKpiBreakdown {
   const metaAnual = KPI_META.benefitAnnual;
   const metaMensual = metaAnual / 12;
   const metaAcumulada = metaMensual * month;
-  const pesoAprobacion = KPI_W.benefit * BENEFIT_SPLIT.aprobacion;
-  const pesoConfirmacion = KPI_W.benefit * BENEFIT_SPLIT.confirmacion;
+  const mesesTerminados = month - 1;
+  const metaConfirmacion = metaConfirmacionAcumulada(month);
+  const pesoAprobacion = weights.benefit * BENEFIT_SPLIT.aprobacion;
+  const pesoConfirmacion = weights.benefit * BENEFIT_SPLIT.confirmacion;
   const logroAprobacion = metaAcumulada > 0 ? clamp01(benefitAprobado / metaAcumulada) : 0;
-  const logroConfirmacion = metaAcumulada > 0 ? clamp01(benefitConfirmado / metaAcumulada) : 0;
+  const logroConfirmacion = metaConfirmacion > 0 ? clamp01(benefitConfirmado / metaConfirmacion) : 0;
   const ptsAprobacion = logroAprobacion * pesoAprobacion;
   const ptsConfirmacion = logroConfirmacion * pesoConfirmacion;
   return {
-    month, metaAnual, metaMensual, metaAcumulada, benefitAprobado, benefitConfirmado,
+    month, metaAnual, metaMensual, metaAcumulada, mesesTerminados, metaConfirmacion, benefitAprobado, benefitConfirmado,
     logroAprobacion, logroConfirmacion, pesoAprobacion, pesoConfirmacion,
     ptsAprobacion, ptsConfirmacion, total: ptsAprobacion + ptsConfirmacion,
   };
@@ -90,8 +121,12 @@ export type KpiInput = {
   evm: number | null; nps: number | null;
   benefitAprobado: number; benefitConfirmado: number;
   entregasPct: number | null; reprocesoPct?: number | null;
+  /** Promedio (0-100) de las notas de Metodología VALOR de las fases calificadas; null = sin calificar. */
+  metodologiaPct?: number | null;
   /** Mes del año (1-12) para la meta acumulada de Beneficio. Por defecto, el mes actual. */
   month?: number;
+  /** Pesos de los componentes. Por defecto KPI_W (PM / equipo); los CKU usan KPI_W_CKU. */
+  weights?: KpiWeights;
 };
 export interface KpiComponent {
   key: string;
@@ -103,33 +138,39 @@ export interface KpiComponent {
   pending?: boolean;
 }
 export interface KpiResult {
-  score: number;          // 0..100 (máx. actual 80 con el 5º pendiente)
-  achievable: number;     // suma de pesos medibles hoy (80)
+  score: number;          // 0..100
+  achievable: number;     // suma de pesos medibles hoy (excluye componentes pendientes)
   ratio: number;          // score / achievable → 0..1 (para color)
   components: KpiComponent[];
 }
 
-export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, entregasPct, reprocesoPct = null, month }: KpiInput): KpiResult {
-  const b = computeBenefitKpi(benefitAprobado, benefitConfirmado, month);
+export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, entregasPct, reprocesoPct = null, metodologiaPct = null, month, weights = KPI_W }: KpiInput): KpiResult {
+  const W = weights;
+  const b = computeBenefitKpi(benefitAprobado, benefitConfirmado, month, W);
   const components: KpiComponent[] = [
-    { key: "evm", label: "EVM", weight: KPI_W.evm,
+    { key: "evm", label: "EVM", weight: W.evm,
       logro: evm != null ? clamp01(evm / KPI_META.evm) : 0,
       real: evm != null ? `${Math.round(evm * 100)}%` : "—", meta: "100%" },
-    { key: "nps", label: "NPS", weight: KPI_W.nps,
+    { key: "nps", label: "NPS", weight: W.nps,
       logro: npsLogro(nps),
       real: nps != null ? `${nps}` : "—", meta: `≥${KPI_META.nps}` },
-    { key: "benefit", label: "Beneficio HardSaving", weight: KPI_W.benefit,
-      logro: KPI_W.benefit > 0 ? b.total / KPI_W.benefit : 0,
+    { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
+      logro: W.benefit > 0 ? b.total / W.benefit : 0,
       real: fmtMoney(benefitAprobado + benefitConfirmado), meta: fmtMoney(b.metaAcumulada) },
-    { key: "entregas", label: "Cumplimiento de Entrega", weight: KPI_W.entregas,
+    { key: "entregas", label: "Cumplimiento de Entrega", weight: W.entregas,
       logro: entregasPct != null ? clamp01(entregasPct / 100 / KPI_META.entregas) : 0,
       real: entregasPct != null ? `${entregasPct}%` : "—", meta: `${Math.round(KPI_META.entregas * 100)}%` },
     // Reproceso: % de REQ cerrados sin reproceso imputable al PM. Sin REQ cerrados → pendiente.
-    { key: "reproceso", label: "Reproceso", weight: KPI_W.reproceso,
+    { key: "reproceso", label: "Reproceso", weight: W.reproceso,
       logro: reprocesoPct != null ? clamp01(reprocesoPct / 100 / KPI_META.reproceso) : 0,
       real: reprocesoPct != null ? `${reprocesoPct}%` : "—", meta: `${Math.round(KPI_META.reproceso * 100)}%`,
       pending: reprocesoPct == null },
-  ];
+    // Metodología VALOR: nota vigente (mes en curso) puesta por el Admin; arranca en 100%. Sin medición → pendiente.
+    { key: "metodologia", label: "Cumplimiento Metodología VALOR", weight: W.metodologia,
+      logro: metodologiaPct != null ? clamp01(metodologiaPct / 100 / KPI_META.metodologia) : 0,
+      real: metodologiaPct != null ? `${Math.round(metodologiaPct)}%` : "—", meta: `${Math.round(KPI_META.metodologia * 100)}%`,
+      pending: metodologiaPct == null },
+  ].filter((c) => c.weight > 0);
   const score = components.reduce((s, c) => s + c.logro * c.weight, 0);
   const achievable = components.filter((c) => !c.pending).reduce((s, c) => s + c.weight, 0);
   const ratio = achievable > 0 ? score / achievable : 0;

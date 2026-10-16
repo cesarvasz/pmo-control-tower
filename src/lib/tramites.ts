@@ -1471,6 +1471,74 @@ export function ahorroDucafast(
   };
 }
 
+/** Tramos fijos del "Beneficio por tiempos". */
+export const TRAMO_T13: EtapaKey[] = ["t1", "t2", "t3"];
+export const TRAMO_T45: EtapaKey[] = ["t4", "t5"];
+
+export interface AhorroPorTiempos {
+  t13: AhorroDucafast;
+  t45: AhorroDucafast;
+  total: AhorroDucafast;
+}
+
+/**
+ * Beneficio por tiempos como REPARTO del total T1–T5: T1→T3 + T4→T5 = total, exacto.
+ *
+ * Antes cada tramo se calculaba con `ahorroDucafast` sobre su propio alcance, y
+ * la suma de los dos salía ~$20K arriba del total por tres razones: las horas se
+ * unían por tramo (la hora de un Usuario en el T1–T3 de un File y el T4 de otro
+ * contaba dos veces), cada tramo dividía entre su propia base de Files, y las
+ * licencias se restaban completas en ambos.
+ *
+ * Ahora todo sale del MISMO cálculo T1–T5 por grupo (con / sin Ducafast):
+ *   · Horas: el costo de horas reales del total (unión de intervalos, sin doble
+ *     conteo) se reparte entre tramos según las horas OCUPADAS de cada tramo
+ *     (su propia unión de intervalos), escaladas al total para no duplicar.
+ *     T4→T5 se queda con el remanente, para que la suma cuadre al centavo.
+ *     No se reparte por tiempo transcurrido (`porEtapa`): sin Ducafast, T1–T3
+ *     es sobre todo espera en cola con muchos Files en paralelo por persona, y
+ *     ese peso le cargaba a T1–T3 casi todo el costo — dejaba T4→T5 sin
+ *     Ducafast más barato que con Ducafast y el beneficio de T4→T5 en negativo.
+ *   · Licencias: se cuentan UNA sola vez, en T1→T3 (la digitalización que hace
+ *     Ducafast ocurre ahí). T4→T5 no lleva licencias.
+ *   · Base: los tres usan los mismos Files (n del total), así que el costo por
+ *     File de T1→T3 + T4→T5 = el del total en cada grupo.
+ */
+export function ahorroPorTiempos(
+  exps: Expediente[],
+  tarifa = TARIFA_HORA_DEFECTO,
+): AhorroPorTiempos {
+  const grupo = (lista: Expediente[]) => {
+    const c = costoTiempo(lista, tarifa, false, false, ETAPA_KEYS);
+    const u = costoUnitario(c);
+    // Peso de cada tramo = sus horas ocupadas por separado. Sumadas pasan del
+    // total (la unión no es aditiva), por eso solo se usan como proporción.
+    const h13 = costoTiempo(lista, tarifa, false, false, TRAMO_T13).horas;
+    const h45 = costoTiempo(lista, tarifa, false, false, TRAMO_T45).horas;
+    const horasT13 = h13 + h45 > 0 ? c.costo * (h13 / (h13 + h45)) : 0;
+    const n = u.expedientes;
+    const porFile = (monto: number) => (n > 0 ? monto / n : 0);
+    return {
+      n,
+      t13: porFile(horasT13 + u.costoLicencias),
+      t45: porFile(c.costo - horasT13),
+      total: u.porExpediente,
+    };
+  };
+  const con = grupo(exps.filter((e) => e.ducafast));
+  const sin = grupo(exps.filter((e) => !e.ducafast));
+  const disponible = con.n > 0 && sin.n > 0;
+  const tramo = (k: "t13" | "t45" | "total"): AhorroDucafast => ({
+    filesConDucafast: con.n,
+    filesSinDucafast: sin.n,
+    costoPorFileConDucafast: con[k],
+    costoPorFileSinDucafast: sin[k],
+    ahorro: disponible ? con.n * (sin[k] - con[k]) : 0,
+    disponible,
+  });
+  return { t13: tramo("t13"), t45: tramo("t45"), total: tramo("total") };
+}
+
 export interface PuntoAhorro extends AhorroDucafast {
   clave: string;
   label: string;

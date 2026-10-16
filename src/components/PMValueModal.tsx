@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { fmtMoney } from "@/lib/business";
-import { computeBenefitKpi, KPI_W } from "@/lib/kpi";
+import { computeBenefitKpi, BENEFIT_SPLIT, KPI_W, type KpiWeights } from "@/lib/kpi";
 import Modal from "@/components/Modal";
 import type { PmValue } from "@/lib/dashboard";
 
@@ -61,7 +61,9 @@ function KpiWeightRow({ label, weight, monto, meta, logro }: { label: string; we
 
 const Dash = () => <span className="text-[var(--text-disabled)]">—</span>;
 
-export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onClose }: {
+export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onClose, weights = KPI_W }: {
+  /** Pesos del KPI con los que se muestra el aporte del Beneficio (por defecto los de PM). */
+  weights?: KpiWeights;
   pm: string; valueAll: PmValue; valueHard: PmValue; initialHard: boolean; onClose: () => void;
 }) {
   const [tab, setTab] = useState<"resumen" | "detalle">("resumen");
@@ -142,32 +144,39 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                 <Row label="Validación VPA" c={value.validacionCost} b={value.validacionBenefit} />
                 <Row label="Aprobación VPB (incluye Confirmación)" c={value.aprobacionCost} b={value.aprobacionBenefit} />
                 <Row label="Confirmación VPC (subconjunto de Aprobación)" c={value.confirmacionCost} b={value.confirmacionBenefit} />
+                {value.confirmacionRoi && (
+                  <div className="text-[0.68rem] text-[var(--text-muted)]">
+                    El beneficio confirmado de este PM viene de {value.confirmacionRoi} (página ROI), no de Monday.
+                  </div>
+                )}
                 <div className="h-px" style={{ background: "var(--border)" }} />
                 <Row label="Total (Validación + Aprobación)" c={value.totalCost} b={value.totalBenefit} strong />
               </div>
 
-              {/* Cómo pesa el Beneficio en el KPI (peso 30, siempre HardSaving) */}
+              {/* Cómo pesa el Beneficio en el KPI (peso 25, siempre HardSaving) */}
               {(() => {
-                const bk = computeBenefitKpi(valueHard.aprobacionBenefit, valueHard.confirmacionBenefit);
+                const bk = computeBenefitKpi(valueHard.aprobacionBenefit, valueHard.confirmacionBenefit, undefined, weights);
                 return (
                   <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: "var(--border)" }}>
                     <div>
                       <div className="text-[0.62rem] uppercase tracking-widest text-[var(--text-muted)]">
-                        Cómo pesa en tu KPI (peso {KPI_W.benefit})
+                        Cómo pesa en tu KPI (peso {weights.benefit})
                       </div>
                       <div className="mt-1 text-[0.72rem] leading-relaxed text-[var(--text-muted)]">
                         Meta anual {fmtMoney(bk.metaAnual)} ÷ 12 = {fmtMoney(bk.metaMensual)}/mes × mes {bk.month} ({MESES[bk.month]}) ={" "}
-                        meta acumulada <b style={{ color: "var(--text-primary)" }}>{fmtMoney(bk.metaAcumulada)}</b>.
+                        meta acumulada <b style={{ color: "var(--text-primary)" }}>{fmtMoney(bk.metaAcumulada)}</b> para Aprobación.
+                        Confirmación solo cuenta meses terminados: {fmtMoney(bk.metaMensual)} × {bk.mesesTerminados} ={" "}
+                        <b style={{ color: "var(--text-primary)" }}>{fmtMoney(bk.metaConfirmacion)}</b>.
                         Siempre con Beneficio HardSaving, sin importar el filtro Todo/HardSaving de arriba.
                       </div>
                     </div>
-                    <KpiWeightRow label="Aprobación VPB (70% del peso)" weight={bk.pesoAprobacion} monto={bk.benefitAprobado} meta={bk.metaAcumulada} logro={bk.logroAprobacion} />
-                    <KpiWeightRow label="Confirmación VPC (30% del peso)" weight={bk.pesoConfirmacion} monto={bk.benefitConfirmado} meta={bk.metaAcumulada} logro={bk.logroConfirmacion} />
+                    <KpiWeightRow label={`Aprobación VPB (${Math.round(BENEFIT_SPLIT.aprobacion * 100)}% del peso)`} weight={bk.pesoAprobacion} monto={bk.benefitAprobado} meta={bk.metaAcumulada} logro={bk.logroAprobacion} />
+                    <KpiWeightRow label={`Confirmación VPC (${Math.round(BENEFIT_SPLIT.confirmacion * 100)}% del peso)`} weight={bk.pesoConfirmacion} monto={bk.benefitConfirmado} meta={bk.metaConfirmacion} logro={bk.logroConfirmacion} />
                     <div className="h-px" style={{ background: "var(--border)" }} />
                     <div className="flex items-center justify-between text-[0.8rem] font-bold text-[var(--text-primary)]">
                       <span>Total aportado al KPI</span>
                       <span className="tabular-nums" style={{ color: BEN }}>
-                        {bk.total.toFixed(1)} <span className="text-[0.72rem] font-semibold text-[var(--text-muted)]">/ {KPI_W.benefit}</span>
+                        {bk.total.toFixed(1)} <span className="text-[0.72rem] font-semibold text-[var(--text-muted)]">/ {weights.benefit}</span>
                       </span>
                     </div>
                   </div>
@@ -222,6 +231,13 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                         <td className="px-3 py-2"><CB c={value.aprobacionCost} b={value.aprobacionBenefit} /></td>
                         <td className="px-3 py-2"><CB c={value.confirmacionCost} b={value.confirmacionBenefit} /></td>
                       </tr>
+                      {value.confirmacionRoi && (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-1.5 text-[0.68rem] text-[var(--text-muted)]">
+                            Total de Confirmación = {value.confirmacionRoi} (página ROI). La columna por ítem es la de Monday y no suma a ese total.
+                          </td>
+                        </tr>
+                      )}
                     </tfoot>
                   </table>
                 </div>

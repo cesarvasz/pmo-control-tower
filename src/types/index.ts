@@ -157,6 +157,13 @@ export interface DelayAttribution {
 /** Tipos de atribución persistidos por ítem, cada uno en su colección Firestore. */
 export type AttributionKind = "delay" | "reproceso";
 
+/** Nota (0-100) de Metodología VALOR de una persona en un mes (clave "YYYY-MM::Persona"). La pone un admin. */
+export interface MetodologiaCalif {
+  score: number;
+  by?: string;
+  at?: string;
+}
+
 // ── Detalle de un atraso (tabla "Atrasos" del Resumen Ejecutivo) ───────────
 /** Un tramo del reparto de los días de un atraso: cuántos días hábiles del
  *  atraso se atribuyen a un rol. La suma de `dias` de todos los tramos debe
@@ -223,6 +230,7 @@ export interface DashboardRaw {
   npsRecords: NpsRecord[]; // respuestas de encuestas (Firestore) para el NPS
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Firestore)
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Firestore)
+  metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR (Firestore)
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Firestore) — tabla Atrasos
   boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto (Firestore) — Status Card
   reminderLog: ReminderEnvio[]; // registro de correos "Sin Valor Def" enviados por Apps Script
@@ -262,6 +270,7 @@ export interface IniItem {
   espera?: string;
   pku?: string;       // checkbox PKU (marcado = no se envían recordatorios) — solo EN_ESPERA
   ckuMail?: string;   // email del CKU (destinatario del recordatorio) — solo EN_ESPERA
+  cku?: string;       // nombre del CKU de la Iniciativa (relación "CKU") — base de la página Players
   planFuturo?: Date | null;
   recordatorio?: Date | null;
 }
@@ -437,6 +446,8 @@ export interface NpsRecord {
    *  que permite calcular el NPS por proyecto (ver lib/projectMetrics.ts). Vacío en las
    *  importadas del Sheet. */
   reqId: string;
+  /** CKU que envió la encuesta (vacío/ausente = la envió un PM). Ver SurveyDoc.cku. */
+  cku?: string;
 }
 
 /** Resultado del NPS (encuesta PMO). */
@@ -476,6 +487,7 @@ export interface DashboardData {
   npsRecords: NpsRecord[];     // respuestas crudas para NPS por PM
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso
+  metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso — tabla Atrasos
   boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto — Status Card
   directorio: DirectorioEntry[];

@@ -41,6 +41,7 @@ export interface ActionDef {
 export const PAGES: PageDef[] = [
   { key: "overview",    label: "Control Tower", href: "/",         icon: "control-tower" },
   { key: "valor",       label: "VALOR",         href: "/valor",    icon: "💰", public: true },
+  { key: "players",     label: "Players",       href: "/players",  icon: "🏆" },
   { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
   { key: "req",         label: "PML",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },

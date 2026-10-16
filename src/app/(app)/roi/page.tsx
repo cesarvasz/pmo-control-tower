@@ -2,8 +2,9 @@
 
 // ROI — fuentes independientes, cada una un archivo de Google Sheets distinto y
 // su propio Apps Script: "003" (hoja "ROI", pestaña "003", tiempos de trámite)
-// y "Clonación de Files" (archivo "Clonacion files", pestaña "clonacion"). Cada
-// pestaña de la UI carga y recarga por su cuenta — ver apps-script/roi-*-README.md.
+// y "Clonación de Files" (archivo "Clonacion files", pestaña "clonacion"). Las
+// dos cargan al entrar: 003 usa también Clonación para su Beneficio T0 — ver
+// apps-script/roi-*-README.md.
 
 import { useCallback, useEffect, useState } from "react";
 import { authedFetch } from "@/lib/api";
@@ -33,7 +34,7 @@ interface Carga<T> {
 export default function RoiPage() {
   const [tab, setTab] = useState<Tab>("tramites");
   const [tramites, setTramites] = useState<Carga<RoiRow>>({ rows: null, loading: true, error: null });
-  const [clonacion, setClonacion] = useState<Carga<ClonacionRow>>({ rows: null, loading: false, error: null });
+  const [clonacion, setClonacion] = useState<Carga<ClonacionRow>>({ rows: null, loading: true, error: null });
 
   const cargarTramites = useCallback(async () => {
     setTramites((s) => ({ ...s, loading: true, error: null }));
@@ -59,16 +60,14 @@ export default function RoiPage() {
     }
   }, []);
 
-  useEffect(() => { cargarTramites(); }, [cargarTramites]);
-  // La pestaña hermana carga la primera vez que se visita — es una fuente
-  // independiente y no siempre hace falta.
-  useEffect(() => {
-    if (tab === "clonacion" && clonacion.rows === null && !clonacion.loading) cargarClonacion();
-  }, [tab, clonacion.rows, clonacion.loading, cargarClonacion]);
+  // Ambas fuentes cargan desde el inicio: la pestaña 003 también necesita la
+  // de Clonación para su "Beneficio T0" (ver ReporteTramites).
+  useEffect(() => { cargarTramites(); cargarClonacion(); }, [cargarTramites, cargarClonacion]);
 
   const carga: Carga<unknown> = tab === "tramites" ? tramites : clonacion;
   const { generado, loading, error } = carga;
-  const recargar = tab === "tramites" ? cargarTramites : cargarClonacion;
+  // En 003, Actualizar refresca también Clonación (alimenta el Beneficio T0).
+  const recargar = tab === "tramites" ? () => { cargarTramites(); cargarClonacion(); } : cargarClonacion;
 
   const badge = tab === "tramites" ? "PM-003" : "Clonación";
 
@@ -118,7 +117,7 @@ export default function RoiPage() {
             Sin registros todavía.
           </div>
         ) : (
-          <ReporteTramites rows={tramites.rows} />
+          <ReporteTramites rows={tramites.rows} clonacion={{ rows: clonacion.rows, error: clonacion.error }} />
         )
       ) : !clonacion.rows || clonacion.rows.length === 0 ? (
         <div className="rounded-xl border p-4 text-[0.82rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border)" }}>

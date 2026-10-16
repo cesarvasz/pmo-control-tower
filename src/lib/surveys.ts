@@ -25,6 +25,7 @@ function toSurvey(token: string, d: FirebaseFirestore.DocumentData): SurveyDoc {
     answered: !!d.answered,
     answeredAt: d.answeredAt ?? null,
     invalidated: !!d.invalidated,
+    cku: d.cku ?? "",
   };
 }
 
@@ -55,13 +56,16 @@ export async function listSurveysByReq(reqId: string): Promise<SurveyDoc[]> {
 export async function createSurvey(input: {
   reqId: string; reqCode: string; reqName: string; pm: string;
   assignedEmail: string; assignedName: string; createdByEmail: string;
+  /** CKU remitente (vacío = PM/admin). Una persona puede tener a la vez un link de PM y uno de CKU. */
+  cku?: string;
 }): Promise<SurveyDoc> {
   const db = getAdminDb();
   const email = input.assignedEmail.toLowerCase();
 
   // Reutiliza un link pendiente ya existente para la misma persona en el mismo REQ.
   const existing = await listSurveysByReq(input.reqId);
-  const pending = existing.find((s) => s.assignedEmail === email && !s.answered);
+  const cku = input.cku ?? "";
+  const pending = existing.find((s) => s.assignedEmail === email && !s.answered && (s.cku ?? "") === cku);
   if (pending) {
     await db.collection(SURVEYS).doc(pending.token).set(
       { assignedName: input.assignedName, reqCode: input.reqCode, reqName: input.reqName, pm: input.pm },
@@ -84,6 +88,7 @@ export async function createSurvey(input: {
     answered: false,
     answeredAt: null,
     invalidated: false,
+    cku,
   };
   const { token: _t, ...data } = doc;
   void _t;
@@ -143,6 +148,7 @@ export async function listNpsRecords(): Promise<NpsRecord[]> {
       submittedAt: r.submittedAt ?? "",
       reqCode: s.reqCode ?? "",
       reqId: s.reqId ?? "",
+      cku: s.cku ?? "",
     };
   });
 }

@@ -15,7 +15,7 @@
 import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
-import { getReqBaselines, getProjItemBaselines, getAttributions, getAtrasoDetalles, getBoardAlcances, saveWeeklySnapshot } from "@/lib/firebase-admin";
+import { getReqBaselines, getProjItemBaselines, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, saveWeeklySnapshot } from "@/lib/firebase-admin";
 import { buildDashboardData } from "@/lib/dashboardData";
 import { computeWeeklySnapshotMetrics } from "@/lib/weeklySnapshot";
 import { calcConfirmacionRoi } from "@/lib/dashboard";
@@ -35,13 +35,14 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [raw, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, atrasoDetalles, boardAlcance, roi, clonacion] = await Promise.all([
+    const [raw, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, roi, clonacion] = await Promise.all([
       fetchDashboardRaw(),
       getReqBaselines(),
       getProjItemBaselines(),
       listNpsRecords(),
       getAttributions("delay"),
       getAttributions("reproceso"),
+      getMetodologiaCalifs(),
       getAtrasoDetalles(),
       getBoardAlcances(),
       fetchRoiRows(),
@@ -50,7 +51,7 @@ export async function GET(request: Request) {
 
     const data = buildDashboardData({
       ...raw, baselines, projItemBaselines, npsRecords,
-      delayAttributions, reprocesoAttributions, atrasoDetalles, boardAlcance,
+      delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance,
     });
 
     // Confirmación vía ROI (Ahorro Ducafast + Ahorro Clonación) — reemplaza a

@@ -1,0 +1,129 @@
+// Datos base compartidos por la tabla de Players (Control Tower y /players):
+// salud por board (EVM) y lista ordenada de PMs. Una sola fuente para ambas vistas.
+
+import { calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
+import type { DelayMap } from "@/lib/delay";
+import { RH_EMAIL_COL, RH_ROLE_COL } from "@/lib/dashboardData";
+import { buildAllProjectMetrics, boardHealthFromMetrics, npsStepIds } from "@/lib/projectMetrics";
+import { buildProjectSummary } from "@/lib/projSummary";
+import type { IniItem, MondayItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem } from "@/types";
+
+/** Portafolio asignado a cada PM (orden fijo en la lista de PMs). */
+export const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
+  "Luis Aguilar": { prefix: "α", name: "Portafolio Alfa" },
+  "David Guzmán": { prefix: "β", name: "Portafolio Beta" },
+  "Daniela Alvarez": { prefix: "γ", name: "Portafolio Gamma" },
+};
+
+export const pmLabel = (pm: string) => {
+  const p = PM_PORTFOLIO[pm];
+  return p ? `${p.prefix} ${p.name}` : pm;
+};
+
+/** SPI/CPI/Scope/EVM de cada board (medición única de projectMetrics.ts) y si
+ *  el proyecto ya está Completado (para ocultarlo de listados, sin tocar el KPI).
+ *  `ac` (costo actual de Monday) sale de calcBoardMetrics, su única fuente. */
+export function buildBoardMaps(
+  proj: ProjItem[],
+  projBoards: ProjBoard[],
+  projItemBaselines: Record<string, ProjItemBaseline>,
+  opts: { soloFase3?: boolean } = {},
+) {
+  const projMetricsByBoard = new Map(
+    buildAllProjectMetrics(projBoards, proj, { baselines: projItemBaselines, soloFase3: opts.soloFase3 }).map((m) => [m.boardId, m]),
+  );
+  const boardHealthMap = new Map<string, BoardHealthData>();
+  const boardCompleteMap = new Map<string, boolean>();
+  projBoards.forEach((b) => {
+    const m = projMetricsByBoard.get(b.id);
+    if (!m) return;
+    const boardItems = proj.filter((r) => r.boardId === b.id);
+    const { ac } = calcBoardMetrics(boardItems, projItemBaselines);
+    boardHealthMap.set(b.id, boardHealthFromMetrics(m, ac));
+    boardCompleteMap.set(b.id, buildProjectSummary(boardItems).completion.isComplete);
+  });
+  return { boardHealthMap, boardCompleteMap };
+}
+
+/** PMs con Iniciativas o PML activos, en el orden fijo de PM_PORTFOLIO (los demás al final). */
+export function listPMs(ini: IniItem[], req: ReqItem[]): string[] {
+  const order = Object.keys(PM_PORTFOLIO);
+  return [...new Set([
+    ...ini.filter((r) => r.pm && r.estado !== "SKIP").map((r) => r.pm),
+    ...req.filter((r) => r.pm && r.estado !== "CERRADO").map((r) => r.pm),
+  ])].sort((a, b) => {
+    const ia = order.indexOf(a);
+    const ib = order.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+}
+
+// ── Players por CKU ───────────────────────────────────────────────────
+/** CKUs que se miden como "players" en /players. */
+export const PLAYER_CKUS = ["Javier Juarez", "Victoria Escobar"];
+
+const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+
+export const sameCku = (a: string | undefined, b: string) => normName(a ?? "") === normName(b);
+
+export interface CkuScope {
+  cku: string;
+  ini: IniItem[];
+  req: ReqItem[];
+  proj: ProjItem[];
+  projBoards: ProjBoard[];
+  npsRecords: NpsRecord[];
+}
+
+/** Recorta los datos a lo vinculado a un CKU (Iniciativas y PML con ese CKU; Proyectos
+ *  que lo heredan de su Iniciativa) y los re-etiqueta con `pm = cku`, para reutilizar
+ *  sin cambios todas las métricas por PM (calcPmMetrics). El NPS se asigna por las
+ *  encuestas lanzadas desde esos PML y desde el step "Encuesta para NPS" de esos proyectos. */
+export function buildCkuScope(
+  cku: string,
+  data: { ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; npsRecords: NpsRecord[] },
+): CkuScope {
+  const mine = (v: string | undefined) => sameCku(v, cku);
+  const ini = data.ini.filter((r) => mine(r.cku)).map((r) => ({ ...r, pm: cku }));
+  const req = data.req.filter((r) => mine(r.cku)).map((r) => ({ ...r, pm: cku }));
+  const projBoards = data.projBoards.filter((b) => mine(b.cku)).map((b) => ({ ...b, pm: cku }));
+  const boardIds = new Set(projBoards.map((b) => b.id));
+  const proj = data.proj.filter((p) => boardIds.has(p.boardId));
+
+  const surveyIds = npsStepIds(proj);
+  req.forEach((r) => surveyIds.add(r.id));
+  // NPS propio: solo encuestas ENVIADAS POR ESTE CKU sobre sus PML/proyectos (las de los PM no cuentan).
+  const npsRecords = data.npsRecords
+    .filter((r) => mine(r.cku) && r.reqId && surveyIds.has(r.reqId))
+    .map((r) => ({ ...r, pm: cku, cku }));
+
+  return { cku, ini, req, proj, projBoards, npsRecords };
+}
+
+/** Para un CKU, el responsable que PENALIZA es "CKU" (no "PM"). La lógica de excusa
+ *  (lateExcused) está escrita para "PM", así que se intercambian PM ↔ CKU en las
+ *  atribuciones: lo atribuido a "CKU" pasa a penalizar y lo atribuido a "PM" se excusa.
+ *  Sin asignar sigue penalizando y el resto de responsables siguen excusando. */
+export function swapPmCku(map: DelayMap): DelayMap {
+  const out: DelayMap = {};
+  for (const [id, a] of Object.entries(map)) {
+    out[id] = a.responsible === "PM" ? { ...a, responsible: "CKU" }
+      : a.responsible === "CKU" ? { ...a, responsible: "PM" }
+      : a;
+  }
+  return out;
+}
+
+/** Nombre del CKU dueño de este correo según el Directorio RH (Role incluye "CKU"), o
+ *  null si la persona no es CKU. Es lo que marca una encuesta como "enviada por un CKU". */
+export function ckuNameForEmail(hrItems: MondayItem[], email: string): string | null {
+  const want = email.trim().toLowerCase();
+  if (!want) return null;
+  for (const it of hrItems) {
+    const text = (id: string) => it.column_values.find((c) => c.id === id)?.text ?? "";
+    if (text(RH_EMAIL_COL).trim().toLowerCase() !== want) continue;
+    const roles = text(RH_ROLE_COL).split(",").map((r) => r.trim().toUpperCase());
+    if (roles.includes("CKU")) return it.name;
+  }
+  return null;
+}

@@ -1,10 +1,11 @@
 "use client";
 
 // Auditoría cruzada de las dos métricas de "entregas" del KPI:
-//   · Cumplimiento de Entrega (peso 10): REQ + items/subitems de Proyecto con
+//   · Cumplimiento de Entrega (peso 10 PM): REQ + items/subitems de Proyecto con
 //     veredicto on-time/late.
-//   · Calidad de Entregas (peso 15, "reproceso"): REQ CERRADOS + steps de
+//   · Calidad de Entregas (peso 10 PM, "reproceso"): Iniciativas APROBADAS + REQ CERRADOS + steps de
 //     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
+//   · Metodología (peso 15): nota 0-100 por persona y mes, ver MetodologiaTab.
 // Objetivo: ver cuántos casos hay de cada tipo y QUIÉN ha sido el responsable
 // asignado, para medir patrones y poder asignar responsables desde aquí mismo
 // (reutiliza ResponsibleSelect — misma atribución que REQ/Proyectos).
@@ -19,8 +20,10 @@ import { splitBoardName } from "@/lib/proj";
 import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES, RESPONSIBLE_COLOR, countByResponsible, type DelayMap } from "@/lib/delay";
 import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
+import MetodologiaTab from "@/components/MetodologiaTab";
+import { listPMs } from "@/lib/players";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard } from "@/components/ui";
-import type { ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 
 const SIN_ASIGNAR = "Sin asignar";
 const responsableOf = (id: string, map: DelayMap) => map[id]?.responsible || SIN_ASIGNAR;
@@ -28,13 +31,13 @@ const responsableOf = (id: string, map: DelayMap) => map[id]?.responsible || SIN
 export default function CalidadCumplimientoPage() {
   const { data, loading, error } = useData();
   const { me } = useMe();
-  const [tab, setTab] = useState<"entrega" | "reproceso">("entrega");
+  const [tab, setTab] = useState<"entrega" | "reproceso" | "metodologia">("entrega");
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 
-  const { req, proj, projBoards, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
+  const { ini, req, proj, projBoards, delayAttributions: delays, reprocesoAttributions: reproceso, metodologiaCalifs } = data;
   const canEditFilters = me && hasAction(me.permissions, "manage_roles");
 
   return (
@@ -51,6 +54,7 @@ export default function CalidadCumplimientoPage() {
         {([
           ["entrega", "Cumplimiento de Entrega"],
           ["reproceso", "Calidad de Entregas"],
+          ["metodologia", "Metodología"],
         ] as const).map(([v, label]) => (
           <button
             key={v}
@@ -65,7 +69,9 @@ export default function CalidadCumplimientoPage() {
 
       {tab === "entrega"
         ? <EntregaTab req={req} proj={proj} projBoards={projBoards} delays={delays} canEditFilters={canEditFilters} />
-        : <ReprocesoTab req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} canEditFilters={canEditFilters} />}
+        : tab === "metodologia"
+        ? <MetodologiaTab pms={listPMs(ini, req)} califs={metodologiaCalifs} />
+        : <ReprocesoTab ini={ini} req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} canEditFilters={canEditFilters} />}
     </div>
   );
 }
@@ -95,13 +101,13 @@ function ResponsibleBars({ counts, total }: { counts: Record<string, number>; to
 }
 
 // ── Filtros compartidos por ambas pestañas ─────────────────────────────────
-function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML"; id?: string; source?: "REQ" | "Proyecto"; projCode?: string }>(rows: T[]) {
+function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" | "INI"; id?: string; source?: "REQ" | "Proyecto" | "Iniciativa"; projCode?: string }>(rows: T[], soloProblemaInicial = true) {
   const [pms, setPms] = useState<string[]>([]);
   const [tipos, setTipos] = useState<string[]>([]);
   const [resps, setResps] = useState<string[]>([]);
   const [pmlIds, setPmlIds] = useState<string[]>([]);
   const [projIds, setProjIds] = useState<string[]>([]);
-  const [soloProblema, setSoloProblema] = useState(true);
+  const [soloProblema, setSoloProblema] = useState(soloProblemaInicial);
 
   // Helper: aplicar todos los filtros EXCEPTO uno específico
   const getFilteredRows = (excludeFilter: 'pms' | 'tipos' | 'pmlIds' | 'projIds') => {
@@ -156,8 +162,8 @@ function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML"; id?: string;
     [rows, pms, tipos, pmlIds, projIds],
   );
 
-  const anyFilter = pms.length > 0 || tipos.length > 0 || resps.length > 0 || pmlIds.length > 0 || projIds.length > 0 || !soloProblema;
-  const reset = () => { setPms([]); setTipos([]); setResps([]); setPmlIds([]); setProjIds([]); setSoloProblema(true); };
+  const anyFilter = pms.length > 0 || tipos.length > 0 || resps.length > 0 || pmlIds.length > 0 || projIds.length > 0 || soloProblema !== soloProblemaInicial;
+  const reset = () => { setPms([]); setTipos([]); setResps([]); setPmlIds([]); setProjIds([]); setSoloProblema(soloProblemaInicial); };
 
   return { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset };
 }
@@ -179,7 +185,7 @@ function cpmCell(start: Date | null, end: Date | null) {
 // true) no se ve afectado — su regla de siempre sigue intacta. Si ya había un
 // responsable asignado de antes, se sigue mostrando (de solo lectura) en vez de
 // ocultarlo — el candado bloquea CAMBIARLO, no verlo.
-function reprocesoResponsibleCell(r: { id: string; unitKind: "req" | "step"; allDone: boolean; verdict: "clean" | "reproceso" }, reproceso: DelayMap) {
+function reprocesoResponsibleCell(r: { id: string; unitKind: "req" | "step" | "ini"; allDone: boolean; verdict: "clean" | "reproceso" }, reproceso: DelayMap) {
   const locked = r.unitKind === "step" && !r.allDone;
   if (locked && !reproceso[r.id]?.responsible) {
     return (
@@ -394,10 +400,10 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters }: {
 }
 
 // ── Calidad de Entregas (Reproceso) ─────────────────────────────────────
-function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
-  req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap; canEditFilters: boolean | null;
+function ReprocesoTab({ ini, req, proj, projBoards, reproceso, canEditFilters }: {
+  ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap; canEditFilters: boolean | null;
 }) {
-  const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso), [req, proj, projBoards, reproceso]);
+  const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso, ini), [req, proj, projBoards, reproceso, ini]);
   // Trayectoria de Calidad por proyecto (Done + pendiente, a día de hoy) — ver
   // calidadProjectStatus en lib/dashboard. Se busca por código de proyecto (PM-XXX),
   // la misma clave que ya usan los grupos de esta tabla.
@@ -409,7 +415,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
     }
     return m;
   }, [proj]);
-  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows, false);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const toggleAbierta = (id: string) => setAbiertas((s) => {
     const n = new Set(s);
@@ -434,22 +440,28 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
   // de "Desarrollo por iteraciones...", según la plantilla) quedan juntas. REQ no
   // cuelga de un proyecto, así que va en su propia sección aparte, al final.
   const REQ_GROUP_KEY = "__REQ__";
+  const INI_GROUP_KEY = "__INI__";
   const grupos = (() => {
     const map = new Map<string, { key: string; label: string; code: string; rows: typeof tableRows }>();
     for (const r of tableRows) {
-      const key = r.source === "REQ" ? REQ_GROUP_KEY : (r.projCode ? `${r.projCode}|${r.projName}` : r.projName || "Sin proyecto");
+      const key = r.source === "REQ" ? REQ_GROUP_KEY : r.source === "Iniciativa" ? INI_GROUP_KEY
+        : (r.projCode ? `${r.projCode}|${r.projName}` : r.projName || "Sin proyecto");
       let g = map.get(key);
-      if (!g) { g = { key, label: r.source === "REQ" ? "PML" : (r.projName || "Sin proyecto"), code: r.source === "REQ" ? "" : r.projCode, rows: [] }; map.set(key, g); }
+      if (!g) {
+        const label = r.source === "REQ" ? "PML" : r.source === "Iniciativa" ? "Iniciativas" : (r.projName || "Sin proyecto");
+        g = { key, label, code: r.source === "Proyecto" ? r.projCode : "", rows: [] };
+        map.set(key, g);
+      }
       g.rows.push(r);
     }
-    return Array.from(map.values()).sort((a, b) => {
-      if (a.key === REQ_GROUP_KEY) return 1;
-      if (b.key === REQ_GROUP_KEY) return -1;
-      return (a.code || a.label).localeCompare(b.code || b.label);
-    });
+    // Proyectos por código, y al final las dos secciones sin proyecto: Iniciativas y luego PML.
+    const rank = (k: string) => (k === INI_GROUP_KEY ? 1 : k === REQ_GROUP_KEY ? 2 : 0);
+    return Array.from(map.values()).sort((a, b) =>
+      rank(a.key) - rank(b.key) || (a.code || a.label).localeCompare(b.code || b.label));
   })();
-  const [openProjects, setOpenProjects] = useState<Set<string>>(new Set());
-  const toggleProject = (key: string) => setOpenProjects((s) => {
+  // Las secciones (proyecto / Iniciativas / PML) arrancan abiertas; se guardan las que se colapsan.
+  const [closedProjects, setClosedProjects] = useState<Set<string>>(new Set());
+  const toggleProject = (key: string) => setClosedProjects((s) => {
     const n = new Set(s);
     if (n.has(key)) n.delete(key); else n.add(key);
     return n;
@@ -508,7 +520,7 @@ function ReprocesoTab({ req, proj, projBoards, reproceso, canEditFilters }: {
                 const gConReproceso = g.rows.filter((r) => r.verdict === "reproceso").length;
                 const gPct = g.rows.length ? Math.round(((g.rows.length - gConReproceso) / g.rows.length) * 100) : null;
                 const gPctColor = gPct === null ? "#6b7280" : gPct >= 90 ? "var(--ok)" : gPct >= 75 ? "var(--warn)" : "var(--bad)";
-                const gOpen = openProjects.has(g.key);
+                const gOpen = !closedProjects.has(g.key);
                 const gStatus = projectStatusByCode.get(g.code);
                 return (
                   <Fragment key={g.key}>

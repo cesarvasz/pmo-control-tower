@@ -10,7 +10,7 @@ import {
   parseYMD,
   today,
 } from "@/lib/business";
-import { colText, colDisplay } from "@/lib/monday-cols";
+import { colText, colDisplay, colByTitleAny } from "@/lib/monday-cols";
 import { healthStatusFromIndex, type HealthStatus } from "@/lib/health";
 import type { CalMap, CalMeetingRaw, IniItem, MondayItem, ReminderEnvio, ReminderRecord } from "@/types";
 
@@ -45,7 +45,7 @@ const INI_COL = {
 
 export function iniProcess(items: MondayItem[]): IniItem[] {
   const t = today();
-  return items
+  const processed = items
     .map((item): IniItem | null => {
       const col = (id: string) => colText(item.column_values, id);
       const status = col(INI_COL.status);
@@ -126,8 +126,11 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
         };
       }
       return null;
-    })
-    .filter((x): x is IniItem => x !== null);
+    });
+  // CKU por TÍTULO de columna (igual que buildIniLookup), pareado por posición con los items.
+  return processed.flatMap((r, i): IniItem[] =>
+    r ? [{ ...r, cku: colByTitleAny(items[i].column_values, "CKU").trim() }] : [],
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────

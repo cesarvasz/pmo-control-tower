@@ -144,6 +144,11 @@ export default function SurveySendModal({
                     <div className="min-w-0">
                       <div className="truncate text-[0.85rem] font-semibold text-[var(--text-primary)]">{s.assignedName || s.assignedEmail}</div>
                       <div className="truncate text-[0.7rem] text-[var(--text-muted)]">{s.assignedEmail}</div>
+                      {s.cku && (
+                        <div className="mt-0.5 text-[0.68rem] font-semibold text-[var(--accent)]" title="Encuesta enviada por un CKU: cuenta solo en su Player">
+                          Enviada por CKU · {s.cku}
+                        </div>
+                      )}
                     </div>
                     {s.invalidated
                       ? <span className="shrink-0 text-[0.72rem] font-semibold" style={{ color: "var(--bad)" }}>⊘ Invalidada</span>

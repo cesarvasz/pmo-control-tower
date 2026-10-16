@@ -105,6 +105,9 @@ export function calcNpsFromRecords(records: NpsRecord[], pm?: string): NpsData {
 
   for (const rec of records) {
     if (rec.invalidated) continue;                    // no cuenta en métricas
+    // Encuesta enviada por un CKU: cuenta SOLO para ese CKU (pm = su nombre), nunca en
+    // el NPS de PM, de proyecto ni global.
+    if (rec.cku && rec.cku !== pm) continue;
     if (pm !== undefined && rec.pm !== pm) continue;   // NPS por PM
 
     const a = rec.answers ?? {};

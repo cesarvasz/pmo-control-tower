@@ -37,6 +37,7 @@ interface DataContextValue {
   /** Actualiza localmente (optimista) el responsable de una atribución (atraso o
    *  reproceso). responsible null → quita la asignación. La persistencia la hace el caller. */
   setAttribution: (kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => void;
+  setMetodologiaCalif: (phaseKey: string, score: number | null) => void;
   /** Actualiza localmente (optimista) el reparto de días / motivo de un atraso
    *  (tabla Atrasos). reparto vacío + motivo vacío → quita el detalle. La
    *  persistencia la hace el caller. */
@@ -150,6 +151,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Actualización optimista de la nota de Metodología VALOR de una fase; evita un refetch completo.
+  const setMetodologiaCalif = useCallback((phaseKey: string, score: number | null) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const map = { ...prev.metodologiaCalifs };
+      if (score == null) delete map[phaseKey];
+      else map[phaseKey] = { score, at: new Date().toISOString() };
+      return { ...prev, metodologiaCalifs: map };
+    });
+  }, []);
+
   // Actualización optimista del detalle de un atraso (tabla Atrasos); evita un refetch completo.
   const setAtrasoDetalle = useCallback((itemId: string, patch: { reparto?: AtrasoReparto[]; motivo?: string }) => {
     setData((prev) => {
@@ -191,7 +203,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setAtrasoDetalle, setBoardAlcance }}>
+    <DataContext.Provider value={{ data, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance }}>
       {children}
     </DataContext.Provider>
   );

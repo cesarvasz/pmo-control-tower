@@ -137,6 +137,14 @@ export async function fetchIniAndHrRaw(): Promise<{ iniItems: MondayItem[]; hrIt
   };
 }
 
+/** Solo el Directorio RH (para saber el Role de quien envía una encuesta). */
+export async function fetchHrItems(): Promise<MondayItem[]> {
+  const data = await mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(
+    boardItemsQuery(env("MONDAY_RH_BOARD_ID")),
+  );
+  return data.boards[0]?.items_page.items ?? [];
+}
+
 // ── Caché en memoria (TTL) + single-flight ───────────────────────────────
 // El fetch a Monday/Apps Script es la parte cara y con rate-limit. Se cachea
 // una ventana corta y se coalescen las peticiones concurrentes (una sola
@@ -240,6 +248,7 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     npsRecords: [],        // el route handler inyecta las respuestas de encuestas desde Firestore
     delayAttributions: {}, // el route handler inyecta los responsables de atraso desde Firestore
     reprocesoAttributions: {}, // el route handler inyecta los responsables de reproceso desde Firestore
+    metodologiaCalifs: {}, // el route handler inyecta las notas de Metodología VALOR desde Firestore
     atrasoDetalles: {},     // el route handler inyecta el detalle de atrasos desde Firestore
     boardAlcance: {},       // el route handler inyecta el Alcance de proyectos desde Firestore
     reminderLog,

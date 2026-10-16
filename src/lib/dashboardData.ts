@@ -14,7 +14,9 @@ import { calcNpsFromRecords } from "@/lib/nps";
 import type { DashboardData, DashboardRaw, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
-const RH_EMAIL_COL = "email_mkz5qg4v";
+export const RH_EMAIL_COL = "email_mkz5qg4v";
+// Columna Role (dropdown, puede tener varios valores: "CKU", "DEV", "PM", "SPONSOR"…).
+export const RH_ROLE_COL = "dropdown_mkz53tjj";
 
 export function buildDashboardData(raw: DashboardRaw): DashboardData {
   const ini = iniProcess(raw.iniItems);
@@ -46,6 +48,7 @@ export function buildDashboardData(raw: DashboardRaw): DashboardData {
     ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords,
     delayAttributions: raw.delayAttributions ?? {},
     reprocesoAttributions: raw.reprocesoAttributions ?? {},
+    metodologiaCalifs: raw.metodologiaCalifs ?? {},
     atrasoDetalles: raw.atrasoDetalles ?? {},
     boardAlcance: raw.boardAlcance ?? {},
     directorio, devTeamRoster, estrategiaMap, reminderMap,

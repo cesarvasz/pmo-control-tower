@@ -11,8 +11,14 @@
 // cualquier filtro — el acordeón no guarda copia de nada.
 
 import { useState } from "react";
-import type { Costo, Unitario, PuntoProyectado, AhorroDucafast, PuntoAhorro } from "@/lib/tramites";
+import type { Costo, Unitario, PuntoProyectado, AhorroDucafast, AhorroPorTiempos, PuntoAhorro } from "@/lib/tramites";
 import { UTILIZACION_OBJETIVO, etiquetaAlcance, recorridoAlcance } from "@/lib/tramites";
+import type { CostoPorOrigen } from "@/lib/clonaciones";
+
+/** Beneficio T0 = "Ahorro $" de Clonación de Files (otra hoja, carga aparte). */
+export type BeneficioT0 =
+  | { estado: "cargando" | "error" }
+  | { estado: "ok"; contrafactual: CostoPorOrigen["contrafactual"] };
 
 const usd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)} M`
@@ -25,12 +31,13 @@ const usdExacto = (n: number) =>
 const num = (n: number) => Math.round(n).toLocaleString("es-GT");
 
 export default function CostoUnitario({
-  costo, unitario, ahorro, ahorroTiempos, serieAhorro, proyeccion, onSeleccionarPeriodo,
+  costo, unitario, ahorro, ahorroTiempos, beneficioT0, serieAhorro, proyeccion, onSeleccionarPeriodo,
 }: {
   costo: Costo;
   unitario: Unitario;
   ahorro: AhorroDucafast;
-  ahorroTiempos: { t13: AhorroDucafast; t45: AhorroDucafast; total: AhorroDucafast };
+  ahorroTiempos: AhorroPorTiempos;
+  beneficioT0: BeneficioT0;
   serieAhorro: PuntoAhorro[];
   proyeccion: PuntoProyectado[];
   onSeleccionarPeriodo: (clave: string) => void;
@@ -146,31 +153,61 @@ export default function CostoUnitario({
                 </span>
               )}
             </div>
-            {/* Beneficio por tiempos: fijo (no sigue el filtro de "Tiempo"). El
-                total se calcula sobre T1–T5 completo, no es la suma de los dos. */}
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {[
-                { l: "Beneficio T1 → T3", a: ahorroTiempos.t13 },
-                { l: "Beneficio T4 → T5", a: ahorroTiempos.t45 },
-                { l: "Beneficio total T1 → T5", a: ahorroTiempos.total },
-              ].map(({ l, a }) => (
-                <div key={l} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-hover)" }}
-                  title={a.disponible
-                    ? `${num(a.filesConDucafast)} Files con Ducafast × (${usdExacto(a.costoPorFileSinDucafast)} sin Ducafast − ${usdExacto(a.costoPorFileConDucafast)} con Ducafast) = ${usdExacto(a.ahorro)}`
-                    : "Sin Files con y sin Ducafast a la vez en este tramo — no comparable"}>
-                  <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{l}</div>
-                  <div className="tabular-nums text-[1.3rem] font-extrabold leading-tight"
-                    style={{ color: !a.disponible ? "var(--text-muted)" : a.ahorro >= 0 ? "var(--ok)" : "var(--bad)" }}>
-                    {a.disponible ? usdConSigno(a.ahorro) : "—"}
-                  </div>
-                  {a.disponible && (
-                    <div className="text-[0.64rem] text-[var(--text-muted)]">
-                      {usdExacto(a.costoPorFileSinDucafast)} − {usdExacto(a.costoPorFileConDucafast)} × {num(a.filesConDucafast)} Files
+            {/* Beneficio por tiempos: fijo (no sigue el filtro de "Tiempo").
+                T0 = Ahorro $ de Clonación de Files (acumulado, sin filtros).
+                T1→T3 y T4→T5 son un reparto del Ducafast T1→T5 y suman exacto —
+                licencias solo en T1→T3; ver ahorroPorTiempos en lib/tramites.ts.
+                Total = T0 + T1→T3 + T4→T5 (con tarifas por defecto, la misma
+                cifra que la Confirmación vía ROI, ver calcConfirmacionRoi). */}
+            {(() => {
+              const tramoDuca = (l: string, a: AhorroDucafast, nota: string) => ({
+                l,
+                valor: a.disponible ? a.ahorro : null,
+                tip: a.disponible
+                  ? `${num(a.filesConDucafast)} Files con Ducafast × (${usdExacto(a.costoPorFileSinDucafast)} sin Ducafast − ${usdExacto(a.costoPorFileConDucafast)} con Ducafast) = ${usdExacto(a.ahorro)}\n${nota}`
+                  : "Sin Files con y sin Ducafast a la vez en este tramo — no comparable",
+                sub: a.disponible
+                  ? `${usdExacto(a.costoPorFileSinDucafast)} − ${usdExacto(a.costoPorFileConDucafast)} × ${num(a.filesConDucafast)} Files`
+                  : undefined,
+              });
+              const t0 = beneficioT0.estado === "ok" ? beneficioT0.contrafactual : null;
+              const t13 = tramoDuca("Beneficio T1 → T3", ahorroTiempos.t13, "Ducafast: horas de T1–T3 + todas las licencias.");
+              const t45 = tramoDuca("Beneficio T4 → T5", ahorroTiempos.t45, "Ducafast: horas de T4–T5, sin licencias (ya van en T1 → T3).");
+              const partes = [t0?.ahorro ?? null, t13.valor, t45.valor].filter((v): v is number => v != null);
+              const total = partes.length ? partes.reduce((s, v) => s + v, 0) : null;
+              const tarjetas = [
+                {
+                  l: "Beneficio T0 · Clonación",
+                  valor: t0?.ahorro ?? null,
+                  tip: t0
+                    ? `${num(t0.nFilesV)} clonaciones × ${usdExacto(t0.costoPorFilePadreSv)} a mano − ${usdExacto(t0.costoManualV - t0.ahorro)} costo real = ${usdExacto(t0.ahorro)}\nAhorro $ acumulado de Clonación de Files: todos sus registros, no sigue los filtros de esta pestaña.`
+                    : beneficioT0.estado === "cargando" ? "Cargando la hoja de Clonación de Files…" : "No se pudo cargar la hoja de Clonación de Files",
+                  sub: t0 ? `${num(t0.nFilesV)} clonaciones` : beneficioT0.estado === "cargando" ? "Cargando…" : "No disponible",
+                },
+                t13,
+                t45,
+                {
+                  l: "Beneficio total T0 → T5",
+                  valor: total,
+                  tip: `= T0 (${t0 ? usdExacto(t0.ahorro) : "sin dato"}) + T1 → T3 (${t13.valor != null ? usdExacto(t13.valor) : "—"}) + T4 → T5 (${t45.valor != null ? usdExacto(t45.valor) : "—"})${total != null ? ` = ${usdExacto(total)}` : ""}`,
+                  sub: t0 ? "T0 + T1 → T3 + T4 → T5" : "Sin T0 todavía",
+                },
+              ];
+              return (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {tarjetas.map(({ l, valor, tip, sub }) => (
+                    <div key={l} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-hover)" }} title={tip}>
+                      <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{l}</div>
+                      <div className="tabular-nums text-[1.3rem] font-extrabold leading-tight"
+                        style={{ color: valor == null ? "var(--text-muted)" : valor >= 0 ? "var(--ok)" : "var(--bad)" }}>
+                        {valor != null ? usdConSigno(valor) : "—"}
+                      </div>
+                      {sub && <div className="text-[0.64rem] text-[var(--text-muted)]">{sub}</div>}
                     </div>
-                  )}
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
 
             {!ahorro.disponible && (
               <p className="mt-2 text-[0.7rem] text-[var(--text-muted)]">

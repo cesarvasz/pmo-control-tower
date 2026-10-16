@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, DelayResponsible, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetodologiaCalif, DelayResponsible, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -121,6 +121,27 @@ export async function saveAttribution(kind: AttributionKind, itemId: string, res
 export async function deleteAttribution(kind: AttributionKind, itemId: string): Promise<void> {
   const db = getAdminDb();
   await db.collection(ATTRIBUTION_COLL[kind]).doc(itemId).delete();
+}
+
+// ── Metodología VALOR (componente del KPI del PM) ─────────────────────────
+// Colección `metodologia_califs`: por projPhaseKey (boardId::grupo), la nota 0-100
+// que un Admin le pone a la fase cuando todos sus items están Done.
+export async function getMetodologiaCalifs(): Promise<Record<string, MetodologiaCalif>> {
+  const db = getAdminDb();
+  const snap = await db.collection("metodologia_califs").get();
+  const result: Record<string, MetodologiaCalif> = {};
+  snap.forEach((doc) => { result[doc.id] = doc.data() as MetodologiaCalif; });
+  return result;
+}
+
+export async function saveMetodologiaCalif(phaseKey: string, score: number, by: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("metodologia_califs").doc(phaseKey).set({ score, by, at: new Date().toISOString() });
+}
+
+export async function deleteMetodologiaCalif(phaseKey: string): Promise<void> {
+  const db = getAdminDb();
+  await db.collection("metodologia_califs").doc(phaseKey).delete();
 }
 
 // ── Detalle de atraso (tabla "Atrasos" del Resumen Ejecutivo) ────────────

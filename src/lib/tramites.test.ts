@@ -7,7 +7,7 @@ import {
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
   unirIntervalos, costoPorPersona, ventanaDe, contarLicencias, costoUnitario, proyectarAnio,
-  ahorroDucafast, serieAhorroDucafast,
+  ahorroDucafast, ahorroPorTiempos, serieAhorroDucafast,
   etiquetaAlcance, recorridoAlcance, hitosDelAlcance,
   rangoEtapas, interseccionAlcance, totalEnAlcance,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS, ALCANCE_UNITARIO,
@@ -980,6 +980,72 @@ describe("ahorroDucafast", () => {
     const a = ahorroDucafast(exps, 6, ["t1"]);
     expect(a.costoPorFileConDucafast).toBeCloseTo(6 + 1.10, 8);
     expect(a.costoPorFileSinDucafast).toBeCloseTo(6 + 5.00, 8);
+  });
+});
+
+describe("ahorroPorTiempos (reparto del total T1–T5)", () => {
+  // Mismos 3 Files que arriba: 5 h hábiles c/u (1 h por etapa) → $30 de horas.
+  const con = fila({ c807_file: "C1", Docalpha: "Ducafast", Usuario: "ANA", Analista: "ANA", Licencias: "1", Costo: "1.10" });
+  const sin1 = fila({ c807_file: "S1", Docalpha: "No Ducafast", Usuario: "BETO", Analista: "BETO", Licencias: "1", Costo: "5.00" });
+  const sin2 = fila({ c807_file: "S2", Docalpha: "No Ducafast", Usuario: "CARLA", Analista: "CARLA", Licencias: "1", Costo: "5.00" });
+
+  it("T1→T3 + T4→T5 = total, y el total es el mismo de ahorroDucafast sobre T1–T5", () => {
+    const exps = construirExpedientes([con, sin1, sin2]);
+    const r = ahorroPorTiempos(exps, 6);
+    expect(r.total.ahorro).toBeCloseTo(ahorroDucafast(exps, 6, ETAPA_KEYS).ahorro, 8);
+    expect(r.t13.ahorro + r.t45.ahorro).toBeCloseTo(r.total.ahorro, 8);
+    expect(r.t13.costoPorFileSinDucafast + r.t45.costoPorFileSinDucafast).toBeCloseTo(r.total.costoPorFileSinDucafast, 8);
+    expect(r.t13.costoPorFileConDucafast + r.t45.costoPorFileConDucafast).toBeCloseTo(r.total.costoPorFileConDucafast, 8);
+  });
+
+  it("horas repartidas por horas ocupadas de cada tramo (3 de 5 h a T1→T3) y licencias solo en T1→T3", () => {
+    const r = ahorroPorTiempos(construirExpedientes([con, sin1, sin2]), 6);
+    expect(r.t13.costoPorFileConDucafast).toBeCloseTo(18 + 1.10, 8); // 3 h × $6 + licencias
+    expect(r.t45.costoPorFileConDucafast).toBeCloseTo(12, 8);        // 2 h × $6, sin licencias
+    expect(r.t13.costoPorFileSinDucafast).toBeCloseTo(18 + 5.00, 8);
+    expect(r.t45.costoPorFileSinDucafast).toBeCloseTo(12, 8);
+    expect(r.t13.ahorro).toBeCloseTo(3.90, 8); // toda la diferencia de licencias cae en T1→T3
+    expect(r.t45.ahorro).toBeCloseTo(0, 8);
+  });
+
+  it("no duplica horas: dos Files traslapados de la misma persona cuentan su reloj una sola vez", () => {
+    // ANA lleva dos Files con Ducafast el mismo día, desfasados 3 h: el T4–T5 del
+    // primero se traslapa con el T1–T3 del segundo. Unir por tramo contaría esas
+    // horas dos veces; el reparto parte del total ya unido.
+    const c2 = fila({
+      c807_file: "C2", Docalpha: "Ducafast", Usuario: "ANA", Analista: "ANA", Licencias: "1", Costo: "1.10",
+      Creado: "2026-01-05T11:00:00", DPR: "2026-01-05T12:00:00", Clasificacion_exacta: "2026-01-05T14:00:00",
+      Creacion_Pre_DUCA: "2026-01-05T15:00:00", Revision_Analista: "2026-01-05T16:00:00", Solicitar_firma_def: "2026-01-05T17:00:00",
+    });
+    const exps = construirExpedientes([con, c2, sin1, sin2]);
+    const r = ahorroPorTiempos(exps, 6);
+    const conTotal = costoTiempo(exps.filter((e) => e.ducafast), 6, false, false, ETAPA_KEYS);
+    const horasRepartidas = (r.t13.costoPorFileConDucafast + r.t45.costoPorFileConDucafast) * r.t13.filesConDucafast
+      - 2 * 1.10; // quita las licencias de los 2 Files
+    expect(conTotal.costo).toBeCloseTo(8 * 6, 6); // 08:00–17:00 menos almuerzo = 8 h, no 5 + 5
+    expect(horasRepartidas).toBeCloseTo(conTotal.costo, 6);
+    expect(r.t13.ahorro + r.t45.ahorro).toBeCloseTo(r.total.ahorro, 8);
+  });
+
+  it("reparte por horas ocupadas, no por tiempo transcurrido: el paralelo en T1–T3 no le carga de más", () => {
+    // DIEGO lleva dos Files sin Ducafast con el MISMO T1–T3 (08–11, en paralelo)
+    // y T4–T5 distintos (11–13 y 11–16). Transcurrido: 6 h en T1–T3 y 6 h en
+    // T4–T5 (50/50). Ocupado: 3 h en T1–T3 y 4 h en T4–T5 (11–16 menos almuerzo),
+    // 7 h en total (08–16 menos almuerzo) → 3/7 y 4/7 de $42.
+    const d1 = fila({ c807_file: "D1", Docalpha: "No Ducafast", Usuario: "DIEGO", Analista: "DIEGO", Licencias: "1", Costo: "5.00" });
+    const d2 = fila({
+      c807_file: "D2", Docalpha: "No Ducafast", Usuario: "DIEGO", Analista: "DIEGO", Licencias: "1", Costo: "5.00",
+      Revision_Analista: "2026-01-05T15:00:00", Solicitar_firma_def: "2026-01-05T16:00:00",
+    });
+    const r = ahorroPorTiempos(construirExpedientes([con, d1, d2]), 6);
+    expect(r.t13.costoPorFileSinDucafast).toBeCloseTo(18 / 2 + 5.00, 8); // 3 h × $6 entre 2 Files + licencias
+    expect(r.t45.costoPorFileSinDucafast).toBeCloseTo(24 / 2, 8);        // 4 h × $6 entre 2 Files
+    expect(r.t13.ahorro + r.t45.ahorro).toBeCloseTo(r.total.ahorro, 8);
+  });
+
+  it("sin ambos grupos no hay con qué comparar en ningún tramo", () => {
+    const r = ahorroPorTiempos(construirExpedientes([con]), 6);
+    expect([r.t13, r.t45, r.total].every((a) => !a.disponible && a.ahorro === 0)).toBe(true);
   });
 });
 
