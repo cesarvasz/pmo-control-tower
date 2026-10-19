@@ -448,6 +448,9 @@ export interface NpsRecord {
   reqId: string;
   /** CKU que envió la encuesta (vacío/ausente = la envió un PM). Ver SurveyDoc.cku. */
   cku?: string;
+  /** token de la encuesta (SurveyDoc.token) — une 1:1 con su fila en /encuestas. Ausente en
+   *  respuestas importadas del Sheet (no tienen SurveyDoc). */
+  token?: string;
 }
 
 /** Resultado del NPS (encuesta PMO). */

@@ -149,6 +149,7 @@ export async function listNpsRecords(): Promise<NpsRecord[]> {
       reqCode: s.reqCode ?? "",
       reqId: s.reqId ?? "",
       cku: s.cku ?? "",
+      token: d.id,
     };
   });
 }

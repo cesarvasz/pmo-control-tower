@@ -4,8 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { authedFetch } from "@/lib/api";
 import { useMe } from "@/context/PermissionsContext";
+import { useData } from "@/context/DataContext";
 import { hasAction } from "@/lib/permissions";
 import type { SurveyDoc } from "@/lib/survey";
+import { listPMs } from "@/lib/players";
+import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import SurveyResultModal from "@/components/SurveyResultModal";
 import NpsCommentsReport from "@/components/NpsCommentsReport";
 import NpsDimensionsChart from "@/components/NpsDimensionsChart";
@@ -18,9 +21,14 @@ export default function EncuestasPage() {
   const [onlyAnswered, setOnlyAnswered] = useState(false);
   const [busyToken, setBusyToken] = useState<string | null>(null);
   const [tab, setTab] = useState<"enviadas" | "comentarios" | "dimensiones">("enviadas");
+  const [pmFilter, setPmFilter] = useState(""); // "" = todos los PM
 
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_roles");
+  const { data } = useData();
+  const allPMs = data ? listPMs(data.ini, data.req) : [];
+  const npsFiltered = data ? calcNpsFromRecords(data.npsRecords, pmFilter || undefined) : null;
+  const npsColor = npsCfg(npsFiltered?.nps ?? null)?.color ?? "var(--card-value-total)";
 
   const load = useCallback(async () => {
     setError(null);
@@ -68,12 +76,25 @@ export default function EncuestasPage() {
   if (error) return <ErrorBox msg={error} />;
   if (!surveys) return <Loader />;
 
-  const total = surveys.length;
-  const answered = surveys.filter((s) => s.answered).length;
+  const byPm = pmFilter ? surveys.filter((s) => s.pm === pmFilter) : surveys;
+  const total = byPm.length;
+  const answered = byPm.filter((s) => s.answered).length;
   const pending = total - answered;
-  const rows = onlyAnswered ? surveys.filter((s) => s.answered) : surveys;
+  const rows = onlyAnswered ? byPm.filter((s) => s.answered) : byPm;
 
   const fmt = (iso: string) => (iso ? new Date(iso).toLocaleDateString("es-GT", { day: "2-digit", month: "short", year: "numeric" }) : "—");
+
+  // Nota NPS (0-10) de cada encuesta contestada — une por token con su NpsRecord
+  // (ver surveys.ts:listNpsRecords, que ahora incluye `token`). Ausente = no
+  // contestada o no se pudo parsear el puntaje.
+  const npsScoreByToken = new Map<string, number>();
+  for (const r of data?.npsRecords ?? []) {
+    if (!r.token) continue;
+    const raw = r.answers?.nps;
+    const score = typeof raw === "number" ? raw : parseFloat(String(raw));
+    if (Number.isFinite(score)) npsScoreByToken.set(r.token, score);
+  }
+  const npsScoreColor = (score: number) => (score >= 9 ? "#10b981" : score >= 7 ? "#f59e0b" : "#ef4444");
 
   return (
     <div>
@@ -99,10 +120,26 @@ export default function EncuestasPage() {
         <NpsDimensionsChart />
       ) : (
       <>
-      <div className="mb-7 grid grid-cols-3 gap-4 sm:max-w-xl">
+      {/* Filtro por PM — acota la tabla y las tarjetas de abajo, y recalcula
+          el NPS (ver npsFiltered arriba, vía calcNpsFromRecords). */}
+      <div className="mb-5 flex items-center gap-2">
+        <label className="text-[0.78rem] font-semibold text-[var(--text-secondary)]">PM:</label>
+        <select
+          value={pmFilter}
+          onChange={(e) => setPmFilter(e.target.value)}
+          className="rounded-lg border px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+          style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}
+        >
+          <option value="">Todos los PM</option>
+          {allPMs.map((pm) => <option key={pm} value={pm}>{pm}</option>)}
+        </select>
+      </div>
+
+      <div className="mb-7 grid grid-cols-4 gap-4 sm:max-w-2xl">
         <StatCard value={total} label="Enviadas" />
         <StatCard value={answered} label="Contestadas" color="#10b981" borderColor="#10b981" active={onlyAnswered} onClick={() => setOnlyAnswered((v) => !v)} />
         <StatCard value={pending} label="Pendientes" color="#f59e0b" borderColor="#f59e0b" />
+        <StatCard value={npsFiltered?.nps ?? "—"} label={pmFilter ? `NPS · ${pmFilter}` : "NPS · Todos"} color={npsColor} borderColor={npsColor} />
       </div>
 
       <SectionHeader title="Encuestas enviadas" badge={`${rows.length} items`} />
@@ -115,7 +152,7 @@ export default function EncuestasPage() {
             <thead>
               <tr>
                 <th>ID</th><th>Name</th><th>PM</th><th>Destinatario</th>
-                <th>Estado</th><th>Enviada</th><th>Contestada</th><th></th>
+                <th>Estado</th><th>NPS</th><th>Enviada</th><th>Contestada</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -134,6 +171,11 @@ export default function EncuestasPage() {
                       : s.answered
                         ? <span style={{ color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>✓ Contestada</span>
                         : <span style={{ color: "#f59e0b", fontWeight: 600, whiteSpace: "nowrap" }}>⏳ Pendiente</span>}
+                  </td>
+                  <td>
+                    {npsScoreByToken.has(s.token)
+                      ? <span style={{ color: npsScoreColor(npsScoreByToken.get(s.token)!), fontWeight: 700 }}>{npsScoreByToken.get(s.token)}/10</span>
+                      : <span style={{ color: "var(--text-muted)" }}>—</span>}
                   </td>
                   <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{fmt(s.createdAt)}</td>
                   <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{s.answeredAt ? fmt(s.answeredAt) : "—"}</td>
