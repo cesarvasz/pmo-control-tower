@@ -159,15 +159,16 @@ export function calcNpsFromRecords(records: NpsRecord[], pm?: string): NpsData {
   return { nps, promoters, passives, detractors, total, responses, questions, overallAvg };
 }
 
-/** Rangos de clasificación del NPS — FUENTE ÚNICA (color, etiqueta y el logro que
- *  rinde el componente NPS del KPI, peso 10). Usados por npsCfg, por npsLogro en
- *  lib/kpi.ts y por el pop-up de rangos (NpsRangesModal). */
-export const NPS_RANGES: { min: number; max: number; label: string; color: string; logro: number }[] = [
-  { min: -100, max: -1,  label: "PMO Riesgo",      color: "#c0392b", logro: 0 },
-  { min: 0,    max: 29,  label: "PMO Soporte",     color: "#c9a227", logro: 0.25 },
-  { min: 30,   max: 49,  label: "PMO Táctica",     color: "#ef6c00", logro: 0.50 },
-  { min: 50,   max: 69,  label: "PMO Gobernanza",  color: "#2e7d32", logro: 1.0 }, // 100% por ahora
-  { min: 70,   max: 100, label: "PMO Estratégica", color: "#43a047", logro: 1.0 },
+/** Rangos de clasificación del NPS — FUENTE ÚNICA de color/etiqueta (usados por
+ *  npsCfg y por el pop-up de rangos, NpsRangesModal). Puramente descriptivos:
+ *  YA NO determinan el logro del componente NPS del KPI — ver npsKpiLogro()
+ *  abajo, que es continua y no por escalón. */
+export const NPS_RANGES: { min: number; max: number; label: string; color: string }[] = [
+  { min: -100, max: -1,  label: "PMO Riesgo",      color: "#c0392b" },
+  { min: 0,    max: 29,  label: "PMO Soporte",     color: "#c9a227" },
+  { min: 30,   max: 49,  label: "PMO Táctica",     color: "#ef6c00" },
+  { min: 50,   max: 69,  label: "PMO Gobernanza",  color: "#2e7d32" },
+  { min: 70,   max: 100, label: "PMO Estratégica", color: "#43a047" },
 ];
 
 /** Clasificación del NPS (rango, color y etiqueta) — fuente única. */
@@ -175,4 +176,15 @@ export function npsCfg(nps: number | null): { color: string; label: string } | n
   if (nps === null) return null;
   const r = NPS_RANGES.find((r) => nps >= r.min && nps <= r.max) ?? NPS_RANGES[NPS_RANGES.length - 1];
   return { color: r.color, label: r.label };
+}
+
+/**
+ * Logro (0..1) del componente NPS del KPI — FUENTE ÚNICA, usada por npsLogro en
+ * lib/kpi.ts y por el pop-up de rangos (NpsRangesModal). Ya no es por escalón:
+ * NPS ≤ 0 → 0%; 0 < NPS ≤ 50 → proporcional (NPS/50); NPS > 50 → 100%.
+ */
+export function npsKpiLogro(nps: number | null): number {
+  if (nps == null || nps <= 0) return 0;
+  if (nps > 50) return 1;
+  return nps / 50;
 }

@@ -9,8 +9,9 @@
 //     arranca en 100% y un admin la baja a mano en /calidad-cumplimiento → Metodología
 //     (ver lib/metodologia.ts). Antes de que empiece la medición queda "pendiente" y no
 //     resta del máximo alcanzable.
-//   · EVM: el % rinde directo el peso (90% → 0.9×25). NPS: escalonado por rango, ver
-//     npsLogro() abajo. Beneficio: ver computeBenefitKpi() abajo. Entregas y Reproceso:
+//   · EVM: el % rinde directo el peso (90% → 0.9×25). NPS: NPS ≤ 0 → 0%, 0 < NPS ≤ 50
+//     → proporcional (NPS/50), NPS > 50 → 100% (ver npsKpiLogro() en lib/nps.ts).
+//     Beneficio: ver computeBenefitKpi() abajo. Entregas y Reproceso:
 //     el % es directamente la fracción del peso (85% → 0.85×peso).
 // El Reproceso mide la NOTA PROMEDIO de sus unidades (ideal 100%): REQ cerrados +
 // items de la FASE 3 (Launch/Desarrollo, ver isFase3 en dashboard.ts) de Proyecto
@@ -30,7 +31,7 @@
 // para el de cada PM.
 
 import { fmtMoney, today } from "@/lib/business";
-import { NPS_RANGES } from "@/lib/nps";
+import { npsKpiLogro } from "@/lib/nps";
 
 export const KPI_META = { evm: 1.0, nps: 50, benefitAnnual: 84000, entregas: 1.0, reproceso: 1.0, metodologia: 1.0 };
 export type KpiWeights = { evm: number; nps: number; benefit: number; entregas: number; reproceso: number; metodologia: number };
@@ -44,13 +45,10 @@ export const BENEFIT_SPLIT = { aprobacion: 0.90, confirmacion: 0.10 };
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-/** Logro del componente NPS: escalonado por rango — ver NPS_RANGES en lib/nps.ts
- *  (fuente única, compartida con npsCfg y el pop-up de rangos). */
-function npsLogro(nps: number | null): number {
-  if (nps == null) return 0;
-  const r = NPS_RANGES.find((r) => nps >= r.min && nps <= r.max);
-  return r ? r.logro : 0;
-}
+/** Logro del componente NPS — ver npsKpiLogro en lib/nps.ts (fuente única,
+ *  compartida con el pop-up de rangos, NpsRangesModal). NPS ≤ 0 → 0%;
+ *  0 < NPS ≤ 50 → proporcional (NPS/50); NPS > 50 → 100%. */
+const npsLogro = npsKpiLogro;
 
 /** Meta del Beneficio CONFIRMADO de un PM a la fecha: $84,000 ÷ 12 × meses YA
  *  terminados del año (el mes en curso no cuenta: el 15-oct son 9, no 10). En

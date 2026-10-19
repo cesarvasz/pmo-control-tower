@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcNps, npsCfg } from "./nps";
+import { calcNps, npsCfg, npsKpiLogro } from "./nps";
 import type { SheetRow } from "@/types";
 
 describe("calcNps", () => {
@@ -47,5 +47,17 @@ describe("npsCfg", () => {
     expect(npsCfg(40)!.label).toBe("PMO Táctica");
     expect(npsCfg(10)!.label).toBe("PMO Soporte");
     expect(npsCfg(-5)!.label).toBe("PMO Riesgo");
+  });
+});
+
+describe("npsKpiLogro", () => {
+  it("≤0 → 0%, 0 < NPS ≤ 50 proporcional (NPS/50), >50 → 100%", () => {
+    expect(npsKpiLogro(null)).toBe(0);
+    expect(npsKpiLogro(-10)).toBe(0);
+    expect(npsKpiLogro(0)).toBe(0);
+    expect(npsKpiLogro(25)).toBeCloseTo(0.5, 5);
+    expect(npsKpiLogro(50)).toBe(1);
+    expect(npsKpiLogro(51)).toBe(1);
+    expect(npsKpiLogro(100)).toBe(1);
   });
 });

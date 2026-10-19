@@ -127,18 +127,17 @@ describe("computeKpi", () => {
     expect(r.score).toBeCloseTo(0.85 * KPI_W.entregas, 5); // 8.5
   });
 
-  it("NPS: logro escalonado por rango (PMO Riesgo/Soporte/Táctica/Gobernanza/Estratégica)", () => {
+  it("NPS: ≤0 → 0%, 0 < NPS ≤ 50 proporcional (NPS/50), > 50 → 100%", () => {
     const logroFor = (nps: number | null) =>
       computeKpi({ evm: null, nps, benefitAprobado: 0, benefitConfirmado: 0, entregasPct: null }).components.find((c) => c.key === "nps")!.logro;
     expect(logroFor(null)).toBe(0);
-    expect(logroFor(-10)).toBe(0);            // PMO Riesgo
-    expect(logroFor(0)).toBeCloseTo(0.25, 5);  // PMO Soporte
-    expect(logroFor(29)).toBeCloseTo(0.25, 5);
-    expect(logroFor(30)).toBeCloseTo(0.50, 5); // PMO Táctica
-    expect(logroFor(49)).toBeCloseTo(0.50, 5);
-    expect(logroFor(50)).toBe(1);              // PMO Gobernanza (100% por ahora)
-    expect(logroFor(69)).toBe(1);
-    expect(logroFor(70)).toBe(1);              // PMO Estratégica
+    expect(logroFor(-10)).toBe(0);
+    expect(logroFor(0)).toBe(0);
+    expect(logroFor(25)).toBeCloseTo(0.5, 5);  // 25/50
+    expect(logroFor(1)).toBeCloseTo(0.02, 5);  // 1/50
+    expect(logroFor(50)).toBe(1);
+    expect(logroFor(51)).toBe(1);
+    expect(logroFor(70)).toBe(1);
     expect(logroFor(100)).toBe(1);
   });
 
