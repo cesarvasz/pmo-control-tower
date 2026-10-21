@@ -162,6 +162,8 @@ export interface MetodologiaCalif {
   score: number;
   by?: string;
   at?: string;
+  /** Explicación de por qué se puso esa nota (opcional, la escribe el Admin). */
+  comentario?: string;
 }
 
 // ── Detalle de un atraso (tabla "Atrasos" del Resumen Ejecutivo) ───────────

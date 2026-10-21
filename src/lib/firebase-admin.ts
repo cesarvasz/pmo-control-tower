@@ -134,9 +134,9 @@ export async function getMetodologiaCalifs(): Promise<Record<string, Metodologia
   return result;
 }
 
-export async function saveMetodologiaCalif(phaseKey: string, score: number, by: string): Promise<void> {
+export async function saveMetodologiaCalif(phaseKey: string, score: number, by: string, comentario: string = ""): Promise<void> {
   const db = getAdminDb();
-  await db.collection("metodologia_califs").doc(phaseKey).set({ score, by, at: new Date().toISOString() });
+  await db.collection("metodologia_califs").doc(phaseKey).set({ score, by, at: new Date().toISOString(), comentario });
 }
 
 export async function deleteMetodologiaCalif(phaseKey: string): Promise<void> {
