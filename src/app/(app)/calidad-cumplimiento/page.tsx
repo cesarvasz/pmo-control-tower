@@ -102,10 +102,10 @@ function ResponsibleBars({ counts, total }: { counts: Record<string, number>; to
 }
 
 // ── Filtros compartidos por ambas pestañas ─────────────────────────────────
-function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" | "INI"; id?: string; source?: "REQ" | "Proyecto" | "Iniciativa"; projCode?: string }>(rows: T[], soloProblemaInicial = true) {
+function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" | "INI"; id?: string; source?: "REQ" | "Proyecto" | "Iniciativa"; projCode?: string }>(rows: T[], soloProblemaInicial = true, respsInicial: string[] = []) {
   const [pms, setPms] = useState<string[]>([]);
   const [tipos, setTipos] = useState<string[]>([]);
-  const [resps, setResps] = useState<string[]>([]);
+  const [resps, setResps] = useState<string[]>(respsInicial);
   const [pmlIds, setPmlIds] = useState<string[]>([]);
   const [projIds, setProjIds] = useState<string[]>([]);
   const [soloProblema, setSoloProblema] = useState(soloProblemaInicial);
@@ -163,8 +163,9 @@ function useRowFilters<T extends { pm: string; tipo?: "PM" | "PML" | "INI"; id?:
     [rows, pms, tipos, pmlIds, projIds],
   );
 
-  const anyFilter = pms.length > 0 || tipos.length > 0 || resps.length > 0 || pmlIds.length > 0 || projIds.length > 0 || soloProblema !== soloProblemaInicial;
-  const reset = () => { setPms([]); setTipos([]); setResps([]); setPmlIds([]); setProjIds([]); setSoloProblema(soloProblemaInicial); };
+  const sameResps = resps.length === respsInicial.length && [...resps].sort().every((v, i) => v === [...respsInicial].sort()[i]);
+  const anyFilter = pms.length > 0 || tipos.length > 0 || !sameResps || pmlIds.length > 0 || projIds.length > 0 || soloProblema !== soloProblemaInicial;
+  const reset = () => { setPms([]); setTipos([]); setResps(respsInicial); setPmlIds([]); setProjIds([]); setSoloProblema(soloProblemaInicial); };
 
   return { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset };
 }
@@ -267,7 +268,10 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap; canEditFilters: boolean | null; ini: IniItem[];
 }) {
   const rows = useMemo(() => buildEntregaRows(req, proj, projBoards, ini), [req, proj, projBoards, ini]);
-  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
+  // Por default solo se ven los atrasos SIN responsable asignado — el filtro de
+  // Responsable (abajo) ya trae "Sin asignar" marcado; desmarcarlo o elegir otros
+  // responsables ahí mismo muestra también los que ya están calificados.
+  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows, true, [SIN_ASIGNAR]);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const toggleAbierta = (id: string) => setAbiertas((s) => {
     const n = new Set(s);
@@ -287,6 +291,38 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
     .filter((r) => resps.length === 0 || resps.includes(responsableOf(r.id, delays)))
     .filter((r) => !soloProblema || r.verdict === "late")
     .sort((a, b) => (a.verdict === b.verdict ? a.pm.localeCompare(b.pm) || a.name.localeCompare(b.name) : a.verdict === "late" ? -1 : 1));
+
+  // Agrupa por PROYECTO (código+nombre) — cada fila sigue siendo UNA FASE, con su
+  // propia calificación (Responsable); el proyecto es solo la agrupación visual
+  // (mismo patrón que ReprocesoTab). REQ e Iniciativas no cuelgan de un proyecto,
+  // así que van en sus propias secciones aparte, al final.
+  const REQ_GROUP_KEY = "__REQ__";
+  const INI_GROUP_KEY = "__INI__";
+  const grupos = (() => {
+    const map = new Map<string, { key: string; label: string; code: string; rows: typeof tableRows }>();
+    for (const r of tableRows) {
+      const key = r.source === "REQ" ? REQ_GROUP_KEY : r.source === "Iniciativa" ? INI_GROUP_KEY
+        : (r.projCode ? `${r.projCode}|${r.projName}` : r.projName || "Sin proyecto");
+      let g = map.get(key);
+      if (!g) {
+        const label = r.source === "REQ" ? "PML" : r.source === "Iniciativa" ? "Iniciativas" : (r.projName || "Sin proyecto");
+        g = { key, label, code: r.source === "Proyecto" ? r.projCode : "", rows: [] };
+        map.set(key, g);
+      }
+      g.rows.push(r);
+    }
+    // Proyectos por código, y al final las dos secciones sin proyecto: Iniciativas y luego PML.
+    const rank = (k: string) => (k === INI_GROUP_KEY ? 1 : k === REQ_GROUP_KEY ? 2 : 0);
+    return Array.from(map.values()).sort((a, b) =>
+      rank(a.key) - rank(b.key) || (a.code || a.label).localeCompare(b.code || b.label));
+  })();
+  // Las secciones (proyecto / Iniciativas / PML) arrancan abiertas; se guardan las que se colapsan.
+  const [closedProjects, setClosedProjects] = useState<Set<string>>(new Set());
+  const toggleProject = (key: string) => setClosedProjects((s) => {
+    const n = new Set(s);
+    if (n.has(key)) n.delete(key); else n.add(key);
+    return n;
+  });
 
   return (
     <div>
@@ -326,7 +362,8 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
         {anyFilter && canEditFilters && <FilterReset onClick={reset} />}
       </div>
 
-      {/* Detalle */}
+      {/* Detalle, agrupado por PROYECTO (cada fila sigue siendo UNA FASE con su
+          propia calificación) + Iniciativas y PML aparte, al final. */}
       {tableRows.length === 0 ? <EmptyRow /> : (
         <div className="table-wrap">
           <table className="pmo">
@@ -337,58 +374,89 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((r) => {
-                const hasLatePhasesReq = r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late);
-                const expandible = (r.source === "Proyecto" && r.totalAtrasados > 0) || hasLatePhasesReq;
-                const abierta = expandible && abiertas.has(r.id);
+              {grupos.map((g) => {
+                const gLate = g.rows.filter((r) => r.verdict === "late").length;
+                const gPct = g.rows.length ? Math.round(((g.rows.length - gLate) / g.rows.length) * 100) : null;
+                const gPctColor = gPct === null ? "#6b7280" : gPct >= 90 ? "var(--ok)" : gPct >= 75 ? "var(--warn)" : "var(--bad)";
+                const gOpen = !closedProjects.has(g.key);
                 return (
-                  <Fragment key={r.id}>
-                    <tr className={expandible ? "cursor-pointer" : undefined} onClick={() => expandible && toggleAbierta(r.id)}>
-                      <td>
-                        {expandible && (
+                  <Fragment key={g.key}>
+                    {/* ── Encabezado de grupo (proyecto, Iniciativas o PML) ── */}
+                    <tr onClick={() => toggleProject(g.key)} className="cursor-pointer select-none">
+                      <td colSpan={8} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
+                        <div className="flex items-center gap-2 px-4 py-2" style={{ background: "var(--bg-hover)", borderLeft: "3px solid var(--accent)" }}>
                           <span
-                            className="inline-block text-[0.6rem] text-[var(--accent)]"
-                            style={{ transition: "transform 0.15s", transform: abierta ? "rotate(90deg)" : undefined }}
+                            className="text-[0.58rem]"
+                            style={{ display: "inline-block", transition: "transform 0.15s", transform: gOpen ? "rotate(90deg)" : undefined, color: "var(--accent)" }}
                           >▶</span>
-                        )}
+                          {g.code && <span className="ini-id" style={{ marginRight: 2 }}>{g.code}</span>}
+                          <span className="text-[0.78rem] font-bold" style={{ color: "var(--text-primary)" }}>{g.label}</span>
+                          <span className="ml-auto flex items-center gap-2">
+                            {gLate > 0 && <span style={{ color: "var(--bad)", fontSize: ".72rem", fontWeight: 600 }}>{gLate} con atraso</span>}
+                            <span
+                              className="rounded-full px-2 py-px text-[0.63rem] font-semibold"
+                              style={{ background: "var(--bg-surface)", color: gPctColor, border: "1px solid var(--border)" }}
+                            >
+                              {gPct !== null ? `${gPct}%` : "—"} · {g.rows.length}
+                            </span>
+                          </span>
+                        </div>
                       </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
-                      </td>
-                      {/* Los REQ (PML) no cuelgan de un proyecto: proyecto vacío → muestra ID + nombre. */}
-                      <td>
-                        {r.projName ? (
-                          <div className="leading-tight">
-                            {r.projCode && <div className="ini-id">{r.projCode}</div>}
-                            <div style={{ color: "var(--text-secondary)" }}>{r.projName}</div>
-                          </div>
-                        ) : (
-                          <div className="leading-tight">
-                            <div className="ini-id">{r.id}</div>
-                            <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td className="tabular-nums" style={{ color: r.totalAtrasados > 0 ? "var(--bad)" : "var(--text-secondary)" }}>
-                        {r.source === "Proyecto" ? `${r.totalAtrasados} / ${r.totalEvaluados}` : <span className="text-[var(--text-disabled)]">—</span>}
-                      </td>
-                      <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                      <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
-                      <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
                     </tr>
-                    {abierta && (
-                      <tr>
-                        <td></td>
-                        <td colSpan={7} className="pb-3">
-                          {r.source === "REQ" && r.phaseDetails ? (
-                            <ReqPhaseAccordion phases={r.phaseDetails} />
-                          ) : (
-                            <FaseAtrasadaAccordion items={r.itemsAtrasados} />
+                    {gOpen && g.rows.map((r) => {
+                      const hasLatePhasesReq = r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late);
+                      const expandible = (r.source === "Proyecto" && r.totalAtrasados > 0) || hasLatePhasesReq;
+                      const abierta = expandible && abiertas.has(r.id);
+                      return (
+                        <Fragment key={r.id}>
+                          <tr className={expandible ? "cursor-pointer" : undefined} onClick={() => expandible && toggleAbierta(r.id)}>
+                            <td>
+                              {expandible && (
+                                <span
+                                  className="ml-4 inline-block text-[0.6rem] text-[var(--accent)]"
+                                  style={{ transition: "transform 0.15s", transform: abierta ? "rotate(90deg)" : undefined }}
+                                >▶</span>
+                              )}
+                            </td>
+                            <td style={{ whiteSpace: "nowrap" }}>
+                              <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
+                            </td>
+                            {/* El proyecto ya se ve en el encabezado del grupo — en una fila de
+                                Proyecto no queda nada más específico que la Fase (columna de al
+                                lado); REQ/Iniciativa sí muestran su propio id+nombre. */}
+                            <td>
+                              {r.source === "Proyecto" ? (
+                                <span className="text-[var(--text-disabled)]">—</span>
+                              ) : (
+                                <div className="leading-tight">
+                                  <div className="ini-id">{r.id}</div>
+                                  <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                            <td className="tabular-nums" style={{ color: r.totalAtrasados > 0 ? "var(--bad)" : "var(--text-secondary)" }}>
+                              {r.source === "Proyecto" ? `${r.totalAtrasados} / ${r.totalEvaluados}` : <span className="text-[var(--text-disabled)]">—</span>}
+                            </td>
+                            <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
+                            <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
+                            <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
+                          </tr>
+                          {abierta && (
+                            <tr>
+                              <td></td>
+                              <td colSpan={7} className="pb-3">
+                                {r.source === "REQ" && r.phaseDetails ? (
+                                  <ReqPhaseAccordion phases={r.phaseDetails} />
+                                ) : (
+                                  <FaseAtrasadaAccordion items={r.itemsAtrasados} />
+                                )}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    )}
+                        </Fragment>
+                      );
+                    })}
                   </Fragment>
                 );
               })}
