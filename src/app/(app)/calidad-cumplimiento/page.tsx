@@ -472,7 +472,14 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
 function ReprocesoTab({ ini, req, proj, projBoards, reproceso, canEditFilters }: {
   ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; reproceso: DelayMap; canEditFilters: boolean | null;
 }) {
-  const rows = useMemo(() => buildReprocesoRows(req, proj, projBoards, reproceso, ini), [req, proj, projBoards, reproceso, ini]);
+  // Excluye las unidades "🔒 Pendiente de cierre" (step sin todos sus hitos Done,
+  // y sin responsable ya asignado de antes) — aún no se pueden calificar, ver
+  // reprocesoResponsibleCell más abajo; mostrarlas aquí no deja nada por hacer.
+  const rows = useMemo(
+    () => buildReprocesoRows(req, proj, projBoards, reproceso, ini)
+      .filter((r) => !(r.unitKind === "step" && !r.allDone && !reproceso[r.id]?.responsible)),
+    [req, proj, projBoards, reproceso, ini],
+  );
   // Trayectoria de Calidad por proyecto (Done + pendiente, a día de hoy) — ver
   // calidadProjectStatus en lib/dashboard. Se busca por código de proyecto (PM-XXX),
   // la misma clave que ya usan los grupos de esta tabla.
@@ -484,7 +491,7 @@ function ReprocesoTab({ ini, req, proj, projBoards, reproceso, canEditFilters }:
     }
     return m;
   }, [proj]);
-  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows, false);
+  const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows, false, [SIN_ASIGNAR]);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const toggleAbierta = (id: string) => setAbiertas((s) => {
     const n = new Set(s);
