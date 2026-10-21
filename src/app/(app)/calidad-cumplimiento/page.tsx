@@ -2,7 +2,8 @@
 
 // Auditoría cruzada de las dos métricas de "entregas" del KPI:
 //   · Cumplimiento de Entrega (peso 10 PM): REQ + items/subitems de Proyecto con
-//     veredicto on-time/late.
+//     veredicto on-time/late + Iniciativas APROBADAS (retrospectivo vía Meeting 1/
+//     Meeting 2, ver iniEntregaVerdict en lib/dashboard.ts).
 //   · Calidad de Entregas (peso 10 PM, "reproceso"): Iniciativas APROBADAS + REQ CERRADOS + steps de
 //     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
 //   · Metodología (peso 15): nota 0-100 por persona y mes, ver MetodologiaTab.
@@ -68,7 +69,7 @@ export default function CalidadCumplimientoPage() {
       </div>
 
       {tab === "entrega"
-        ? <EntregaTab req={req} proj={proj} projBoards={projBoards} delays={delays} canEditFilters={canEditFilters} />
+        ? <EntregaTab req={req} proj={proj} projBoards={projBoards} delays={delays} canEditFilters={canEditFilters} ini={ini} />
         : tab === "metodologia"
         ? <MetodologiaTab pms={listPMs(ini, req)} califs={metodologiaCalifs} />
         : <ReprocesoTab ini={ini} req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} canEditFilters={canEditFilters} />}
@@ -262,10 +263,10 @@ function FaseAtrasadaAccordion({ items }: { items: { kind: "step" | "hito"; name
   );
 }
 
-function EntregaTab({ req, proj, projBoards, delays, canEditFilters }: {
-  req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap; canEditFilters: boolean | null;
+function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
+  req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap; canEditFilters: boolean | null; ini: IniItem[];
 }) {
-  const rows = useMemo(() => buildEntregaRows(req, proj, projBoards), [req, proj, projBoards]);
+  const rows = useMemo(() => buildEntregaRows(req, proj, projBoards, ini), [req, proj, projBoards, ini]);
   const { pms, setPms, pmOpts, tipos, setTipos, tipoOpts, resps, setResps, pmlIds, setPmlIds, pmlOpts, projIds, setProjIds, projOpts, soloProblema, setSoloProblema, byPm, anyFilter, reset } = useRowFilters(rows);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const toggleAbierta = (id: string) => setAbiertas((s) => {

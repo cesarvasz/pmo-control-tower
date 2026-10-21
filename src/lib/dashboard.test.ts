@@ -8,6 +8,7 @@ import {
   calcPmMetrics,
   calcEntregaStats,
   calcEntregaStatsRaw,
+  iniEntregaVerdict,
   calcReprocesoPct,
   calcReprocesoStats,
   calcReprocesoStatsRaw,
@@ -386,6 +387,61 @@ describe("calcEntregaStatsRaw (tarjeta principal: todas las fases con atraso, si
   });
 });
 
+describe("iniEntregaVerdict (Cumplimiento de Entrega retrospectivo de Iniciativas APROBADAS)", () => {
+  // 05-ene-2026 (lunes). Meeting 1 a tiempo = hasta 5 días hábiles después (12-ene,
+  // también lunes). Meeting 2 a tiempo = hasta 10 días hábiles después de Meeting 1
+  // (26-ene, lunes).
+  const creacion = new Date(2026, 0, 5);
+  const ini = (o: Partial<IniItem>): IniItem => ({ estado: "APROBADA", creacion, ...o }) as IniItem;
+
+  it("no APROBADA → n/a, sin importar las fechas", () => {
+    expect(iniEntregaVerdict(ini({ estado: "EN TIEMPO", meet1: "2026-01-12", meet2: "2026-01-26" }))).toBe("n/a");
+  });
+
+  it("APROBADA sin creación, Meeting 1 o Meeting 2 → n/a (no se puede reconstruir)", () => {
+    expect(iniEntregaVerdict(ini({ creacion: null, meet1: "2026-01-12", meet2: "2026-01-26" }))).toBe("n/a");
+    expect(iniEntregaVerdict(ini({ meet2: "2026-01-26" }))).toBe("n/a"); // sin meet1
+    expect(iniEntregaVerdict(ini({ meet1: "2026-01-12" }))).toBe("n/a"); // sin meet2
+  });
+
+  it("ambas etapas dentro de su límite (5 y 10 días hábiles) → on-time", () => {
+    expect(iniEntregaVerdict(ini({ meet1: "2026-01-12", meet2: "2026-01-26" }))).toBe("on-time");
+  });
+
+  it("Meeting 1 se pasó de 5 días hábiles → late, aunque Meeting 2 esté a tiempo", () => {
+    expect(iniEntregaVerdict(ini({ meet1: "2026-01-13", meet2: "2026-01-26" }))).toBe("late");
+  });
+
+  it("Meeting 2 se pasó de 10 días hábiles desde Meeting 1 → late, aunque Meeting 1 esté a tiempo", () => {
+    expect(iniEntregaVerdict(ini({ meet1: "2026-01-12", meet2: "2026-01-27" }))).toBe("late");
+  });
+});
+
+describe("calcEntregaStats / calcEntregaStatsRaw con Iniciativas APROBADAS", () => {
+  const creacion = new Date(2026, 0, 5);
+  const iniOnTime = (o: Partial<IniItem>): IniItem =>
+    ({ estado: "APROBADA", creacion, meet1: "2026-01-12", meet2: "2026-01-26", pm: "Luis", ...o }) as IniItem;
+  const iniLate = (o: Partial<IniItem>): IniItem =>
+    ({ estado: "APROBADA", creacion, meet1: "2026-01-13", meet2: "2026-01-26", pm: "Luis", ...o }) as IniItem;
+
+  it("calcEntregaStats: suma las Iniciativas APROBADAS evaluables a REQ/Proyecto, y excusa igual que un REQ", () => {
+    const inis = [iniOnTime({ id: "i1" }), iniLate({ id: "i2" })];
+    expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+    const delays: DelayMap = { i2: { responsible: "VPA" } }; // excusa i2
+    expect(calcEntregaStats([], [], delays, inis)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+  });
+
+  it("una Iniciativa activa (no APROBADA) o sin fechas suficientes no cuenta (n/a)", () => {
+    const inis = [iniOnTime({ id: "i1", estado: "EN TIEMPO" }), iniOnTime({ id: "i2", meet2: undefined })];
+    expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
+  });
+
+  it("calcEntregaStatsRaw: cuenta la Iniciativa atrasada sin excusar (no recibe delays)", () => {
+    const inis = [iniOnTime({ id: "i1" }), iniLate({ id: "i2" })];
+    expect(calcEntregaStatsRaw([], [], inis)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+  });
+});
+
 describe("calcReprocesoPct (5º componente del KPI: nota 0/50/100 por item de Proyecto)", () => {
   const cerrado = (id: string) => req({ id, pm: "Luis", estado: "CERRADO" });
   const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
@@ -509,6 +565,18 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
     const rows = buildEntregaRows(reqs, [], []);
     expect(rows[0]).toMatchObject({ tipo: "PML", projCode: "", projName: "" });
   });
+
+  it("incluye una fila por Iniciativa APROBADA evaluable (tipo INI, sin proyecto); las n/a no aparecen", () => {
+    const creacion = new Date(2026, 0, 5);
+    const i = (o: Partial<IniItem>): IniItem => ({ estado: "APROBADA", creacion, pm: "Luis", grupo: "G", name: "Ini 1", ...o }) as IniItem;
+    const inis = [
+      i({ id: "i1", meet1: "2026-01-12", meet2: "2026-01-26" }), // on-time
+      i({ id: "i2", estado: "EN TIEMPO" }),                      // n/a (no aprobada)
+    ];
+    const rows = buildEntregaRows([], [], [], inis);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: "i1", source: "Iniciativa", tipo: "INI", verdict: "on-time", pm: "Luis", projCode: "", projName: "" });
+  });
 });
 
 describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la tarjeta principal)", () => {
@@ -532,6 +600,17 @@ describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la 
     const delays: DelayMap = { "b1::Launch": { responsible: "Sponsor" } };
     const rows = buildLateResponsibleRowsRaw([], projs, [board({ id: "b1", pm: "BoardPm" })], delays);
     expect(rows).toEqual([{ id: "b1::Launch", source: "Proyecto", name: "P1 · Launch", pm: "BoardPm", responsible: "Sponsor", onTime: 0, doneTotal: 1 }]);
+  });
+
+  it("una Iniciativa APROBADA atrasada aparece; se excusa igual que un REQ (Raw la muestra siempre)", () => {
+    const creacion = new Date(2026, 0, 5);
+    const i = (o: Partial<IniItem>): IniItem => ({ estado: "APROBADA", creacion, pm: "Luis", name: "Ini 1", meet1: "2026-01-13", meet2: "2026-01-26", ...o }) as IniItem; // meet1 atrasado
+    expect(buildLateResponsibleRows([], [], [], {}, [i({ id: "i1" })]))
+      .toEqual([{ id: "i1", source: "Iniciativa", name: "Ini 1", pm: "Luis", responsible: null }]);
+    const delays: DelayMap = { i1: { responsible: "VPA" } };
+    expect(buildLateResponsibleRows([], [], [], delays, [i({ id: "i1" })])).toEqual([]); // excusada → no aparece
+    expect(buildLateResponsibleRowsRaw([], [], [], delays, [i({ id: "i1" })]))
+      .toEqual([{ id: "i1", source: "Iniciativa", name: "Ini 1", pm: "Luis", responsible: "VPA" }]);
   });
 });
 

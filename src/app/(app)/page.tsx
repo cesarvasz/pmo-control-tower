@@ -291,12 +291,13 @@ function ControlTower({ data }: { data: DashboardData }) {
   // ── Cumplimiento de Entrega (tarjeta principal) ──
   // % REAL sin excusas: REQ cerrados + hitos ÚNICOS de Proyectos (por PMS ID — el
   // mismo hito se repite como subitem en varios steps del ciclo de vida; cada hito
-  // pesa 1 unidad, aportando su propio % entre sus ocurrencias ya Done). Cuenta TODO
-  // atraso sin importar el responsable asignado. Players/KPI sí excusan por
+  // pesa 1 unidad, aportando su propio % entre sus ocurrencias ya Done) + Iniciativas
+  // APROBADAS (retrospectivo vía Meeting 1/Meeting 2, ver iniEntregaVerdict). Cuenta
+  // TODO atraso sin importar el responsable asignado. Players/KPI sí excusan por
   // responsable (ver calcEntregaStats, usada en calcPmMetrics y en la tarjeta de PM).
-  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStatsRaw(req, proj);
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStatsRaw(req, proj, ini);
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
-  const entLateRows = buildLateResponsibleRowsRaw(req, proj, projBoards, delays);
+  const entLateRows = buildLateResponsibleRowsRaw(req, proj, projBoards, delays, ini);
 
   // ── Calidad de Entregas (Reproceso) ──
   // % de unidades "limpias" (REQ cerrados + fases de proyecto completadas) sin
@@ -851,14 +852,15 @@ function PMPortfolioCard({
   const npsColor = npsCfg(pmNps.nps)?.color ?? "#6b7280";
 
   // Cumplimiento de Entrega del PM: REQ cerrados + hitos ÚNICOS de sus proyectos
-  // (por PMS ID, 1 unidad c/u — ver calcEntregaStats).
+  // (por PMS ID, 1 unidad c/u) + sus Iniciativas APROBADAS (ver calcEntregaStats).
   // Un atraso solo cuenta si su responsable asignado es "PM"; los demás se excluyen.
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
   const pmReqFiltered = req.filter((r) => r.pm === pm);
   const pmProjFiltered = proj.filter((p) => pmBoardIdSet.has(p.boardId));
-  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(pmReqFiltered, pmProjFiltered, delays);
+  const pmIniFiltered = ini.filter((i) => i.pm === pm);
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(pmReqFiltered, pmProjFiltered, delays, pmIniFiltered);
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
-  const entLateRows = buildLateResponsibleRows(pmReqFiltered, pmProjFiltered, projBoards, delays);
+  const entLateRows = buildLateResponsibleRows(pmReqFiltered, pmProjFiltered, projBoards, delays, pmIniFiltered);
 
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));

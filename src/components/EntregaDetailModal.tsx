@@ -4,7 +4,7 @@ import Modal from "@/components/Modal";
 import { RESPONSIBLE_COLOR } from "@/lib/delay";
 import type { LateResponsibleRow } from "@/lib/dashboard";
 
-const SOURCE_LABEL: Record<LateResponsibleRow["source"], string> = { REQ: "PML", Proyecto: "Proyecto" };
+const SOURCE_LABEL: Record<LateResponsibleRow["source"], string> = { REQ: "PML", Proyecto: "Proyecto", Iniciativa: "Iniciativa" };
 
 /** Pop-up de detalle de "Cumplimiento de Entrega" (tarjeta principal): desglose de qué
  *  responsable concentra los atrasos (conteo + %) y el listado nombre/id de cada uno.

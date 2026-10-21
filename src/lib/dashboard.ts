@@ -3,8 +3,8 @@
 // NPS, % de entregas, costo/beneficio y KPI ponderado). Funciones PURAS sobre
 // datos ya procesados (ini/req/proj), reutilizables y testeables.
 
-import { today } from "@/lib/business";
-import { calcIniPMHealth } from "@/lib/ini";
+import { today, businessDays, parseYMD } from "@/lib/business";
+import { calcIniPMHealth, INI_LIMITS } from "@/lib/ini";
 import { healthStatusFromIndex, weightedEvm, type HealthStatus } from "@/lib/health";
 import { calcBoardMetrics, deriveBoardHealth, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
@@ -378,13 +378,37 @@ function groupFaseEntrega(projs: ProjItem[]): Map<string, FaseEntregaGroup> {
 const faseTieneAtrasoSinExcusar = (g: FaseEntregaGroup, delays: DelayMap): boolean =>
   g.items.some((it) => it.verdict === "late") && !lateExcused(g.key, delays);
 
+/**
+ * Veredicto RETROSPECTIVO de Cumplimiento de Entrega de una Iniciativa YA
+ * APROBADA: una vez aprobada, `dias`/`limite`/`deadline` quedan en null (ver
+ * iniProcess), así que no sirven para saber si llegó a tiempo — hay que
+ * reconstruirlo con las fechas REALES de reunión (`meet1`/`meet2`) contra los
+ * límites de cada etapa del embudo (INI_LIMITS): creación → Meeting 1 (5 días
+ * hábiles) y Meeting 1 → Meeting 2/Aprobación (10 días hábiles). "on-time" solo
+ * si AMBAS etapas se cumplieron; "late" si cualquiera se pasó. "n/a" (no
+ * evaluable, igual que un REQ sin R Done) si falta `creacion`, `meet1` o
+ * `meet2` — no se puede reconstruir con certeza. Las Iniciativas que no están
+ * APROBADA (todavía activas o en otras secciones del embudo) tampoco son
+ * evaluables aquí: Cumplimiento de Entrega es retrospectivo, no mide "en curso".
+ */
+export function iniEntregaVerdict(i: IniItem): "on-time" | "late" | "n/a" {
+  if (i.estado !== "APROBADA") return "n/a";
+  const meet1 = parseYMD(i.meet1);
+  const meet2 = parseYMD(i.meet2);
+  if (!i.creacion || !meet1 || !meet2) return "n/a";
+  const etapa1OK = businessDays(i.creacion, meet1, true) <= INI_LIMITS.New;
+  const etapa2OK = businessDays(meet1, meet2, true) <= INI_LIMITS["Meeting 1"];
+  return etapa1OK && etapa2OK ? "on-time" : "late";
+}
+
 /** Cumplimiento de Entrega: REQ cerrados (1 unidad c/u) + FASES de Proyecto (1
- *  unidad c/u — board+grupo, no por hito individual). Cada fase es binaria: "sin
- *  atraso" si ninguno de sus steps/hitos YA evaluados quedó atrasado sin excusar;
- *  "con atraso" si tiene al menos uno. Se responde UN responsable por fase (no por
+ *  unidad c/u — board+grupo, no por hito individual) + Iniciativas APROBADAS (1
+ *  unidad c/u, ver iniEntregaVerdict). Cada fase es binaria: "sin atraso" si
+ *  ninguno de sus steps/hitos YA evaluados quedó atrasado sin excusar; "con
+ *  atraso" si tiene al menos uno. Se responde UN responsable por fase (no por
  *  step/hito); si se excusa (responsable ≠ PM), toda la fase deja de penalizar.
  *  Una fase sin nada evaluado todavía no entra en el recorte (medición progresiva). */
-export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap): EntregaStats {
+export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
   let total = 0, onTime = 0;
 
   for (const r of reqs) {
@@ -399,6 +423,12 @@ export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: Del
     if (!faseTieneAtrasoSinExcusar(g, delays)) onTime++;
   }
 
+  for (const i of ini) {
+    const v = iniEntregaVerdict(i);
+    if (v === "on-time") { total++; onTime++; }
+    else if (v === "late" && !lateExcused(i.id, delays)) { total++; }
+  }
+
   const late = total - onTime;
   const pct = total ? Math.round((onTime / total) * 100) : null;
   return { total, onTime, late, pct };
@@ -408,7 +438,7 @@ export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: Del
  *  tarjeta principal del Control Tower (Players/KPI siguen excusando por
  *  responsable, ver calcEntregaStats). Una fase con al menos un atraso cuenta
  *  como "con atraso" sin importar el responsable asignado ni si es "PM". */
-export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[]): EntregaStats {
+export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[], ini: IniItem[] = []): EntregaStats {
   let total = 0, onTime = 0;
 
   for (const r of reqs) {
@@ -421,6 +451,12 @@ export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[]): Entrega
     if (g.items.length === 0) continue;
     total++;
     if (!g.items.some((it) => it.verdict === "late")) onTime++;
+  }
+
+  for (const i of ini) {
+    const v = iniEntregaVerdict(i);
+    if (v === "on-time") { total++; onTime++; }
+    else if (v === "late") { total++; }
   }
 
   const late = total - onTime;
@@ -803,16 +839,16 @@ export interface ReqPhaseDetail {
 }
 
 export interface EntregaRow {
-  id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto) — atribución "delay"
-  source: "REQ" | "Proyecto";
-  tipo: "PM" | "PML";                // Proyecto → "PM"; REQ → "PML"
+  id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto) / ini.id (Iniciativa) — atribución "delay"
+  source: "REQ" | "Proyecto" | "Iniciativa";
+  tipo: "PM" | "PML" | "INI";         // Proyecto → "PM"; REQ → "PML"; Iniciativa → "INI"
   name: string;                      // REQ: r.name. Proyecto: "<projName> · <fase>"
   context: string;                   // REQ: grupo. Proyecto: "board · grupo".
-  projCode: string;                  // "PM-003" del board; "" en REQ (no cuelgan de un proyecto)
-  projName: string;                  // "DUCAfast 2.0 GT"; "" en REQ
-  fase: string;                      // REQ/Proyecto: grupo (fase)
+  projCode: string;                  // "PM-003" del board; "" en REQ/Iniciativa (no cuelgan de un proyecto)
+  projName: string;                  // "DUCAfast 2.0 GT"; "" en REQ/Iniciativa
+  fase: string;                      // REQ/Proyecto/Iniciativa: grupo (fase)
   pm: string;
-  deadline: Date | null;             // REQ: su deadline. Proyecto: null (una fase no tiene una sola fecha).
+  deadline: Date | null;             // REQ: su deadline. Proyecto/Iniciativa: null (sin una sola fecha).
   verdict: "on-time" | "late";       // Proyecto: "late" si ≥1 step/hito de la fase quedó atrasado.
   /** Solo REQ: desglose de deadlines por fase (para acordeón). */
   phaseDetails?: ReqPhaseDetail[];
@@ -826,11 +862,13 @@ export interface EntregaRow {
 
 /** Filas de "Cumplimiento de Entrega": una por cada REQ + una por cada FASE de
  *  Proyecto con al menos un step/hito YA evaluado (mismo universo/agrupación que
- *  calcEntregaStats: REQ por r.id, fases por projPhaseKey). El responsable se
- *  asigna a la FASE completa, no a cada step/hito — el detalle de cuáles quedaron
- *  atrasados va en `itemsAtrasados`, solo informativo. El tipo distingue
- *  Proyecto ("PM") de REQ ("PML"). */
-export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[]): EntregaRow[] {
+ *  calcEntregaStats: REQ por r.id, fases por projPhaseKey) + una por cada
+ *  Iniciativa APROBADA evaluable (ver iniEntregaVerdict — "n/a" no entra, igual
+ *  que un REQ sin R Done). El responsable se asigna a la FASE/Iniciativa
+ *  completa, no a cada step/hito — el detalle de cuáles quedaron atrasados va en
+ *  `itemsAtrasados`, solo informativo. El tipo distingue Proyecto ("PM") de REQ
+ *  ("PML") de Iniciativa ("INI"). */
+export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], ini: IniItem[] = []): EntregaRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: EntregaRow[] = [];
   for (const r of reqs) {
@@ -854,12 +892,21 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
       itemsAtrasados, totalEvaluados: g.items.length, totalAtrasados: itemsAtrasados.length,
     });
   }
+  for (const i of ini) {
+    const v = iniEntregaVerdict(i);
+    if (v === "n/a") continue;
+    rows.push({
+      id: i.id, source: "Iniciativa", tipo: "INI", name: i.name, context: i.grupo,
+      projCode: "", projName: "", fase: i.grupo, pm: i.pm, deadline: null,
+      verdict: v, itemsAtrasados: [], totalEvaluados: 0, totalAtrasados: 0,
+    });
+  }
   return rows;
 }
 
 export interface LateResponsibleRow {
-  id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto)
-  source: "REQ" | "Proyecto";
+  id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto) / ini.id (Iniciativa)
+  source: "REQ" | "Proyecto" | "Iniciativa";
   name: string;
   pm: string;
   responsible: DelayResponsible | null; // null = sin asignar
@@ -868,12 +915,13 @@ export interface LateResponsibleRow {
 }
 
 /** Filas de atraso para el detalle de "Cumplimiento de Entrega": REQ (1 fila c/u)
- *  + FASES de Proyecto (1 fila c/u — mismo universo/agrupación que calcEntregaStats).
- *  Solo aparecen las fases con al menos un step/hito atrasado SIN excusar; el
- *  responsable mostrado es el de la fase completa (un solo responsable decide la
- *  excusa de todos sus atrasos). Solo "PM" o sin asignar penaliza el % (ver
- *  lateExcused); el resto excusa el atraso. */
-export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap): LateResponsibleRow[] {
+ *  + FASES de Proyecto (1 fila c/u — mismo universo/agrupación que calcEntregaStats)
+ *  + Iniciativas APROBADAS atrasadas (ver iniEntregaVerdict). Solo aparecen las
+ *  fases/iniciativas con atraso SIN excusar; el responsable mostrado es el de la
+ *  fase completa (un solo responsable decide la excusa de todos sus atrasos).
+ *  Solo "PM" o sin asignar penaliza el % (ver lateExcused); el resto excusa el
+ *  atraso. */
+export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap, ini: IniItem[] = []): LateResponsibleRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: LateResponsibleRow[] = [];
   for (const r of reqs) {
@@ -892,6 +940,11 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
       responsible: delays[g.key]?.responsible ?? null, onTime, doneTotal: g.items.length,
     });
   }
+
+  for (const i of ini) {
+    if (iniEntregaVerdict(i) !== "late" || lateExcused(i.id, delays)) continue;
+    rows.push({ id: i.id, source: "Iniciativa", name: i.name, pm: i.pm, responsible: delays[i.id]?.responsible ?? null });
+  }
   return rows;
 }
 
@@ -900,7 +953,7 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
  *  excusando por responsable, ver buildLateResponsibleRows). Lista TODA fase con
  *  al menos un atraso, sin importar el responsable asignado (se muestra igual,
  *  es solo informativo aquí). */
-export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap): LateResponsibleRow[] {
+export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap, ini: IniItem[] = []): LateResponsibleRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: LateResponsibleRow[] = [];
   for (const r of reqs) {
@@ -918,6 +971,11 @@ export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], 
       id: g.key, source: "Proyecto", name: `${projName} · ${g.fase}`, pm,
       responsible: delays[g.key]?.responsible ?? null, onTime, doneTotal: g.items.length,
     });
+  }
+
+  for (const i of ini) {
+    if (iniEntregaVerdict(i) !== "late") continue;
+    rows.push({ id: i.id, source: "Iniciativa", name: i.name, pm: i.pm, responsible: delays[i.id]?.responsible ?? null });
   }
   return rows;
 }
@@ -1127,6 +1185,7 @@ export function calcPmMetrics(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     delays,
+    ini.filter((i) => i.pm === pm),
   );
 
   const pmValueAll = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, false), confirmacionRoiPm[pm]);
