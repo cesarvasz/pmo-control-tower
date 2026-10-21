@@ -398,10 +398,9 @@ describe("iniEntregaVerdict (Cumplimiento de Entrega retrospectivo de Iniciativa
     expect(iniEntregaVerdict(ini({ estado: "EN TIEMPO", meet1: "2026-01-12", meet2: "2026-01-26" }))).toBe("n/a");
   });
 
-  it("APROBADA sin creación, Meeting 1 o Meeting 2 → n/a (no se puede reconstruir)", () => {
+  it("APROBADA sin creación o sin Meeting 1 → n/a (no hay NADA con qué evaluar)", () => {
     expect(iniEntregaVerdict(ini({ creacion: null, meet1: "2026-01-12", meet2: "2026-01-26" }))).toBe("n/a");
     expect(iniEntregaVerdict(ini({ meet2: "2026-01-26" }))).toBe("n/a"); // sin meet1
-    expect(iniEntregaVerdict(ini({ meet1: "2026-01-12" }))).toBe("n/a"); // sin meet2
   });
 
   it("ambas etapas dentro de su límite (5 y 10 días hábiles) → on-time", () => {
@@ -414,6 +413,11 @@ describe("iniEntregaVerdict (Cumplimiento de Entrega retrospectivo de Iniciativa
 
   it("Meeting 2 se pasó de 10 días hábiles desde Meeting 1 → late, aunque Meeting 1 esté a tiempo", () => {
     expect(iniEntregaVerdict(ini({ meet1: "2026-01-12", meet2: "2026-01-27" }))).toBe("late");
+  });
+
+  it("sin Meeting 2 registrado (caso real frecuente en Monday): evalúa solo la etapa 1", () => {
+    expect(iniEntregaVerdict(ini({ meet1: "2026-01-12" }))).toBe("on-time"); // etapa 1 a tiempo
+    expect(iniEntregaVerdict(ini({ meet1: "2026-01-13" }))).toBe("late");    // etapa 1 atrasada
   });
 });
 
@@ -431,9 +435,14 @@ describe("calcEntregaStats / calcEntregaStatsRaw con Iniciativas APROBADAS", () 
     expect(calcEntregaStats([], [], delays, inis)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
   });
 
-  it("una Iniciativa activa (no APROBADA) o sin fechas suficientes no cuenta (n/a)", () => {
-    const inis = [iniOnTime({ id: "i1", estado: "EN TIEMPO" }), iniOnTime({ id: "i2", meet2: undefined })];
+  it("una Iniciativa activa (no APROBADA) o sin ningún dato de reunión no cuenta (n/a)", () => {
+    const inis = [iniOnTime({ id: "i1", estado: "EN TIEMPO" }), iniOnTime({ id: "i2", meet1: undefined, meet2: undefined })];
     expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
+  });
+
+  it("sin Meeting 2 (caso real frecuente): evalúa con lo que hay (etapa 1) en vez de excluirla", () => {
+    const inis = [iniOnTime({ id: "i1", meet2: undefined })]; // meet1 a tiempo → on-time
+    expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
   });
 
   it("calcEntregaStatsRaw: cuenta la Iniciativa atrasada sin excusar (no recibe delays)", () => {

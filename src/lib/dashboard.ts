@@ -384,19 +384,27 @@ const faseTieneAtrasoSinExcusar = (g: FaseEntregaGroup, delays: DelayMap): boole
  * iniProcess), así que no sirven para saber si llegó a tiempo — hay que
  * reconstruirlo con las fechas REALES de reunión (`meet1`/`meet2`) contra los
  * límites de cada etapa del embudo (INI_LIMITS): creación → Meeting 1 (5 días
- * hábiles) y Meeting 1 → Meeting 2/Aprobación (10 días hábiles). "on-time" solo
- * si AMBAS etapas se cumplieron; "late" si cualquiera se pasó. "n/a" (no
- * evaluable, igual que un REQ sin R Done) si falta `creacion`, `meet1` o
- * `meet2` — no se puede reconstruir con certeza. Las Iniciativas que no están
- * APROBADA (todavía activas o en otras secciones del embudo) tampoco son
- * evaluables aquí: Cumplimiento de Entrega es retrospectivo, no mide "en curso".
+ * hábiles) y Meeting 1 → Meeting 2/Aprobación (10 días hábiles).
+ *
+ * En la práctica muchas Iniciativas ya aprobadas NO tienen Meeting 2 registrado
+ * en Monday (dato real: 14 de 19 casos) — exigirlo dejaba la mayoría afuera como
+ * "n/a". Por eso, si falta Meeting 2, se evalúa SOLO la etapa 1 (creación →
+ * Meeting 1) con los datos que sí existen, en vez de descartar la Iniciativa
+ * entera. "n/a" (no evaluable, igual que un REQ sin R Done) solo si falta
+ * `creacion` o `meet1` — ahí no hay ningún dato con el que reconstruir nada.
+ * Las Iniciativas que no están APROBADA (todavía activas o en otras secciones
+ * del embudo) tampoco son evaluables aquí: Cumplimiento de Entrega es
+ * retrospectivo, no mide "en curso".
  */
 export function iniEntregaVerdict(i: IniItem): "on-time" | "late" | "n/a" {
   if (i.estado !== "APROBADA") return "n/a";
   const meet1 = parseYMD(i.meet1);
-  const meet2 = parseYMD(i.meet2);
-  if (!i.creacion || !meet1 || !meet2) return "n/a";
+  if (!i.creacion || !meet1) return "n/a";
   const etapa1OK = businessDays(i.creacion, meet1, true) <= INI_LIMITS.New;
+
+  const meet2 = parseYMD(i.meet2);
+  if (!meet2) return etapa1OK ? "on-time" : "late"; // sin Meeting 2: solo cuenta la etapa 1
+
   const etapa2OK = businessDays(meet1, meet2, true) <= INI_LIMITS["Meeting 1"];
   return etapa1OK && etapa2OK ? "on-time" : "late";
 }
