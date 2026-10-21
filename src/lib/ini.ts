@@ -190,16 +190,21 @@ export function iniItemStatus(r: IniItem, calMap?: CalMap): HealthStatus {
 // ─────────────────────────────────────────────────────────────────────
 // POR DEFINIR (status Meeting 2)
 // ─────────────────────────────────────────────────────────────────────
-/** Días de calendario transcurridos desde la fecha de Meet 2 hasta hoy.
- *  Positivo = ya pasó; 0 = hoy; negativo = aún futura. null si no hay fecha. */
+/** Días HÁBILES transcurridos desde la fecha de Meet 2 hasta hoy (fin de semana
+ *  y asuetos excluidos, igual que el resto de los plazos de Iniciativas).
+ *  Positivo = ya pasó; 0 = hoy; negativo = todavía futura (días hábiles que
+ *  faltan). null si no hay fecha. `businessDays` no da negativos por sí sola,
+ *  así que para la fecha futura se invierte el orden de los argumentos. */
 export function porDefinirDias(r: IniItem): number | null {
   const m = parseYMD(r.meet2);
   if (!m) return null;
-  return Math.round((today().getTime() - m.getTime()) / 86_400_000);
+  const t = today();
+  if (m.getTime() > t.getTime()) return -businessDays(t, m, true);
+  return businessDays(m, t, true);
 }
 
 /** Salud de una iniciativa "Por Definir": off-track si ya pasó más de 1 día
- *  desde la fecha de Meet 2; on-track en caso contrario (incluye sin fecha). */
+ *  HÁBIL desde la fecha de Meet 2; on-track en caso contrario (incluye sin fecha). */
 export function porDefinirStatus(r: IniItem): "on-track" | "off-track" {
   const d = porDefinirDias(r);
   return d !== null && d > 1 ? "off-track" : "on-track";

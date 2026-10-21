@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess, porDefinirStatus, porDefinirDias, calcIniPMHealth, esperaReminderInfo, buildReminderMap } from "./ini";
-import { today } from "./business";
+import { today, addBusinessDays } from "./business";
 import type { IniItem, CalMap, MondayColumnValue, MondayItem } from "@/types";
 
 const daysFromToday = (n: number): Date => {
@@ -56,19 +56,33 @@ const ymdFromToday = (n: number): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-describe("porDefinirStatus", () => {
-  it("Meet 2 hace más de 1 día → off-track", () => {
-    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(-2) }))).toBe("off-track");
-    expect(porDefinirDias(iniItem({ meet2: ymdFromToday(-2) }))).toBe(2);
+// Desplazamiento en DÍAS HÁBILES (no calendario) respecto a hoy — usa
+// addBusinessDays para que el resultado sea siempre exacto sin importar qué
+// día de la semana sea "hoy" cuando corren los tests (a diferencia de
+// ymdFromToday, que es calendario puro y no sirve aquí).
+const ymdFromBizDays = (n: number): string => {
+  const d = addBusinessDays(today(), n, true);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+describe("porDefinirDias / porDefinirStatus (días HÁBILES — fin de semana y asuetos excluidos)", () => {
+  it("Meet 2 hace más de 1 día hábil → off-track", () => {
+    expect(porDefinirDias(iniItem({ meet2: ymdFromBizDays(-2) }))).toBe(2);
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromBizDays(-2) }))).toBe("off-track");
   });
-  it("Meet 2 hoy o ayer → on-track", () => {
-    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(0) }))).toBe("on-track");
-    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(-1) }))).toBe("on-track");
+  it("Meet 2 hoy o el día hábil anterior → on-track", () => {
+    expect(porDefinirDias(iniItem({ meet2: ymdFromBizDays(0) }))).toBe(0);
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromBizDays(0) }))).toBe("on-track");
+    expect(porDefinirDias(iniItem({ meet2: ymdFromBizDays(-1) }))).toBe(1);
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromBizDays(-1) }))).toBe("on-track");
   });
-  it("Meet 2 futura o sin fecha → on-track", () => {
-    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromToday(3) }))).toBe("on-track");
-    expect(porDefinirStatus(iniItem({ status: "Meeting 2" }))).toBe("on-track");
+  it("Meet 2 futura → negativo (días hábiles que faltan), y on-track", () => {
+    expect(porDefinirDias(iniItem({ meet2: ymdFromBizDays(3) }))).toBe(-3);
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2", meet2: ymdFromBizDays(3) }))).toBe("on-track");
+  });
+  it("sin fecha → null (días) / on-track (estado)", () => {
     expect(porDefinirDias(iniItem({ meet2: undefined }))).toBeNull();
+    expect(porDefinirStatus(iniItem({ status: "Meeting 2" }))).toBe("on-track");
   });
 });
 

@@ -370,7 +370,7 @@ function PorDefinirSection({ items }: { items: IniItem[] }) {
         <h2 className="text-base font-semibold text-[var(--text-primary)]">Por Definir</h2>
         <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">{items.length} items</span>
         <span className="rounded-full border px-2 py-0.5 text-[0.72rem] text-[var(--text-muted)]" style={{ background: "var(--code-bg)", borderColor: "var(--code-border)" }}>
-          Off track si pasó más de 1 día desde Meet 2
+          Off track si pasó más de 1 día hábil desde Meet 2
         </span>
         {offTrack > 0 && <Pill tone="bad" small>{offTrack} off track</Pill>}
       </div>
