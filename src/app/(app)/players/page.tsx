@@ -14,6 +14,7 @@ import { esRolCku } from "@/lib/permissions";
 import { buildBoardMaps, buildCkuScope, ckuDeEmail, cuentaEnPlayers, PLAYER_CKUS, sameCku, swapPmCku } from "@/lib/players";
 import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
 import { ErrorBox, Loader } from "@/components/ui";
+import CkuMedicion from "@/components/CkuMedicion";
 import PmScoreboard from "@/components/PmScoreboard";
 import { lookupEstrategia, type BoardHealthData } from "@/lib/proj";
 import type { DashboardData, EstrategiaInfo, IniItem, ProjBoard, ReqItem } from "@/types";
@@ -103,7 +104,13 @@ function Players({ data }: { data: DashboardData }) {
             boards={projBoards.filter((b) => sameCku(b.cku, cku))}
             boardHealthMap={boardHealthMap}
             estrategiaMap={estrategiaMap}
-          />
+          >
+            <CkuMedicion
+              scope={scopes.get(cku)!}
+              delays={ckuDelays} delaysOriginal={delays}
+              reproceso={ckuReproceso} reprocesoOriginal={reproceso}
+            />
+          </CkuPortfolio>
         ))}
       </div>
       </>)}
@@ -119,9 +126,11 @@ const ESTADO_LABEL: Record<string, string> = {
 
 // Iniciativas, PML y Proyectos vinculados a un CKU (los mismos que alimentan sus métricas).
 // Sponsor: Iniciativas y Proyectos lo traen propio; el PML lo toma de su Estrategia (igual que Costo $ x Unid Neg).
-function CkuPortfolio({ cku, ini, req, boards, boardHealthMap, estrategiaMap }: {
+function CkuPortfolio({ cku, ini, req, boards, boardHealthMap, estrategiaMap, children }: {
   cku: string; ini: IniItem[]; req: ReqItem[]; boards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>;
   estrategiaMap: Map<string, EstrategiaInfo>;
+  /** Contenido extra al pie de la tarjeta del CKU (el detalle de qué se mide). */
+  children?: React.ReactNode;
 }) {
   return (
     <div className="rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
@@ -157,6 +166,7 @@ function CkuPortfolio({ cku, ini, req, boards, boardHealthMap, estrategiaMap }: 
           })}
         </PortfolioList>
       </div>
+      {children}
     </div>
   );
 }
