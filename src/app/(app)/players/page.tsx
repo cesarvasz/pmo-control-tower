@@ -6,10 +6,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
+import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
 import { calcPmMetrics, confirmacionRoiPorCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import { KPI_W_CKU } from "@/lib/kpi";
-import { buildBoardMaps, buildCkuScope, cuentaEnPlayers, PLAYER_CKUS, sameCku, swapPmCku } from "@/lib/players";
+import { esRolCku } from "@/lib/permissions";
+import { buildBoardMaps, buildCkuScope, ckuDeEmail, cuentaEnPlayers, PLAYER_CKUS, sameCku, swapPmCku } from "@/lib/players";
 import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
 import { ErrorBox, Loader } from "@/components/ui";
 import PmScoreboard from "@/components/PmScoreboard";
@@ -25,7 +27,15 @@ export default function PlayersPage() {
 }
 
 function Players({ data }: { data: DashboardData }) {
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, estrategiaMap, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, estrategiaMap, directorio, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
+
+  // Un usuario con rol CKU ve SOLO su propia información: su CKU se saca de su correo
+  // (Directorio RH). Si el correo no corresponde a ningún player, no ve a nadie (no se
+  // le muestran los demás por omisión). Los demás roles ven a todos los CKUs.
+  const { me } = useMe();
+  const soloMio = esRolCku(me?.roleName);
+  const miCku = useMemo(() => (soloMio ? ckuDeEmail(directorio, me?.email ?? "") : null), [soloMio, directorio, me?.email]);
+  const ckus = useMemo(() => (soloMio ? (miCku ? [miCku] : []) : PLAYER_CKUS), [soloMio, miCku]);
 
   const { boardHealthMap } = useMemo(
     // Players por CKU: el EVM de cada proyecto se mide SOLO con su Fase 3 (plantilla antigua y nueva).
@@ -33,8 +43,8 @@ function Players({ data }: { data: DashboardData }) {
     [proj, projBoards, projItemBaselines],
   );
   const scopes = useMemo(
-    () => new Map(PLAYER_CKUS.map((cku) => [cku, buildCkuScope(cku, { ini, req, proj, projBoards, npsRecords })])),
-    [ini, req, proj, projBoards, npsRecords],
+    () => new Map(ckus.map((cku) => [cku, buildCkuScope(cku, { ini, req, proj, projBoards, npsRecords })])),
+    [ckus, ini, req, proj, projBoards, npsRecords],
   );
 
   // Para un CKU, lo que penaliza es el responsable "CKU" (en vez de "PM") — ver swapPmCku.
@@ -67,19 +77,25 @@ function Players({ data }: { data: DashboardData }) {
       <div className="mb-4 flex items-center gap-2.5">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">Players</h1>
         <span className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[0.72rem] text-[var(--text-secondary)]">
-          {PLAYER_CKUS.length} CKUs
+          {soloMio ? "Tu información" : `${ckus.length} CKUs`}
         </span>
       </div>
+      {ckus.length === 0 ? (
+        <div className="rounded-xl border p-4 text-[0.85rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border)" }}>
+          Tu usuario tiene el rol CKU, pero su correo{me?.email ? ` (${me.email})` : ""} no está asociado a ningún CKU en el
+          Directorio RH, así que no hay información para mostrarte. Pide a un Admin que lo revise.
+        </div>
+      ) : (<>
       <PmScoreboard
-        pms={PLAYER_CKUS} ini={ini} req={req} proj={proj} projBoards={projBoards}
+        pms={ckus} ini={ini} req={req} proj={proj} projBoards={projBoards}
         boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords}
         delays={ckuDelays} reproceso={ckuReproceso}
         getRow={getRow} weights={KPI_W_CKU} nameHeader="CKU" label={(cku) => cku} subtitle={subtitle} ponderadoPorFuente
       />
 
-      <h2 className="mb-3 mt-8 text-base font-semibold text-[var(--text-primary)]">Qué maneja cada CKU</h2>
+      <h2 className="mb-3 mt-8 text-base font-semibold text-[var(--text-primary)]">{soloMio ? "Qué manejas" : "Qué maneja cada CKU"}</h2>
       <div className="space-y-4">
-        {PLAYER_CKUS.map((cku) => (
+        {ckus.map((cku) => (
           <CkuPortfolio
             key={cku} cku={cku}
             ini={ini.filter((r) => sameCku(r.cku, cku) && cuentaEnPlayers(r))}
@@ -90,6 +106,7 @@ function Players({ data }: { data: DashboardData }) {
           />
         ))}
       </div>
+      </>)}
     </div>
   );
 }

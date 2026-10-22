@@ -6,7 +6,7 @@ import type { DelayMap } from "@/lib/delay";
 import { RH_EMAIL_COL, RH_ROLE_COL } from "@/lib/dashboardData";
 import { buildAllProjectMetrics, boardHealthFromMetrics, npsStepIds } from "@/lib/projectMetrics";
 import { buildProjectSummary } from "@/lib/projSummary";
-import type { IniItem, MondayItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem } from "@/types";
+import type { DirectorioEntry, IniItem, MondayItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem } from "@/types";
 
 /** Portafolio asignado a cada PM (orden fijo en la lista de PMs). */
 export const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
@@ -65,6 +65,16 @@ export const PLAYER_CKUS = ["Javier Juarez", "Victoria Escobar"];
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 
 export const sameCku = (a: string | undefined, b: string) => normName(a ?? "") === normName(b);
+
+/** CKU (de PLAYER_CKUS) al que pertenece este correo según el Directorio RH, o null si el
+ *  correo no está en el Directorio o esa persona no es uno de los players. Es lo que permite
+ *  que un usuario con rol CKU vea solo su propia información. */
+export function ckuDeEmail(directorio: DirectorioEntry[], email: string): string | null {
+  const want = email.trim().toLowerCase();
+  if (!want) return null;
+  const nombre = directorio.find((d) => d.email.trim().toLowerCase() === want)?.name;
+  return nombre ? PLAYER_CKUS.find((c) => sameCku(nombre, c)) ?? null : null;
+}
 
 /** Las Iniciativas en "Sin Valor Def" (estado EN_ESPERA) no se toman en cuenta en Players:
  *  ni en el conteo, ni en la lista de lo que maneja cada CKU, ni en sus métricas. */

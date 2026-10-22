@@ -11,6 +11,7 @@
 
 import { useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
+import { esRolCku } from "@/lib/permissions";
 import { FilterReset, SectionHeader } from "@/components/ui";
 import MultiSelect from "@/components/MultiSelect";
 import BuscableSelect from "@/components/tramites/BuscableSelect";
@@ -38,7 +39,6 @@ type DimFiltro = "meses" | "usuarios" | "analistas" | "clientes" | "mesas" | "pr
 // Vista restringida del rol CKU: solo línea de tiempo, tiempos del proceso
 // Aduana y costo/beneficio, con estos filtros fijos (solo el periodo se mueve).
 const FILTROS_CKU: Filtros = { ...FILTROS_VACIOS, ducafast: "si", procesos: ["Aduana"], metrica: "mediana" };
-const esRolCku = (roleName: string | undefined) => roleName?.trim().toLowerCase() === "cku";
 
 function Bloque({ titulo, badge, children, nota }: {
   titulo: string; badge?: string; children: React.ReactNode; nota?: string;

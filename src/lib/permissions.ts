@@ -46,6 +46,12 @@ export interface AppUser {
   updatedAt?: string;
 }
 
+/** ¿El rol del usuario es "CKU"? Se compara por nombre (sin importar mayúsculas ni espacios):
+ *  los roles se crean desde /roles, no hay un id fijo. */
+export function esRolCku(roleName: string | undefined): boolean {
+  return roleName?.trim().toLowerCase() === "cku";
+}
+
 export function emptyPermissions(): Permissions {
   return { pages: {}, actions: {}, groups: {} };
 }
