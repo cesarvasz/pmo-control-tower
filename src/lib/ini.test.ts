@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess, porDefinirStatus, porDefinirDias, calcIniPMHealth, esperaReminderInfo, buildReminderMap } from "./ini";
 import { today, addBusinessDays } from "./business";
+import { buildNameResolver } from "./proj";
 import type { IniItem, CalMap, MondayColumnValue, MondayItem } from "@/types";
 
 const daysFromToday = (n: number): Date => {
@@ -203,5 +204,31 @@ describe("iniProcess", () => {
     expect(r.estado).toBe("Sin fecha");
     expect(r.dias).toBeNull();
     expect(r.deadline).toBeNull();
+  });
+
+  describe("Sponsor (lookup del board; llega como email)", () => {
+    const SPONSOR_COL = "lookup_mm3bdj38";
+    const conSponsor = (name: string, email: string): MondayItem => ({
+      id: name, name, group: { title: "Grupo" },
+      column_values: [col(INI_COL_ID.status, "PM Aprobado"), { id: SPONSOR_COL, text: "", display_value: email }],
+    });
+    const directorio: MondayItem[] = [{
+      id: "1", name: "Gabriela Pineda", group: { title: "RH" },
+      column_values: [col("email_mkz5qg4v", "gpineda@c807.com")],
+    }];
+
+    it("convierte el email del Sponsor en su nombre con el Directorio RH", () => {
+      const [r] = iniProcess([conSponsor("A", "GPineda@c807.com ")], buildNameResolver(directorio));
+      expect(r.sponsor).toBe("Gabriela Pineda"); // sin importar mayúsculas ni espacios
+    });
+
+    it("si el email no está en el Directorio deja el valor tal cual; sin resolvedor tampoco lo toca", () => {
+      expect(iniProcess([conSponsor("B", "otro@c807.com")], buildNameResolver(directorio))[0].sponsor).toBe("otro@c807.com");
+      expect(iniProcess([conSponsor("C", "gpineda@c807.com")])[0].sponsor).toBe("gpineda@c807.com");
+    });
+
+    it("una Iniciativa sin Sponsor queda con texto vacío (no rompe)", () => {
+      expect(iniProcess([mkIni("D", [col(INI_COL_ID.status, "PM Aprobado")])], buildNameResolver(directorio))[0].sponsor).toBe("");
+    });
   });
 });

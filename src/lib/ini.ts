@@ -41,9 +41,12 @@ const INI_COL = {
   planFuturo: "date_mm40dvyn",
   pku: "boolean_mm3gbngt",      // checkbox: marcado → no se envían recordatorios
   ckuMail: "lookup_mm3baydr",   // mirror: email del CKU (destinatario del recordatorio)
+  sponsor: "lookup_mm3bdj38",   // mirror: Sponsor (llega como email) — la misma columna de la que los Proyectos heredan el suyo
 };
 
-export function iniProcess(items: MondayItem[]): IniItem[] {
+/** `resolveName` convierte el email del Sponsor en nombre (Directorio RH, ver buildNameResolver);
+ *  sin él se deja el valor tal como viene de Monday. */
+export function iniProcess(items: MondayItem[], resolveName: (v: string) => string = (v) => v): IniItem[] {
   const t = today();
   const processed = items
     .map((item): IniItem | null => {
@@ -129,7 +132,11 @@ export function iniProcess(items: MondayItem[]): IniItem[] {
     });
   // CKU por TÍTULO de columna (igual que buildIniLookup), pareado por posición con los items.
   return processed.flatMap((r, i): IniItem[] =>
-    r ? [{ ...r, cku: colByTitleAny(items[i].column_values, "CKU").trim() }] : [],
+    r ? [{
+      ...r,
+      cku: colByTitleAny(items[i].column_values, "CKU").trim(),
+      sponsor: resolveName(colDisplay(items[i].column_values, INI_COL.sponsor).trim()),
+    }] : [],
   );
 }
 

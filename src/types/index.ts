@@ -273,6 +273,7 @@ export interface IniItem {
   pku?: string;       // checkbox PKU (marcado = no se envían recordatorios) — solo EN_ESPERA
   ckuMail?: string;   // email del CKU (destinatario del recordatorio) — solo EN_ESPERA
   cku?: string;       // nombre del CKU de la Iniciativa (relación "CKU") — base de la página Players
+  sponsor?: string;   // nombre del Sponsor (lookup de la Iniciativa; Monday lo trae como email, se resuelve con el Directorio RH)
   planFuturo?: Date | null;
   recordatorio?: Date | null;
 }

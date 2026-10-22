@@ -13,8 +13,8 @@ import { buildBoardMaps, buildCkuScope, PLAYER_CKUS, sameCku, swapPmCku } from "
 import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
 import { ErrorBox, Loader } from "@/components/ui";
 import PmScoreboard from "@/components/PmScoreboard";
-import type { BoardHealthData } from "@/lib/proj";
-import type { DashboardData, IniItem, ProjBoard, ReqItem } from "@/types";
+import { lookupEstrategia, type BoardHealthData } from "@/lib/proj";
+import type { DashboardData, EstrategiaInfo, IniItem, ProjBoard, ReqItem } from "@/types";
 
 export default function PlayersPage() {
   const { data, loading, error } = useData();
@@ -25,7 +25,7 @@ export default function PlayersPage() {
 }
 
 function Players({ data }: { data: DashboardData }) {
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, estrategiaMap, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
 
   const { boardHealthMap } = useMemo(
     // Players por CKU: el EVM de cada proyecto se mide SOLO con su Fase 3 (plantilla antigua y nueva).
@@ -86,6 +86,7 @@ function Players({ data }: { data: DashboardData }) {
             req={req.filter((r) => sameCku(r.cku, cku))}
             boards={projBoards.filter((b) => sameCku(b.cku, cku))}
             boardHealthMap={boardHealthMap}
+            estrategiaMap={estrategiaMap}
           />
         ))}
       </div>
@@ -100,8 +101,10 @@ const ESTADO_LABEL: Record<string, string> = {
 };
 
 // Iniciativas, PML y Proyectos vinculados a un CKU (los mismos que alimentan sus métricas).
-function CkuPortfolio({ cku, ini, req, boards, boardHealthMap }: {
+// Sponsor: Iniciativas y Proyectos lo traen propio; el PML lo toma de su Estrategia (igual que Costo $ x Unid Neg).
+function CkuPortfolio({ cku, ini, req, boards, boardHealthMap, estrategiaMap }: {
   cku: string; ini: IniItem[]; req: ReqItem[]; boards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>;
+  estrategiaMap: Map<string, EstrategiaInfo>;
 }) {
   return (
     <div className="rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
@@ -114,13 +117,14 @@ function CkuPortfolio({ cku, ini, req, boards, boardHealthMap }: {
       <div className="grid grid-cols-1 gap-x-6 gap-y-4 p-4 lg:grid-cols-3">
         <PortfolioList title="Iniciativas" count={ini.length}>
           {ini.map((r) => (
-            <PortfolioRow key={r.id || r.name} name={r.name} sub={[r.grupo, ESTADO_LABEL[r.estado] ?? r.estado, r.pm && `PM: ${r.pm}`]} />
+            <PortfolioRow key={r.id || r.name} name={r.name} sub={[r.grupo, ESTADO_LABEL[r.estado] ?? r.estado, r.pm && `PM: ${r.pm}`, r.sponsor && `Sponsor: ${r.sponsor}`]} />
           ))}
         </PortfolioList>
         <PortfolioList title="PML" count={req.length}>
-          {req.map((r) => (
-            <PortfolioRow key={r.id} name={r.name} sub={[r.grupo, ESTADO_LABEL[r.estado] ?? r.estado, r.pm && `PM: ${r.pm}`]} />
-          ))}
+          {req.map((r) => {
+            const sponsor = lookupEstrategia(estrategiaMap, r.estrategia)?.sponsor;
+            return <PortfolioRow key={r.id} name={r.name} sub={[r.grupo, ESTADO_LABEL[r.estado] ?? r.estado, r.pm && `PM: ${r.pm}`, sponsor && `Sponsor: ${sponsor}`]} />;
+          })}
         </PortfolioList>
         <PortfolioList title="Proyectos" count={boards.length}>
           {boards.map((b) => {
@@ -129,7 +133,7 @@ function CkuPortfolio({ cku, ini, req, boards, boardHealthMap }: {
             return (
               <PortfolioRow
                 key={b.id} name={b.name}
-                sub={[b.pm && `PM: ${b.pm}`]}
+                sub={[b.pm && `PM: ${b.pm}`, b.sponsor && `Sponsor: ${b.sponsor}`]}
                 badge={hi != null ? { text: `EVM ${Math.round(hi * 100)}%`, color: st ? HEALTH_CFG[st].color : "#6b7280" } : undefined}
               />
             );
@@ -157,7 +161,7 @@ function PortfolioRow({ name, sub, badge }: { name: string; sub: (string | false
     <li className="flex items-start justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--bg-hover)]">
       <div className="min-w-0">
         <div className="truncate text-[0.82rem] font-semibold text-[var(--text-primary)]" title={name}>{name}</div>
-        {line && <div className="truncate text-[0.68rem] text-[var(--text-muted)]">{line}</div>}
+        {line && <div className="text-[0.68rem] text-[var(--text-muted)]">{line}</div>}
       </div>
       {badge && <span className="shrink-0 text-[0.72rem] font-bold tabular-nums" style={{ color: badge.color }}>{badge.text}</span>}
     </li>

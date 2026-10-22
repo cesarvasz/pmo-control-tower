@@ -271,6 +271,12 @@ function buildEmailNameMap(hrItems: MondayItem[]): Map<string, string> {
   return map;
 }
 
+/** Convierte un email en el nombre del recurso (Directorio RH); si no hay match deja el valor tal cual. */
+export function buildNameResolver(hrItems: MondayItem[]): (v: string) => string {
+  const emailToName = buildEmailNameMap(hrItems);
+  return (v) => emailToName.get(v.trim().toLowerCase()) ?? v;
+}
+
 /** Normaliza un nombre para el match Iniciativa ↔ Proyecto (sin acentos, minúsculas). */
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 /** Separa el nombre de un board de proyecto en su código y su nombre:
@@ -336,8 +342,7 @@ export function buildIniLookup(
   iniItems: MondayItem[],
   hrItems: MondayItem[] = [],
 ): IniLookup {
-  const emailToName = buildEmailNameMap(hrItems);
-  const resolveName = (v: string) => emailToName.get(v.trim().toLowerCase()) ?? v;
+  const resolveName = buildNameResolver(hrItems);
   const byId = new Map<string, IniLookupVal>();
   const byName = new Map<string, IniLookupVal>();
   for (const it of iniItems) {
@@ -368,8 +373,7 @@ export const EST_COLS = { uNeg: "text_mkx5ehzc", pais: "text_mkx5fa5a", sponsor:
 /** Mapa nombre-normalizado de Estrategia → { U Neg, País, Sponsor } desde "Estrategia 🔝".
  *  El Sponsor viene como email → se resuelve a nombre con el Directorio RH (fallback al valor). */
 export function buildEstrategiaMap(estItems: MondayItem[], hrItems: MondayItem[] = []): Map<string, EstrategiaInfo> {
-  const emailToName = buildEmailNameMap(hrItems);
-  const resolveName = (v: string) => emailToName.get(v.trim().toLowerCase()) ?? v;
+  const resolveName = buildNameResolver(hrItems);
   const map = new Map<string, EstrategiaInfo>();
   for (const it of estItems) {
     map.set(normName(it.name), {

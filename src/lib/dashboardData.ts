@@ -8,7 +8,7 @@
 
 import { buildCalMap, buildReminderMap, iniProcess } from "@/lib/ini";
 import { buildDevTeamRoster } from "@/lib/devTimeline";
-import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
+import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, buildNameResolver, projEnrichBoards, projProcess } from "@/lib/proj";
 import { reqProcess } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
 import type { DashboardData, DashboardRaw, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
@@ -19,7 +19,7 @@ export const RH_EMAIL_COL = "email_mkz5qg4v";
 export const RH_ROLE_COL = "dropdown_mkz53tjj";
 
 export function buildDashboardData(raw: DashboardRaw): DashboardData {
-  const ini = iniProcess(raw.iniItems);
+  const ini = iniProcess(raw.iniItems, buildNameResolver(raw.hrItems ?? []));
   const benefitTypeMap = buildBenefitTypeMap(raw.iniItems);
   const req = reqProcess(raw.reqItems, raw.baselines ?? {}, benefitTypeMap);
   const proj: ProjItem[] = [];
