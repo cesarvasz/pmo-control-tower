@@ -4,9 +4,10 @@
 // Tower, pero cada player es un CKU y se mide solo con las Iniciativas, PML y
 // Proyectos vinculados a él (ver buildCkuScope).
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
-import { calcPmMetrics } from "@/lib/dashboard";
+import { authedFetch } from "@/lib/api";
+import { calcPmMetrics, confirmacionRoiPorCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import { KPI_W_CKU } from "@/lib/kpi";
 import { buildBoardMaps, buildCkuScope, PLAYER_CKUS, sameCku, swapPmCku } from "@/lib/players";
 import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
@@ -40,10 +41,21 @@ function Players({ data }: { data: DashboardData }) {
   const ckuDelays = useMemo(() => swapPmCku(delays), [delays]);
   const ckuReproceso = useMemo(() => swapPmCku(reproceso), [reproceso]);
 
+  // Confirmación vía ROI: Javier toma los tiempos de Luis y Victoria los de David
+  // (ver CONFIRMACION_ROI_CKU). Fetch aparte (fuente externa lenta); vacío mientras
+  // carga, y entonces la Confirmación sigue siendo la de Monday.
+  const [confirmacionRoiCku, setConfirmacionRoiCku] = useState<Record<string, ConfirmacionRoiPm>>({});
+  useEffect(() => {
+    authedFetch("/api/dashboard/confirmacion-roi")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((d: { porPm?: Record<string, ConfirmacionRoiPm> }) => setConfirmacionRoiCku(confirmacionRoiPorCku(d.porPm ?? {})))
+      .catch((err) => console.warn("Confirmación ROI: no se pudo cargar:", err));
+  }, []);
+
   const getRow = useCallback((cku: string) => {
     const s = scopes.get(cku)!;
-    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU);
-  }, [scopes, boardHealthMap, calMap, ckuDelays, ckuReproceso]);
+    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku);
+  }, [scopes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku]);
 
   const subtitle = (cku: string) => {
     const s = scopes.get(cku)!;

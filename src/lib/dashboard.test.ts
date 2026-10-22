@@ -26,8 +26,10 @@ import {
   calcConfirmacionRoi,
   calcConfirmacionRoiDetalle,
   confirmacionRoiPorPm,
+  confirmacionRoiPorCku,
   type ConfirmacionRoiPm,
 } from "./dashboard";
+import { KPI_W_CKU } from "./kpi";
 import { today } from "./business";
 import { metodologiaKey, mesDe } from "./metodologia";
 import type { BoardHealthData } from "./proj";
@@ -1225,6 +1227,33 @@ describe("Confirmación vía ROI por PM (Luis: T0 + T4→T5 · David: T1→T3)",
     const m = calcPmMetrics("Otro PM", [], [], [], projBoards, bhm, new Map(), [], {}, {}, undefined, {}, confirmacionRoiPorPm(detalle));
     expect(m.pmValueHard.confirmacionRoi).toBeUndefined();
     expect(m.pmValueHard.confirmacionBenefit).toBe(0);
+  });
+
+  it("los CKUs heredan el tramo: Javier = el de Luis, Victoria = el de David", () => {
+    const porCku = confirmacionRoiPorCku(confirmacionRoiPorPm(detalle));
+    expect(porCku["Javier Juarez"]).toEqual(confirmacionRoiPorPm(detalle)["Luis Aguilar"]);
+    expect(porCku["Victoria Escobar"]).toEqual(confirmacionRoiPorPm(detalle)["David Guzmán"]);
+    expect(porCku["Javier Juarez"].monto).toBe(20_000);
+    expect(porCku["Victoria Escobar"].monto).toBe(50_000);
+    expect(Object.keys(porCku).sort()).toEqual(["Javier Juarez", "Victoria Escobar"]);
+  });
+
+  it("sin reparto de ROI (todavía cargando) los CKUs quedan con la Confirmación de Monday", () => {
+    expect(confirmacionRoiPorCku({})).toEqual({});
+  });
+
+  it("calcPmMetrics de un CKU usa su Confirmación de ROI y mueve su KPI con los pesos de CKU", () => {
+    const projBoards = [board({ id: "b1", pm: "Javier Juarez", benefitType: "HardSaving" })];
+    const projItems = [proj({ boardId: "b1", boardName: "P1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 100, benefit: 500 })];
+    const bhm = buildBoardHealthMap(projItems, projBoards, {});
+    const run = (roi: Record<string, ConfirmacionRoiPm>) =>
+      calcPmMetrics("Javier Juarez", [], [], projItems, projBoards, bhm, new Map(), [], {}, {}, KPI_W_CKU, undefined, roi);
+
+    const monday = run({});
+    const conRoi = run(confirmacionRoiPorCku(confirmacionRoiPorPm(detalle)));
+    expect(conRoi.pmValueHard.confirmacionBenefit).toBe(20_000);
+    expect(conRoi.pmValueHard.confirmacionRoi).toMatch(/T0/);
+    expect(conRoi.kpi.score).toBeGreaterThan(monday.kpi.score);
   });
 });
 

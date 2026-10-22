@@ -229,6 +229,21 @@ export function confirmacionRoiPorPm(d: ConfirmacionRoiDetalle): Record<string, 
   ]));
 }
 
+/** CKU → PM de cuyo tramo de ROI hereda su Confirmación en /players: Javier toma
+ *  los tiempos de Luis (T0 + T4→T5) y Victoria los de David (T1→T3). Los tramos
+ *  salen de CONFIRMACION_ROI_PM, no se repiten aquí. */
+export const CONFIRMACION_ROI_CKU: Record<string, string> = {
+  "Javier Juarez": "Luis Aguilar",
+  "Victoria Escobar": "David Guzmán",
+};
+
+/** `porPm` (el que devuelve el endpoint) re-indexado por CKU. */
+export function confirmacionRoiPorCku(porPm: Record<string, ConfirmacionRoiPm>): Record<string, ConfirmacionRoiPm> {
+  return Object.fromEntries(
+    Object.entries(CONFIRMACION_ROI_CKU).filter(([, pm]) => porPm[pm]).map(([cku, pm]) => [cku, porPm[pm]]),
+  );
+}
+
 /** Sustituye la Confirmación VPC de Monday de un PM por la de ROI, si le aplica.
  *  Solo cambia el beneficio confirmado (ROI no trae costo); Aprobación y el
  *  detalle por PML/proyecto siguen siendo los de Monday. */
