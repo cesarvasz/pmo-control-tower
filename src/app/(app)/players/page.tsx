@@ -9,7 +9,7 @@ import { useData } from "@/context/DataContext";
 import { authedFetch } from "@/lib/api";
 import { calcPmMetrics, confirmacionRoiPorCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import { KPI_W_CKU } from "@/lib/kpi";
-import { buildBoardMaps, buildCkuScope, PLAYER_CKUS, sameCku, swapPmCku } from "@/lib/players";
+import { buildBoardMaps, buildCkuScope, cuentaEnPlayers, PLAYER_CKUS, sameCku, swapPmCku } from "@/lib/players";
 import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
 import { ErrorBox, Loader } from "@/components/ui";
 import PmScoreboard from "@/components/PmScoreboard";
@@ -82,7 +82,7 @@ function Players({ data }: { data: DashboardData }) {
         {PLAYER_CKUS.map((cku) => (
           <CkuPortfolio
             key={cku} cku={cku}
-            ini={ini.filter((r) => sameCku(r.cku, cku))}
+            ini={ini.filter((r) => sameCku(r.cku, cku) && cuentaEnPlayers(r))}
             req={req.filter((r) => sameCku(r.cku, cku))}
             boards={projBoards.filter((b) => sameCku(b.cku, cku))}
             boardHealthMap={boardHealthMap}

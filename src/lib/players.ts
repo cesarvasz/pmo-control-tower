@@ -66,6 +66,10 @@ const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim(
 
 export const sameCku = (a: string | undefined, b: string) => normName(a ?? "") === normName(b);
 
+/** Las Iniciativas en "Sin Valor Def" (estado EN_ESPERA) no se toman en cuenta en Players:
+ *  ni en el conteo, ni en la lista de lo que maneja cada CKU, ni en sus métricas. */
+export const cuentaEnPlayers = (i: IniItem) => i.estado !== "EN_ESPERA";
+
 export interface CkuScope {
   cku: string;
   ini: IniItem[];
@@ -84,7 +88,7 @@ export function buildCkuScope(
   data: { ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; npsRecords: NpsRecord[] },
 ): CkuScope {
   const mine = (v: string | undefined) => sameCku(v, cku);
-  const ini = data.ini.filter((r) => mine(r.cku)).map((r) => ({ ...r, pm: cku }));
+  const ini = data.ini.filter((r) => mine(r.cku) && cuentaEnPlayers(r)).map((r) => ({ ...r, pm: cku }));
   const req = data.req.filter((r) => mine(r.cku)).map((r) => ({ ...r, pm: cku }));
   const projBoards = data.projBoards.filter((b) => mine(b.cku)).map((b) => ({ ...b, pm: cku }));
   const boardIds = new Set(projBoards.map((b) => b.id));

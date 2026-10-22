@@ -22,7 +22,7 @@ describe("swapPmCku — para un CKU penaliza 'CKU' en vez de 'PM'", () => {
   });
 });
 
-import { buildCkuScope, ckuNameForEmail } from "@/lib/players";
+import { buildCkuScope, ckuNameForEmail, cuentaEnPlayers } from "@/lib/players";
 import { calcNpsFromRecords } from "@/lib/nps";
 import type { MondayItem, NpsRecord } from "@/types";
 
@@ -72,5 +72,24 @@ describe("NPS de encuestas enviadas por CKU", () => {
       npsRecords: [rec({ pm: "PM1", reqId: "r1" })] } as Parameters<typeof buildCkuScope>[1];
     const s = buildCkuScope("Javier Juarez", data);
     expect(calcNpsFromRecords(s.npsRecords, "Javier Juarez").nps).toBeNull();
+  });
+});
+
+describe("Iniciativas en 'Sin Valor Def' (EN_ESPERA) no se toman en cuenta en Players", () => {
+  const ini = (id: string, estado: string, cku = "Javier Juarez") => ({ id, estado, cku, pm: "Luis" });
+  const data = (inis: ReturnType<typeof ini>[]) =>
+    ({ ini: inis, req: [], proj: [], projBoards: [], npsRecords: [] }) as never as Parameters<typeof buildCkuScope>[1];
+
+  it("cuentaEnPlayers deja fuera solo EN_ESPERA", () => {
+    expect(cuentaEnPlayers(ini("a", "EN_ESPERA") as never)).toBe(false);
+    for (const e of ["APROBADA", "EN TIEMPO", "ATRASADO", "POR_DEFINIR", "PLAN_FUTURO", "CAMBIO_ESTRATEGIA"])
+      expect(cuentaEnPlayers(ini("a", e) as never)).toBe(true);
+  });
+
+  it("el scope del CKU no incluye sus Iniciativas en espera (las de otro CKU tampoco se mezclan)", () => {
+    const s = buildCkuScope("Javier Juarez", data([
+      ini("i1", "APROBADA"), ini("i2", "EN_ESPERA"), ini("i3", "EN TIEMPO"), ini("i4", "EN_ESPERA", "Victoria Escobar"),
+    ]));
+    expect(s.ini.map((i) => i.id)).toEqual(["i1", "i3"]);
   });
 });
