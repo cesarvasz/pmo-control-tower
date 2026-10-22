@@ -1,13 +1,14 @@
 "use client";
 
 // Pestaña "Metodología" de /calidad-cumplimiento. Una fila por PM (más Cesar
-// Vasquez, que aún no tiene tarjeta de KPI) y una columna por mes. Cada mes nuevo
-// aparece solo, con la nota en 100%; el Admin la va bajando a mano durante el mes.
-// La nota VIGENTE (última columna, la del mes en curso) es la que alimenta el
-// componente "Cumplimiento Metodología VALOR" (peso 15) del KPI del PM — ver
-// lib/metodologia.ts. Los no-admin ven las notas de solo lectura.
+// Vasquez, que aún no tiene tarjeta de KPI) y dos columnas por mes (Nota +
+// Explicación). Cada mes nuevo aparece solo, con la nota en 100%; el Admin la
+// va bajando a mano durante el mes. La nota VIGENTE (última columna, la del
+// mes en curso) es la que alimenta el componente "Cumplimiento Metodología
+// VALOR" (peso 15) del KPI del PM — ver lib/metodologia.ts. Los no-admin ven
+// las notas y explicaciones de solo lectura.
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
@@ -60,21 +61,18 @@ function NotaInput({ persona, mes, califs }: { persona: string; mes: string; cal
   };
 
   return (
-    <span className="flex flex-col items-center gap-1">
-      <span className="inline-flex items-center gap-1">
-        <input
-          type="number" min={0} max={100} step={1} inputMode="numeric"
-          value={draft} disabled={saving}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
-          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          className="w-16 rounded border bg-transparent px-1.5 py-0.5 text-right text-[0.78rem] font-semibold tabular-nums"
-          style={{ borderColor: guardada != null ? "var(--accent)" : "var(--border)", color: "var(--text-primary)" }}
-          title={guardada != null ? "Nota editada por el Admin" : "100% por defecto — aún sin cambios"}
-        />
-        <span className="text-[0.72rem] text-[var(--text-muted)]">%</span>
-      </span>
-      <ComentarioInput persona={persona} mes={mes} califs={califs} canEdit />
+    <span className="inline-flex items-center gap-1">
+      <input
+        type="number" min={0} max={100} step={1} inputMode="numeric"
+        value={draft} disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        className="w-16 rounded border bg-transparent px-1.5 py-0.5 text-right text-[0.78rem] font-semibold tabular-nums"
+        style={{ borderColor: guardada != null ? "var(--accent)" : "var(--border)", color: "var(--text-primary)" }}
+        title={guardada != null ? "Nota editada por el Admin" : "100% por defecto — aún sin cambios"}
+      />
+      <span className="text-[0.72rem] text-[var(--text-muted)]">%</span>
     </span>
   );
 }
@@ -125,7 +123,7 @@ function ComentarioInput({ persona, mes, califs, canEdit }: { persona: string; m
       maxLength={COMENTARIO_MAX_LEN}
       placeholder={canEdit ? "¿Por qué esta nota?" : ""}
       title={comentarioGuardado}
-      className="w-56 rounded border bg-transparent px-1.5 py-0.5 text-[0.74rem]"
+      className="w-80 rounded border bg-transparent px-1.5 py-0.5 text-[0.74rem]"
       style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
     />
   );
@@ -155,12 +153,20 @@ export default function MetodologiaTab({ pms, califs }: { pms: string[]; califs:
           <table className="pmo">
             <thead>
               <tr>
-                <th>Persona</th>
+                <th rowSpan={2}>Persona</th>
                 {meses.map((m) => (
-                  <th key={m} style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                  <th key={m} colSpan={2} style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                     {etiquetaMesCorta(m)}
                     {m === vigente && <span className="ml-1 text-[0.6rem] font-normal text-[var(--accent-light)]">· vigente</span>}
                   </th>
+                ))}
+              </tr>
+              <tr>
+                {meses.map((m) => (
+                  <Fragment key={m}>
+                    <th style={{ textAlign: "center", whiteSpace: "nowrap" }}>Nota</th>
+                    <th style={{ textAlign: "left", whiteSpace: "nowrap" }}>Explicación</th>
+                  </Fragment>
                 ))}
               </tr>
             </thead>
@@ -179,16 +185,18 @@ export default function MetodologiaTab({ pms, califs }: { pms: string[]; califs:
                     const calif = califs[metodologiaKey(m, p)];
                     const rowKey = `${m}|${p}|${calif?.score ?? ""}|${calif?.comentario ?? ""}`;
                     return (
-                      <td key={m} style={{ textAlign: "center" }}>
-                        {canRate ? (
-                          <NotaInput key={rowKey} persona={p} mes={m} califs={califs} />
-                        ) : (
-                          <span className="flex flex-col items-center gap-1">
+                      <Fragment key={m}>
+                        <td style={{ textAlign: "center" }}>
+                          {canRate ? (
+                            <NotaInput key={rowKey} persona={p} mes={m} califs={califs} />
+                          ) : (
                             <Pill tone={tono(metodologiaNota(califs, p, m))}>{metodologiaNota(califs, p, m)}%</Pill>
-                            <ComentarioInput key={rowKey} persona={p} mes={m} califs={califs} />
-                          </span>
-                        )}
-                      </td>
+                          )}
+                        </td>
+                        <td>
+                          <ComentarioInput key={rowKey} persona={p} mes={m} califs={califs} canEdit={canRate} />
+                        </td>
+                      </Fragment>
                     );
                   })}
                 </tr>
