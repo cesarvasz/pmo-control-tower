@@ -54,7 +54,7 @@ function Players({ data }: { data: DashboardData }) {
 
   const getRow = useCallback((cku: string) => {
     const s = scopes.get(cku)!;
-    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku);
+    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku, true);
   }, [scopes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku]);
 
   const subtitle = (cku: string) => {
@@ -74,7 +74,7 @@ function Players({ data }: { data: DashboardData }) {
         pms={PLAYER_CKUS} ini={ini} req={req} proj={proj} projBoards={projBoards}
         boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords}
         delays={ckuDelays} reproceso={ckuReproceso}
-        getRow={getRow} weights={KPI_W_CKU} nameHeader="CKU" label={(cku) => cku} subtitle={subtitle}
+        getRow={getRow} weights={KPI_W_CKU} nameHeader="CKU" label={(cku) => cku} subtitle={subtitle} ponderadoPorFuente
       />
 
       <h2 className="mb-3 mt-8 text-base font-semibold text-[var(--text-primary)]">Qué maneja cada CKU</h2>

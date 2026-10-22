@@ -432,29 +432,55 @@ export function iniEntregaVerdict(i: IniItem): "on-time" | "late" | "n/a" {
  *  step/hito); si se excusa (responsable ≠ PM), toda la fase deja de penalizar.
  *  Una fase sin nada evaluado todavía no entra en el recorte (medición progresiva). */
 export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
-  let total = 0, onTime = 0;
+  const f = entregaPorFuente(reqs, projs, delays, ini);
+  const total = f.req.total + f.proj.total + f.ini.total;
+  const onTime = f.req.onTime + f.proj.onTime + f.ini.onTime;
+  const late = total - onTime;
+  const pct = total ? Math.round((onTime / total) * 100) : null;
+  return { total, onTime, late, pct };
+}
+
+interface FuenteEntrega { total: number; onTime: number }
+
+/** Conteo de Cumplimiento de Entrega (con excusa por responsable) POR FUENTE:
+ *  PML (REQ cerrados), Proyectos (fases) e Iniciativas aprobadas. Base común de
+ *  calcEntregaStats (todo junto) y calcEntregaStatsPonderado (una nota por fuente). */
+function entregaPorFuente(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[]): { req: FuenteEntrega; proj: FuenteEntrega; ini: FuenteEntrega } {
+  const out = { req: { total: 0, onTime: 0 }, proj: { total: 0, onTime: 0 }, ini: { total: 0, onTime: 0 } };
 
   for (const r of reqs) {
     const v = r.onTime.verdict;
-    if (v === "on-time") { total++; onTime++; }
-    else if (v === "late" && !lateExcused(r.id, delays)) { total++; }
+    if (v === "on-time") { out.req.total++; out.req.onTime++; }
+    else if (v === "late" && !lateExcused(r.id, delays)) { out.req.total++; }
   }
 
   for (const g of groupFaseEntrega(projs).values()) {
     if (g.items.length === 0) continue; // nada evaluado aún en esta fase
-    total++;
-    if (!faseTieneAtrasoSinExcusar(g, delays)) onTime++;
+    out.proj.total++;
+    if (!faseTieneAtrasoSinExcusar(g, delays)) out.proj.onTime++;
   }
 
   for (const i of ini) {
     const v = iniEntregaVerdict(i);
-    if (v === "on-time") { total++; onTime++; }
-    else if (v === "late" && !lateExcused(i.id, delays)) { total++; }
+    if (v === "on-time") { out.ini.total++; out.ini.onTime++; }
+    else if (v === "late" && !lateExcused(i.id, delays)) { out.ini.total++; }
   }
 
-  const late = total - onTime;
-  const pct = total ? Math.round((onTime / total) * 100) : null;
-  return { total, onTime, late, pct };
+  return out;
+}
+
+/** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
+ *  lib/health.ts): el % a tiempo de cada fuente por separado (Iniciativas, PML,
+ *  Proyectos), combinados 10% · 20% · 70%. Una fuente sin unidades no cuenta y su
+ *  peso se reparte entre las demás. Los conteos (`total`/`onTime`/`late`) siguen
+ *  siendo la suma de todas las unidades; solo `pct` cambia respecto a calcEntregaStats. */
+export function calcEntregaStatsPonderado(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
+  const f = entregaPorFuente(reqs, projs, delays, ini);
+  const total = f.req.total + f.proj.total + f.ini.total;
+  const onTime = f.req.onTime + f.proj.onTime + f.ini.onTime;
+  const frac = (x: FuenteEntrega) => (x.total ? x.onTime / x.total : null);
+  const ponderado = weightedEvm({ ini: frac(f.ini), req: frac(f.req), proj: frac(f.proj) });
+  return { total, onTime, late: total - onTime, pct: ponderado === null ? null : Math.round(ponderado * 100) };
 }
 
 /** Variante "todos los atrasados" de Cumplimiento de Entrega — SOLO para la
@@ -807,19 +833,39 @@ export const iniUnidadesCalidad = (ini: IniItem[]): IniItem[] =>
  *  `pct` es el PROMEDIO de las notas (no la fracción de unidades 100% limpias);
  *  `limpias`/`conReproceso` siguen siendo conteos, para las tarjetas de resumen. */
 export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
-  const reqUnits = reqs.filter((r) => r.estado === "CERRADO");
-  const stepUnits = calidadUnits(projs);
-  const iniUnits = iniUnidadesCalidad(ini);
-  const total = reqUnits.length + stepUnits.length + iniUnits.length;
-  const notas = [
-    ...reqUnits.map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
-    ...stepUnits.map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
-    ...iniUnits.map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
-  ];
-  const limpias = notas.filter((n) => n === 100).length;
+  const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini);
+  const notas = [...n.req, ...n.proj, ...n.ini];
+  const total = notas.length;
+  const limpias = notas.filter((x) => x === 100).length;
   const conReproceso = total - limpias;
   const pct = total ? Math.round(notas.reduce((a, b) => a + b, 0) / total) : null;
   return { total, limpias, conReproceso, pct };
+}
+
+/** Notas (0/50/100) de Calidad de cada unidad en scope, separadas por fuente:
+ *  PML cerrados, Fase 3 de Proyectos e Iniciativas aprobadas. Base común de
+ *  calcReprocesoStats (todo junto) y calcReprocesoStatsPonderado (una nota por fuente). */
+function notasReprocesoPorFuente(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[]): { req: number[]; proj: number[]; ini: number[] } {
+  return {
+    req: reqs.filter((r) => r.estado === "CERRADO").map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
+    proj: calidadUnits(projs).map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
+    ini: iniUnidadesCalidad(ini).map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
+  };
+}
+
+/** Calidad de Entregas medida COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
+ *  lib/health.ts): la nota promedio de cada fuente por separado (Iniciativas, PML,
+ *  Proyectos), combinadas 10% · 20% · 70%. Una fuente sin unidades no cuenta y su
+ *  peso se reparte entre las demás. Los conteos (`total`/`limpias`/`conReproceso`)
+ *  siguen siendo los de todas las unidades juntas; solo `pct` cambia. */
+export function calcReprocesoStatsPonderado(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
+  const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini);
+  const notas = [...n.req, ...n.proj, ...n.ini];
+  const total = notas.length;
+  const limpias = notas.filter((x) => x === 100).length;
+  const media = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length / 100 : null);
+  const ponderado = weightedEvm({ ini: media(n.ini), req: media(n.req), proj: media(n.proj) });
+  return { total, limpias, conReproceso: total - limpias, pct: ponderado === null ? null : Math.round(ponderado * 100) };
 }
 
 /** % de unidades "limpias" de reproceso (ideal 100%). null si no hay unidades en scope
@@ -1181,6 +1227,9 @@ export function calcPmMetrics(
   metodologia: MetodologiaMap = {},
   /** Confirmación vía ROI de los PMs de CONFIRMACION_ROI_PM (reemplaza la de Monday). */
   confirmacionRoiPm: Record<string, ConfirmacionRoiPm> = {},
+  /** Cumplimiento de Entrega y Calidad de Entregas medidos como el EVM (nota por fuente
+   *  ponderada 10/20/70, ver calcEntregaStatsPonderado). Hoy solo los Players por CKU. */
+  ponderarPorFuente = false,
 ) {
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
 
@@ -1204,7 +1253,7 @@ export function calcPmMetrics(
   const nps = calcNpsFromRecords(npsRecords, pm);
 
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = (ponderarPorFuente ? calcEntregaStatsPonderado : calcEntregaStats)(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     delays,
@@ -1216,12 +1265,12 @@ export function calcPmMetrics(
   // Beneficio mostrado (scoreboard) = solo Aprobación VPB, igual que la tarjeta de PM.
   const benefit = pmValueHard.aprobacionBenefit;
 
-  const reprocesoPct = calcReprocesoPct(
+  const reprocesoPct = (ponderarPorFuente ? calcReprocesoStatsPonderado : calcReprocesoStats)(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     reproceso,
     ini.filter((i) => i.pm === pm),
-  );
+  ).pct;
   const metodologiaPct = metodologiaActual(metodologia, pm);
   const kpi = computeKpi({
     evm: evmRaw, nps: nps.nps,

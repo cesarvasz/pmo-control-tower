@@ -13,6 +13,9 @@ import { kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion, KPI_W, type 
 
 // Meses YA terminados del año (el en curso no cuenta) — base de la meta del Confirmado.
 const mesesTerminados = () => today().getMonth();
+
+const POR_FUENTE_TIP = (medida: string) =>
+  `Medido como el EVM: ${medida} de cada fuente por separado, combinadas Iniciativas 10% · PML 20% · Proyectos 70% (una fuente sin unidades no cuenta y su peso se reparte entre las demás)`;
 import { pmLabel } from "@/lib/players";
 import type { MetodologiaMap } from "@/lib/metodologia";
 import type { BoardHealthData } from "@/lib/proj";
@@ -34,7 +37,9 @@ export function playerPalette(pct: number): { bg: string; fg: string } {
 // Scoreboard comparativo de PMs: tabla ordenada por KPI (desc). KPI y $ abren su detalle.
 type PmRow = ReturnType<typeof calcPmMetrics>;
 
-export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W }: {
+export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W, ponderadoPorFuente = false }: {
+  /** Calidad y Cumplimiento se midieron como el EVM (Iniciativas 10% · PML 20% · Proyectos 70%) — solo cambia el texto de ayuda. */
+  ponderadoPorFuente?: boolean;
   /** Pesos del KPI que se muestran en los encabezados (los mismos con los que se calculó getRow). */
   weights?: KpiWeights;
   pms: string[]; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[];
@@ -140,12 +145,12 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                   {r.nps.nps !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("nps")} pts</div>}
                 </td>
                 {/* Calidad de Entregas — reproceso (peso 10) */}
-                <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : "% de unidades limpias (PML cerrados + fases completadas) sin reproceso imputable al PM"}>
+                <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : ponderadoPorFuente ? POR_FUENTE_TIP("nota promedio de Calidad") : "% de unidades limpias (PML cerrados + fases completadas) sin reproceso imputable al PM"}>
                   <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</div>
                   {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
                 </td>
                 {/* Cumplimiento de Entrega — % a tiempo (peso 10) */}
-                <td className={`${td} text-center`}>
+                <td className={`${td} text-center`} title={ponderadoPorFuente && r.entPct !== null ? POR_FUENTE_TIP("% a tiempo") : undefined}>
                   <div className="tabular-nums font-bold" style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</div>
                   {r.entPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("entregas")} pts</div>}
                 </td>

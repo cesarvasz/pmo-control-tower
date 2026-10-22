@@ -7,10 +7,12 @@ import {
   buildBoardHealthMap,
   calcPmMetrics,
   calcEntregaStats,
+  calcEntregaStatsPonderado,
   calcEntregaStatsRaw,
   iniEntregaVerdict,
   calcReprocesoPct,
   calcReprocesoStats,
+  calcReprocesoStatsPonderado,
   calcReprocesoStatsRaw,
   iniUnidadesCalidad,
   calcReprocesoCascade,
@@ -450,6 +452,84 @@ describe("calcEntregaStats / calcEntregaStatsRaw con Iniciativas APROBADAS", () 
   it("calcEntregaStatsRaw: cuenta la Iniciativa atrasada sin excusar (no recibe delays)", () => {
     const inis = [iniOnTime({ id: "i1" }), iniLate({ id: "i2" })];
     expect(calcEntregaStatsRaw([], [], inis)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+  });
+});
+
+describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada 10/20/70)", () => {
+  const creacion = new Date(2026, 0, 5);
+  const iniOnTime = (id: string): IniItem =>
+    ({ id, estado: "APROBADA", creacion, meet1: "2026-01-12", meet2: "2026-01-26", pm: "Luis" }) as IniItem;
+  const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
+  // Fase 3 ("Launch"), Done y con ventana CPM propia → recuperado: nota 50 sin responsable, 100 con uno ≠ PM.
+  const stepF3 = (id: string) => proj({ id, grupo: "Launch", status: "Done", startDate: CPM_INI, deadline: CPM_FIN });
+
+  it("Cumplimiento: cada fuente aporta su propio %, no su volumen — 1 PML a tiempo pesa 20% aunque haya 9 fases atrasadas", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
+    // 9 fases atrasadas (board+grupo distintos): como grupo todo junto serían 1 de 10 a tiempo = 10%.
+    const projs = Array.from({ length: 9 }, (_, i) => proj({ id: `p${i}`, boardId: `b${i}`, grupo: "Fase 1", entrega: "late" }));
+    expect(calcEntregaStats(reqs, projs, {}).pct).toBe(10);
+    // Ponderado: PML 100% (peso 20) y Proyectos 0% (peso 70) → 20 / 90 = 22%.
+    expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(22);
+  });
+
+  it("Cumplimiento: con las tres fuentes aplica 10/20/70 exacto", () => {
+    const inis = [iniOnTime("i1")];                                                    // 100%
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50%
+    const projs = [proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];                    // 0%
+    // 100·0.10 + 50·0.20 + 0·0.70 = 20
+    expect(calcEntregaStatsPonderado(reqs, projs, {}, inis).pct).toBe(20);
+  });
+
+  it("Cumplimiento: una fuente sin unidades no cuenta y su peso se reparte (solo Proyectos → su propio %)", () => {
+    const projs = [
+      proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "on-time" }),
+      proj({ id: "p2", boardId: "b2", grupo: "Fase 1", entrega: "late" }),
+    ];
+    expect(calcEntregaStatsPonderado([], projs, {}).pct).toBe(50);
+    expect(calcEntregaStatsPonderado([], [], {}).pct).toBeNull();
+  });
+
+  it("Cumplimiento: los conteos siguen siendo los de todas las unidades; solo cambia pct", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
+    const projs = [proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
+    const normal = calcEntregaStats(reqs, projs, {});
+    const pond = calcEntregaStatsPonderado(reqs, projs, {});
+    expect({ total: pond.total, onTime: pond.onTime, late: pond.late }).toEqual({ total: normal.total, onTime: normal.onTime, late: normal.late });
+  });
+
+  it("Cumplimiento: el mismo atraso excusado por un responsable ≠ PM tampoco penaliza en la variante ponderada", () => {
+    const projs = [proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
+    expect(calcEntregaStatsPonderado([], projs, { "b1::Fase 1": { responsible: "Sponsor" } }).pct).toBe(100);
+  });
+
+  it("Calidad: cada fuente aporta su nota promedio — 1 PML limpio pesa 20% aunque haya 9 steps sin asignar", () => {
+    const reqs = [req({ id: "r1", estado: "CERRADO" })];
+    const projs = Array.from({ length: 9 }, (_, i) => stepF3(`p${i}`));
+    const m: DelayMap = { r1: { responsible: "VPA" } };                     // PML excusado → 100
+    // Todo junto: (100 + 9·50) / 10 = 55. Ponderado: PML 100 (peso 20), Proyectos 50 (peso 70) → (20 + 35) / 0.9 = 61.
+    expect(calcReprocesoStats(reqs, projs, m).pct).toBe(55);
+    expect(calcReprocesoStatsPonderado(reqs, projs, m).pct).toBe(61);
+  });
+
+  it("Calidad: con las tres fuentes aplica 10/20/70 exacto y una fuente vacía no cuenta", () => {
+    const ini = { id: "INI-1", estado: "APROBADA", pm: "Luis" } as IniItem;
+    const reqs = [req({ id: "r1", estado: "CERRADO" })];
+    const m: DelayMap = { "INI-1": { responsible: "VPA" }, p1: { responsible: "Sin reproceso" } };
+    // Iniciativa 100·0.10 + PML sin asignar 0·0.20 + Proyecto (100) 100·0.70 = 80
+    expect(calcReprocesoStatsPonderado(reqs, [stepF3("p1")], m, [ini]).pct).toBe(80);
+    expect(calcReprocesoStatsPonderado([], [], {}).pct).toBeNull();
+  });
+
+  it("calcPmMetrics solo usa la variante ponderada si se pide (los PM siguen igual por defecto)", () => {
+    const reqs = [req({ id: "r1", pm: "Luis", onTime: onTime("on-time"), estado: "CERRADO" })];
+    const projBoards = [board({ id: "b1", pm: "Luis" })];
+    const projs = Array.from({ length: 3 }, (_, i) => proj({ id: `p${i}`, boardId: "b1", grupo: `Fase ${i}`, entrega: "late" }));
+    const bhm = buildBoardHealthMap(projs, projBoards, {});
+    const run = (ponderar: boolean) =>
+      calcPmMetrics("Luis", [], reqs, projs, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, ponderar);
+    // 1 PML a tiempo + 3 fases atrasadas: junto 1/4 = 25%; ponderado (20·1 + 70·0) / 90 = 22%.
+    expect(run(false).entPct).toBe(25);
+    expect(run(true).entPct).toBe(22);
   });
 });
 
