@@ -5,20 +5,29 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useMe } from "@/context/PermissionsContext";
 import { auth } from "@/lib/firebase";
 import { authedFetch } from "@/lib/api";
+import { esRolSponsor } from "@/lib/permissions";
 import { calcProjEntrega, projProcess } from "@/lib/proj";
 import { buildDashboardData } from "@/lib/dashboardData";
+import { nombreDeEmail, scopeToSponsor } from "@/lib/sponsorScope";
 import type { BoardRefreshResponse } from "@/app/api/dashboard/board/[boardId]/route";
 import type { AtrasoReparto, AttributionKind, DashboardData, DashboardRaw, DelayResponsible, ProjItem } from "@/types";
 
 interface DataContextValue {
+  /** Lo que ven las páginas. Para un usuario con rol "Sponsor" ya viene recortado a lo ligado
+   *  a su nombre (ver lib/sponsorScope); para los demás roles es el dashboard completo. */
   data: DashboardData | null;
+  /** Presente cuando `data` está recortado: de quién es el alcance (nombre null = su correo no
+   *  está en el Directorio RH y por eso no se le muestra nada). null = sin recorte. */
+  alcance: { rol: "Sponsor"; nombre: string | null } | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -51,8 +60,22 @@ const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [data, setData] = useState<DashboardData | null>(null);
+  const { me } = useMe();
+  // Estado COMPLETO: todas las mutaciones optimistas y los refrescos trabajan sobre él.
+  const [fullData, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Rol "Sponsor": solo ve lo ligado a su nombre, que se saca de su correo (Directorio RH).
+  const alcance = useMemo<DataContextValue["alcance"]>(
+    () => (fullData && esRolSponsor(me?.roleName)
+      ? { rol: "Sponsor", nombre: nombreDeEmail(fullData.directorio, me?.email ?? "") }
+      : null),
+    [fullData, me?.roleName, me?.email],
+  );
+  const data = useMemo(
+    () => (fullData && alcance ? scopeToSponsor(fullData, alcance.nombre) : fullData),
+    [fullData, alcance],
+  );
   const [error, setError] = useState<string | null>(null);
   const fetchedOnce = useRef(false);
 
@@ -205,7 +228,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance }}>
+    <DataContext.Provider value={{ data, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance }}>
       {children}
     </DataContext.Provider>
   );

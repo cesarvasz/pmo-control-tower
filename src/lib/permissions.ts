@@ -52,6 +52,11 @@ export function esRolCku(roleName: string | undefined): boolean {
   return roleName?.trim().toLowerCase() === "cku";
 }
 
+/** ¿El rol del usuario es "Sponsor"? Mismo criterio que esRolCku. */
+export function esRolSponsor(roleName: string | undefined): boolean {
+  return roleName?.trim().toLowerCase() === "sponsor";
+}
+
 export function emptyPermissions(): Permissions {
   return { pages: {}, actions: {}, groups: {} };
 }

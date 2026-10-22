@@ -37,6 +37,24 @@ function RefreshOverlay() {
   );
 }
 
+/** Aviso para quien ve una versión recortada de los datos (rol Sponsor): de quién es el alcance,
+ *  o por qué no hay nada que mostrar si su correo no está en el Directorio RH. */
+function AlcanceBanner() {
+  const { alcance } = useData();
+  if (!alcance) return null;
+  return (
+    <div
+      className="mb-4 rounded-lg border px-4 py-2.5 text-[0.82rem] print:hidden"
+      style={{ background: "var(--bg-accent-soft)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
+      role="note"
+    >
+      {alcance.nombre
+        ? <>Estás viendo solo lo ligado a tu nombre como {alcance.rol}: <strong className="text-[var(--text-primary)]">{alcance.nombre}</strong>.</>
+        : <>Tu usuario tiene el rol {alcance.rol}, pero tu correo no está asociado a nadie en el Directorio RH, así que no hay información para mostrarte. Pide a un Admin que lo revise.</>}
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const { me, loading: meLoading, error: meError } = useMe();
@@ -111,6 +129,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <Topbar onMenuClick={() => setMobileSidebarOpen(true)} />
         </div>
         <main className="px-4 py-4 md:px-8 md:py-7 print:p-0">
+          {allowed && <AlcanceBanner />}
           {allowed ? (
             <ErrorBoundary key={pathname}>{children}</ErrorBoundary>
           ) : (
