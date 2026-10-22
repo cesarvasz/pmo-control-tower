@@ -22,9 +22,10 @@ export interface PageDef {
    */
   requiredAction?: string;
   /**
-   * Página pública: siempre visible en el sidebar y accesible, sin gating de
-   * permisos. Para contenido informativo/de referencia (no datos sensibles).
-   * No aparece en el editor de grupos/roles.
+   * Página pública: visible para todos POR DEFECTO (incluido un rol sin
+   * páginas, como el de los usuarios nuevos), salvo que el rol la desmarque
+   * explícitamente (pages[key] === false). Para contenido informativo/de
+   * referencia (no datos sensibles).
    */
   public?: boolean;
 }
@@ -88,7 +89,7 @@ export function pathToPageKey(pathname: string): string | null {
 /** ¿El usuario con estos permisos puede ver esta página? Misma regla usada
  *  por el sidebar y por el gating de (app)/layout.tsx. */
 export function canSeePage(perms: Permissions | undefined, page: PageDef): boolean {
-  if (page.public) return true;
+  if (page.public) return perms?.pages?.[page.key] !== false;
   if (page.requiredAction) return !!perms?.actions?.[page.requiredAction];
   return !!perms?.pages?.[page.key];
 }

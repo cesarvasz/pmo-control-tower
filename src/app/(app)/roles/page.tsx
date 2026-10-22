@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useGroups } from "@/context/GroupsContext";
 import { authedFetch } from "@/lib/api";
 import type { Permissions, Role } from "@/lib/permissions";
-import { ACTIONS, canSeePage, PAGES, resolvePermissions, withCatalog } from "@/lib/registry";
+import { ACTIONS, canSeePage, PAGES, resolvePermissions, withCatalog, type PageDef } from "@/lib/registry";
 import Modal from "@/components/Modal";
 import { ErrorBox, Loader, SectionHeader } from "@/components/ui";
 
@@ -55,6 +55,8 @@ export default function RolesPage() {
     setDraft({ id: r.id, name: r.name, permissions: withCatalog(r.permissions), isSystem: !!r.isSystem });
   };
 
+  // Misma regla que canSeePage: una pública sin valor guardado cuenta como marcada.
+  const marcada = (pages: Record<string, boolean>, p: PageDef) => (p.public ? pages[p.key] !== false : !!pages[p.key]);
   const togglePage = (key: string, val: boolean) =>
     setDraft((d) => (d ? { ...d, permissions: { ...d.permissions, pages: { ...d.permissions.pages, [key]: val } } } : d));
   const toggleAction = (key: string, val: boolean) =>
@@ -127,7 +129,7 @@ export default function RolesPage() {
           // Solo páginas de contenido (sin requiredAction): las de administración
           // se rigen por "Puede hacer", no tiene sentido listarlas como ve/no ve.
           // canSeePage (no el mapa crudo eff.pages) porque las públicas (VALOR,
-          // Desarrollo Timeliness, Visor) se ven siempre, tengan o no el checkbox.
+          // Desarrollo Timeliness, Visor) se ven salvo que el rol las desmarque.
           const contentPages = PAGES.filter((p) => !p.requiredAction);
           const pages = contentPages.filter((p) => canSeePage(eff, p));
           const hiddenPages = contentPages.filter((p) => !canSeePage(eff, p));
@@ -213,7 +215,7 @@ export default function RolesPage() {
                             <div className="mt-2.5 flex flex-col gap-2 pl-7">
                               {gPages.map((p) => (
                                 <label key={p.key} className={`flex items-center gap-2.5 text-sm ${gOn ? "text-[var(--text-muted)]" : "cursor-pointer text-[var(--text-primary)]"}`}>
-                                  <input type="checkbox" disabled={gOn} checked={gOn || !!draft.permissions.pages[p.key]} onChange={(e) => togglePage(p.key, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+                                  <input type="checkbox" disabled={gOn} checked={gOn || marcada(draft.permissions.pages, p)} onChange={(e) => togglePage(p.key, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
                                   <span>{p.icon} {p.label}</span>
                                 </label>
                               ))}
@@ -234,7 +236,7 @@ export default function RolesPage() {
                   <div className="flex flex-col gap-2">
                     {loosePages.map((p) => (
                       <label key={p.key} className="flex cursor-pointer items-center gap-2.5 text-sm text-[var(--text-primary)]">
-                        <input type="checkbox" checked={!!draft.permissions.pages[p.key]} onChange={(e) => togglePage(p.key, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+                        <input type="checkbox" checked={marcada(draft.permissions.pages, p)} onChange={(e) => togglePage(p.key, e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
                         <span>{p.icon} {p.label}</span>
                       </label>
                     ))}
