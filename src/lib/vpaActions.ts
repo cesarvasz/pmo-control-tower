@@ -21,15 +21,13 @@ const isFaseVpa125 = (grupo: string) => isFase1(grupo) || isFase2(grupo) || isFa
  *  isVpaProjStep, que depende de una lista fija de nombres conocidos). */
 const isCesarVpa = (responsible: string) => norm(responsible).includes(norm("César Vásquez"));
 
-/** "Future Steps" que TODAVÍA no urge: no ha iniciado (classifyDev === "future"
- *  — esto incluye tanto el texto literal "Future Steps" como un status VACÍO,
- *  que Monday también pinta como "Future Steps" aunque el texto crudo de la
- *  columna venga "") y su Limit Date no está vencido ni es hoy (estado "EN
- *  TIEMPO"). No es una acción real del VPA todavía, así que no debe contar —
- *  a diferencia de uno ya vencido/para hoy, que sí es una acción pendiente
+/** "Future Steps": no ha iniciado (classifyDev === "future" — esto incluye
+ *  tanto el texto literal "Future Steps" como un status VACÍO, que Monday
+ *  también pinta como "Future Steps" aunque el texto crudo de la columna
+ *  venga "") No es una acción real del VPA todavía, sin importar si su Limit
+ *  Date ya venció o es hoy — mientras nadie lo haya arrancado, no cuenta
  *  (ver buildVpaActions). */
-const isFutureStepsNotDue = (status: string, estado: string) =>
-  classifyDev(status) === "future" && estado === "EN TIEMPO";
+const isFutureSteps = (status: string) => classifyDev(status) === "future";
 
 /** Acción del VPA unificada (proyecto o REQ) para el resumen y el detalle. */
 export interface VpaAction {
@@ -89,24 +87,23 @@ const REQ_VPA_FASE: Record<string, string> = {
  * alguno quedara con otro Responsible; (c) "Plan de beneficios acordados con
  * CFO" en la fase 2, aunque su status esté vacío/sin iniciar, porque es el
  * gate que el VPA tiene que empujar para que el proyecto avance — pero, igual
- * que (a) y (b), sujeto a la regla de "Future Steps sin urgencia" de abajo:
- * si todavía falta mucho para su Limit Date, tampoco cuenta todavía.
+ * que (a) y (b), sujeto a la regla de "Future Steps" de abajo: mientras nadie
+ * lo haya arrancado, tampoco cuenta.
  *
  * El status de Monday decide si cuenta en los números o solo en el
  * historial: "Done" → `done: true` (no se cuenta como pendiente, pero sigue
- * en la lista para el detalle); "Working on it" / "Stuck" / "Future steps"
- * → `done: false` (se muestra y cuenta como pendiente, bajo su `estado`
- * calculado a partir de Limit Date: En Tiempo / Hoy / Atrasado). EXCEPCIÓN:
- * un "Future steps" (o status vacío, que Monday también pinta como "Future
- * Steps") cuyo Limit Date todavía no vence ni es hoy (estado "EN TIEMPO") NO
- * cuenta — no ha iniciado y no hay urgencia real, así que todavía no es una
- * acción del VPA (ver isFutureStepsNotDue). Sin excepciones: ni siquiera el
- * gate del CFO se muestra antes de que sea urgente.
+ * en la lista para el detalle); "Working on it" / "Stuck" → `done: false`
+ * (se muestra y cuenta como pendiente, bajo su `estado` calculado a partir de
+ * Limit Date: En Tiempo / Hoy / Atrasado). EXCEPCIÓN: un "Future steps" (o
+ * status vacío, que Monday también pinta como "Future Steps") NUNCA cuenta,
+ * sin importar su Limit Date — nadie lo ha arrancado, así que todavía no es
+ * una acción real del VPA (ver isFutureSteps). Sin excepciones: ni siquiera
+ * el gate del CFO se muestra mientras siga en Future Steps.
  */
 export function buildVpaActions(proj: ProjItem[], req: ReqItem[]): VpaAction[] {
   const vpaProj: VpaAction[] = proj
     .filter((r) => {
-      if (isFutureStepsNotDue(r.status, r.estado)) return false;
+      if (isFutureSteps(r.status)) return false;
       if (isFaseVpa125(r.grupo) && isCesarVpa(r.responsible)) return true;
       if (isCfoPlanStep(r.name) && esFase2(r.grupo)) return true;
       return isVpaProjStep(r.name) && (r.status === "Working on it" || r.status === "Done");
