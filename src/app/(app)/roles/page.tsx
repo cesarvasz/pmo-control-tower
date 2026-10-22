@@ -177,11 +177,11 @@ export default function RolesPage() {
       <Modal open={draft !== null} onClose={() => setDraft(null)} width={560}>
         {draft && (
           <>
-            <div className="flex items-center justify-between border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
+            <div className="flex shrink-0 items-center justify-between border-b px-6 pb-4 pt-5" style={{ borderColor: "var(--border)" }}>
               <span className="text-[1.05rem] font-bold text-[var(--text-primary)]">{draft.id ? "Editar rol" : "Nuevo rol"}</span>
               <button onClick={() => setDraft(null)} className="rounded-md px-1.5 text-xl leading-none text-[var(--text-muted)] hover:text-[var(--text-primary)]">✕</button>
             </div>
-            <div className="flex flex-col gap-5 px-6 pb-6 pt-5">
+            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-6 pt-5">
               <label className="flex flex-col gap-1.5">
                 <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Nombre del rol</span>
                 <input
@@ -255,7 +255,9 @@ export default function RolesPage() {
                   </div>
                 </div>
               )}
+            </div>
 
+            <div className="flex shrink-0 flex-col gap-3 border-t px-6 py-4" style={{ borderColor: "var(--border)" }}>
               {formError && (
                 <div className="rounded-lg border px-3 py-2 text-xs" style={{ background: "var(--pill-atrasado-bg)", borderColor: "var(--pill-atrasado-br)", color: "var(--pill-atrasado-fg)" }}>{formError}</div>
               )}
