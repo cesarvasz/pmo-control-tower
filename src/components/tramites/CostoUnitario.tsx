@@ -32,6 +32,7 @@ const num = (n: number) => Math.round(n).toLocaleString("es-GT");
 
 export default function CostoUnitario({
   costo, unitario, ahorro, ahorroTiempos, beneficioT0, serieAhorro, proyeccion, onSeleccionarPeriodo,
+  abiertoInicial = false, soloCostoBeneficio = false,
 }: {
   costo: Costo;
   unitario: Unitario;
@@ -41,8 +42,11 @@ export default function CostoUnitario({
   serieAhorro: PuntoAhorro[];
   proyeccion: PuntoProyectado[];
   onSeleccionarPeriodo: (clave: string) => void;
+  abiertoInicial?: boolean;
+  /** Oculta la plantilla necesaria (personas), que es capacidad, no costo/beneficio. */
+  soloCostoBeneficio?: boolean;
 }) {
-  const [abierto, setAbierto] = useState(false);
+  const [abierto, setAbierto] = useState(abiertoInicial);
 
   const maxCosto = Math.max(1, ...proyeccion.map((p) => p.costo));
   const maxAhorro = Math.max(1, ...serieAhorro.filter((p) => p.disponible).map((p) => Math.abs(p.ahorro)));
@@ -72,8 +76,8 @@ export default function CostoUnitario({
           {usdExacto(unitario.porExpediente)}
         </span>
         <span className="text-[0.72rem] text-[var(--text-muted)]">
-          {num(unitario.expedientes)} Files · {num(unitario.personasNecesarias)} personas al{" "}
-          {Math.round(UTILIZACION_OBJETIVO * 100)}%
+          {num(unitario.expedientes)} Files
+          {!soloCostoBeneficio && <> · {num(unitario.personasNecesarias)} personas al {Math.round(UTILIZACION_OBJETIVO * 100)}%</>}
         </span>
         <span className="ml-auto text-[0.72rem] text-[var(--text-muted)]">
           {abierto ? "Ocultar" : "Ver detalle"}
@@ -256,7 +260,7 @@ export default function CostoUnitario({
           </div>
 
           {/* Plantilla necesaria */}
-          <div className="mt-4 rounded-lg border p-3.5" style={{ borderColor: "var(--border)" }}>
+          {!soloCostoBeneficio && <div className="mt-4 rounded-lg border p-3.5" style={{ borderColor: "var(--border)" }}>
             <div className="flex flex-wrap items-baseline gap-3">
               <span className="text-[0.8rem] font-bold text-[var(--text-primary)]">
                 Plantilla para el mismo trabajo al {Math.round(UTILIZACION_OBJETIVO * 100)}% de ocupación
@@ -294,7 +298,7 @@ export default function CostoUnitario({
               tiempo, cosa que en la práctica no siempre pasa — los picos existen. Léelo como el
               piso teórico, no como un objetivo de recorte.
             </p>
-          </div>
+          </div>}
 
           {/* Timeline con proyección */}
           {proyeccion.length > 0 && (

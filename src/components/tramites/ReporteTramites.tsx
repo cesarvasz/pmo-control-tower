@@ -10,6 +10,7 @@
 // un arreglo ya normalizado.
 
 import { useMemo, useState } from "react";
+import { useMe } from "@/context/PermissionsContext";
 import { FilterReset, SectionHeader } from "@/components/ui";
 import MultiSelect from "@/components/MultiSelect";
 import BuscableSelect from "@/components/tramites/BuscableSelect";
@@ -33,6 +34,11 @@ import { construirRegistros, costoClonacionPorOrigen } from "@/lib/clonaciones";
 import type { ClonacionRow, RoiRow } from "@/types";
 
 type DimFiltro = "meses" | "usuarios" | "analistas" | "clientes" | "mesas" | "procesos" | "documentos" | "embarques" | "impexp";
+
+// Vista restringida del rol CKU: solo línea de tiempo, tiempos del proceso
+// Aduana y costo/beneficio, con estos filtros fijos (solo el periodo se mueve).
+const FILTROS_CKU: Filtros = { ...FILTROS_VACIOS, ducafast: "si", procesos: ["Aduana"], metrica: "mediana" };
+const esRolCku = (roleName: string | undefined) => roleName?.trim().toLowerCase() === "cku";
 
 function Bloque({ titulo, badge, children, nota }: {
   titulo: string; badge?: string; children: React.ReactNode; nota?: string;
@@ -80,16 +86,32 @@ export default function ReporteTramites({ rows, clonacion }: {
   /** Hoja de Clonación de Files (carga aparte en la página ROI) — de ahí sale el Beneficio T0. */
   clonacion: { rows: ClonacionRow[] | null; error: string | null };
 }) {
-  const [f, setF] = useState<Filtros>(FILTROS_VACIOS);
+  const { me } = useMe();
+  const esCku = esRolCku(me?.roleName);
+  const [fUsuario, setF] = useState<Filtros>(FILTROS_VACIOS);
   const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
-  const [tarifa, setTarifa] = useState(TARIFA_HORA_DEFECTO);
+  const [tarifaUsuario, setTarifa] = useState(TARIFA_HORA_DEFECTO);
   const [informe, setInforme] = useState(false);
+  const f = useMemo<Filtros>(() => (esCku ? { ...FILTROS_CKU, meses: fUsuario.meses } : fUsuario), [esCku, fUsuario]);
+  const tarifa = esCku ? TARIFA_HORA_DEFECTO : tarifaUsuario;
 
   const todos = useMemo(() => construirExpedientes(rows), [rows]);
   const opciones = useMemo(() => opcionesDeFiltro(todos), [todos]);
+  // CKU: el volumen por mes de la línea de tiempo sale de su recorte fijo, no de todos los Files.
+  const mesesTimeline = useMemo(
+    () => (esCku ? opcionesDeFiltro(filtrarExpedientes(todos, FILTROS_CKU)).meses : opciones.meses),
+    [esCku, todos, opciones.meses],
+  );
 
   // Recorte filtrado — de aquí cuelgan TODAS las secciones, para que cuadren.
   const exps = useMemo(() => filtrarExpedientes(todos, f), [todos, f]);
+  // El ahorro compara Files con vs. sin Ducafast: con el filtro fijo de la vista
+  // CKU (solo Ducafast) no habría contra qué comparar, así que ahí se calcula
+  // sobre el mismo recorte pero sin ese filtro.
+  const expsBeneficio = useMemo(
+    () => (esCku ? filtrarExpedientes(todos, { ...f, ducafast: "todos" }) : exps),
+    [esCku, todos, f, exps],
+  );
   const conFiltros = hayFiltros(f);
   const porDia = f.meses.length === 1;
 
@@ -122,11 +144,11 @@ export default function ReporteTramites({ rows, clonacion }: {
   const unitario = useMemo(() => costoUnitario(costoUnit), [costoUnit]);
   // Ahorro real de Ducafast: parte el MISMO recorte `exps` por e.ducafast, con
   // la misma tarifa y el mismo alcance — ver ahorroDucafast en lib/tramites.ts.
-  const ahorro = useMemo(() => ahorroDucafast(exps, tarifa, alcance), [exps, tarifa, alcance]);
+  const ahorro = useMemo(() => ahorroDucafast(expsBeneficio, tarifa, alcance), [expsBeneficio, tarifa, alcance]);
   // Ahorro por tiempos, fijo e independiente del filtro de "Tiempo": T1–T3 y
   // T4–T5 son un REPARTO del total T1–T5 (suman exacto, sin horas ni
   // licencias duplicadas) — ver ahorroPorTiempos en lib/tramites.ts.
-  const ahorroTiempos = useMemo(() => ahorroPorTiempos(exps, tarifa), [exps, tarifa]);
+  const ahorroTiempos = useMemo(() => ahorroPorTiempos(expsBeneficio, tarifa), [expsBeneficio, tarifa]);
   // Beneficio T0: el "Ahorro $" de Clonación de Files — mismo cálculo que esa
   // pestaña (todos los registros, sin filtros), con la tarifa de aquí.
   const registrosClon = useMemo(() => (clonacion.rows ? construirRegistros(clonacion.rows) : null), [clonacion.rows]);
@@ -139,7 +161,7 @@ export default function ReporteTramites({ rows, clonacion }: {
   // Mismo ahorro, mes a mes (o día a día con un solo mes elegido) — la línea
   // de tiempo bajo "Costo por File".
   const serieAhorro = useMemo(
-    () => serieAhorroDucafast(exps, tarifa, porDia, alcance), [exps, tarifa, porDia, alcance]);
+    () => serieAhorroDucafast(expsBeneficio, tarifa, porDia, alcance), [expsBeneficio, tarifa, porDia, alcance]);
   // La proyección arranca de la última actividad medida, no de la fecha del
   // navegador: si los datos van atrasados, proyectar desde "hoy" mentiría.
   const proyeccion = useMemo(
@@ -174,7 +196,7 @@ export default function ReporteTramites({ rows, clonacion }: {
 
   // El reporte sustituye al tablero en lugar de abrirse encima: se presenta a
   // dirección y va sobre TODOS los Files (Mesa 2), no sobre el recorte de filtros.
-  if (informe) return <ReporteDucafast exps={todos} onCerrar={() => setInforme(false)} />;
+  if (informe && !esCku) return <ReporteDucafast exps={todos} onCerrar={() => setInforme(false)} />;
 
   return (
     <div>
@@ -182,15 +204,24 @@ export default function ReporteTramites({ rows, clonacion }: {
         title="Tiempos de trámites"
         badge={`${exps.length.toLocaleString("es-GT")} de ${todos.length.toLocaleString("es-GT")} Files`}
       >
-        <button onClick={() => setInforme(true)}
-          className="ml-auto rounded-lg border px-3.5 py-1.5 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
-          style={{ borderColor: "var(--accent)", color: "var(--accent-light)" }}>
-          📄 Reporte Ducafast
-        </button>
+        {!esCku && (
+          <button onClick={() => setInforme(true)}
+            className="ml-auto rounded-lg border px-3.5 py-1.5 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
+            style={{ borderColor: "var(--accent)", color: "var(--accent-light)" }}>
+            📄 Reporte Ducafast
+          </button>
+        )}
       </SectionHeader>
 
+      {esCku && (
+        <p className="mb-4 text-[0.74rem] text-[var(--text-muted)]">
+          Filtros fijos: <strong>Ducafast</strong> · Proceso <strong>Aduana</strong> · <strong>{METRICA_LABEL.mediana}</strong>.
+          El ahorro se calcula contra los Files sin Ducafast del mismo periodo.
+        </p>
+      )}
+
       {/* ── Filtros ── */}
-      <div className="mb-6">
+      {!esCku && <div className="mb-6">
         {/* Fila 1: Filtros principales */}
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <BuscableSelect label="Cliente" options={opciones.clientes} selected={f.clientes}
@@ -276,13 +307,13 @@ export default function ReporteTramites({ rows, clonacion }: {
             Tramo: {recorridoAlcance(alcance)}
           </p>
         )}
-      </div>
+      </div>}
 
       {/* Línea de tiempo (slicer de periodo).
           SIN envoltorio: `position: sticky` no puede salir de su contenedor
           padre, así que un div del alto del propio timeline lo despegaría de
           inmediato. Su padre tiene que ser el contenedor del reporte entero. */}
-      <TimelineMeses meses={opciones.meses} seleccion={f.meses} onChange={(v) => set({ meses: v })} />
+      <TimelineMeses meses={mesesTimeline} seleccion={f.meses} onChange={(v) => set({ meses: v })} />
 
       {f.metrica === "promedio" && (
         <div className="mb-4 rounded-lg border px-4 py-2.5 text-[0.78rem]"
@@ -318,9 +349,11 @@ export default function ReporteTramites({ rows, clonacion }: {
         <CostoUnitario
           costo={costoUnit} unitario={unitario} ahorro={ahorro} ahorroTiempos={ahorroTiempos} beneficioT0={beneficioT0} serieAhorro={serieAhorro} proyeccion={proyeccion}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
+          abiertoInicial={esCku} soloCostoBeneficio={esCku}
         />
       </div>
 
+      {!esCku && <>
       {/* ── Capacidad instalada ── */}
       <Bloque titulo="Capacidad instalada" badge={tramoLabel ? `$${tarifa}/h · ${tramoLabel}` : `$${tarifa}/h`}>
         <CapacidadInstalada
@@ -398,6 +431,7 @@ export default function ReporteTramites({ rows, clonacion }: {
           Hitos disponibles en el origen: {HITOS.map((h) => h.label).join(" · ")}.
         </p>
       </Bloque>
+      </>}
     </div>
   );
 }
