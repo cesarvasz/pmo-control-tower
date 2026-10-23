@@ -8,7 +8,7 @@
 import { useMemo } from "react";
 import { Pill, type Tone } from "@/components/ui";
 import { fmtDate } from "@/lib/business";
-import { detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type ItemFase, type UnidadMedida } from "@/lib/ckuDetalle";
+import { detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type HitoFase, type ItemFase, type UnidadMedida } from "@/lib/ckuDetalle";
 import type { DelayMap } from "@/lib/delay";
 import type { CkuScope } from "@/lib/players";
 
@@ -126,11 +126,50 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, detalle, 
 
 const resp = (r: string | null) => (r ? `Resp.: ${r}` : "sin responsable");
 
+const tone = (e: ItemFase["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : "neutral");
+const txt = (e: ItemFase["estado"]) => (e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : "• Pendiente");
+
+/** Persona responsable (de un item o de un hito) en Monday. */
+function Responsable({ nombre }: { nombre: string | null }) {
+  return (
+    <div className="truncate text-[0.62rem]">
+      <span className="text-[var(--text-muted)]">Responsable: </span>
+      {nombre
+        ? <span className="font-semibold text-[var(--text-secondary)]">{nombre}</span>
+        : <span className="text-[var(--text-disabled)]">sin responsable</span>}
+    </div>
+  );
+}
+
+/** Los hitos (subitems) de un item, por fecha límite. Plegados: pueden ser muchos. */
+function HitosDeItem({ hitos }: { hitos: HitoFase[] }) {
+  const atrasados = hitos.filter((h) => h.estado === "atraso").length;
+  return (
+    <details className="mt-0.5">
+      <summary className="cursor-pointer select-none text-[0.6rem] font-semibold text-[var(--accent)]">
+        {hitos.length} {hitos.length === 1 ? "hito" : "hitos"}{atrasados > 0 && ` · ${atrasados} con atraso`}
+      </summary>
+      <ul className="mt-1 space-y-1 border-l pl-2" style={{ borderColor: "var(--border)" }}>
+        {hitos.map((h) => (
+          <li key={h.id} className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-[0.68rem] text-[var(--text-secondary)]" title={h.nombre}>{h.nombre}</div>
+              <div className="truncate text-[0.58rem] text-[var(--text-muted)]">
+                {[h.status, h.deadline && `límite ${fmtDate(h.deadline)}`, h.cierre && `cerró ${fmtDate(h.cierre)}`].filter(Boolean).join(" · ")}
+              </div>
+              <Responsable nombre={h.responsable} />
+            </div>
+            <div className="shrink-0"><Pill tone={tone(h.estado)} small>{txt(h.estado)}</Pill></div>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 /** Los items (entregables) de una Fase 3: cuáles salieron a tiempo, cuáles con atraso y cuáles
  *  siguen sin veredicto. La fase sale con atraso si cualquiera de ellos (o de sus hitos) lo tiene. */
 function ItemsDeFase({ items }: { items: ItemFase[] }) {
-  const tone = (e: ItemFase["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : "neutral");
-  const txt = (e: ItemFase["estado"]) => (e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : "• Pendiente");
   return (
     <details open className="mt-1 border-l pl-2" style={{ borderColor: "var(--border)" }}>
       <summary className="cursor-pointer select-none text-[0.64rem] font-semibold text-[var(--text-muted)]">
@@ -145,12 +184,8 @@ function ItemsDeFase({ items }: { items: ItemFase[] }) {
                 {[it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, it.hitosEvaluados > 0 && `${it.hitosAtrasados} de ${it.hitosEvaluados} hitos con atraso`]
                   .filter(Boolean).join(" · ")}
               </div>
-              <div className="truncate text-[0.62rem]">
-                <span className="text-[var(--text-muted)]">Responsable: </span>
-                {it.responsable
-                  ? <span className="font-semibold text-[var(--text-secondary)]">{it.responsable}</span>
-                  : <span className="text-[var(--text-disabled)]">sin responsable</span>}
-              </div>
+              <Responsable nombre={it.responsable} />
+              {it.hitos.length > 0 && <HitosDeItem hitos={it.hitos} />}
             </div>
             <div className="shrink-0"><Pill tone={tone(it.estado)} small>{txt(it.estado)}</Pill></div>
           </li>

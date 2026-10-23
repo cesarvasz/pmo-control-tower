@@ -81,7 +81,7 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
   });
 
   describe("items de la Fase 3", () => {
-    const hito = (entrega: "on-time" | "late" | null) => ({ id: `h${Math.random()}`, entrega }) as never;
+    const hito = (entrega: "on-time" | "late" | null) => ({ id: `h${Math.random()}`, name: "Hito", entrega }) as never;
     const item = (id: string, nombre: string, entrega: "on-time" | "late" | null, subs: ("on-time" | "late" | null)[] = [], boardId = "b1") =>
       ({ ...fase(id, LAUNCH, entrega ?? "on-time", boardId), name: nombre, status: entrega ? "Done" : "Working on it", entrega, subitems: subs.map(hito) }) as unknown as ProjItem;
 
@@ -133,6 +133,36 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
       const items = d.unidades.find((x) => x.fuente === "proj")!.items!;
       expect(Object.fromEntries(items.map((i) => [i.nombre, i.responsable]))).toEqual({ A: "Javier Juarez", B: "Luis Coronado", C: null });
+    });
+
+    it("cada item trae sus hitos por fecha límite, con su estado y su responsable", () => {
+      const sub = (id: string, name: string, entrega: "on-time" | "late" | null, deadline: string | null, responsible: string, status = "Done") =>
+        ({ id, name, entrega, status, responsible, deadline: deadline ? new Date(`${deadline}T00:00:00`) : null,
+          actualEnd: entrega ? new Date("2026-07-31T00:00:00") : null });
+      const conHitos = {
+        ...item("a", "Clasificación", "late"),
+        subitems: [
+          sub("s3", "Salida en vivo", null, "2026-07-14", "", "Future Steps"),
+          sub("s1", "Requerimiento", "late", "2026-05-29", " Javier Juarez "),
+          sub("s2", "Análisis", "on-time", "2026-06-05", "Javier Aragon"),
+          sub("s4", "Sin fecha", null, null, "Luis Aguilar", "Working on it"),
+        ],
+      } as unknown as ProjItem;
+      const d = detalleCumplimiento({ req: [], proj: [conHitos], projBoards: boards, ini: [] }, {});
+      const hitos = d.unidades.find((x) => x.fuente === "proj")!.items![0].hitos;
+      expect(hitos.map((h) => [h.nombre, h.estado, h.responsable])).toEqual([
+        ["Requerimiento", "atraso", "Javier Juarez"],
+        ["Análisis", "ok", "Javier Aragon"],
+        ["Salida en vivo", "pendiente", null],
+        ["Sin fecha", "pendiente", "Luis Aguilar"],
+      ]);
+      expect(hitos[0].cierre).toEqual(new Date("2026-07-31T00:00:00"));
+    });
+
+    it("un item sin subitems trae hitos vacío", () => {
+      const sin = { ...item("a", "A", "on-time"), subitems: [] } as unknown as ProjItem;
+      const d = detalleCumplimiento({ req: [], proj: [sin], projBoards: boards, ini: [] }, {});
+      expect(d.unidades.find((x) => x.fuente === "proj")!.items![0].hitos).toEqual([]);
     });
 
     it("PML e Iniciativas no traen items", () => {

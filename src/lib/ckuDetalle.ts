@@ -55,9 +55,35 @@ export interface ItemFase {
   hitosAtrasados: number;
   /** Persona responsable del item en Monday (columna "Responsible"; "Resp" si esa viene vacía). */
   responsable: string | null;
+  /** Los hitos (subitems) del item, por fecha límite. */
+  hitos: HitoFase[];
+}
+
+/** Un hito (subitem) de un item de Fase 3. `estado` sigue el veredicto de entrega del hito
+ *  (Actual End vs. Limit Date); sin veredicto (Working on it, Future Steps…) queda "pendiente". */
+export interface HitoFase {
+  id: string;
+  nombre: string;
+  status: string;
+  deadline: Date | null;
+  /** "Actual End": cuándo cerró en realidad. */
+  cierre: Date | null;
+  estado: ItemFase["estado"];
+  /** Persona responsable del hito en Monday (columna "Responsible"). */
+  responsable: string | null;
 }
 
 const ORDEN_ITEM: Record<ItemFase["estado"], number> = { atraso: 0, pendiente: 1, ok: 2 };
+
+const hitoFase = (s: ProjItem["subitems"][number]): HitoFase => ({
+  id: s.id, nombre: s.name, status: s.status, deadline: s.deadline ?? null, cierre: s.actualEnd ?? null,
+  estado: s.entrega === "late" ? "atraso" : s.entrega === "on-time" ? "ok" : "pendiente",
+  responsable: s.responsible?.trim() || null,
+});
+
+/** Cronológico: sin fecha límite al final. */
+const porFechaLimite = (a: HitoFase, b: HitoFase) =>
+  (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.nombre.localeCompare(b.nombre);
 
 /** Resumen de un item de Fase 3 para mostrarlo. Su atraso sigue la misma regla que decide si la
  *  fase salió tarde (groupFaseEntrega): el item mismo o cualquiera de sus hitos con veredicto "late". */
@@ -71,6 +97,7 @@ function itemFase(p: ProjItem): ItemFase {
   return {
     id: p.id, nombre: p.name, status: p.status, deadline: p.deadline, estado, hitosEvaluados, hitosAtrasados,
     responsable: p.responsible?.trim() || p.resp?.trim() || null,
+    hitos: p.subitems.map(hitoFase).sort(porFechaLimite),
   };
 }
 
