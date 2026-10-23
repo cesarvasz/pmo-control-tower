@@ -4,8 +4,11 @@
 // Entregas — las unidades que entran, el resultado de cada una y cuánto pesa cada fuente
 // (Iniciativas / PML / Proyectos, los mismos pesos del EVM). Todo sale de lib/ckuDetalle,
 // con la misma cuenta que el scoreboard, así que el % de aquí es el de la tabla.
+//
+// Se lee como un acordeón: Proyecto (Fase 3) → items → hitos, todo plegado al inicio. Solo se
+// listan las unidades que ENTRAN en la nota, así que cada etiqueta cuadra con el % de su fuente.
 
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Pill, type Tone } from "@/components/ui";
 import { fmtDate } from "@/lib/business";
 import { detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type HitoFase, type ItemFase, type UnidadMedida } from "@/lib/ckuDetalle";
@@ -29,26 +32,26 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
       <Panel
         titulo="Cumplimiento de Entrega" medida="% a tiempo" detalle={cumplimiento}
         soloFase3 cku={scope.cku}
-        regla="Un atraso se excusa si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Un PML o Iniciativa con atraso excusado no cuenta; la Fase 3 de un Proyecto con atraso excusado cuenta como a tiempo."
-        fila={(u) => <ResultadoCumplimiento u={u} />}
+        regla="Un atraso no penaliza al CKU si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Una Iniciativa o un PML con un atraso así no se cuenta; la Fase 3 de un Proyecto con un atraso así cuenta como a tiempo. Aquí solo se listan las unidades que entran en la nota."
       />
       <Panel
         titulo="Calidad de Entregas" medida="nota promedio" esCalidad detalle={calidad}
         regla="PML e Iniciativas: 100 si tienen un responsable distinto de CKU, 0 si no. Proyectos (entregables de Fase 3): +50 si tienen un responsable distinto de CKU y +50 si se recuperó (ningún hito quedó con Limit Date después del fin de su CPM)."
-        fila={(u) => <ResultadoCalidad u={u} />}
       />
     </div>
   );
 }
 
-function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, detalle, regla, fila }: {
+function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, detalle, regla }: {
   titulo: string; medida: string; esCalidad?: boolean;
-  /** CKU dueño del panel (para rotular los hitos a su cargo). */
-  cku?: string;
   /** Proyectos cuentan solo con su Fase 3 (Launch) — se avisa en el encabezado del panel. */
   soloFase3?: boolean;
-  detalle: DetalleMedicion; regla: string; fila: (u: UnidadMedida) => React.ReactNode;
+  /** CKU dueño del panel (para rotular los hitos a su cargo). */
+  cku?: string;
+  detalle: DetalleMedicion; regla: string;
 }) {
+  // Solo lo que entra en la nota: un PML o Iniciativa con atraso sin penalización no suma ni resta.
+  const unidades = detalle.unidades.filter((u) => u.cuenta);
   return (
     <div className="min-w-0">
       <div className="mb-1 flex items-baseline gap-2">
@@ -86,153 +89,193 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, deta
         })}
       </ul>
 
-      {/* Unidades que entran */}
-      {detalle.unidades.length === 0 ? (
+      {/* Unidades que entran, agrupadas por fuente */}
+      {unidades.length === 0 ? (
         <div className="text-[0.8rem] text-[var(--text-disabled)]">Sin unidades medidas todavía</div>
       ) : (
-        <details open>
-          <summary className="cursor-pointer select-none text-[0.72rem] font-semibold text-[var(--accent)]">
-            {detalle.unidades.length} unidades medidas
-          </summary>
-          <div className="mt-1.5 space-y-2">
-            {ORDEN.map((f) => {
-              const us = detalle.unidades.filter((u) => u.fuente === f);
-              if (us.length === 0) return null;
-              return (
-                <div key={f}>
-                  <div className="mb-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{FUENTE_LABEL[f]}</div>
-                  <ul className="space-y-0.5">
-                    {us.map((u) => (
-                      <li key={u.id} className="rounded px-1.5 py-1 hover:bg-[var(--bg-hover)]">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-[0.78rem] text-[var(--text-primary)]" title={u.nombre}>{u.nombre}</div>
-                            {u.fase && <div className="truncate text-[0.64rem] text-[var(--text-muted)]">{u.fase}</div>}
-                          </div>
-                          <div className="shrink-0 text-right">{fila(u)}</div>
-                        </div>
-                        {u.items && u.items.length > 0 && <ItemsDeFase items={u.items} cku={cku} />}
-                      </li>
-                    ))}
-                  </ul>
+        <div className="space-y-3">
+          {ORDEN.map((f) => {
+            const us = unidades.filter((u) => u.fuente === f);
+            if (us.length === 0) return null;
+            return (
+              <section key={f}>
+                <div className="mb-1 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  {FUENTE_LABEL[f]} · {us.length}
                 </div>
-              );
-            })}
-          </div>
-        </details>
+                <ul className="space-y-1">
+                  {us.map((u) => (
+                    <li key={u.id} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
+                      {esCalidad ? <UnidadCalidad u={u} /> : <UnidadCumplimiento u={u} cku={cku} />}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       )}
       <p className="mt-2 text-[0.64rem] leading-snug text-[var(--text-disabled)]">{regla}</p>
     </div>
   );
 }
 
-const resp = (r: string | null) => (r ? `Resp.: ${r}` : "sin responsable");
+// ── Acordeón ──────────────────────────────────────────────────────────
 
+const resp = (r: string | null) => (r ? `Resp.: ${r}` : "sin responsable");
 const tone = (e: ItemFase["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : "neutral");
 const txt = (e: ItemFase["estado"]) => (e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : "• Pendiente");
+const unidos = (partes: (string | false | null | undefined)[]) => partes.filter(Boolean).join(" · ");
+
+/** Cuánto pesa el texto de una fila según su nivel: 0 = unidad (proyecto…), 1 = item, 2 = hito. */
+const TAMANO = {
+  0: { titulo: "text-[0.8rem] font-semibold text-[var(--text-primary)]", detalle: "text-[0.64rem]" },
+  1: { titulo: "text-[0.74rem] font-medium text-[var(--text-primary)]", detalle: "text-[0.62rem]" },
+  2: { titulo: "text-[0.7rem] text-[var(--text-secondary)]", detalle: "text-[0.6rem]" },
+} as const;
+
+/** Título + línea de detalle + (opcional) el responsable, a la izquierda; el resultado, a la derecha. */
+function Cabecera({ nivel, titulo, detalle, responsable, derecha }: {
+  nivel: 0 | 1 | 2; titulo: string; detalle?: string;
+  /** Persona responsable en Monday: `undefined` = no se muestra la línea; `null` = "sin responsable". */
+  responsable?: string | null; derecha: ReactNode;
+}) {
+  return (
+    <span className="flex items-start justify-between gap-2">
+      <span className="block min-w-0">
+        <span className={`block truncate ${TAMANO[nivel].titulo}`} title={titulo}>{titulo}</span>
+        {detalle && <span className={`block truncate text-[var(--text-muted)] ${TAMANO[nivel].detalle}`}>{detalle}</span>}
+        {responsable !== undefined && <Responsable nombre={responsable} />}
+      </span>
+      <span className="block shrink-0 text-right">{derecha}</span>
+    </span>
+  );
+}
 
 /** Persona responsable (de un item o de un hito) en Monday. */
 function Responsable({ nombre }: { nombre: string | null }) {
   return (
-    <div className="truncate text-[0.62rem]">
+    <span className="block truncate text-[0.62rem]">
       <span className="text-[var(--text-muted)]">Responsable: </span>
       {nombre
         ? <span className="font-semibold text-[var(--text-secondary)]">{nombre}</span>
         : <span className="text-[var(--text-disabled)]">sin responsable</span>}
+    </span>
+  );
+}
+
+/** Una fila del acordeón. Con `hijos` se pliega/despliega (todo parte plegado); sin ellos es una hoja
+ *  con el mismo sangrado, para que las columnas queden alineadas. */
+function Fila({ cabecera, hijos }: { cabecera: ReactNode; hijos?: ReactNode }) {
+  const [abierta, setAbierta] = useState(false);
+  if (!hijos) {
+    return (
+      <div className="flex items-start gap-1.5 px-2 py-1.5">
+        <span className="w-3 shrink-0" aria-hidden />
+        <div className="min-w-0 flex-1">{cabecera}</div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <button
+        type="button" aria-expanded={abierta} onClick={() => setAbierta((a) => !a)}
+        className="flex w-full items-start gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-[var(--bg-hover)]"
+      >
+        <span
+          className="mt-[3px] w-3 shrink-0 text-[0.6rem] text-[var(--text-muted)] transition-transform"
+          style={{ transform: abierta ? "rotate(90deg)" : undefined }} aria-hidden
+        >▶</span>
+        <span className="block min-w-0 flex-1">{cabecera}</span>
+      </button>
+      {abierta && (
+        <div className="mb-1.5 ml-[0.85rem] border-l pl-2" style={{ borderColor: "var(--border)" }}>{hijos}</div>
+      )}
     </div>
   );
 }
 
-/** Los hitos (subitems) de un item que están a cargo del CKU, por fecha límite. Plegados: pueden ser muchos. */
-function HitosDeItem({ hitos, total, cku }: { hitos: HitoFase[]; total: number; cku?: string }) {
-  if (total === 0) return null;
-  const quien = cku ? `a cargo de ${cku}` : "";
-  if (hitos.length === 0) {
-    return (
-      <div className="mt-0.5 text-[0.6rem] text-[var(--text-disabled)]">
-        Ningún hito {quien} ({total} en total)
-      </div>
-    );
-  }
+// ── Unidades ──────────────────────────────────────────────────────────
+
+/** Una unidad de Cumplimiento. Proyecto (Fase 3) → se despliega en items → hitos. Lo que se muestra
+ *  es lo que cuenta en la nota: una fase con un atraso que no penaliza cuenta como a tiempo. */
+function UnidadCumplimiento({ u, cku }: { u: UnidadMedida; cku?: string }) {
+  const items = u.items ?? [];
+  const atrasados = items.filter((i) => i.estado === "atraso").length;
+  const aTiempo = u.estado !== "atraso";
+  const cabecera = (
+    <Cabecera
+      nivel={0} titulo={u.nombre}
+      detalle={unidos([u.fase, items.length > 0 && `${items.length} ${items.length === 1 ? "item" : "items"}`, atrasados > 0 && `${atrasados} con atraso`])}
+      derecha={<>
+        <Pill tone={aTiempo ? "ok" : "bad"} small>{aTiempo ? "✓ A tiempo" : "✕ Con atraso"}</Pill>
+        {u.estado !== "ok" && <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>}
+      </>}
+    />
+  );
+  return <Fila cabecera={cabecera} hijos={items.length > 0 ? items.map((it) => <ItemFila key={it.id} it={it} cku={cku} />) : undefined} />;
+}
+
+/** Un item (entregable) de la Fase 3. La fase sale con atraso si cualquiera de ellos (o de sus hitos) lo tiene. */
+function ItemFila({ it, cku }: { it: ItemFase; cku?: string }) {
+  const quien = cku ? ` a cargo de ${cku}` : "";
+  const sinHitosDelCku = it.hitosTotal > 0 && it.hitos.length === 0;
+  const cabecera = (
+    <Cabecera
+      nivel={1} titulo={it.nombre}
+      detalle={unidos([it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, it.hitosEvaluados > 0 && `${it.hitosAtrasados} de ${it.hitosEvaluados} hitos con atraso`])}
+      responsable={it.responsable}
+      derecha={<Pill tone={tone(it.estado)} small>{txt(it.estado)}</Pill>}
+    />
+  );
+  return (
+    <Fila
+      cabecera={<>
+        {cabecera}
+        {sinHitosDelCku && <span className="block text-[0.6rem] text-[var(--text-disabled)]">Ningún hito{quien} ({it.hitosTotal} en total)</span>}
+      </>}
+      hijos={it.hitos.length > 0 ? <HitosDeItem hitos={it.hitos} total={it.hitosTotal} quien={quien} /> : undefined}
+    />
+  );
+}
+
+/** Los hitos (subitems) de un item que están a cargo del CKU, por fecha límite. */
+function HitosDeItem({ hitos, total, quien }: { hitos: HitoFase[]; total: number; quien: string }) {
   const atrasados = hitos.filter((h) => h.estado === "atraso").length;
   return (
-    <details className="mt-0.5">
-      <summary className="cursor-pointer select-none text-[0.6rem] font-semibold text-[var(--accent)]">
-        {hitos.length} {hitos.length === 1 ? "hito" : "hitos"} {quien}{atrasados > 0 && ` · ${atrasados} con atraso`}
-        {hitos.length < total && <span className="font-normal text-[var(--text-muted)]"> · de {total} en total</span>}
-      </summary>
-      <ul className="mt-1 space-y-1 border-l pl-2" style={{ borderColor: "var(--border)" }}>
-        {hitos.map((h) => (
-          <li key={h.id} className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="truncate text-[0.68rem] text-[var(--text-secondary)]" title={h.nombre}>{h.nombre}</div>
-              <div className="truncate text-[0.58rem] text-[var(--text-muted)]">
-                {[h.status, h.deadline && `límite ${fmtDate(h.deadline)}`, h.cierre && `cerró ${fmtDate(h.cierre)}`].filter(Boolean).join(" · ")}
-              </div>
-              <Responsable nombre={h.responsable} />
-            </div>
-            <div className="shrink-0"><Pill tone={tone(h.estado)} small>{txt(h.estado)}</Pill></div>
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-/** Los items (entregables) de una Fase 3: cuáles salieron a tiempo, cuáles con atraso y cuáles
- *  siguen sin veredicto. La fase sale con atraso si cualquiera de ellos (o de sus hitos) lo tiene. */
-function ItemsDeFase({ items, cku }: { items: ItemFase[]; cku?: string }) {
-  return (
-    <details open className="mt-1 border-l pl-2" style={{ borderColor: "var(--border)" }}>
-      <summary className="cursor-pointer select-none text-[0.64rem] font-semibold text-[var(--text-muted)]">
-        {items.length} items de la fase
-      </summary>
-      <ul className="mt-1 space-y-0.5">
-        {items.map((it) => (
-          <li key={it.id} className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="truncate text-[0.72rem] text-[var(--text-secondary)]" title={it.nombre}>{it.nombre}</div>
-              <div className="truncate text-[0.6rem] text-[var(--text-muted)]">
-                {[it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, it.hitosEvaluados > 0 && `${it.hitosAtrasados} de ${it.hitosEvaluados} hitos con atraso`]
-                  .filter(Boolean).join(" · ")}
-              </div>
-              <Responsable nombre={it.responsable} />
-              <HitosDeItem hitos={it.hitos} total={it.hitosTotal} cku={cku} />
-            </div>
-            <div className="shrink-0"><Pill tone={tone(it.estado)} small>{txt(it.estado)}</Pill></div>
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-function ResultadoCumplimiento({ u }: { u: UnidadMedida }) {
-  if (u.estado === "ok") return <Pill tone="ok" small>✓ A tiempo</Pill>;
-  if (u.estado === "excusado") {
-    return (
-      <>
-        <Pill tone="info" small title={u.cuenta ? "Cuenta como a tiempo" : "No entra en la cuenta"}>↩ Excusado{u.cuenta ? "" : " · no cuenta"}</Pill>
-        <div className="text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</div>
-      </>
-    );
-  }
-  return (
     <>
-      <Pill tone="bad" small>✕ Con atraso</Pill>
-      <div className="text-[0.62rem] text-[var(--text-muted)]">{[u.extra, resp(u.responsable)].filter(Boolean).join(" · ")}</div>
-    </>
-  );
-}
-
-function ResultadoCalidad({ u }: { u: UnidadMedida }) {
-  const tone: Tone = u.nota === 100 ? "ok" : u.nota === 0 ? "bad" : "warn";
-  return (
-    <>
-      <Pill tone={tone} small>{u.nota}</Pill>
-      <div className="text-[0.62rem] text-[var(--text-muted)]">
-        {[u.enCurso && "en curso", resp(u.responsable)].filter(Boolean).join(" · ")}
+      <div className="px-2 pb-0.5 pt-1 text-[0.58rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+        {unidos([`${hitos.length} ${hitos.length === 1 ? "hito" : "hitos"}${quien}`, atrasados > 0 && `${atrasados} con atraso`, hitos.length < total && `de ${total} en total`])}
       </div>
+      {hitos.map((h) => (
+        <Fila
+          key={h.id}
+          cabecera={
+            <Cabecera
+              nivel={2} titulo={h.nombre}
+              detalle={unidos([h.status, h.deadline && `límite ${fmtDate(h.deadline)}`, h.cierre && `cerró ${fmtDate(h.cierre)}`])}
+              responsable={h.responsable}
+              derecha={<Pill tone={tone(h.estado)} small>{txt(h.estado)}</Pill>}
+            />
+          }
+        />
+      ))}
     </>
+  );
+}
+
+function UnidadCalidad({ u }: { u: UnidadMedida }) {
+  const t: Tone = u.nota === 100 ? "ok" : u.nota === 0 ? "bad" : "warn";
+  return (
+    <Fila
+      cabecera={
+        <Cabecera
+          nivel={0} titulo={u.nombre} detalle={unidos([u.fase, u.enCurso && "en curso"])}
+          derecha={<>
+            <Pill tone={t} small>{u.nota}</Pill>
+            <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>
+          </>}
+        />
+      }
+    />
   );
 }
