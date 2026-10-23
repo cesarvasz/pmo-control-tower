@@ -8,6 +8,7 @@
 import { buildEntregaRows, buildReprocesoRows, projPhaseKey, proyectosFase3Nueva } from "@/lib/dashboard";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
+import { sameCku } from "@/lib/players";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 
 export type FuenteMedida = "ini" | "req" | "proj";
@@ -55,8 +56,10 @@ export interface ItemFase {
   hitosAtrasados: number;
   /** Persona responsable del item en Monday (columna "Responsible"; "Resp" si esa viene vacía). */
   responsable: string | null;
-  /** Los hitos (subitems) del item, por fecha límite. */
+  /** Los hitos (subitems) del item cuyo responsable es el CKU, por fecha límite. */
   hitos: HitoFase[];
+  /** Cuántos hitos tiene el item en total (con cualquier responsable). */
+  hitosTotal: number;
 }
 
 /** Un hito (subitem) de un item de Fase 3. `estado` sigue el veredicto de entrega del hito
@@ -87,7 +90,7 @@ const porFechaLimite = (a: HitoFase, b: HitoFase) =>
 
 /** Resumen de un item de Fase 3 para mostrarlo. Su atraso sigue la misma regla que decide si la
  *  fase salió tarde (groupFaseEntrega): el item mismo o cualquiera de sus hitos con veredicto "late". */
-function itemFase(p: ProjItem): ItemFase {
+function itemFase(p: ProjItem, cku?: string): ItemFase {
   const hitosEvaluados = p.subitems.filter((s) => s.entrega === "on-time" || s.entrega === "late").length;
   const hitosAtrasados = p.subitems.filter((s) => s.entrega === "late").length;
   // "ok" solo si el item mismo cerró a tiempo: uno sin cerrar (Working on it, Stuck…) con hitos
@@ -97,7 +100,10 @@ function itemFase(p: ProjItem): ItemFase {
   return {
     id: p.id, nombre: p.name, status: p.status, deadline: p.deadline, estado, hitosEvaluados, hitosAtrasados,
     responsable: p.responsible?.trim() || p.resp?.trim() || null,
-    hitos: p.subitems.map(hitoFase).sort(porFechaLimite),
+    // Solo los hitos a cargo del CKU. Los números de arriba (evaluados / atrasados) siguen contando
+    // todos: son los que deciden si la fase salió tarde.
+    hitos: p.subitems.map(hitoFase).filter((h) => !cku || sameCku(h.responsable ?? undefined, cku)).sort(porFechaLimite),
+    hitosTotal: p.subitems.length,
   };
 }
 
@@ -123,7 +129,11 @@ export interface DetalleMedicion {
   unidades: UnidadMedida[];
 }
 
-interface Scope { ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[] }
+interface Scope {
+  ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[];
+  /** CKU dueño del detalle: de los hitos de cada item solo se listan los que están a su cargo. */
+  cku?: string;
+}
 
 /** Arma el resumen por fuente y el % ponderado a partir de las unidades. */
 function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean): DetalleMedicion {
@@ -157,7 +167,7 @@ export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: 
   for (const p of proj) {
     const k = projPhaseKey(p.boardId, p.grupo);
     const lista = itemsPorFase.get(k);
-    if (lista) lista.push(itemFase(p)); else itemsPorFase.set(k, [itemFase(p)]);
+    if (lista) lista.push(itemFase(p, s.cku)); else itemsPorFase.set(k, [itemFase(p, s.cku)]);
   }
   for (const lista of itemsPorFase.values()) {
     lista.sort((a, b) => ORDEN_ITEM[a.estado] - ORDEN_ITEM[b.estado] || a.nombre.localeCompare(b.nombre));

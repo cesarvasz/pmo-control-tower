@@ -159,6 +159,27 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       expect(hitos[0].cierre).toEqual(new Date("2026-07-31T00:00:00"));
     });
 
+    it("con un CKU, de los hitos solo quedan los que están a su cargo (sin importar acentos ni mayúsculas)", () => {
+      const sub = (id: string, entrega: "on-time" | "late" | null, responsible: string) =>
+        ({ id, name: id, entrega, status: "Done", responsible, deadline: null, actualEnd: null });
+      const p = {
+        ...item("a", "Clasificación", "late"),
+        subitems: [sub("s1", "late", " JAVIER juárez "), sub("s2", "on-time", "Javier Aragon"), sub("s3", null, ""), sub("s4", "on-time", "Javier Juarez")],
+      } as unknown as ProjItem;
+      const d = detalleCumplimiento({ req: [], proj: [p], projBoards: boards, ini: [], cku: "Javier Juarez" }, {});
+      const it0 = d.unidades.find((x) => x.fuente === "proj")!.items![0];
+      expect(it0.hitos.map((h) => h.nombre)).toEqual(["s1", "s4"]);
+      expect(it0.hitosTotal).toBe(4);
+      // El veredicto de la fase no cambia: sigue contando TODOS los hitos del item.
+      expect(it0).toMatchObject({ estado: "atraso", hitosEvaluados: 3, hitosAtrasados: 1 });
+    });
+
+    it("un item sin ningún hito a cargo del CKU queda con hitos vacío pero conserva el total", () => {
+      const p = { ...item("a", "A", "on-time"), subitems: [{ id: "s1", name: "x", entrega: "on-time", responsible: "Luis Aguilar" }] } as unknown as ProjItem;
+      const d = detalleCumplimiento({ req: [], proj: [p], projBoards: boards, ini: [], cku: "Victoria Escobar" }, {});
+      expect(d.unidades.find((x) => x.fuente === "proj")!.items![0]).toMatchObject({ hitos: [], hitosTotal: 1 });
+    });
+
     it("un item sin subitems trae hitos vacío", () => {
       const sin = { ...item("a", "A", "on-time"), subitems: [] } as unknown as ProjItem;
       const d = detalleCumplimiento({ req: [], proj: [sin], projBoards: boards, ini: [] }, {});

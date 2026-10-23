@@ -28,7 +28,7 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
     <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t p-4 lg:grid-cols-2" style={{ borderColor: "var(--border)" }}>
       <Panel
         titulo="Cumplimiento de Entrega" medida="% a tiempo" detalle={cumplimiento}
-        soloFase3
+        soloFase3 cku={scope.cku}
         regla="Un atraso se excusa si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Un PML o Iniciativa con atraso excusado no cuenta; la Fase 3 de un Proyecto con atraso excusado cuenta como a tiempo."
         fila={(u) => <ResultadoCumplimiento u={u} />}
       />
@@ -41,8 +41,10 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
   );
 }
 
-function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, detalle, regla, fila }: {
+function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, detalle, regla, fila }: {
   titulo: string; medida: string; esCalidad?: boolean;
+  /** CKU dueño del panel (para rotular los hitos a su cargo). */
+  cku?: string;
   /** Proyectos cuentan solo con su Fase 3 (Launch) — se avisa en el encabezado del panel. */
   soloFase3?: boolean;
   detalle: DetalleMedicion; regla: string; fila: (u: UnidadMedida) => React.ReactNode;
@@ -109,7 +111,7 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, detalle, 
                           </div>
                           <div className="shrink-0 text-right">{fila(u)}</div>
                         </div>
-                        {u.items && u.items.length > 0 && <ItemsDeFase items={u.items} />}
+                        {u.items && u.items.length > 0 && <ItemsDeFase items={u.items} cku={cku} />}
                       </li>
                     ))}
                   </ul>
@@ -141,13 +143,23 @@ function Responsable({ nombre }: { nombre: string | null }) {
   );
 }
 
-/** Los hitos (subitems) de un item, por fecha límite. Plegados: pueden ser muchos. */
-function HitosDeItem({ hitos }: { hitos: HitoFase[] }) {
+/** Los hitos (subitems) de un item que están a cargo del CKU, por fecha límite. Plegados: pueden ser muchos. */
+function HitosDeItem({ hitos, total, cku }: { hitos: HitoFase[]; total: number; cku?: string }) {
+  if (total === 0) return null;
+  const quien = cku ? `a cargo de ${cku}` : "";
+  if (hitos.length === 0) {
+    return (
+      <div className="mt-0.5 text-[0.6rem] text-[var(--text-disabled)]">
+        Ningún hito {quien} ({total} en total)
+      </div>
+    );
+  }
   const atrasados = hitos.filter((h) => h.estado === "atraso").length;
   return (
     <details className="mt-0.5">
       <summary className="cursor-pointer select-none text-[0.6rem] font-semibold text-[var(--accent)]">
-        {hitos.length} {hitos.length === 1 ? "hito" : "hitos"}{atrasados > 0 && ` · ${atrasados} con atraso`}
+        {hitos.length} {hitos.length === 1 ? "hito" : "hitos"} {quien}{atrasados > 0 && ` · ${atrasados} con atraso`}
+        {hitos.length < total && <span className="font-normal text-[var(--text-muted)]"> · de {total} en total</span>}
       </summary>
       <ul className="mt-1 space-y-1 border-l pl-2" style={{ borderColor: "var(--border)" }}>
         {hitos.map((h) => (
@@ -169,7 +181,7 @@ function HitosDeItem({ hitos }: { hitos: HitoFase[] }) {
 
 /** Los items (entregables) de una Fase 3: cuáles salieron a tiempo, cuáles con atraso y cuáles
  *  siguen sin veredicto. La fase sale con atraso si cualquiera de ellos (o de sus hitos) lo tiene. */
-function ItemsDeFase({ items }: { items: ItemFase[] }) {
+function ItemsDeFase({ items, cku }: { items: ItemFase[]; cku?: string }) {
   return (
     <details open className="mt-1 border-l pl-2" style={{ borderColor: "var(--border)" }}>
       <summary className="cursor-pointer select-none text-[0.64rem] font-semibold text-[var(--text-muted)]">
@@ -185,7 +197,7 @@ function ItemsDeFase({ items }: { items: ItemFase[] }) {
                   .filter(Boolean).join(" · ")}
               </div>
               <Responsable nombre={it.responsable} />
-              {it.hitos.length > 0 && <HitosDeItem hitos={it.hitos} />}
+              <HitosDeItem hitos={it.hitos} total={it.hitosTotal} cku={cku} />
             </div>
             <div className="shrink-0"><Pill tone={tone(it.estado)} small>{txt(it.estado)}</Pill></div>
           </li>
