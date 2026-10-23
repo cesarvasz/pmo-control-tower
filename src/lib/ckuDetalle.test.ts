@@ -80,6 +80,56 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     expect(d.fuentes.reduce((s, x) => s + (x.pesoEfectivo ?? 0), 0)).toBeCloseTo(1, 5);
   });
 
+  describe("items de la Fase 3", () => {
+    const hito = (entrega: "on-time" | "late" | null) => ({ id: `h${Math.random()}`, entrega }) as never;
+    const item = (id: string, nombre: string, entrega: "on-time" | "late" | null, subs: ("on-time" | "late" | null)[] = [], boardId = "b1") =>
+      ({ ...fase(id, LAUNCH, entrega ?? "on-time", boardId), name: nombre, status: entrega ? "Done" : "Working on it", entrega, subitems: subs.map(hito) }) as unknown as ProjItem;
+
+    it("cada unidad de Proyecto trae los items de su fase, con los atrasados primero", () => {
+      const proj = [
+        item("a", "Bravo", "on-time"),
+        item("b", "Alfa", "late"),
+        item("c", "Charlie", null),                          // sin veredicto todavía
+        item("d", "Delta", "on-time", ["on-time", "late"]),  // el item cerró a tiempo pero un hito salió tarde
+      ];
+      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      const u = d.unidades.find((x) => x.id === `b1::${LAUNCH}`)!;
+      expect(u.items!.map((i) => [i.nombre, i.estado])).toEqual([
+        ["Alfa", "atraso"], ["Delta", "atraso"], ["Charlie", "pendiente"], ["Bravo", "ok"],
+      ]);
+      expect(u.items!.find((i) => i.nombre === "Delta")).toMatchObject({ hitosEvaluados: 2, hitosAtrasados: 1 });
+    });
+
+    it("un item sin cerrar (Stuck, Working on it) no se ve 'a tiempo' aunque sus hitos evaluados no tengan atraso", () => {
+      const abierto = { ...item("a", "Segregación", null, ["on-time", "on-time"]), status: "Stuck" } as ProjItem;
+      const d = detalleCumplimiento({ req: [], proj: [abierto], projBoards: boards, ini: [] }, {});
+      expect(d.unidades.find((x) => x.fuente === "proj")!.items![0]).toMatchObject({ estado: "pendiente", hitosEvaluados: 2, hitosAtrasados: 0 });
+    });
+
+    it("la fase sale con atraso exactamente cuando algún item (o hito) lo tiene", () => {
+      const conAtraso = detalleCumplimiento({ req: [], proj: [item("a", "A", "on-time"), item("b", "B", "on-time", ["late"])], projBoards: boards, ini: [] }, {});
+      const sinAtraso = detalleCumplimiento({ req: [], proj: [item("a", "A", "on-time"), item("b", "B", "on-time", ["on-time"])], projBoards: boards, ini: [] }, {});
+      const u = (d: typeof conAtraso) => d.unidades.find((x) => x.fuente === "proj")!;
+      expect(u(conAtraso).estado).toBe("atraso");
+      expect(u(conAtraso).items!.some((i) => i.estado === "atraso")).toBe(true);
+      expect(u(sinAtraso).estado).toBe("ok");
+      expect(u(sinAtraso).items!.some((i) => i.estado === "atraso")).toBe(false);
+    });
+
+    it("los boards de plantilla vieja no aparecen: ni su unidad ni sus items", () => {
+      const vieja = { ...fase("v1", "Launch | Desarrollo", "late", "b2"), name: "Desarrollo por iteraciones (Hitos) / Entrega CKU" } as ProjItem;
+      const nueva = item("n1", "POC", "on-time");
+      const d = detalleCumplimiento({ req: [], proj: [vieja, nueva], projBoards: boards, ini: [] }, {});
+      expect(d.unidades.filter((x) => x.fuente === "proj").map((x) => x.id)).toEqual([`b1::${LAUNCH}`]);
+      expect(d.unidades.flatMap((x) => x.items ?? []).map((i) => i.nombre)).toEqual(["POC"]);
+    });
+
+    it("PML e Iniciativas no traen items", () => {
+      const d = detalleCumplimiento({ req: [reqE("r1", "on-time")], proj: [], projBoards: [], ini: [iniE("i1", true)] }, {});
+      expect(d.unidades.every((x) => x.items === undefined)).toBe(true);
+    });
+  });
+
   it("un proyecto sin Fase 3 todavía no aporta unidades: Proyectos queda sin peso", () => {
     const d = detalleCumplimiento(
       { req: [], proj: [fase("p1", "Valuación | Formulación del proyecto", "late")], projBoards: [board], ini: [iniE("i1", true)] }, {});

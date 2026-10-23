@@ -150,7 +150,7 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                   {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
                 </td>
                 {/* Cumplimiento de Entrega — % a tiempo (peso 10) */}
-                <td className={`${td} text-center`} title={ponderadoPorFuente && r.entPct !== null ? `${POR_FUENTE_TIP("% a tiempo")}. En Proyectos solo cuenta la Fase 3 (Launch)` : undefined}>
+                <td className={`${td} text-center`} title={ponderadoPorFuente && r.entPct !== null ? `${POR_FUENTE_TIP("% a tiempo")}. En Proyectos solo cuenta la Fase 3 (Launch) de los proyectos con plantilla nueva` : undefined}>
                   <div className="tabular-nums font-bold" style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</div>
                   {r.entPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("entregas")} pts</div>}
                 </td>

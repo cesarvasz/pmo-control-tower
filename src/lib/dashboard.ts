@@ -469,15 +469,34 @@ function entregaPorFuente(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, 
   return out;
 }
 
-/** Solo los items de Proyecto de la Fase 3 (Launch): el recorte con el que se miden los CKUs. */
-export const proyectosFase3 = (projs: ProjItem[]): ProjItem[] => projs.filter((p) => isFase3(p.grupo));
+/** ¿Los items de este board siguen la plantilla NUEVA? Es VIEJA cuando su Fase 3 trae el
+ *  step "Desarrollo por iteraciones…" (sus hitos son los entregables, y los demás steps
+ *  de la fase son checkpoints); NUEVA si no (cada item de la Fase 3 es un entregable).
+ *  Única regla de la app para decidirlo: projectMetrics.detectPlantilla delega aquí. */
+export const esPlantillaNueva = (itemsDelBoard: ProjItem[]): boolean =>
+  !itemsDelBoard.some((it) => isFase3(it.grupo) && isDesarrolloPorIteracionesStep(it.name));
+
+/** Los items de Proyecto con los que se mide a un CKU: SOLO la Fase 3 (Launch) y SOLO de
+ *  los boards con plantilla nueva — los de plantilla vieja ya no se toman en cuenta. */
+export function proyectosFase3Nueva(projs: ProjItem[]): ProjItem[] {
+  const porBoard = new Map<string, ProjItem[]>();
+  for (const p of projs) {
+    const lista = porBoard.get(p.boardId);
+    if (lista) lista.push(p); else porBoard.set(p.boardId, [p]);
+  }
+  const out: ProjItem[] = [];
+  for (const items of porBoard.values()) {
+    if (esPlantillaNueva(items)) out.push(...items.filter((p) => isFase3(p.grupo)));
+  }
+  return out;
+}
 
 /** Cumplimiento de Entrega de un CKU: lo mismo que calcEntregaStatsPonderado (una nota por
- *  fuente, combinadas 10/20/70) pero en Proyectos SOLO cuenta la Fase 3 (Launch) — la
- *  fase de cada proyecto es una sola unidad, en vez de las cinco. PML e Iniciativas no
- *  cambian. Es el mismo recorte con el que el EVM del CKU mide sus proyectos. */
+ *  fuente, combinadas 10/20/70) pero en Proyectos SOLO cuenta la Fase 3 (Launch) de los
+ *  boards con plantilla nueva (ver proyectosFase3Nueva) — la fase de cada proyecto es una
+ *  sola unidad, en vez de las cinco. PML e Iniciativas no cambian. */
 export function calcEntregaStatsCku(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
-  return calcEntregaStatsPonderado(reqs, proyectosFase3(projs), delays, ini);
+  return calcEntregaStatsPonderado(reqs, proyectosFase3Nueva(projs), delays, ini);
 }
 
 /** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en

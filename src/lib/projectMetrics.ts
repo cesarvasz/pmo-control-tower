@@ -52,7 +52,7 @@
 
 import { addBusinessDays, businessDays, unionBusinessDays, today } from "@/lib/business";
 import {
-  isFase3, isFase4, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts,
+  esPlantillaNueva, isFase3, isFase4, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts,
 } from "@/lib/dashboard";
 import { valorStageOf } from "@/lib/valorStepper";
 import { splitBoardName, type BoardHealthData } from "@/lib/proj";
@@ -80,9 +80,7 @@ const NPS_STEP_RE = /encuesta para nps/i;
  *  item de la fase 3 es un entregable). Único punto de la app que lo decide
  *  para la medición. */
 export function detectPlantilla(items: ProjItem[]): Plantilla {
-  return items.some((it) => isFase3(it.grupo) && isDesarrolloPorIteracionesStep(it.name))
-    ? "vieja"
-    : "nueva";
+  return esPlantillaNueva(items) ? "nueva" : "vieja";
 }
 
 // ─────────────────────────────────────────────────────────────────────

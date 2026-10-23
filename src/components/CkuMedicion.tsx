@@ -7,7 +7,8 @@
 
 import { useMemo } from "react";
 import { Pill, type Tone } from "@/components/ui";
-import { detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type UnidadMedida } from "@/lib/ckuDetalle";
+import { fmtDate } from "@/lib/business";
+import { detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type ItemFase, type UnidadMedida } from "@/lib/ckuDetalle";
 import type { DelayMap } from "@/lib/delay";
 import type { CkuScope } from "@/lib/players";
 
@@ -57,7 +58,7 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, detalle, 
       <p className="mb-2 text-[0.68rem] leading-snug text-[var(--text-muted)]">
         Medido como el EVM: cada fuente saca su {medida} y se combinan Iniciativas 10% · PML 20% · Proyectos 70%.
         El peso de una fuente sin unidades se reparte entre las demás.
-        {soloFase3 && <strong className="font-semibold text-[var(--text-secondary)]"> En Proyectos solo cuenta la Fase 3 (Launch).</strong>}
+        {soloFase3 && <strong className="font-semibold text-[var(--text-secondary)]"> En Proyectos solo cuenta la Fase 3 (Launch) de los proyectos con plantilla nueva.</strong>}
       </p>
 
       {/* Peso real y resultado de cada fuente */}
@@ -100,12 +101,15 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, detalle, 
                   <div className="mb-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{FUENTE_LABEL[f]}</div>
                   <ul className="space-y-0.5">
                     {us.map((u) => (
-                      <li key={u.id} className="flex items-start justify-between gap-2 rounded px-1.5 py-1 hover:bg-[var(--bg-hover)]">
-                        <div className="min-w-0">
-                          <div className="truncate text-[0.78rem] text-[var(--text-primary)]" title={u.nombre}>{u.nombre}</div>
-                          {u.fase && <div className="truncate text-[0.64rem] text-[var(--text-muted)]">{u.fase}</div>}
+                      <li key={u.id} className="rounded px-1.5 py-1 hover:bg-[var(--bg-hover)]">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-[0.78rem] text-[var(--text-primary)]" title={u.nombre}>{u.nombre}</div>
+                            {u.fase && <div className="truncate text-[0.64rem] text-[var(--text-muted)]">{u.fase}</div>}
+                          </div>
+                          <div className="shrink-0 text-right">{fila(u)}</div>
                         </div>
-                        <div className="shrink-0 text-right">{fila(u)}</div>
+                        {u.items && u.items.length > 0 && <ItemsDeFase items={u.items} />}
                       </li>
                     ))}
                   </ul>
@@ -121,6 +125,34 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, detalle, 
 }
 
 const resp = (r: string | null) => (r ? `Resp.: ${r}` : "sin responsable");
+
+/** Los items (entregables) de una Fase 3: cuáles salieron a tiempo, cuáles con atraso y cuáles
+ *  siguen sin veredicto. La fase sale con atraso si cualquiera de ellos (o de sus hitos) lo tiene. */
+function ItemsDeFase({ items }: { items: ItemFase[] }) {
+  const tone = (e: ItemFase["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : "neutral");
+  const txt = (e: ItemFase["estado"]) => (e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : "• Pendiente");
+  return (
+    <details open className="mt-1 border-l pl-2" style={{ borderColor: "var(--border)" }}>
+      <summary className="cursor-pointer select-none text-[0.64rem] font-semibold text-[var(--text-muted)]">
+        {items.length} items de la fase
+      </summary>
+      <ul className="mt-1 space-y-0.5">
+        {items.map((it) => (
+          <li key={it.id} className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-[0.72rem] text-[var(--text-secondary)]" title={it.nombre}>{it.nombre}</div>
+              <div className="truncate text-[0.6rem] text-[var(--text-muted)]">
+                {[it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, it.hitosEvaluados > 0 && `${it.hitosAtrasados} de ${it.hitosEvaluados} hitos con atraso`]
+                  .filter(Boolean).join(" · ")}
+              </div>
+            </div>
+            <div className="shrink-0"><Pill tone={tone(it.estado)} small>{txt(it.estado)}</Pill></div>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 function ResultadoCumplimiento({ u }: { u: UnidadMedida }) {
   if (u.estado === "ok") return <Pill tone="ok" small>✓ A tiempo</Pill>;

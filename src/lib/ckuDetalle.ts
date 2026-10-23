@@ -5,7 +5,7 @@
 // constructores de filas que la página de auditoría, y su `pct` coincide con el del
 // scoreboard (calcEntregaStatsPonderado / calcReprocesoStatsPonderado). Módulo PURO.
 
-import { buildEntregaRows, buildReprocesoRows, proyectosFase3 } from "@/lib/dashboard";
+import { buildEntregaRows, buildReprocesoRows, projPhaseKey, proyectosFase3Nueva } from "@/lib/dashboard";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -38,6 +38,35 @@ export interface UnidadMedida {
   enCurso?: boolean;
   /** Dato extra breve para mostrar al lado (p. ej. "2 de 5 con atraso"). */
   extra?: string;
+  /** Solo Cumplimiento de Proyectos: los items de la Fase 3 que componen esta unidad. */
+  items?: ItemFase[];
+}
+
+/** Un item (entregable) de la Fase 3 de un proyecto con plantilla nueva. */
+export interface ItemFase {
+  id: string;
+  nombre: string;
+  status: string;
+  deadline: Date | null;
+  /** atraso = el item o alguno de sus hitos salió tarde · ok = el item cerró a tiempo y ningún hito
+   *  salió tarde · pendiente = el item todavía no cierra (aunque algún hito ya esté evaluado). */
+  estado: "ok" | "atraso" | "pendiente";
+  hitosEvaluados: number;
+  hitosAtrasados: number;
+}
+
+const ORDEN_ITEM: Record<ItemFase["estado"], number> = { atraso: 0, pendiente: 1, ok: 2 };
+
+/** Resumen de un item de Fase 3 para mostrarlo. Su atraso sigue la misma regla que decide si la
+ *  fase salió tarde (groupFaseEntrega): el item mismo o cualquiera de sus hitos con veredicto "late". */
+function itemFase(p: ProjItem): ItemFase {
+  const hitosEvaluados = p.subitems.filter((s) => s.entrega === "on-time" || s.entrega === "late").length;
+  const hitosAtrasados = p.subitems.filter((s) => s.entrega === "late").length;
+  // "ok" solo si el item mismo cerró a tiempo: uno sin cerrar (Working on it, Stuck…) con hitos
+  // ya evaluados y sin atraso sigue "pendiente" — todavía no tiene su propio veredicto.
+  const estado: ItemFase["estado"] = p.entrega === "late" || hitosAtrasados > 0 ? "atraso"
+    : p.entrega === "on-time" ? "ok" : "pendiente";
+  return { id: p.id, nombre: p.name, status: p.status, deadline: p.deadline, estado, hitosEvaluados, hitosAtrasados };
 }
 
 export interface FuenteResumen {
@@ -89,8 +118,19 @@ function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean):
  *  que decide qué penaliza, igual que el scoreboard); `delaysOriginal`, el de Firestore tal
  *  cual, solo para mostrar el responsable con su etiqueta real. */
 export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: DelayMap = delays): DetalleMedicion {
-  // Proyectos: solo la Fase 3 (mismo recorte que calcEntregaStatsCku, el número del scoreboard).
-  const unidades = buildEntregaRows(s.req, proyectosFase3(s.proj), s.projBoards, s.ini).map((r): UnidadMedida => {
+  // Proyectos: solo la Fase 3 de los boards con plantilla nueva (mismo recorte que
+  // calcEntregaStatsCku, el número del scoreboard).
+  const proj = proyectosFase3Nueva(s.proj);
+  const itemsPorFase = new Map<string, ItemFase[]>();
+  for (const p of proj) {
+    const k = projPhaseKey(p.boardId, p.grupo);
+    const lista = itemsPorFase.get(k);
+    if (lista) lista.push(itemFase(p)); else itemsPorFase.set(k, [itemFase(p)]);
+  }
+  for (const lista of itemsPorFase.values()) {
+    lista.sort((a, b) => ORDEN_ITEM[a.estado] - ORDEN_ITEM[b.estado] || a.nombre.localeCompare(b.nombre));
+  }
+  const unidades = buildEntregaRows(s.req, proj, s.projBoards, s.ini).map((r): UnidadMedida => {
     const fuente = fuenteDe(r.source);
     const tarde = r.verdict === "late";
     const excusada = tarde && lateExcused(r.id, delays);
@@ -98,6 +138,7 @@ export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: 
     const base = {
       id: r.id, fuente, nombre: r.name, fase: r.source === "Proyecto" ? "" : r.fase, responsable,
       extra: r.source === "Proyecto" && tarde ? `${r.totalAtrasados} de ${r.totalEvaluados} con atraso` : undefined,
+      items: r.source === "Proyecto" ? itemsPorFase.get(r.id) ?? [] : undefined,
     };
     if (!tarde) return { ...base, estado: "ok", cuenta: true, valor: 1 };
     if (excusada) {

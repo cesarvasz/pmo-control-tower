@@ -8,6 +8,7 @@ import {
   calcPmMetrics,
   calcEntregaStats,
   calcEntregaStatsCku,
+  proyectosFase3Nueva,
   calcEntregaStatsPonderado,
   calcEntregaStatsRaw,
   iniEntregaVerdict,
@@ -580,6 +581,38 @@ describe("calcEntregaStatsCku (Cumplimiento de un CKU: Proyectos solo Fase 3)", 
 
   it("sin Fase 3 ni otras fuentes: sin dato (null)", () => {
     expect(calcEntregaStatsCku([], [fase("p1", "b1", "Valuación | A", "late")], {}).pct).toBeNull();
+  });
+});
+
+describe("proyectosFase3Nueva (solo Fase 3 y solo boards con plantilla nueva)", () => {
+  const DEV_STEP = "Desarrollo por iteraciones (Hitos) / Entrega CKU";
+  const item = (id: string, boardId: string, grupo: string, name = "x") => proj({ id, boardId, grupo, name });
+
+  it("un board de plantilla vieja (su Fase 3 trae el step 'Desarrollo por iteraciones') queda fuera completo", () => {
+    const vieja = [item("v1", "bV", "Launch | Desarrollo", DEV_STEP), item("v2", "bV", "Launch | Desarrollo", "Value Gate (BC)"), item("v3", "bV", "Valuación | A")];
+    expect(proyectosFase3Nueva(vieja)).toEqual([]);
+  });
+
+  it("un board de plantilla nueva aporta solo los items de su Fase 3", () => {
+    const nueva = [item("n1", "bN", "Launch | Lanzamiento", "POC"), item("n2", "bN", "Launch | Lanzamiento", "MESA 2"), item("n3", "bN", "Valuación | A"), item("n4", "bN", "Operación | B")];
+    expect(proyectosFase3Nueva(nueva).map((p) => p.id)).toEqual(["n1", "n2"]);
+  });
+
+  it("decide la plantilla por board: con uno viejo y uno nuevo solo cuenta el nuevo", () => {
+    const mezcla = [item("v1", "bV", "Launch | Desarrollo", DEV_STEP), item("n1", "bN", "Launch | Lanzamiento", "POC")];
+    expect(proyectosFase3Nueva(mezcla).map((p) => p.id)).toEqual(["n1"]);
+  });
+
+  it("'Desarrollo por iteraciones' como nombre de HITO (no de step) no vuelve vieja a la plantilla nueva", () => {
+    const n = proj({ id: "n1", boardId: "bN", grupo: "Launch | Lanzamiento", name: "POC", subitems: [sub({ id: "h1", name: "Desarrollo por iteraciones +QA (1)" })] });
+    expect(proyectosFase3Nueva([n]).map((p) => p.id)).toEqual(["n1"]);
+  });
+
+  it("calcEntregaStatsCku ignora los boards de plantilla vieja aunque su Fase 3 esté atrasada", () => {
+    const vieja = [proj({ id: "v1", boardId: "bV", grupo: "Launch | Desarrollo", name: DEV_STEP, entrega: "late" })];
+    const nueva = [proj({ id: "n1", boardId: "bN", grupo: "Launch | Lanzamiento", name: "POC", entrega: "on-time" })];
+    expect(calcEntregaStatsCku([], [...vieja, ...nueva], {}).pct).toBe(100);
+    expect(calcEntregaStatsCku([], vieja, {}).pct).toBeNull();
   });
 });
 
