@@ -5,13 +5,14 @@
 // (Iniciativas / PML / Proyectos, los mismos pesos del EVM). Todo sale de lib/ckuDetalle,
 // con la misma cuenta que el scoreboard, así que el % de aquí es el de la tabla.
 //
-// Se lee como un acordeón: Proyecto (Fase 3) → items → hitos, todo plegado al inicio. Solo se
-// listan las unidades que ENTRAN en la nota, así que cada etiqueta cuadra con el % de su fuente.
+// Se lee como un acordeón, todo plegado al inicio: en Cumplimiento Proyecto (Fase 3) → items → hitos;
+// en Calidad Proyecto → sus entregables. Solo se listan las unidades que ENTRAN en la nota, así que
+// cada etiqueta cuadra con el % de su fuente.
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Pill, type Tone } from "@/components/ui";
 import { fmtDate } from "@/lib/business";
-import { detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type HitoFase, type ItemFase, type UnidadMedida } from "@/lib/ckuDetalle";
+import { agruparPorProyecto, detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type GrupoProyecto, type HitoFase, type ItemFase, type UnidadMedida } from "@/lib/ckuDetalle";
 import type { DelayMap } from "@/lib/delay";
 import type { CkuScope } from "@/lib/players";
 
@@ -97,17 +98,25 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, deta
           {ORDEN.map((f) => {
             const us = unidades.filter((u) => u.fuente === f);
             if (us.length === 0) return null;
+            // Calidad de Proyectos: un acordeón por proyecto, con sus entregables adentro.
+            const grupos = esCalidad && f === "proj" ? agruparPorProyecto(us) : null;
             return (
               <section key={f}>
                 <div className="mb-1 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  {FUENTE_LABEL[f]} · {us.length}
+                  {FUENTE_LABEL[f]} · {grupos ? `${grupos.length} ${grupos.length === 1 ? "proyecto" : "proyectos"} · ${us.length} ${us.length === 1 ? "item" : "items"}` : us.length}
                 </div>
                 <ul className="space-y-1">
-                  {us.map((u) => (
-                    <li key={u.id} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
-                      {esCalidad ? <UnidadCalidad u={u} /> : <UnidadCumplimiento u={u} cku={cku} />}
-                    </li>
-                  ))}
+                  {grupos
+                    ? grupos.map((g) => (
+                      <li key={g.proyecto} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
+                        <ProyectoCalidad g={g} />
+                      </li>
+                    ))
+                    : us.map((u) => (
+                      <li key={u.id} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
+                        {esCalidad ? <UnidadCalidad u={u} /> : <UnidadCumplimiento u={u} cku={cku} />}
+                      </li>
+                    ))}
                 </ul>
               </section>
             );
@@ -263,13 +272,35 @@ function HitosDeItem({ hitos, total, quien }: { hitos: HitoFase[]; total: number
   );
 }
 
-function UnidadCalidad({ u }: { u: UnidadMedida }) {
+/** Un proyecto en Calidad: su nota promedio, y al abrirlo sus entregables (items) con la nota de cada uno. */
+function ProyectoCalidad({ g }: { g: GrupoProyecto }) {
+  const t: Tone = g.nota >= 90 ? "ok" : g.nota >= 75 ? "warn" : "bad";
+  const n = g.unidades.length;
+  return (
+    <Fila
+      cabecera={
+        <Cabecera
+          nivel={0} titulo={g.proyecto}
+          detalle={unidos([`${n} ${n === 1 ? "item" : "items"}`, `${g.buenas} con nota 100`, g.enCurso > 0 && `${g.enCurso} en curso`])}
+          derecha={<>
+            <Pill tone={t} small>{g.nota}</Pill>
+            <span className="block text-[0.62rem] text-[var(--text-muted)]">nota promedio</span>
+          </>}
+        />
+      }
+      hijos={g.unidades.map((u) => <UnidadCalidad key={u.id} u={u} nivel={1} />)}
+    />
+  );
+}
+
+/** Una unidad de Calidad con su nota (0 / 50 / 100): PML, Iniciativa o, con `nivel` 1, un item de un proyecto. */
+function UnidadCalidad({ u, nivel = 0 }: { u: UnidadMedida; nivel?: 0 | 1 }) {
   const t: Tone = u.nota === 100 ? "ok" : u.nota === 0 ? "bad" : "warn";
   return (
     <Fila
       cabecera={
         <Cabecera
-          nivel={0} titulo={u.nombre} detalle={unidos([u.fase, u.enCurso && "en curso"])}
+          nivel={nivel} titulo={u.nombre} detalle={unidos([u.fase, u.enCurso && "en curso"])}
           derecha={<>
             <Pill tone={t} small>{u.nota}</Pill>
             <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>

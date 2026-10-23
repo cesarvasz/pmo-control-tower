@@ -37,6 +37,8 @@ export interface UnidadMedida {
   responsable: string | null;
   /** Solo Calidad de Proyectos: el item aún no cierra del todo (la nota es provisional). */
   enCurso?: boolean;
+  /** Solo Calidad de Proyectos: el proyecto (board) al que pertenece el entregable, p. ej. "PM-013 · TDP ADU". */
+  proyecto?: string;
   /** Dato extra breve para mostrar al lado (p. ej. "2 de 5 con atraso"). */
   extra?: string;
   /** Solo Cumplimiento de Proyectos: los items de la Fase 3 que componen esta unidad. */
@@ -198,12 +200,45 @@ export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: 
 export function detalleCalidad(s: Scope, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso): DetalleMedicion {
   const unidades = buildReprocesoRows(s.req, s.proj, s.projBoards, reproceso, s.ini).map((r): UnidadMedida => ({
     id: r.id, fuente: fuenteDe(r.source),
-    nombre: r.source === "Proyecto" ? `${r.projName} · ${r.name}` : r.name,
+    nombre: r.name,
     fase: r.fase,
     estado: r.nota === 100 ? "ok" : r.nota === 0 ? "atraso" : "parcial",
     cuenta: true, valor: r.nota / 100, nota: r.nota,
     responsable: reprocesoOriginal[r.id]?.responsible ?? null,
     enCurso: r.source === "Proyecto" && !r.allDone,
+    proyecto: r.source === "Proyecto" ? (r.projCode ? `${r.projCode} · ${r.projName}` : r.projName) : undefined,
   }));
   return resumir(unidades, (u) => u.nota === 100);
+}
+
+/** Los entregables de Calidad de un mismo proyecto. */
+export interface GrupoProyecto {
+  proyecto: string;
+  /** Sus entregables, la nota más baja primero. */
+  unidades: UnidadMedida[];
+  /** Nota promedio del proyecto (0–100). */
+  nota: number;
+  /** Entregables con nota 100. */
+  buenas: number;
+  /** Entregables que aún no cierran del todo (nota provisional). */
+  enCurso: number;
+}
+
+/** Agrupa por proyecto las unidades de Calidad de Proyectos (las que traen `proyecto`), con el
+ *  proyecto de peor nota primero. Las demás unidades se ignoran. */
+export function agruparPorProyecto(unidades: UnidadMedida[]): GrupoProyecto[] {
+  const porProyecto = new Map<string, UnidadMedida[]>();
+  for (const u of unidades) {
+    if (!u.proyecto) continue;
+    const lista = porProyecto.get(u.proyecto);
+    if (lista) lista.push(u); else porProyecto.set(u.proyecto, [u]);
+  }
+  const porNota = (a: UnidadMedida, b: UnidadMedida) => (a.nota ?? 0) - (b.nota ?? 0) || a.nombre.localeCompare(b.nombre);
+  return [...porProyecto].map(([proyecto, us]): GrupoProyecto => ({
+    proyecto,
+    unidades: [...us].sort(porNota),
+    nota: Math.round(us.reduce((s, u) => s + (u.nota ?? 0), 0) / us.length),
+    buenas: us.filter((u) => u.nota === 100).length,
+    enCurso: us.filter((u) => u.enCurso).length,
+  })).sort((a, b) => a.nota - b.nota || a.proyecto.localeCompare(b.proyecto));
 }
