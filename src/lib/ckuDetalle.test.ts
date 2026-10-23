@@ -124,6 +124,17 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       expect(d.unidades.flatMap((x) => x.items ?? []).map((i) => i.nombre)).toEqual(["POC"]);
     });
 
+    it("cada item trae su responsable de Monday ('Responsible'; 'Resp' si viene vacío; null si ninguno)", () => {
+      const proj = [
+        { ...item("a", "A", "on-time"), responsible: " Javier Juarez ", resp: "" },
+        { ...item("b", "B", "on-time"), responsible: "", resp: "Luis Coronado" },
+        { ...item("c", "C", "on-time"), responsible: "", resp: "" },
+      ] as unknown as ProjItem[];
+      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      const items = d.unidades.find((x) => x.fuente === "proj")!.items!;
+      expect(Object.fromEntries(items.map((i) => [i.nombre, i.responsable]))).toEqual({ A: "Javier Juarez", B: "Luis Coronado", C: null });
+    });
+
     it("PML e Iniciativas no traen items", () => {
       const d = detalleCumplimiento({ req: [reqE("r1", "on-time")], proj: [], projBoards: [], ini: [iniE("i1", true)] }, {});
       expect(d.unidades.every((x) => x.items === undefined)).toBe(true);

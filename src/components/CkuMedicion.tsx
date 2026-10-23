@@ -145,6 +145,12 @@ function ItemsDeFase({ items }: { items: ItemFase[] }) {
                 {[it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, it.hitosEvaluados > 0 && `${it.hitosAtrasados} de ${it.hitosEvaluados} hitos con atraso`]
                   .filter(Boolean).join(" · ")}
               </div>
+              <div className="truncate text-[0.62rem]">
+                <span className="text-[var(--text-muted)]">Responsable: </span>
+                {it.responsable
+                  ? <span className="font-semibold text-[var(--text-secondary)]">{it.responsable}</span>
+                  : <span className="text-[var(--text-disabled)]">sin responsable</span>}
+              </div>
             </div>
             <div className="shrink-0"><Pill tone={tone(it.estado)} small>{txt(it.estado)}</Pill></div>
           </li>

@@ -53,6 +53,8 @@ export interface ItemFase {
   estado: "ok" | "atraso" | "pendiente";
   hitosEvaluados: number;
   hitosAtrasados: number;
+  /** Persona responsable del item en Monday (columna "Responsible"; "Resp" si esa viene vacía). */
+  responsable: string | null;
 }
 
 const ORDEN_ITEM: Record<ItemFase["estado"], number> = { atraso: 0, pendiente: 1, ok: 2 };
@@ -66,7 +68,10 @@ function itemFase(p: ProjItem): ItemFase {
   // ya evaluados y sin atraso sigue "pendiente" — todavía no tiene su propio veredicto.
   const estado: ItemFase["estado"] = p.entrega === "late" || hitosAtrasados > 0 ? "atraso"
     : p.entrega === "on-time" ? "ok" : "pendiente";
-  return { id: p.id, nombre: p.name, status: p.status, deadline: p.deadline, estado, hitosEvaluados, hitosAtrasados };
+  return {
+    id: p.id, nombre: p.name, status: p.status, deadline: p.deadline, estado, hitosEvaluados, hitosAtrasados,
+    responsable: p.responsible?.trim() || p.resp?.trim() || null,
+  };
 }
 
 export interface FuenteResumen {
