@@ -5,7 +5,7 @@
 // constructores de filas que la página de auditoría, y su `pct` coincide con el del
 // scoreboard (calcEntregaStatsPonderado / calcReprocesoStatsPonderado). Módulo PURO.
 
-import { buildEntregaRows, buildReprocesoRows } from "@/lib/dashboard";
+import { buildEntregaRows, buildReprocesoRows, proyectosFase3 } from "@/lib/dashboard";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -89,7 +89,8 @@ function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean):
  *  que decide qué penaliza, igual que el scoreboard); `delaysOriginal`, el de Firestore tal
  *  cual, solo para mostrar el responsable con su etiqueta real. */
 export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: DelayMap = delays): DetalleMedicion {
-  const unidades = buildEntregaRows(s.req, s.proj, s.projBoards, s.ini).map((r): UnidadMedida => {
+  // Proyectos: solo la Fase 3 (mismo recorte que calcEntregaStatsCku, el número del scoreboard).
+  const unidades = buildEntregaRows(s.req, proyectosFase3(s.proj), s.projBoards, s.ini).map((r): UnidadMedida => {
     const fuente = fuenteDe(r.source);
     const tarde = r.verdict === "late";
     const excusada = tarde && lateExcused(r.id, delays);

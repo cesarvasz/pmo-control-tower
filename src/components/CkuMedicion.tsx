@@ -27,7 +27,8 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
     <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t p-4 lg:grid-cols-2" style={{ borderColor: "var(--border)" }}>
       <Panel
         titulo="Cumplimiento de Entrega" medida="% a tiempo" detalle={cumplimiento}
-        regla="Un atraso se excusa si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Un PML o Iniciativa con atraso excusado no cuenta; una fase de Proyecto con atraso excusado cuenta como a tiempo."
+        soloFase3
+        regla="Un atraso se excusa si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Un PML o Iniciativa con atraso excusado no cuenta; la Fase 3 de un Proyecto con atraso excusado cuenta como a tiempo."
         fila={(u) => <ResultadoCumplimiento u={u} />}
       />
       <Panel
@@ -39,8 +40,11 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
   );
 }
 
-function Panel({ titulo, medida, esCalidad = false, detalle, regla, fila }: {
-  titulo: string; medida: string; esCalidad?: boolean; detalle: DetalleMedicion; regla: string; fila: (u: UnidadMedida) => React.ReactNode;
+function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, detalle, regla, fila }: {
+  titulo: string; medida: string; esCalidad?: boolean;
+  /** Proyectos cuentan solo con su Fase 3 (Launch) — se avisa en el encabezado del panel. */
+  soloFase3?: boolean;
+  detalle: DetalleMedicion; regla: string; fila: (u: UnidadMedida) => React.ReactNode;
 }) {
   return (
     <div className="min-w-0">
@@ -53,6 +57,7 @@ function Panel({ titulo, medida, esCalidad = false, detalle, regla, fila }: {
       <p className="mb-2 text-[0.68rem] leading-snug text-[var(--text-muted)]">
         Medido como el EVM: cada fuente saca su {medida} y se combinan Iniciativas 10% · PML 20% · Proyectos 70%.
         El peso de una fuente sin unidades se reparte entre las demás.
+        {soloFase3 && <strong className="font-semibold text-[var(--text-secondary)]"> En Proyectos solo cuenta la Fase 3 (Launch).</strong>}
       </p>
 
       {/* Peso real y resultado de cada fuente */}

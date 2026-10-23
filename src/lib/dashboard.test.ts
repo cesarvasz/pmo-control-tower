@@ -7,6 +7,7 @@ import {
   buildBoardHealthMap,
   calcPmMetrics,
   calcEntregaStats,
+  calcEntregaStatsCku,
   calcEntregaStatsPonderado,
   calcEntregaStatsRaw,
   iniEntregaVerdict,
@@ -520,16 +521,65 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(calcReprocesoStatsPonderado([], [], {}).pct).toBeNull();
   });
 
-  it("calcPmMetrics solo usa la variante ponderada si se pide (los PM siguen igual por defecto)", () => {
+  it("calcPmMetrics solo usa la medición de CKU si se pide (los PM siguen igual por defecto)", () => {
     const reqs = [req({ id: "r1", pm: "Luis", onTime: onTime("on-time"), estado: "CERRADO" })];
-    const projBoards = [board({ id: "b1", pm: "Luis" })];
-    const projs = Array.from({ length: 3 }, (_, i) => proj({ id: `p${i}`, boardId: "b1", grupo: `Fase ${i}`, entrega: "late" }));
+    // 3 proyectos, cada uno con su Fase 3 atrasada.
+    const projBoards = ["b0", "b1", "b2"].map((id) => board({ id, pm: "Luis" }));
+    const projs = projBoards.map((b, i) => proj({ id: `p${i}`, boardId: b.id, grupo: "Launch | Lanzamiento", entrega: "late" }));
     const bhm = buildBoardHealthMap(projs, projBoards, {});
     const run = (ponderar: boolean) =>
       calcPmMetrics("Luis", [], reqs, projs, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, ponderar);
     // 1 PML a tiempo + 3 fases atrasadas: junto 1/4 = 25%; ponderado (20·1 + 70·0) / 90 = 22%.
     expect(run(false).entPct).toBe(25);
     expect(run(true).entPct).toBe(22);
+  });
+
+  it("calcPmMetrics de un CKU ignora las fases del proyecto que no son la 3; un PM las sigue contando", () => {
+    const projBoards = [board({ id: "b1", pm: "Luis" })];
+    const projs = [
+      proj({ id: "p1", name: "Kick Off", boardId: "b1", grupo: "Valuación | Formulación del proyecto", entrega: "late" }),
+      proj({ id: "p2", name: "Entregable", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "on-time" }),
+    ];
+    const bhm = buildBoardHealthMap(projs, projBoards, {});
+    const run = (cku: boolean) =>
+      calcPmMetrics("Luis", [], [], projs, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, cku);
+    expect(run(false).entPct).toBe(50);  // 2 fases (Valuación atrasada + Launch a tiempo)
+    expect(run(true).entPct).toBe(100);  // solo la Fase 3
+  });
+});
+
+describe("calcEntregaStatsCku (Cumplimiento de un CKU: Proyectos solo Fase 3)", () => {
+  const fase = (id: string, boardId: string, grupo: string, entrega: "on-time" | "late") =>
+    proj({ id, boardId, grupo, entrega });
+
+  it("una fase atrasada que no es la 3 no penaliza; la Fase 3 atrasada sí", () => {
+    const projs = [fase("p1", "b1", "Valuación | Formulación del proyecto", "late"), fase("p2", "b1", "Launch | Lanzamiento", "on-time")];
+    expect(calcEntregaStatsCku([], projs, {}).pct).toBe(100);
+    const tarde = [fase("p1", "b1", "Valuación | Formulación del proyecto", "on-time"), fase("p2", "b1", "Launch | Lanzamiento", "late")];
+    expect(calcEntregaStatsCku([], tarde, {}).pct).toBe(0);
+  });
+
+  it("cada proyecto aporta una sola unidad (su Fase 3) en vez de una por fase", () => {
+    const todas = ["Valuación | A", "Aprobación | B", "Launch | Lanzamiento", "Operación | C", "Revisión | D"]
+      .map((g, i) => fase(`p${i}`, "b1", g, "on-time"));
+    expect(calcEntregaStatsPonderado([], todas, {}).total).toBe(5);
+    expect(calcEntregaStatsCku([], todas, {}).total).toBe(1);
+  });
+
+  it("PML e Iniciativas no cambian: se ponderan igual que antes", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50%
+    const projs = [fase("p1", "b1", "Launch | Lanzamiento", "late")];                                     // 0%
+    // PML 50·0.20 + Proyectos 0·0.70 = 10 / 0.90 = 11
+    expect(calcEntregaStatsCku(reqs, projs, {}).pct).toBe(11);
+  });
+
+  it("el excusado por responsable sigue funcionando sobre la Fase 3", () => {
+    const projs = [fase("p1", "b1", "Launch | Lanzamiento", "late")];
+    expect(calcEntregaStatsCku([], projs, { "b1::Launch | Lanzamiento": { responsible: "Sponsor" } }).pct).toBe(100);
+  });
+
+  it("sin Fase 3 ni otras fuentes: sin dato (null)", () => {
+    expect(calcEntregaStatsCku([], [fase("p1", "b1", "Valuación | A", "late")], {}).pct).toBeNull();
   });
 });
 

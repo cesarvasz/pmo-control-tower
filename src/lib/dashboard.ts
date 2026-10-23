@@ -469,6 +469,17 @@ function entregaPorFuente(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, 
   return out;
 }
 
+/** Solo los items de Proyecto de la Fase 3 (Launch): el recorte con el que se miden los CKUs. */
+export const proyectosFase3 = (projs: ProjItem[]): ProjItem[] => projs.filter((p) => isFase3(p.grupo));
+
+/** Cumplimiento de Entrega de un CKU: lo mismo que calcEntregaStatsPonderado (una nota por
+ *  fuente, combinadas 10/20/70) pero en Proyectos SOLO cuenta la Fase 3 (Launch) — la
+ *  fase de cada proyecto es una sola unidad, en vez de las cinco. PML e Iniciativas no
+ *  cambian. Es el mismo recorte con el que el EVM del CKU mide sus proyectos. */
+export function calcEntregaStatsCku(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
+  return calcEntregaStatsPonderado(reqs, proyectosFase3(projs), delays, ini);
+}
+
 /** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
  *  lib/health.ts): el % a tiempo de cada fuente por separado (Iniciativas, PML,
  *  Proyectos), combinados 10% · 20% · 70%. Una fuente sin unidades no cuenta y su
@@ -1227,8 +1238,9 @@ export function calcPmMetrics(
   metodologia: MetodologiaMap = {},
   /** Confirmación vía ROI de los PMs de CONFIRMACION_ROI_PM (reemplaza la de Monday). */
   confirmacionRoiPm: Record<string, ConfirmacionRoiPm> = {},
-  /** Cumplimiento de Entrega y Calidad de Entregas medidos como el EVM (nota por fuente
-   *  ponderada 10/20/70, ver calcEntregaStatsPonderado). Hoy solo los Players por CKU. */
+  /** Medición de un CKU: Cumplimiento de Entrega y Calidad de Entregas como el EVM (nota por
+   *  fuente ponderada 10/20/70) y, en Cumplimiento, Proyectos solo con su Fase 3 (ver
+   *  calcEntregaStatsCku). Hoy solo los Players por CKU. */
   ponderarPorFuente = false,
 ) {
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
@@ -1253,7 +1265,7 @@ export function calcPmMetrics(
   const nps = calcNpsFromRecords(npsRecords, pm);
 
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = (ponderarPorFuente ? calcEntregaStatsPonderado : calcEntregaStats)(
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = (ponderarPorFuente ? calcEntregaStatsCku : calcEntregaStats)(
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     delays,

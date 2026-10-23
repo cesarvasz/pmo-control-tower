@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { detalleCalidad, detalleCumplimiento } from "./ckuDetalle";
-import { calcEntregaStatsPonderado, calcReprocesoStatsPonderado } from "./dashboard";
+import { calcEntregaStatsCku, calcReprocesoStatsPonderado } from "./dashboard";
 import { swapPmCku } from "./players";
 import type { DelayMap } from "./delay";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -9,48 +9,62 @@ const reqE = (id: string, verdict: "on-time" | "late", extra: Partial<ReqItem> =
   ({ id, name: `PML ${id}`, grupo: "Desarrollo", pm: "Javier", estado: "CERRADO", onTime: { verdict, phases: [] }, ...extra }) as unknown as ReqItem;
 
 const board = { id: "b1", name: "PM-001 | Demo", pm: "Javier" } as ProjBoard;
-const fase = (id: string, grupo: string, entrega: "on-time" | "late"): ProjItem =>
-  ({ id, boardId: "b1", boardName: "PM-001 | Demo", pm: "Javier", grupo, entrega, status: "Done", subitems: [] }) as unknown as ProjItem;
+const boards = ["b1", "b2", "b3"].map((id) => ({ id, name: `PM-00${id.slice(1)} | Demo ${id}`, pm: "Javier" }) as ProjBoard);
+const LAUNCH = "Launch | Lanzamiento";
+const fase = (id: string, grupo: string, entrega: "on-time" | "late", boardId = "b1"): ProjItem =>
+  ({ id, boardId, boardName: `PM-00${boardId.slice(1)} | Demo ${boardId}`, pm: "Javier", grupo, entrega, status: "Done", subitems: [] }) as unknown as ProjItem;
 
 const creacion = new Date(2026, 0, 5);
 const iniE = (id: string, aTiempo: boolean): IniItem =>
   ({ id, name: `Ini ${id}`, grupo: "Aprobadas", status: "PM Aprobado", estado: "APROBADA", pm: "Javier",
     creacion, meet1: aTiempo ? "2026-01-12" : "2026-01-13", meet2: "2026-01-26" }) as IniItem;
 
-describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente", () => {
+describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyectos: solo Fase 3)", () => {
+  // Tres proyectos con su Fase 3 (a tiempo / atraso excusado / atraso) y, además, fases
+  // atrasadas de otras etapas que para un CKU NO se miden.
+  const delays: DelayMap = { r3: { responsible: "Sponsor" }, [`b1::${LAUNCH}`]: { responsible: "Sponsor" } };
+  const escenario = () => ({
+    req: [reqE("r1", "on-time"), reqE("r2", "late"), reqE("r3", "late")],
+    proj: [
+      fase("pC", LAUNCH, "on-time", "b3"),
+      fase("pA", LAUNCH, "late", "b1"),                                   // Fase 3 con atraso, excusada
+      fase("pB", LAUNCH, "late", "b2"),                                   // Fase 3 con atraso, penaliza
+      fase("pX", "Valuación | Formulación del proyecto", "late", "b1"),   // otra fase: NO se mide
+      fase("pY", "Operación | Implementación", "late", "b2"),             // otra fase: NO se mide
+    ],
+    projBoards: boards, ini: [iniE("i1", true), iniE("i2", false)],
+  });
+
   it("clasifica cada unidad: a tiempo / atraso que penaliza / atraso excusado, y arma el % por fuente", () => {
-    const delays: DelayMap = { r3: { responsible: "Sponsor" }, "b1::Fase 2": { responsible: "Sponsor" } };
-    const s = {
-      req: [reqE("r1", "on-time"), reqE("r2", "late"), reqE("r3", "late")],
-      proj: [fase("p1", "Fase 1", "on-time"), fase("p2", "Fase 2", "late"), fase("p3", "Fase 3", "late")],
-      projBoards: [board], ini: [iniE("i1", true), iniE("i2", false)],
-    };
-    const d = detalleCumplimiento(s, delays);
+    const d = detalleCumplimiento(escenario(), delays);
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
 
     expect(por("r1")).toMatchObject({ estado: "ok", cuenta: true });
     expect(por("r2")).toMatchObject({ estado: "atraso", cuenta: true, valor: 0 });
     // PML con atraso excusado: SALE de la cuenta (no suma ni resta).
     expect(por("r3")).toMatchObject({ estado: "excusado", cuenta: false });
-    // Fase de Proyecto con atraso excusado: SÍ cuenta, como a tiempo.
-    expect(por("b1::Fase 2")).toMatchObject({ estado: "excusado", cuenta: true, valor: 1 });
-    expect(por("b1::Fase 3")).toMatchObject({ estado: "atraso", cuenta: true, extra: "1 de 1 con atraso" });
+    // Fase 3 de Proyecto con atraso excusado: SÍ cuenta, como a tiempo.
+    expect(por(`b1::${LAUNCH}`)).toMatchObject({ estado: "excusado", cuenta: true, valor: 1 });
+    expect(por(`b2::${LAUNCH}`)).toMatchObject({ estado: "atraso", cuenta: true, extra: "1 de 1 con atraso" });
+    expect(por(`b3::${LAUNCH}`)).toMatchObject({ estado: "ok", cuenta: true });
 
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
     expect(f("req")).toMatchObject({ total: 2, buenas: 1, pct: 50 });   // r1 ok, r2 atraso (r3 excluido)
-    expect(f("proj")).toMatchObject({ total: 3, buenas: 2, pct: 67 });  // p1 ok, p2 excusada, p3 atraso
+    expect(f("proj")).toMatchObject({ total: 3, buenas: 2, pct: 67 });  // b3 ok, b1 excusada, b2 atraso
     expect(f("ini")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
   });
 
+  it("las demás fases del proyecto (Valuación, Operación…) no entran en la medición del CKU", () => {
+    const d = detalleCumplimiento(escenario(), delays);
+    const proj = d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id);
+    expect(proj.sort()).toEqual([`b1::${LAUNCH}`, `b2::${LAUNCH}`, `b3::${LAUNCH}`]);
+    expect(d.unidades.some((u) => u.id.includes("Valuación") || u.id.includes("Operación"))).toBe(false);
+  });
+
   it("el % del detalle y las unidades que cuentan coinciden con el del scoreboard", () => {
-    const delays: DelayMap = { r3: { responsible: "Sponsor" }, "b1::Fase 2": { responsible: "Sponsor" } };
-    const s = {
-      req: [reqE("r1", "on-time"), reqE("r2", "late"), reqE("r3", "late")],
-      proj: [fase("p1", "Fase 1", "on-time"), fase("p2", "Fase 2", "late"), fase("p3", "Fase 3", "late")],
-      projBoards: [board], ini: [iniE("i1", true), iniE("i2", false)],
-    };
+    const s = escenario();
     const d = detalleCumplimiento(s, delays);
-    const stats = calcEntregaStatsPonderado(s.req, s.proj, delays, s.ini);
+    const stats = calcEntregaStatsCku(s.req, s.proj, delays, s.ini);
     expect(d.pct).toBe(stats.pct);
     expect(d.fuentes.reduce((n, f) => n + f.total, 0)).toBe(stats.total);
     expect(d.fuentes.reduce((n, f) => n + f.buenas, 0)).toBe(stats.onTime);
@@ -58,12 +72,19 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente", () => 
 
   it("los pesos efectivos reparten el de las fuentes sin unidades (sin PML: Iniciativas 12.5% · Proyectos 87.5%)", () => {
     const d = detalleCumplimiento(
-      { req: [], proj: [fase("p1", "Fase 1", "on-time")], projBoards: [board], ini: [iniE("i1", true)] }, {});
+      { req: [], proj: [fase("p1", LAUNCH, "on-time")], projBoards: [board], ini: [iniE("i1", true)] }, {});
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
     expect(f("req")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
     expect(f("ini").pesoEfectivo).toBeCloseTo(0.125, 5);
     expect(f("proj").pesoEfectivo).toBeCloseTo(0.875, 5);
     expect(d.fuentes.reduce((s, x) => s + (x.pesoEfectivo ?? 0), 0)).toBeCloseTo(1, 5);
+  });
+
+  it("un proyecto sin Fase 3 todavía no aporta unidades: Proyectos queda sin peso", () => {
+    const d = detalleCumplimiento(
+      { req: [], proj: [fase("p1", "Valuación | Formulación del proyecto", "late")], projBoards: [board], ini: [iniE("i1", true)] }, {});
+    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
+    expect(d.pct).toBe(100); // solo cuenta la Iniciativa
   });
 
   it("para un CKU penaliza 'CKU' (no 'PM'): el mapa intercambiado decide, la etiqueta es la original", () => {
