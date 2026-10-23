@@ -37,7 +37,7 @@ import type { ClonacionRow, RoiRow } from "@/types";
 type DimFiltro = "meses" | "usuarios" | "analistas" | "clientes" | "mesas" | "procesos" | "documentos" | "embarques" | "impexp";
 
 // Vista restringida del rol CKU: solo línea de tiempo, tiempos del proceso
-// Aduana y costo/beneficio, con estos filtros fijos (solo el periodo se mueve).
+// Aduana y costo/beneficio, con estos filtros fijos (solo el periodo y la Mesa se mueven).
 const FILTROS_CKU: Filtros = { ...FILTROS_VACIOS, ducafast: "si", procesos: ["Aduana"], metrica: "mediana" };
 
 function Bloque({ titulo, badge, children, nota }: {
@@ -92,16 +92,21 @@ export default function ReporteTramites({ rows, clonacion }: {
   const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
   const [tarifaUsuario, setTarifa] = useState(TARIFA_HORA_DEFECTO);
   const [informe, setInforme] = useState(false);
-  const f = useMemo<Filtros>(() => (esCku ? { ...FILTROS_CKU, meses: fUsuario.meses } : fUsuario), [esCku, fUsuario]);
+  const f = useMemo<Filtros>(
+    () => (esCku ? { ...FILTROS_CKU, meses: fUsuario.meses, mesas: fUsuario.mesas } : fUsuario),
+    [esCku, fUsuario],
+  );
   const tarifa = esCku ? TARIFA_HORA_DEFECTO : tarifaUsuario;
 
   const todos = useMemo(() => construirExpedientes(rows), [rows]);
   const opciones = useMemo(() => opcionesDeFiltro(todos), [todos]);
-  // CKU: el volumen por mes de la línea de tiempo sale de su recorte fijo, no de todos los Files.
-  const mesesTimeline = useMemo(
-    () => (esCku ? opcionesDeFiltro(filtrarExpedientes(todos, FILTROS_CKU)).meses : opciones.meses),
-    [esCku, todos, opciones.meses],
+  // CKU: el volumen por mes de la línea de tiempo y las Mesas a elegir salen de su recorte fijo
+  // (Ducafast · Aduana), no de todos los Files.
+  const opcionesCku = useMemo(
+    () => (esCku ? opcionesDeFiltro(filtrarExpedientes(todos, FILTROS_CKU)) : null),
+    [esCku, todos],
   );
+  const mesesTimeline = opcionesCku?.meses ?? opciones.meses;
 
   // Recorte filtrado — de aquí cuelgan TODAS las secciones, para que cuadren.
   const exps = useMemo(() => filtrarExpedientes(todos, f), [todos, f]);
@@ -213,11 +218,15 @@ export default function ReporteTramites({ rows, clonacion }: {
         )}
       </SectionHeader>
 
-      {esCku && (
-        <p className="mb-4 text-[0.74rem] text-[var(--text-muted)]">
-          Filtros fijos: <strong>Ducafast</strong> · Proceso <strong>Aduana</strong> · <strong>{METRICA_LABEL.mediana}</strong>.
-          El ahorro se calcula contra los Files sin Ducafast del mismo periodo.
-        </p>
+      {esCku && opcionesCku && (
+        <div className="mb-4 flex flex-wrap items-end gap-x-4 gap-y-2">
+          {msSelect("mesas", "Mesa", opcionesCku.mesas)}
+          {f.mesas.length > 0 && <FilterReset onClick={() => set({ mesas: [] })} />}
+          <p className="min-w-[16rem] flex-1 text-[0.74rem] text-[var(--text-muted)]">
+            Filtros fijos: <strong>Ducafast</strong> · Proceso <strong>Aduana</strong> · <strong>{METRICA_LABEL.mediana}</strong>.
+            El ahorro se calcula contra los Files sin Ducafast del mismo periodo{f.mesas.length > 0 ? " y de la misma Mesa" : ""}.
+          </p>
+        </div>
       )}
 
       {/* ── Filtros ── */}
