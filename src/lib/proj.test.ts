@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcBoardMetrics, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards, soloBoardsDeProyecto } from "./proj";
+import { calcBoardMetrics, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards, buildIniLookup, soloBoardsDeProyecto } from "./proj";
 import { today } from "./business";
 import type { MondayColumnValue, MondayItem, MondaySubitem, ProjItem } from "@/types";
 
@@ -295,5 +295,55 @@ describe("projEnrichBoards", () => {
     const boards = [{ id: "b003", name: "PM-003 | DUCAfast 2.0 GT" }];
     const [r] = projEnrichBoards(boards, [], byNameOnly);
     expect(r).toMatchObject(iniPM003);
+  });
+
+  describe("PM del proyecto: 3ª plantilla (VALOR Lite) = PM de la Iniciativa enlazada por Project ID", () => {
+    const item = (boardId: string, grupo: string, resp: string) => ({ boardId, grupo, resp, pm: "", responsible: "" }) as unknown as ProjItem;
+    const ini = (pm: string | undefined) => ({ estrategia: "", sponsor: "", cku: "", benefitType: "", pm });
+    const lookup = (pm: string | undefined) => ({ byId: new Map([["PM-016", ini(pm)]]), byName: new Map() });
+    const board = { id: "b16", name: "PM-016 | CEDIS LOURDES SV - P1" };
+
+    it("el board con grupos 'L | Launch' toma el PM de la Iniciativa, no el del primer item", () => {
+      const items = [item("b16", "V | Valuación", "JC Rodas"), item("b16", "L | Launch", "Marvin Morales")];
+      const [r] = projEnrichBoards([board], items, lookup("Daniela Alvarez"));
+      expect(r.pm).toBe("Daniela Alvarez");
+    });
+
+    it("un board de las otras plantillas conserva el PM de su primer item aunque la Iniciativa tenga otro", () => {
+      const items = [item("b16", "Valuación | Formulación del proyecto", "David Guzmán")];
+      const [r] = projEnrichBoards([board], items, lookup("Daniela Alvarez"));
+      expect(r.pm).toBe("David Guzmán");
+    });
+
+    it("si la Iniciativa no trae PM (o no hay Iniciativa), cae al del primer item", () => {
+      const items = [item("b16", "L | Launch", "JC Rodas")];
+      expect(projEnrichBoards([board], items, lookup(undefined))[0].pm).toBe("JC Rodas");
+      expect(projEnrichBoards([board], items, lookup(""))[0].pm).toBe("JC Rodas");
+      expect(projEnrichBoards([board], items, { byId: new Map(), byName: new Map() })[0].pm).toBe("JC Rodas");
+    });
+
+    it("cada board decide por sí mismo: uno Lite y otro no, en la misma carga", () => {
+      const lookupDos = { byId: new Map([["PM-016", ini("Daniela Alvarez")], ["PM-012", ini("Luis Aguilar")]]), byName: new Map() };
+      const boards = [board, { id: "b12", name: "PM-012 | DUCAfast Reg" }];
+      const items = [item("b16", "L | Launch", "JC Rodas"), item("b12", "Launch | Lanzamiento", "David Guzmán")];
+      expect(projEnrichBoards(boards, items, lookupDos).map((b) => b.pm)).toEqual(["Daniela Alvarez", "David Guzmán"]);
+    });
+  });
+
+  describe("buildIniLookup: PM de la Iniciativa", () => {
+    const ini = (name: string, projectId: string, pm: string): MondayItem => ({
+      id: name, name, group: { title: "Aprobadas" },
+      column_values: [{ id: "text_mm3ajvj5", text: projectId }, { id: "multiple_person_mm3akwgd", text: pm }],
+    });
+
+    it("lee la columna PM y la enlaza por el Project ID (sin importar mayúsculas)", () => {
+      const lk = buildIniLookup([ini("CEDIs LOURDES - SV", "pm-016", "Daniela Alvarez")]);
+      expect(lk.byId.get("PM-016")?.pm).toBe("Daniela Alvarez");
+    });
+
+    it("con varias personas en la columna, el PM es la primera; vacía → ''", () => {
+      expect(buildIniLookup([ini("A", "PM-020", " Luis Aguilar , Daniela Alvarez ")]).byId.get("PM-020")?.pm).toBe("Luis Aguilar");
+      expect(buildIniLookup([ini("B", "PM-021", "")]).byId.get("PM-021")?.pm).toBe("");
+    });
   });
 });

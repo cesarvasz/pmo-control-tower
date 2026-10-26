@@ -6,7 +6,7 @@
 import { today, businessDays, parseYMD } from "@/lib/business";
 import { calcIniPMHealth, INI_LIMITS } from "@/lib/ini";
 import { healthStatusFromIndex, weightedEvm, type HealthStatus } from "@/lib/health";
-import { calcBoardMetrics, deriveBoardHealth, splitBoardName, type BoardHealthData } from "@/lib/proj";
+import { calcBoardMetrics, deriveBoardHealth, esPlantillaLite, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
 import { computeKpi, type KpiWeights } from "@/lib/kpi";
@@ -27,9 +27,8 @@ const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCa
  *  las otras dos plantillas. Un grupo sin letra se devuelve tal cual (solo recortado). */
 export const sinLetraDeFase = (grupo: string): string => (grupo ?? "").trim().replace(/^[valor]\s*\|\s*/i, "");
 
-/** ¿El board usa la 3ª plantilla ("VALOR Lite")? Sus grupos llevan la letra de la etapa por delante. */
-export const esPlantillaLite = (items: ProjItem[]): boolean =>
-  items.some((it) => /^[valor]\s*\|/i.test((it.grupo ?? "").trim()));
+// ¿El board usa la 3ª plantilla ("VALOR Lite")? Vive en proj.ts (que enriquece el PM del board); se reexporta aquí.
+export { esPlantillaLite };
 
 /** Value Gate (BC) firmado: en Monday el nombre varía por board — "Firmado y aprobado"
  *  en la fase Aprobación, "Actualizado y firmado" (sin "aprobado") en Launch. Se acepta

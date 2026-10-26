@@ -257,7 +257,13 @@ export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number;
 const INI_LOOKUP_COL = {
   estrategia: "board_relation_mm3by83p", sponsor: "lookup_mm3bdj38", benefitType: "dropdown_mm51s7pm",
   projectId: "text_mm3ajvj5",
+  pm: "multiple_person_mm3akwgd",   // columna "PM" de la Iniciativa (people)
 };
+
+/** ¿El board usa la 3ª plantilla ("VALOR Lite", PM-015/016)? Sus grupos llevan la letra de la etapa
+ *  por delante: "V | Valuación", "L | Launch"… Para esos boards el PM sale de la Iniciativa (ver projEnrichBoards). */
+export const esPlantillaLite = (items: { grupo: string }[]): boolean =>
+  items.some((it) => /^[valor]\s*\|/i.test((it.grupo ?? "").trim()));
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
 const RH_EMAIL_COL = "email_mkz5qg4v";
@@ -300,7 +306,11 @@ export function soloBoardsDeProyecto<T extends { name: string }>(boards: T[]): T
 const stripPmPrefix = (boardName: string) => splitBoardName(boardName).name;
 
 /** Datos que se traen de la Iniciativa para enriquecer el Proyecto del mismo nombre. */
-type IniLookupVal = { estrategia: string; sponsor: string; cku: string; benefitType: string };
+type IniLookupVal = {
+  estrategia: string; sponsor: string; cku: string; benefitType: string;
+  /** PM de la Iniciativa (columna "PM"); solo lo usan los boards de la 3ª plantilla. */
+  pm?: string;
+};
 
 /** Quita solo el código "PMO-XXX" (y un "|" separador) al inicio del nombre de una Iniciativa.
  *  Conserva marcadores como "IMP |"/"EXPO |" porque el REQ del mismo nombre también los trae. */
@@ -359,6 +369,8 @@ export function buildIniLookup(
       sponsor:    resolveName(colDisplay(it.column_values, INI_LOOKUP_COL.sponsor)),
       cku:        resolveName(colByTitleAny(it.column_values, "CKU")),
       benefitType: colText(it.column_values, INI_LOOKUP_COL.benefitType).trim(),
+      // Si la columna trae varias personas ("A, B") el PM es la primera.
+      pm:         colText(it.column_values, INI_LOOKUP_COL.pm).split(",")[0].trim(),
     };
     byName.set(normName(it.name), val);
 
@@ -463,6 +475,15 @@ export function projEnrichBoards(
   projData.forEach((item) => {
     if (!(item.boardId in boardResp)) boardResp[item.boardId] = item.resp || item.pm || item.responsible || "";
   });
+  // 3ª plantilla (VALOR Lite): sus items no traen al PM (el primero es una tarea cualquiera, p. ej.
+  // "JC Rodas"); el PM del proyecto es el de la Iniciativa enlazada por Project ID ↔ código del board.
+  const boardsLite = new Set<string>();
+  const porBoard = new Map<string, ProjItem[]>();
+  for (const item of projData) {
+    const lista = porBoard.get(item.boardId);
+    if (lista) lista.push(item); else porBoard.set(item.boardId, [item]);
+  }
+  for (const [boardId, items] of porBoard) if (esPlantillaLite(items)) boardsLite.add(boardId);
 
   // Excepción única: PM-013 no tiene Iniciativa propia en el board de
   // Iniciativas (no tiene la fuente base que alimenta a los demás proyectos),
@@ -482,7 +503,7 @@ export function projEnrichBoards(
     const sponsor = key.includes("ducafast sv") ? "Javier Claros" : (iniCompartida?.sponsor || "");
     return {
       ...b,
-      pm: boardResp[b.id] || "",
+      pm: (boardsLite.has(b.id) ? ini?.pm : "") || boardResp[b.id] || "",
       estrategia: iniCompartida?.estrategia || "",
       sponsor,
       cku: iniCompartida?.cku || "",
