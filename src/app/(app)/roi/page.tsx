@@ -2,7 +2,7 @@
 
 // ROI — fuentes independientes, cada una un archivo de Google Sheets distinto y
 // su propio Apps Script: "003" (hoja "ROI", pestaña "003", tiempos de trámite)
-// y "Clonación de Files" (archivo "Clonacion files", pestaña "clonacion"). Las
+// y "Tiempo 0" (la Clonación de Files: archivo "Clonacion files", pestaña "clonacion"). Las
 // dos cargan al entrar: 003 usa también Clonación para su Beneficio T0 — ver
 // apps-script/roi-*-README.md.
 
@@ -94,7 +94,7 @@ export default function RoiPage() {
       <div className="mb-5 mt-4 inline-flex rounded-lg border p-0.5" style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}>
         {([
           ["tramites", "003"],
-          ["clonacion", "Clonación de Files"],
+          ["clonacion", "Tiempo 0"],
         ] as const).map(([t, label]) => (
           <button
             key={t}
