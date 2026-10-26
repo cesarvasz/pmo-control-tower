@@ -5,6 +5,7 @@
 // Puro: sin React ni red — lo consume lib/statusReportData.ts (adaptador del
 // "Status Ejecutivo") para el encabezado del reporte por proyecto.
 
+import { sinLetraDeFase } from "@/lib/dashboard";
 import { currentPhaseIndex, type PhaseSummary } from "@/lib/projSummary";
 
 export interface ValorStage { key: "V" | "A" | "L" | "O" | "R"; label: string }
@@ -20,11 +21,11 @@ export const VALOR_STAGES: ValorStage[] = [
 /** Etapa VALOR (0–4) a la que pertenece una fase, por el nombre de su grupo de
  *  Monday. -1 si el grupo no matchea ninguna etapa canónica (board atípico). */
 export function valorStageOf(grupo: string): number {
-  const g = (grupo ?? "").trim().toLowerCase();
+  const g = sinLetraDeFase(grupo).toLowerCase();   // 3ª plantilla: "L | Launch" → "launch"
   if (!g) return -1;
   if (g.startsWith("launch")) return 2;
   if (/operaci[oó]n|implementaci[oó]n/.test(g)) return 3;
-  if (/revisi[oó]n|cierre\s*roi/.test(g)) return 4;
+  if (/revisi[oó]n|cierre\s*roi|resultado/.test(g)) return 4;
   if (/aprobaci[oó]n|value\s*gate/.test(g)) return 1;
   if (/valuaci[oó]n|formulaci[oó]n/.test(g)) return 0;
   return -1;

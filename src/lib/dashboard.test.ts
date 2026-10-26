@@ -2,6 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   reqStage,
   resolveProjStage,
+  projStageAmounts,
+  findBusinessCase,
+  esPlantillaLite,
+  sinLetraDeFase,
+  isFase1, isFase2, isFase3, isFase4, isFase5,
+  isCierreVmoStep,
+  shortPhaseName,
   calcPmValue,
   pmWorstStatus,
   buildBoardHealthMap,
@@ -203,6 +210,85 @@ describe("resolveProjStage (plantilla NEW: PM-010/011/012)", () => {
       roiNew(30, "Future steps"), roiNew(60, "Future steps"), roiNew(90, "Future steps"),
     ];
     expect(resolveProjStage(items)).toEqual({ stage: "aprobacion", cost: 27, benefit: 360000 });
+  });
+});
+
+describe("3ª plantilla (VALOR Lite, PM-015/016): fases con letra, Launch, cierre y beneficio", () => {
+  const G = { v: "V | Valuación", a: "A | Aprobación", l: "L | Launch", o: "O | Operación (Implementación)", r: "R | Resultado | Beneficio (Clase C)" };
+
+  it("reconoce las cinco fases por su letra, igual que en las otras plantillas", () => {
+    expect([isFase1(G.v), isFase2(G.a), isFase3(G.l), isFase4(G.o), isFase5(G.r)]).toEqual([true, true, true, true, true]);
+    // y no se cruzan
+    expect([isFase3(G.v), isFase3(G.a), isFase3(G.o), isFase3(G.r), isFase5(G.l), isFase4(G.r)]).toEqual([false, false, false, false, false, false]);
+    // las plantillas anteriores siguen igual
+    expect([isFase1("Valuación | Formulación del proyecto"), isFase3("Launch | Lanzamiento"), isFase5("Revisión | Cierre ROI")]).toEqual([true, true, true]);
+    expect(isFase5("Valuación | Formulación del proyecto")).toBe(false);
+  });
+
+  it("sinLetraDeFase solo quita la letra de etapa; esPlantillaLite la usa para detectar el board", () => {
+    expect(sinLetraDeFase("L | Launch")).toBe("Launch");
+    expect(sinLetraDeFase("R | Resultado | Beneficio (Clase C)")).toBe("Resultado | Beneficio (Clase C)");
+    expect(sinLetraDeFase("Launch | Lanzamiento")).toBe("Launch | Lanzamiento");
+    expect(sinLetraDeFase("  Valuación | X ")).toBe("Valuación | X");
+    expect(esPlantillaLite([proj({ grupo: G.l }), proj({ grupo: G.o })])).toBe(true);
+    expect(esPlantillaLite([proj({ grupo: "Launch | Lanzamiento" })])).toBe(false);
+  });
+
+  it("shortPhaseName: sin la letra ni el paréntesis; las otras plantillas no cambian", () => {
+    expect([G.v, G.a, G.l, G.o, G.r].map(shortPhaseName)).toEqual(["Valuación", "Aprobación", "Launch", "Operación", "Resultado"]);
+    expect(shortPhaseName("Valuación | Formulación del proyecto")).toBe("Valuación");
+    expect(shortPhaseName("Sin separador")).toBe("Sin separador");
+  });
+
+  it("isCierreVmoStep reconoce 'HITO: Cierre VMO del proyecto' además de '(OP)'; no el '(VPA)'", () => {
+    expect(isCierreVmoStep("HITO: Cierre VMO del proyecto")).toBe(true);
+    expect(isCierreVmoStep("Cierre VMO (OP) del proyecto")).toBe(true);
+    expect(isCierreVmoStep("Cierre VMO (VPA) del proyecto")).toBe(false);
+  });
+
+  const bcLite = (status: string, cost = 0, benefit = 0) => proj({ grupo: G.v, name: "Business Case Lite + WBS 1 página (Regla 100%)", status, cost, benefit });
+  const insumo = proj({ grupo: G.v, name: "Costo de VOLT (insumo del BC)", status: "Done", cost: 5, benefit: 5 });
+  const faseA = (...status: string[]) => status.map((s, i) => proj({ grupo: G.a, name: `Paso ${i}`, status: s }));
+  const beneficio = (status: string, cost = 0, benefit = 0) => proj({ grupo: G.r, name: "Beneficio confirmado mes 1 – real vs BC (Clase C)", status, cost, benefit });
+
+  it("el Business Case de esta plantilla es el 'BC / Business Case Lite', no el ítem que solo lo menciona", () => {
+    expect(findBusinessCase([insumo, bcLite("Done", 10, 100)])?.name).toMatch(/^Business Case Lite/);
+    expect(findBusinessCase([proj({ grupo: G.v, name: "BC + WBS heredados de PM-008", status: "Done" })])?.name).toMatch(/^BC \+ WBS/);
+    expect(findBusinessCase([insumo])).toBeUndefined();
+  });
+
+  it("Validación: el Business Case Lite en Done", () => {
+    expect(resolveProjStage([insumo, bcLite("Working on it", 10, 100)])).toBeNull();
+    expect(resolveProjStage([insumo, bcLite("Done", 10, 100)])).toEqual({ stage: "validacion", cost: 10, benefit: 100 });
+  });
+
+  it("Aprobación: toda la fase A en Done (presupuesto + entregables aprobados), con el monto del Business Case", () => {
+    const base = [bcLite("Done", 10, 100)];
+    expect(resolveProjStage([...base, ...faseA("Done", "Future steps")])?.stage).toBe("validacion");
+    expect(resolveProjStage([...base, ...faseA("Done", "Done")])).toEqual({ stage: "aprobacion", cost: 10, benefit: 100 });
+    // una fase A vacía no aprueba nada
+    expect(resolveProjStage([...base])?.stage).toBe("validacion");
+  });
+
+  it("Confirmación: 'Beneficio confirmado mes 1' en curso o Done, con su propio monto; Aprobación queda al del Business Case", () => {
+    const items = [bcLite("Done", 10, 100), ...faseA("Done"), beneficio("Working on it", 2, 70)];
+    expect(resolveProjStage(items)).toEqual({ stage: "confirmacion", cost: 2, benefit: 70 });
+    expect(projStageAmounts(items)).toEqual({ aprobacion: { cost: 10, benefit: 100 }, confirmacion: { cost: 2, benefit: 70 } });
+    expect(resolveProjStage([bcLite("Done", 10, 100), ...faseA("Done"), beneficio("Done", 3, 80)])?.stage).toBe("confirmacion");
+    expect(resolveProjStage([bcLite("Done", 10, 100), ...faseA("Done"), beneficio("Future steps", 3, 80)])?.stage).toBe("aprobacion");
+  });
+
+  it("no cambia las plantillas anteriores: un board sin letras ignora estas reglas", () => {
+    const lite = proj({ grupo: "Valuación | Formulación del proyecto", name: "Business Case Lite", status: "Done" });
+    expect(resolveProjStage([lite])).toBeNull();   // sin el "VPA validado" de siempre, nada valida
+  });
+
+  it("Launch con letra mide Cumplimiento y Calidad como cualquier Fase 3 de plantilla nueva", () => {
+    const l = (id: string, o: Partial<ProjItem> = {}) => proj({ id, boardId: "bL", boardName: "PM-016 | CEDIS", grupo: G.l, status: "Done", name: `Tarea ${id}`, startDate: new Date(2026, 0, 1), deadline: new Date(2026, 0, 31), ...o });
+    const items = [l("a"), l("b", { name: "HITO: Go / No-Go P1", entrega: "late" }), l("c", { status: "Future steps" })];
+    expect(proyectosFase3Nueva(items).map((i) => i.id)).toEqual(["a", "b", "c"]);
+    // Calidad: los cerrados miden (el HITO cuenta como un entregable más); el que no ha arrancado, no.
+    expect(calidadUnits(items).map((u) => u.id)).toEqual(["a", "b"]);
   });
 });
 

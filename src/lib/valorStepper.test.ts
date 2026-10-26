@@ -15,6 +15,14 @@ describe("valorStageOf", () => {
     expect(valorStageOf("Revisión | Cierre ROI")).toBe(4);
   });
 
+  it("3ª plantilla (VALOR Lite): reconoce los grupos con la letra de etapa por delante", () => {
+    expect(valorStageOf("V | Valuación")).toBe(0);
+    expect(valorStageOf("A | Aprobación")).toBe(1);
+    expect(valorStageOf("L | Launch")).toBe(2);
+    expect(valorStageOf("O | Operación (Implementación)")).toBe(3);
+    expect(valorStageOf("R | Resultado | Beneficio (Clase C)")).toBe(4);
+  });
+
   it("devuelve -1 para un grupo que no matchea ninguna etapa", () => {
     expect(valorStageOf("Backlog")).toBe(-1);
     expect(valorStageOf("")).toBe(-1);

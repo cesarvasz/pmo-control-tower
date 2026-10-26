@@ -20,6 +20,17 @@ import type {
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+/** Quita la letra de etapa con la que arrancan los grupos de la 3ª plantilla ("VALOR Lite", PM-015/016):
+ *  "V | Valuación", "A | Aprobación", "L | Launch", "O | Operación (Implementación)" y
+ *  "R | Resultado | Beneficio (Clase C)". Sin la letra, el resto de las reglas que miran el nombre de
+ *  la fase (isFase1…isFase5, valorStageOf, los evaluadores de beneficio) la reconocen igual que en
+ *  las otras dos plantillas. Un grupo sin letra se devuelve tal cual (solo recortado). */
+export const sinLetraDeFase = (grupo: string): string => (grupo ?? "").trim().replace(/^[valor]\s*\|\s*/i, "");
+
+/** ¿El board usa la 3ª plantilla ("VALOR Lite")? Sus grupos llevan la letra de la etapa por delante. */
+export const esPlantillaLite = (items: ProjItem[]): boolean =>
+  items.some((it) => /^[valor]\s*\|/i.test((it.grupo ?? "").trim()));
+
 /** Value Gate (BC) firmado: en Monday el nombre varía por board — "Firmado y aprobado"
  *  en la fase Aprobación, "Actualizado y firmado" (sin "aprobado") en Launch. Se acepta
  *  cualquier variante que diga "firmado". */
@@ -37,10 +48,16 @@ const includesAny = (name: string, needles: string[]) => {
   return needles.some((needle) => n.includes(needle));
 };
 
+/** El Business Case de la 3ª plantilla (Valuación): "BC + WBS heredados de PM-008…", "Business Case
+ *  Lite + WBS 1 página…". No es "Costo de VOLT (insumo del BC)", que solo lo menciona. */
+const esBusinessCaseLite = (name: string) => /^\s*(bc\b|business case)/.test(norm(name));
+
 /** El Business Case (Benefit $ / Cost $) se redacta una sola vez, en el primer ítem
- *  de la fase Valuación — los steps de aprobación/gates no traen su propio monto. */
+ *  de la fase Valuación — los steps de aprobación/gates no traen su propio monto. En la
+ *  3ª plantilla ese ítem es el "BC + WBS" / "Business Case Lite" en lugar del Kick Off. */
 export const findBusinessCase = (items: ProjItem[]) =>
-  items.find((it) => norm(it.grupo).includes("valuacion") && norm(it.name).includes("kick off project meeting"));
+  items.find((it) => norm(it.grupo).includes("valuacion") && norm(it.name).includes("kick off project meeting"))
+  ?? (esPlantillaLite(items) ? items.find((it) => isFase1(it.grupo) && esBusinessCaseLite(it.name)) : undefined);
 
 // ── Costo/beneficio por PM: 3 etapas, evaluación DESCENDENTE (Confirmación > Aprobación > Validación) ──
 export type PmValueStage = "validacion" | "aprobacion" | "confirmacion";
@@ -83,7 +100,9 @@ export function reqStage(r: { grupo: string }): PmValueStage | null {
  *  Beneficio/Costo = los del Business Case (Kick Off Project Meeting). */
 function evalValidacion(items: ProjItem[]): { cost: number; benefit: number } | null {
   const step = items.find((it) => norm(it.grupo).includes("valuacion") && includesAny(it.name, ["vpa valida business case", "vpa validado"]));
-  if (step?.status !== "Done") return null;
+  // 3ª plantilla (VALOR Lite): no hay un paso "VPA valida"; el Business Case Lite en Done es la validación.
+  const bcLite = esPlantillaLite(items) ? items.find((it) => isFase1(it.grupo) && esBusinessCaseLite(it.name)) : undefined;
+  if (step?.status !== "Done" && bcLite?.status !== "Done") return null;
   const bc = findBusinessCase(items);
   return { cost: bc?.cost ?? 0, benefit: bc?.benefit ?? 0 };
 }
@@ -100,6 +119,15 @@ function evalValidacion(items: ProjItem[]): { cost: number; benefit: number } | 
  *    Sponsor+VPA+PMO Mgr)" Done en Aprobación — no existe un segundo gate en Launch.
  *  Beneficio/Costo = los del Business Case (Kick Off Project Meeting) en ambos casos. */
 function evalAprobacion(items: ProjItem[]): { cost: number; benefit: number } | null {
+  // 3ª plantilla (VALOR Lite): sin EVM ni Plan de beneficios con CFO; la Aprobación es la fase A completa
+  // (presupuesto asignado + entregables aprobados), todo en Done.
+  if (esPlantillaLite(items)) {
+    const faseA = items.filter((it) => isFase2(it.grupo));
+    if (faseA.length === 0 || !faseA.every((it) => it.status === "Done")) return null;
+    const bcLite = findBusinessCase(items);
+    return { cost: bcLite?.cost ?? 0, benefit: bcLite?.benefit ?? 0 };
+  }
+
   const cfo = items.find((it) => norm(it.grupo).includes("aprobacion") && norm(it.name).includes("plan de beneficios acordados con cfo"));
   if (cfo?.status !== "Done") return null;
 
@@ -121,6 +149,12 @@ function evalAprobacion(items: ProjItem[]): { cost: number; benefit: number } | 
  *  ESE beneficio; si ya no hay ninguno en curso (todos los que existen están Done) se usa
  *  el más reciente (90 > 60 > 30). null si no hay ningún step en Working on it ni Done. */
 function evalConfirmacion(items: ProjItem[]): { cost: number; benefit: number } | null {
+  // 3ª plantilla (VALOR Lite): un solo paso en la fase R, "Beneficio confirmado mes 1 … (Clase C)",
+  // en curso o Done. Sin los pasos de 30/60/90 días.
+  if (esPlantillaLite(items)) {
+    const lite = items.find((it) => isFase5(it.grupo) && norm(it.name).includes("beneficio confirmado"));
+    return lite && (lite.status === "Working on it" || lite.status === "Done") ? { cost: lite.cost, benefit: lite.benefit } : null;
+  }
   const step = (dias: 30 | 60 | 90) =>
     items.find((it) => norm(it.grupo).includes("cierre roi") && includesAny(it.name, [`recopila datos a ${dias} dias`, `confirmado a ${dias} dias`]));
   const d30 = step(30);
@@ -556,25 +590,29 @@ export const projPhaseKey = (boardId: string, grupo: string) => `${boardId}::${g
  *  Revisión son checkpoints administrativos, sin "rework" que medir. Se identifica
  *  por el nombre del grupo: en los boards reales todas las fase-3 arrancan con
  *  "Launch" (plantilla nueva: "Launch | Lanzamiento"; plantilla vieja: "Launch |
- *  Desarrollo"). Si un board futuro nombra su fase 3 distinto, hay que ajustar
+ *  Desarrollo"; 3ª plantilla: "L | Launch", ver sinLetraDeFase). Si un board futuro nombra su fase 3 distinto, hay que ajustar
  *  este chequeo — no hay forma robusta de detectarla por posición hoy (Monday no
  *  nos da el orden de los grupos, solo su nombre). */
-export const isFase3 = (grupo: string): boolean => (grupo ?? "").trim().toLowerCase().startsWith("launch");
+export const isFase3 = (grupo: string): boolean => sinLetraDeFase(grupo).toLowerCase().startsWith("launch");
 
 /** Fase 4 = Operación — el checkpoint administrativo que sigue a Launch (ver
  *  comentario de isFase3 arriba: Valuación(1) → Aprobación(2) → Launch(3) →
  *  Operación(4) → Revisión(5)). Se acentúa "Operación" en los boards reales,
  *  por eso se normaliza (sin acentos) antes de comparar. */
-export const isFase4 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("operacion");
+export const isFase4 = (grupo: string): boolean => norm(sinLetraDeFase(grupo)).startsWith("operacion");
 
 /** Fase 1 = Valuación — formulación/Business Case, el arranque del proyecto. */
-export const isFase1 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("valuacion");
+export const isFase1 = (grupo: string): boolean => norm(sinLetraDeFase(grupo)).startsWith("valuacion");
 
 /** Fase 2 = Aprobación — Value Gate, el checkpoint antes de Launch. */
-export const isFase2 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("aprobacion");
+export const isFase2 = (grupo: string): boolean => norm(sinLetraDeFase(grupo)).startsWith("aprobacion");
 
-/** Fase 5 = Revisión — el cierre administrativo/ROI que sigue a Operación. */
-export const isFase5 = (grupo: string): boolean => norm((grupo ?? "").trim()).startsWith("revision");
+/** Fase 5 = Revisión — el cierre administrativo/ROI que sigue a Operación. En la 3ª plantilla
+ *  se llama "R | Resultado | Beneficio (Clase C)". */
+export const isFase5 = (grupo: string): boolean => {
+  const g = norm(sinLetraDeFase(grupo));
+  return g.startsWith("revision") || g.startsWith("resultado");
+};
 
 // La plantilla "vieja" de Fase 3 tiene siempre 4 steps fijos que son CHECKPOINTS, no
 // entregables ("Analisis técnico...", "Value Gate (BC)...", "Agenda BAT/UAT CKU" y
@@ -595,15 +633,20 @@ export const isDesarrolloPorIteracionesStep = (name: string): boolean => DESARRO
 // Fase 5 en el Gantt como la "Fecha cierre plan" del reporte (en vez del máximo
 // Limit Date de Fase 4, que es lo que se usa cuando este item no existe — ver
 // calcCompletionEstimate en projSummary.ts). La plantilla nueva no tiene este item.
-const CIERRE_VMO_RE = /cierre\s*vmo\s*\(op\)\s*del\s*proyecto/i;
+// "Cierre VMO (OP) del proyecto" (plantillas vieja y nueva) o "HITO: Cierre VMO del proyecto" (3ª plantilla).
+const CIERRE_VMO_RE = /cierre\s*vmo\s*(\(op\)\s*)?del\s*proyecto/i;
 export const isCierreVmoStep = (name: string): boolean => CIERRE_VMO_RE.test(name);
 
 /** Nombre corto de una fase para mostrar en una sola línea (Gantt, tabla de
  *  Causas de atraso): la parte ANTES del primer " | " ("Valuación | Formulación
  *  del proyecto" → "Valuación"), o el grupo tal cual si no tiene separador. */
 export function shortPhaseName(grupo: string): string {
-  const i = grupo.indexOf(" | ");
-  return (i >= 0 ? grupo.slice(0, i) : grupo).trim() || grupo.trim();
+  // 3ª plantilla: sin la letra ("L | Launch" → "Launch") y sin el paréntesis ("Operación (Implementación)" → "Operación").
+  const lite = sinLetraDeFase(grupo) !== grupo.trim();
+  const base = lite ? sinLetraDeFase(grupo) : grupo;
+  const i = base.indexOf(" | ");
+  const corto = (i >= 0 ? base.slice(0, i) : base).trim() || base.trim();
+  return lite ? corto.replace(/\s*\(.*\)\s*$/, "") || corto : corto;
 }
 
 /** Unidad de medición de Calidad dentro de una Fase 3: SIEMPRE un ITEM (step) —
