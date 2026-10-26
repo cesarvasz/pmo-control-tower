@@ -145,7 +145,7 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                   {r.nps.nps !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("nps")} pts</div>}
                 </td>
                 {/* Calidad de Entregas — reproceso (peso 10) */}
-                <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : ponderadoPorFuente ? POR_FUENTE_TIP("nota promedio de Calidad") : "% de unidades limpias (PML cerrados + fases completadas) sin reproceso imputable al PM"}>
+                <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : ponderadoPorFuente ? `${POR_FUENTE_TIP("nota promedio de Calidad")}. Cada unidad vale 100 si su responsable no es el CKU y 0 si lo es o no tiene` : "% de unidades limpias (PML cerrados + fases completadas) sin reproceso imputable al PM"}>
                   <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</div>
                   {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
                 </td>

@@ -215,22 +215,33 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
   });
 });
 
-describe("detalleCalidad — notas 0 / 50 / 100 por unidad", () => {
+describe("detalleCalidad — nota 0 / 100 por unidad según su responsable", () => {
   const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
-  // Fase 3 ("Launch"), Done, con ventana CPM propia → recuperado: sin responsable vale 50, con uno ≠ PM vale 100.
+  // Fase 3 ("Launch"), Done, con ventana CPM propia (recuperado). Para un CKU eso no cuenta: solo el responsable.
   const stepF3 = (id: string): ProjItem =>
     ({ id, name: `Entregable ${id}`, boardId: "b1", boardName: "PM-001 | Demo", pm: "Javier", grupo: "Launch",
       status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [] }) as unknown as ProjItem;
 
-  it("PML e Iniciativas son binarias; un entregable de Proyecto sin responsable queda en 50 (parcial)", () => {
+  it("PML, Iniciativas y Proyectos son binarios: 100 con un responsable ≠ CKU, 0 sin asignar (aunque el item se haya recuperado)", () => {
     const rep: DelayMap = { r1: { responsible: "Sponsor" } };
     const s = { req: [reqE("r1", "on-time"), reqE("r2", "on-time")], proj: [stepF3("p1")], projBoards: [board], ini: [iniE("i1", true)] };
     const d = detalleCalidad(s, rep);
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
     expect(por("r1")).toMatchObject({ nota: 100, estado: "ok", responsable: "Sponsor" });
     expect(por("r2")).toMatchObject({ nota: 0, estado: "atraso", responsable: null });
-    expect(por("p1")).toMatchObject({ nota: 50, estado: "parcial", fuente: "proj" });
+    expect(por("p1")).toMatchObject({ nota: 0, estado: "atraso", fuente: "proj", responsable: null });
     expect(por("i1")).toMatchObject({ nota: 0, estado: "atraso", fuente: "ini" });
+  });
+
+  it("un entregable de Proyecto con un responsable ≠ CKU vale 100; con el CKU como responsable, 0", () => {
+    // Mapa ya intercambiado (swapPmCku): el CKU aparece como "PM" y penaliza.
+    const original: DelayMap = { p1: { responsible: "CKU" }, p2: { responsible: "Desarrollo" } };
+    const s = { req: [], proj: [stepF3("p1"), stepF3("p2")], projBoards: [board], ini: [] };
+    const d = detalleCalidad(s, swapPmCku(original), original);
+    const por = (id: string) => d.unidades.find((u) => u.id === id)!;
+    expect(por("p1")).toMatchObject({ nota: 0, estado: "atraso", responsable: "CKU" });
+    expect(por("p2")).toMatchObject({ nota: 100, estado: "ok", responsable: "Desarrollo" });
+    expect(d.pct).toBe(50);
   });
 
   it("el % del detalle y el conteo coinciden con el del scoreboard", () => {
@@ -263,22 +274,22 @@ describe("detalleCalidad — notas 0 / 50 / 100 por unidad", () => {
     const step = (id: string, boardId: string, boardName: string): ProjItem => ({ ...stepF3(id), boardId, boardName }) as ProjItem;
 
     it("agrupa los entregables por proyecto: nota promedio, la peor primero, con el nombre del item", () => {
-      const rep: DelayMap = { a1: { responsible: "Sponsor" }, a2: { responsible: "Sponsor" } };   // a1, a2 → 100 · b1 → 50
+      const rep: DelayMap = { a1: { responsible: "Sponsor" }, a2: { responsible: "Sponsor" } };   // a1, a2 → 100 · b1 → 0
       const s = { req: [reqE("r1", "on-time")], proj: [step("a1", "bA", "PM-001 | Alfa"), step("a2", "bA", "PM-001 | Alfa"), step("b1", "bB", "PM-002 | Beta")], projBoards: [board], ini: [iniE("i1", true)] };
       const grupos = agruparPorProyecto(detalleCalidad(s, rep).unidades);
       expect(grupos.map((g) => [g.proyecto, g.nota, g.buenas, g.unidades.length])).toEqual([
-        ["PM-002 · Beta", 50, 0, 1],
+        ["PM-002 · Beta", 0, 0, 1],
         ["PM-001 · Alfa", 100, 2, 2],
       ]);
       expect(grupos[1].unidades.map((u) => u.nombre)).toEqual(["Entregable a1", "Entregable a2"]);
     });
 
     it("dentro del proyecto, el entregable de peor nota va primero", () => {
-      const rep: DelayMap = { a2: { responsible: "Sponsor" } };   // a1 → 50 · a2 → 100
+      const rep: DelayMap = { a2: { responsible: "Sponsor" } };   // a1 → 0 · a2 → 100
       const s = { req: [], proj: [step("a2", "bA", "PM-001 | Alfa"), step("a1", "bA", "PM-001 | Alfa")], projBoards: [board], ini: [] };
       const [g] = agruparPorProyecto(detalleCalidad(s, rep).unidades);
-      expect(g.unidades.map((u) => [u.id, u.nota])).toEqual([["a1", 50], ["a2", 100]]);
-      expect(g.nota).toBe(75);
+      expect(g.unidades.map((u) => [u.id, u.nota])).toEqual([["a1", 0], ["a2", 100]]);
+      expect(g.nota).toBe(50);
     });
 
     it("PML e Iniciativas no forman proyecto", () => {

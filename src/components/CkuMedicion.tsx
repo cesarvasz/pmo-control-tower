@@ -37,7 +37,7 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
       />
       <Panel
         titulo="Calidad de Entregas" medida="nota promedio" esCalidad detalle={calidad}
-        regla="PML e Iniciativas: 100 si tienen un responsable distinto de CKU, 0 si no. Proyectos (entregables de Fase 3): +50 si tienen un responsable distinto de CKU y +50 si se recuperó (ningún hito quedó con Limit Date después del fin de su CPM)."
+        regla="Cada unidad vale 100 si tiene un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tiene (sin asignar penaliza). En Proyectos la unidad es cada entregable (item) de la Fase 3."
       />
     </div>
   );

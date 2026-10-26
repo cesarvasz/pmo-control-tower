@@ -842,6 +842,12 @@ export function calcItemNota(id: string, recuperado: boolean, reproceso: DelayMa
   return (lateExcused(id, reproceso) ? 50 : 0) + (recuperado ? 50 : 0);
 }
 
+/** Nota de Calidad de un CKU (Players), para PML, Iniciativas y Proyectos por igual: BINARIA. 100 si
+ *  se asignó un responsable distinto del CKU, 0 si el responsable es el CKU o todavía no hay nadie
+ *  asignado. Recibe el mapa con PM ↔ CKU ya intercambiado (ver swapPmCku), así que "≠ PM" aquí
+ *  significa "≠ CKU". No usa la recuperación ni el 0/50/100 de calcItemNota, que es el de los PM. */
+export const notaCalidadCku = (id: string, reproceso: DelayMap): number => (lateExcused(id, reproceso) ? 100 : 0);
+
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
 /** Unidades de Calidad de INICIATIVAS: las ya aprobadas (PM Aprobado / PML Aprobado,
@@ -875,21 +881,24 @@ export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso
 /** Notas (0/50/100) de Calidad de cada unidad en scope, separadas por fuente:
  *  PML cerrados, Fase 3 de Proyectos e Iniciativas aprobadas. Base común de
  *  calcReprocesoStats (todo junto) y calcReprocesoStatsPonderado (una nota por fuente). */
-function notasReprocesoPorFuente(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[]): { req: number[]; proj: number[]; ini: number[] } {
+function notasReprocesoPorFuente(
+  reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[], binarioProyectos = false,
+): { req: number[]; proj: number[]; ini: number[] } {
   return {
     req: reqs.filter((r) => r.estado === "CERRADO").map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
-    proj: calidadUnits(projs).map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
+    proj: calidadUnits(projs).map((u) => (binarioProyectos ? notaCalidadCku(u.id, reproceso) : calcItemNota(u.id, u.recuperado, reproceso))),
     ini: iniUnidadesCalidad(ini).map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
   };
 }
 
-/** Calidad de Entregas medida COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
- *  lib/health.ts): la nota promedio de cada fuente por separado (Iniciativas, PML,
- *  Proyectos), combinadas 10% · 20% · 70%. Una fuente sin unidades no cuenta y su
- *  peso se reparte entre las demás. Los conteos (`total`/`limpias`/`conReproceso`)
- *  siguen siendo los de todas las unidades juntas; solo `pct` cambia. */
+/** Calidad de Entregas de los CKUs (Players): medida COMO EL EVM (ver weightedEvm /
+ *  EVM_WEIGHTS en lib/health.ts) — la nota promedio de cada fuente por separado
+ *  (Iniciativas, PML, Proyectos), combinadas 10% · 20% · 70%. Una fuente sin unidades no
+ *  cuenta y su peso se reparte entre las demás. A diferencia de los PM, TODAS las unidades
+ *  (también las de Proyectos) valen 0 o 100 según su responsable, ver notaCalidadCku. Los
+ *  conteos (`total`/`limpias`/`conReproceso`) son los de todas las unidades juntas. */
 export function calcReprocesoStatsPonderado(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
-  const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini);
+  const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini, true);
   const notas = [...n.req, ...n.proj, ...n.ini];
   const total = notas.length;
   const limpias = notas.filter((x) => x === 100).length;

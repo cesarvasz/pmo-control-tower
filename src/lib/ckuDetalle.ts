@@ -5,7 +5,7 @@
 // constructores de filas que la página de auditoría, y su `pct` coincide con el del
 // scoreboard (calcEntregaStatsPonderado / calcReprocesoStatsPonderado). Módulo PURO.
 
-import { buildEntregaRows, buildReprocesoRows, projPhaseKey, proyectosFase3Nueva } from "@/lib/dashboard";
+import { buildEntregaRows, buildReprocesoRows, notaCalidadCku, projPhaseKey, proyectosFase3Nueva } from "@/lib/dashboard";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
 import { sameCku } from "@/lib/players";
@@ -24,18 +24,18 @@ export interface UnidadMedida {
   /** Fase / grupo (vacío si ya va dentro del nombre). */
   fase: string;
   /** Cumplimiento: ok = a tiempo · excusado = atraso con responsable que no penaliza · atraso = penaliza.
-   *  Calidad: ok = nota 100 · parcial = nota 50 · atraso = nota 0. */
+   *  Calidad: ok = nota 100 (responsable distinto del CKU) · atraso = nota 0 (el CKU, o sin asignar). */
   estado: "ok" | "parcial" | "excusado" | "atraso";
   /** ¿Entra en la nota? Un PML o Iniciativa con atraso excusado se EXCLUYE (no suma ni resta);
    *  una fase de Proyecto con atraso excusado sí entra, como a tiempo. */
   cuenta: boolean;
   /** 0–1 que aporta a su fuente (Cumplimiento: 1 a tiempo / 0 atraso · Calidad: nota ÷ 100). */
   valor: number;
-  /** Solo Calidad: nota 0 / 50 / 100. */
+  /** Solo Calidad: nota 0 / 100. */
   nota?: number;
   /** Responsable asignado, con la etiqueta original (sin el cambio PM ↔ CKU). */
   responsable: string | null;
-  /** Solo Calidad de Proyectos: el item aún no cierra del todo (la nota es provisional). */
+  /** Solo Calidad de Proyectos: el item aún no cierra del todo (todavía no se le puede asignar responsable). */
   enCurso?: boolean;
   /** Solo Calidad de Proyectos: el proyecto (board) al que pertenece el entregable, p. ej. "PM-013 · TDP ADU". */
   proyecto?: string;
@@ -196,18 +196,22 @@ export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: 
   return resumir(unidades, (u) => u.estado !== "atraso");
 }
 
-/** Detalle de Calidad de Entregas (misma convención de mapas que detalleCumplimiento). */
+/** Detalle de Calidad de Entregas de un CKU (misma convención de mapas que detalleCumplimiento).
+ *  Toda unidad vale 100 si su responsable no es el CKU y 0 si lo es (o no hay nadie asignado). */
 export function detalleCalidad(s: Scope, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso): DetalleMedicion {
-  const unidades = buildReprocesoRows(s.req, s.proj, s.projBoards, reproceso, s.ini).map((r): UnidadMedida => ({
-    id: r.id, fuente: fuenteDe(r.source),
-    nombre: r.name,
-    fase: r.fase,
-    estado: r.nota === 100 ? "ok" : r.nota === 0 ? "atraso" : "parcial",
-    cuenta: true, valor: r.nota / 100, nota: r.nota,
-    responsable: reprocesoOriginal[r.id]?.responsible ?? null,
-    enCurso: r.source === "Proyecto" && !r.allDone,
-    proyecto: r.source === "Proyecto" ? (r.projCode ? `${r.projCode} · ${r.projName}` : r.projName) : undefined,
-  }));
+  const unidades = buildReprocesoRows(s.req, s.proj, s.projBoards, reproceso, s.ini).map((r): UnidadMedida => {
+    const nota = notaCalidadCku(r.id, reproceso);
+    return {
+      id: r.id, fuente: fuenteDe(r.source),
+      nombre: r.name,
+      fase: r.fase,
+      estado: nota === 100 ? "ok" : "atraso",
+      cuenta: true, valor: nota / 100, nota,
+      responsable: reprocesoOriginal[r.id]?.responsible ?? null,
+      enCurso: r.source === "Proyecto" && !r.allDone,
+      proyecto: r.source === "Proyecto" ? (r.projCode ? `${r.projCode} · ${r.projName}` : r.projName) : undefined,
+    };
+  });
   return resumir(unidades, (u) => u.nota === 100);
 }
 

@@ -21,6 +21,7 @@ import {
   calidadUnits,
   calcItemCalidad,
   calcItemNota,
+  notaCalidadCku,
   calidadProjectStatus,
   buildEntregaRows,
   buildLateResponsibleRows,
@@ -504,13 +505,25 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(calcEntregaStatsPonderado([], projs, { "b1::Fase 1": { responsible: "Sponsor" } }).pct).toBe(100);
   });
 
-  it("Calidad: cada fuente aporta su nota promedio — 1 PML limpio pesa 20% aunque haya 9 steps sin asignar", () => {
+  it("Calidad (CKU): cada fuente aporta su nota promedio — 1 PML limpio pesa 20% aunque haya 9 steps sin asignar", () => {
     const reqs = [req({ id: "r1", estado: "CERRADO" })];
     const projs = Array.from({ length: 9 }, (_, i) => stepF3(`p${i}`));
     const m: DelayMap = { r1: { responsible: "VPA" } };                     // PML excusado → 100
-    // Todo junto: (100 + 9·50) / 10 = 55. Ponderado: PML 100 (peso 20), Proyectos 50 (peso 70) → (20 + 35) / 0.9 = 61.
+    // Los PM: (100 + 9·50) / 10 = 55 (el step recuperado sin responsable vale 50).
     expect(calcReprocesoStats(reqs, projs, m).pct).toBe(55);
-    expect(calcReprocesoStatsPonderado(reqs, projs, m).pct).toBe(61);
+    // El CKU: el step sin responsable vale 0 aunque se haya recuperado. PML 100 (peso 20), Proyectos 0 (peso 70) → 20 / 0.9 = 22.
+    expect(calcReprocesoStatsPonderado(reqs, projs, m).pct).toBe(22);
+  });
+
+  it("Calidad (CKU): un step de Proyecto vale 100 con un responsable ≠ PM y 0 sin él o con el PM — sin 50, recuperado o no", () => {
+    const projs = ["a", "b", "c"].map((id) => stepF3(id));
+    const m: DelayMap = { a: { responsible: "Desarrollo" }, b: { responsible: "PM" } };   // c sin asignar
+    expect(notaCalidadCku("a", m)).toBe(100);
+    expect(notaCalidadCku("b", m)).toBe(0);
+    expect(notaCalidadCku("c", m)).toBe(0);
+    expect(calcReprocesoStatsPonderado([], projs, m).pct).toBe(33);
+    // La medición de los PM no cambia: la misma situación da (50+50 · recuperado) → a=100, b=50, c=50.
+    expect(calcReprocesoStats([], projs, m).pct).toBe(67);
   });
 
   it("Calidad: con las tres fuentes aplica 10/20/70 exacto y una fuente vacía no cuenta", () => {
