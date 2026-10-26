@@ -288,6 +288,14 @@ export function splitBoardName(boardName: string): { code: string; name: string 
   return { code: boardName.slice(0, i).trim(), name: boardName.slice(i + 1).trim() };
 }
 
+/** Los boards de la carpeta de Proyectos que SON proyectos. Monday crea, junto a algunos boards, su
+ *  board oculto de subitems ("Subitems of PM-015 | Gacela 100% SV"); cuando cae dentro de la carpeta
+ *  aparece como un proyecto más — con el mismo código y los subitems del original como si fueran
+ *  items — y duplica al proyecto en todos los listados. Esos no son proyectos y se descartan. */
+export function soloBoardsDeProyecto<T extends { name: string }>(boards: T[]): T[] {
+  return boards.filter((b) => !/^subitems\s+of\b/i.test(b.name.trim()));
+}
+
 /** Quita el prefijo "PM-XXX | " del nombre de un board de proyecto. */
 const stripPmPrefix = (boardName: string) => splitBoardName(boardName).name;
 

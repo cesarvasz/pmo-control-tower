@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcBoardMetrics, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards } from "./proj";
+import { calcBoardMetrics, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards, soloBoardsDeProyecto } from "./proj";
 import { today } from "./business";
 import type { MondayColumnValue, MondayItem, MondaySubitem, ProjItem } from "@/types";
 
@@ -8,6 +8,23 @@ const daysFromToday = (n: number): Date => {
   d.setDate(d.getDate() + n);
   return d;
 };
+
+describe("soloBoardsDeProyecto (descarta los boards ocultos de subitems de la carpeta)", () => {
+  it("quita 'Subitems of PM-XXX | …' y deja los proyectos tal cual, en su orden", () => {
+    const boards = [
+      { id: "1", name: "PM-014 | CFDI-FEL C807 MX 📳" },
+      { id: "2", name: "PM-015 | Gacela 100% SV 💯" },
+      { id: "3", name: "Subitems of PM-015 | Gacela 100% SV 💯" },
+      { id: "4", name: "PM-016 | CEDIS LOURDES SV - P1  💢" },
+      { id: "5", name: "  subitems of PM-016 | CEDIS LOURDES SV - P1  💢" },
+    ];
+    expect(soloBoardsDeProyecto(boards).map((b) => b.id)).toEqual(["1", "2", "4"]);
+  });
+
+  it("un proyecto cuyo nombre solo contiene 'subitems' no se descarta", () => {
+    expect(soloBoardsDeProyecto([{ name: "PM-020 | Migración de Subitems" }])).toHaveLength(1);
+  });
+});
 
 describe("splitBoardName", () => {
   it("separa el código del nombre", () => {

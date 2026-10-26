@@ -2,6 +2,7 @@
 // SOLO SERVIDOR. Usa MONDAY_API_KEY (sin NEXT_PUBLIC_) → nunca llega al cliente.
 // Este módulo solo debe importarse desde Route Handlers / código de servidor.
 
+import { soloBoardsDeProyecto } from "@/lib/proj";
 import type {
   CalMeetingRaw,
   DashboardRaw,
@@ -109,7 +110,7 @@ export async function discoverProjBoards(): Promise<{ id: string; name: string }
   const data = await mondayFetch<{
     folders: { children: { id: string; name: string }[] }[];
   }>(`{ folders(ids:[${env("MONDAY_PROJ_FOLDER_ID")}]) { children { id name } } }`);
-  return data.folders?.[0]?.children ?? [];
+  return soloBoardsDeProyecto(data.folders?.[0]?.children ?? []);
 }
 
 /** Trae los items de UN SOLO board de Proyectos — la parte cara del refresh
