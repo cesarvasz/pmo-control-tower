@@ -515,6 +515,15 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(calcReprocesoStatsPonderado(reqs, projs, m).pct).toBe(22);
   });
 
+  it("Calidad (CKU): los proyectos de plantilla vieja no cuentan — los PM sí los siguen midiendo", () => {
+    const nueva = stepF3("nueva");
+    const vieja = proj({ id: "vieja", boardId: "b-vieja", grupo: "Launch | Desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", status: "Done", startDate: CPM_INI, deadline: CPM_FIN });
+    const m: DelayMap = { nueva: { responsible: "Desarrollo" } };                    // la vieja queda sin asignar
+    expect(calcReprocesoStatsPonderado([], [nueva, vieja], m)).toMatchObject({ total: 1, limpias: 1, pct: 100 });
+    expect(calcReprocesoStats([], [nueva, vieja], m).total).toBe(2);
+    expect(calcReprocesoStatsPonderado([], [vieja], {}).pct).toBeNull();               // sin proyectos nuevos → Proyectos no pesa
+  });
+
   it("Calidad (CKU): un step de Proyecto vale 100 con un responsable ≠ PM y 0 sin él o con el PM — sin 50, recuperado o no", () => {
     const projs = ["a", "b", "c"].map((id) => stepF3(id));
     const m: DelayMap = { a: { responsible: "Desarrollo" }, b: { responsible: "PM" } };   // c sin asignar

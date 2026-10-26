@@ -199,7 +199,8 @@ export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: 
 /** Detalle de Calidad de Entregas de un CKU (misma convención de mapas que detalleCumplimiento).
  *  Toda unidad vale 100 si su responsable no es el CKU y 0 si lo es (o no hay nadie asignado). */
 export function detalleCalidad(s: Scope, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso): DetalleMedicion {
-  const unidades = buildReprocesoRows(s.req, s.proj, s.projBoards, reproceso, s.ini).map((r): UnidadMedida => {
+  // Proyectos: solo los de plantilla nueva (mismo recorte que calcReprocesoStatsPonderado, el del scoreboard).
+  const unidades = buildReprocesoRows(s.req, proyectosFase3Nueva(s.proj), s.projBoards, reproceso, s.ini).map((r): UnidadMedida => {
     const nota = notaCalidadCku(r.id, reproceso);
     return {
       id: r.id, fuente: fuenteDe(r.source),

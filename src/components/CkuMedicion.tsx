@@ -36,8 +36,8 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
         regla="Un atraso no penaliza al CKU si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Una Iniciativa o un PML con un atraso así no se cuenta; la Fase 3 de un Proyecto con un atraso así cuenta como a tiempo. Aquí solo se listan las unidades que entran en la nota."
       />
       <Panel
-        titulo="Calidad de Entregas" medida="nota promedio" esCalidad detalle={calidad}
-        regla="Cada unidad vale 100 si tiene un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tiene (sin asignar penaliza). En Proyectos la unidad es cada entregable (item) de la Fase 3."
+        titulo="Calidad de Entregas" medida="nota promedio" esCalidad detalle={calidad} soloFase3
+        regla="Cada unidad vale 100 si tiene un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tiene (sin asignar penaliza). En Proyectos la unidad es cada entregable (item) de la Fase 3 de los proyectos con plantilla nueva."
       />
     </div>
   );

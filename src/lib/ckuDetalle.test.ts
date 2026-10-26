@@ -244,6 +244,14 @@ describe("detalleCalidad — nota 0 / 100 por unidad según su responsable", () 
     expect(d.pct).toBe(50);
   });
 
+  it("los proyectos de plantilla vieja no entran: ni sus unidades ni su peso", () => {
+    const vieja = { ...stepF3("v1"), boardId: "b2", boardName: "PM-002 | Viejo", grupo: "Launch | Desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU" } as ProjItem;
+    const rep: DelayMap = { p1: { responsible: "Desarrollo" }, v1: { responsible: "Desarrollo" } };
+    const d = detalleCalidad({ req: [], proj: [stepF3("p1"), vieja], projBoards: [board], ini: [] }, rep);
+    expect(d.unidades.map((u) => u.id)).toEqual(["p1"]);
+    expect(agruparPorProyecto(d.unidades).map((g) => g.proyecto)).toEqual(["PM-001 · Demo"]);
+  });
+
   it("el % del detalle y el conteo coinciden con el del scoreboard", () => {
     const rep: DelayMap = { r1: { responsible: "Sponsor" }, p1: { responsible: "Sin reproceso" } };
     const s = { req: [reqE("r1", "on-time"), reqE("r2", "on-time")], proj: [stepF3("p1"), stepF3("p2")], projBoards: [board], ini: [iniE("i1", true)] };

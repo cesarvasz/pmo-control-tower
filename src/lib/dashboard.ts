@@ -476,8 +476,8 @@ function entregaPorFuente(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, 
 export const esPlantillaNueva = (itemsDelBoard: ProjItem[]): boolean =>
   !itemsDelBoard.some((it) => isFase3(it.grupo) && isDesarrolloPorIteracionesStep(it.name));
 
-/** Los items de Proyecto con los que se mide a un CKU: SOLO la Fase 3 (Launch) y SOLO de
- *  los boards con plantilla nueva — los de plantilla vieja ya no se toman en cuenta. */
+/** Los items de Proyecto con los que se mide a un CKU (Cumplimiento y Calidad): SOLO la Fase 3
+ *  (Launch) y SOLO de los boards con plantilla nueva — los de plantilla vieja ya no se toman en cuenta. */
 export function proyectosFase3Nueva(projs: ProjItem[]): ProjItem[] {
   const porBoard = new Map<string, ProjItem[]>();
   for (const p of projs) {
@@ -882,11 +882,14 @@ export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso
  *  PML cerrados, Fase 3 de Proyectos e Iniciativas aprobadas. Base común de
  *  calcReprocesoStats (todo junto) y calcReprocesoStatsPonderado (una nota por fuente). */
 function notasReprocesoPorFuente(
-  reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[], binarioProyectos = false,
+  reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[], paraCku = false,
 ): { req: number[]; proj: number[]; ini: number[] } {
   return {
     req: reqs.filter((r) => r.estado === "CERRADO").map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
-    proj: calidadUnits(projs).map((u) => (binarioProyectos ? notaCalidadCku(u.id, reproceso) : calcItemNota(u.id, u.recuperado, reproceso))),
+    // CKU: solo los proyectos de plantilla nueva, y cada entregable vale 0 o 100 (ver notaCalidadCku).
+    proj: paraCku
+      ? calidadUnits(proyectosFase3Nueva(projs)).map((u) => notaCalidadCku(u.id, reproceso))
+      : calidadUnits(projs).map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
     ini: iniUnidadesCalidad(ini).map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
   };
 }
@@ -895,7 +898,8 @@ function notasReprocesoPorFuente(
  *  EVM_WEIGHTS en lib/health.ts) — la nota promedio de cada fuente por separado
  *  (Iniciativas, PML, Proyectos), combinadas 10% · 20% · 70%. Una fuente sin unidades no
  *  cuenta y su peso se reparte entre las demás. A diferencia de los PM, TODAS las unidades
- *  (también las de Proyectos) valen 0 o 100 según su responsable, ver notaCalidadCku. Los
+ *  (también las de Proyectos) valen 0 o 100 según su responsable, ver notaCalidadCku, y en
+ *  Proyectos solo cuentan los de plantilla nueva (ver proyectosFase3Nueva). Los
  *  conteos (`total`/`limpias`/`conReproceso`) son los de todas las unidades juntas. */
 export function calcReprocesoStatsPonderado(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
   const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini, true);
