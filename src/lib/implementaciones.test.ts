@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes,
-  claveMes, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorMeses, fmtFechaCorta, fmtImporte,
-  fmtPct, indexarMetas, leerDocMetas, metaProfitMensual, nivelCumplimiento, normalizarMetas, normalizarObjetivos, objetivoDe,
-  pasaFiltroSemaforo, resumenSemaforo, serieMensual, totalesImplementacion,
+  claveMes, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
+  fmtFechaCorta, fmtImporte, fmtPct, indexarMetas, leerDocMetas, metaProfitMensual, nivelCumplimiento, nombreCliente,
+  normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
 
@@ -83,6 +83,56 @@ describe("filtrarPorMeses", () => {
 
   it("un mes sin filas da vacío", () => {
     expect(filtrarPorMeses(DATOS, ["2030-01"])).toEqual([]);
+  });
+});
+
+describe("filtrarPorClientes / contarPorCliente / nombreCliente", () => {
+  const CON_VACIO = [...DATOS, fila("", "2026-03-01T00:00:00", 1), fila("  A ", "2026-06-01T00:00:00", 2)];
+
+  it("nombreCliente recorta espacios y manda el vacío a «(Sin cliente)»", () => {
+    expect(nombreCliente(fila("  A ", "", 0))).toBe("A");
+    expect(nombreCliente(fila("", "", 0))).toBe(SIN_CLIENTE);
+    expect(nombreCliente(fila("   ", "", 0))).toBe(SIN_CLIENTE);
+  });
+
+  it("sin selección devuelve todo (la misma lista)", () => {
+    expect(filtrarPorClientes(DATOS, [])).toBe(DATOS);
+  });
+
+  it("deja solo los clientes elegidos", () => {
+    expect(filtrarPorClientes(DATOS, ["A"])).toHaveLength(3);
+    expect(filtrarPorClientes(DATOS, ["B"])).toHaveLength(3);
+    expect(filtrarPorClientes(DATOS, ["A", "B"])).toHaveLength(6);
+  });
+
+  it("el nombre se compara ya recortado, y «(Sin cliente)» también se puede elegir", () => {
+    expect(filtrarPorClientes(CON_VACIO, ["A"])).toHaveLength(4);
+    const sin = filtrarPorClientes(CON_VACIO, [SIN_CLIENTE]);
+    expect(sin).toHaveLength(1);
+    expect(sin[0].Cliente).toBe("");
+  });
+
+  it("un cliente que no existe da vacío", () => {
+    expect(filtrarPorClientes(DATOS, ["Z"])).toEqual([]);
+  });
+
+  it("combinado con el filtro de mes cruza ambos (en cualquier orden)", () => {
+    const a = filtrarPorMeses(filtrarPorClientes(DATOS, ["B"]), ["2026-03"]);
+    const b = filtrarPorClientes(filtrarPorMeses(DATOS, ["2026-03"]), ["B"]);
+    expect(a).toHaveLength(1);
+    expect(b).toEqual(a);
+  });
+
+  it("el cliente elegido recorta la serie mensual, los totales y la matriz", () => {
+    const soloB = filtrarPorClientes(DATOS, ["B"]);
+    expect(serieMensual(soloB).map((p) => p.clave)).toEqual(["2026-03", "2026-04", SIN_FECHA]);
+    expect(totalesImplementacion(soloB).profit).toBe(15);
+    expect(agruparPorClienteYMes(soloB).clientes.map((c) => c.cliente)).toEqual(["B"]);
+  });
+
+  it("contarPorCliente cuenta filas por nombre normalizado", () => {
+    expect(contarPorCliente(CON_VACIO)).toEqual(new Map([["A", 4], ["B", 3], [SIN_CLIENTE, 1]]));
+    expect(contarPorCliente([])).toEqual(new Map());
   });
 });
 

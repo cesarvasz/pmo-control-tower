@@ -6,8 +6,9 @@
 // comparte código con ellas a propósito.
 //
 // Vista principal: Clientes en filas y, por mes de cierre, Volumen (cantidad de
-// files) y Profit (suma). El filtro de mes (línea de tiempo + selector) recorta
-// las filas ANTES de agrupar, así que KPIs, matriz y detalle siempre cuadran.
+// files) y Profit (suma). Los filtros de cliente y de mes (este último con línea de
+// tiempo + selector) recortan las filas ANTES de agrupar, así que KPIs, matriz y
+// detalle siempre cuadran; la línea de tiempo muestra solo los meses del cliente elegido.
 // El botón «Metas» abre un popup para capturar, por cliente, Vol y CM1 (iguales todos
 // los meses) y, por mes, el % de la meta a alcanzar; con eso la matriz agrega las
 // columnas de la meta y «% Meta» (Profit real ÷ Vol × CM1) por mes, y el detalle agrega
@@ -24,7 +25,8 @@ import TablaClienteMes from "@/components/implementacion/TablaClienteMes";
 import TablaDetalleImplementacion from "@/components/implementacion/TablaDetalleImplementacion";
 import MetasModal from "@/components/implementacion/MetasModal";
 import {
-  SIN_FECHA, agruparPorClienteYMes, filtrarPorMeses, fmtImporte, indexarMetas, serieMensual, totalesImplementacion,
+  SIN_FECHA, agruparPorClienteYMes, contarPorCliente, filtrarPorClientes, filtrarPorMeses, fmtImporte, indexarMetas,
+  serieMensual, totalesImplementacion,
 } from "@/lib/implementaciones";
 import type { ImplementacionRow, MetaCliente, MetasImplementacionDoc, ObjetivoMes } from "@/types";
 
@@ -43,10 +45,22 @@ function KpiCard({ label, valor, color }: { label: string; valor: string; color?
 
 export default function ReporteImplementacion({ rows }: { rows: ImplementacionRow[] }) {
   const [elegidos, setElegidos] = useState<string[]>([]);
+  const [clientesElegidos, setClientesElegidos] = useState<string[]>([]);
 
-  const serie = useMemo(() => serieMensual(rows), [rows]);
-  // Meses con fecha de la hoja, sin importar el filtro: el popup de metas edita todos.
-  const mesesHoja = useMemo(() => serie.filter((p) => p.clave !== SIN_FECHA), [serie]);
+  // Todos los clientes de la hoja (sin importar ningún filtro), del de más volumen al de
+  // menos: alimentan el selector de cliente y el popup de cumplimiento, que edita a todos.
+  const clientesTodos = useMemo(() => agruparPorClienteYMes(rows).clientes.map((c) => c.cliente), [rows]);
+  // Si al recargar desaparece un cliente que estaba elegido, se descarta (igual que los meses).
+  const clientes = useMemo(
+    () => clientesElegidos.filter((c) => clientesTodos.includes(c)), [clientesElegidos, clientesTodos]);
+  const porCliente = useMemo(() => filtrarPorClientes(rows, clientes), [rows, clientes]);
+
+  // La línea de tiempo y el selector de mes reflejan al cliente elegido: lo que muestran
+  // siempre cuadra con lo que se ve abajo.
+  const serie = useMemo(() => serieMensual(porCliente), [porCliente]);
+  // Meses con fecha de la hoja, sin importar ningún filtro: el popup de cumplimiento edita todos.
+  const mesesHoja = useMemo(
+    () => serieMensual(rows).filter((p) => p.clave !== SIN_FECHA), [rows]);
 
   // Metas (Vol y CM1 por cliente, igual para todos los meses; y el % a alcanzar de cada
   // mes): viven en Firestore, no en la hoja. Si no cargan, la tabla sigue funcionando —
@@ -79,21 +93,25 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
   }, []);
 
   const metasPorCliente = useMemo(() => indexarMetas(metas, objetivos), [metas, objetivos]);
-  // Todos los clientes de la hoja (sin importar el filtro de mes): el popup edita
-  // las metas de todos, no solo de los que se ven.
-  const clientesTodos = useMemo(() => agruparPorClienteYMes(rows).clientes.map((c) => c.cliente), [rows]);
 
-  // Si al recargar desaparece un mes que estaba elegido, se descarta: dejarlo
-  // vaciaría la vista sin que haya nada que el usuario pueda quitar.
+  // Si al recargar (o al cambiar de cliente) desaparece un mes que estaba elegido, se
+  // descarta: dejarlo vaciaría la vista sin que haya nada que el usuario pueda quitar.
   const meses = useMemo(() => elegidos.filter((m) => serie.some((p) => p.clave === m)), [elegidos, serie]);
-  const filtradas = useMemo(() => filtrarPorMeses(rows, meses), [rows, meses]);
+  const filtradas = useMemo(() => filtrarPorMeses(porCliente, meses), [porCliente, meses]);
   const matriz = useMemo(() => agruparPorClienteYMes(filtradas), [filtradas]);
   const totales = useMemo(() => totalesImplementacion(filtradas), [filtradas]);
   const opcionesMes = useMemo<MSOption[]>(
     () => serie.map((p) => ({ value: p.clave, label: p.label, count: p.volumen })), [serie]);
+  // Todos los clientes siempre están en la lista (uno elegido nunca desaparece); el número
+  // de cada uno cuenta sus registros de los meses elegidos.
+  const opcionesCliente = useMemo<MSOption[]>(() => {
+    const cuenta = contarPorCliente(filtrarPorMeses(rows, meses));
+    return clientesTodos.map((c) => ({ value: c, label: c, count: cuenta.get(c) ?? 0 }));
+  }, [rows, meses, clientesTodos]);
 
   const alternarMes = (clave: string) =>
     setElegidos(meses.includes(clave) ? meses.filter((m) => m !== clave) : [...meses, clave]);
+  const limpiarFiltros = () => { setElegidos([]); setClientesElegidos([]); };
 
   return (
     <div>
@@ -104,13 +122,21 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <MultiSelect
+          label="Cliente"
+          options={opcionesCliente}
+          selected={clientes}
+          onToggle={(v, ch) =>
+            setClientesElegidos(ch ? [...clientes.filter((c) => c !== v), v] : clientes.filter((c) => c !== v))}
+          onToggleAll={() => setClientesElegidos([])}
+        />
+        <MultiSelect
           label="Mes de cierre"
           options={opcionesMes}
           selected={meses}
           onToggle={(v, ch) => setElegidos(ch ? [...meses.filter((m) => m !== v), v] : meses.filter((m) => m !== v))}
           onToggleAll={() => setElegidos([])}
         />
-        {meses.length > 0 && <FilterReset onClick={() => setElegidos([])} />}
+        {(meses.length > 0 || clientes.length > 0) && <FilterReset onClick={limpiarFiltros} />}
 
         <button
           type="button"

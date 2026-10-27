@@ -126,6 +126,29 @@ export function filtrarPorMeses(rows: ImplementacionRow[], meses: string[]): Imp
   return rows.filter((r) => sel.has(claveMes(r.Fecha_cierre)));
 }
 
+/** Nombre con el que un cliente se agrupa, se filtra y se busca su cumplimiento: sin
+ *  espacios sobrantes, y un Cliente vacío es «(Sin cliente)». */
+export function nombreCliente(r: ImplementacionRow): string {
+  return r.Cliente.trim() || SIN_CLIENTE;
+}
+
+/** Filas de los clientes elegidos. Sin selección (`[]`) = todas. */
+export function filtrarPorClientes(rows: ImplementacionRow[], clientes: string[]): ImplementacionRow[] {
+  if (clientes.length === 0) return rows;
+  const sel = new Set(clientes);
+  return rows.filter((r) => sel.has(nombreCliente(r)));
+}
+
+/** Cantidad de filas de cada cliente (por su nombre ya normalizado). */
+export function contarPorCliente(rows: ImplementacionRow[]): Map<string, number> {
+  const cuenta = new Map<string, number>();
+  for (const r of rows) {
+    const k = nombreCliente(r);
+    cuenta.set(k, (cuenta.get(k) ?? 0) + 1);
+  }
+  return cuenta;
+}
+
 // ── Cliente × mes ─────────────────────────────────────────────────────────
 
 export interface FilaCliente {
@@ -155,7 +178,7 @@ export function agruparPorClienteYMes(rows: ImplementacionRow[]): MatrizClienteM
   const sumar = (c: Celda, profit: number) => { c.volumen += 1; c.profit += profit; };
 
   for (const r of rows) {
-    const nombre = r.Cliente.trim() || SIN_CLIENTE;
+    const nombre = nombreCliente(r);
     const mes = claveMes(r.Fecha_cierre);
     const profit = r.Profit ?? 0;
 
@@ -476,7 +499,7 @@ export interface EvaluacionFile {
  *  salir en rojo contra un CM1 de $12.30. `metas` es el índice de `indexarMetas` (solo
  *  metas con Vol × CM1 > 0, por lo que su CM1 es > 0). */
 export function evaluarFile(r: ImplementacionRow, metas: IndiceMetas): EvaluacionFile {
-  const meta = metas.clientes.get(r.Cliente.trim() || SIN_CLIENTE);
+  const meta = metas.clientes.get(nombreCliente(r));
   if (!meta || r.Profit == null) return { estado: "sin-meta", cm1: meta?.cm1 ?? null };
   return { estado: centavos(r.Profit) >= centavos(meta.cm1) ? "cumple" : "no-cumple", cm1: meta.cm1 };
 }
