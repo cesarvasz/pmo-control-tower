@@ -136,7 +136,7 @@ export interface ClonacionPayload {
 export interface ImplementacionRow {
   File: string;
   /** "yyyy-MM-ddTHH:mm:ss" (hora de pared), "" si la hoja no trae fecha. */
-  Fecha: string;
+  Fecha_cierre: string;
   Cliente: string;
   Usuario: string;
   ingresos_facturados: number | null;

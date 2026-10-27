@@ -13,7 +13,7 @@ import { SectionHeader } from "@/components/ui";
 import { totalesImplementacion } from "@/lib/implementacion";
 import type { ImplementacionRow } from "@/types";
 
-type Campo = "File" | "Fecha" | "Cliente" | "Usuario" | "ingresos_facturados" | "egresos_liquidados" | "Profit";
+type Campo = "File" | "Fecha_cierre" | "Cliente" | "Usuario" | "ingresos_facturados" | "egresos_liquidados" | "Profit";
 type Dir = "asc" | "desc";
 const TAMANOS = [25, 50, 100, 250] as const;
 
@@ -57,7 +57,7 @@ function KpiCard({ label, valor, color }: { label: string; valor: string; color?
 }
 
 export default function ReporteImplementacion({ rows }: { rows: ImplementacionRow[] }) {
-  const [orden, setOrden] = useState<{ campo: Campo; dir: Dir }>({ campo: "Fecha", dir: "desc" });
+  const [orden, setOrden] = useState<{ campo: Campo; dir: Dir }>({ campo: "Fecha_cierre", dir: "desc" });
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(25);
 
@@ -114,7 +114,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
           <thead>
             <tr>
               <Th campo="File" actual={orden} alternar={alternar}>File</Th>
-              <Th campo="Fecha" actual={orden} alternar={alternar} align="center">Fecha</Th>
+              <Th campo="Fecha_cierre" actual={orden} alternar={alternar} align="center">Fecha de cierre</Th>
               <Th campo="Cliente" actual={orden} alternar={alternar}>Cliente</Th>
               <Th campo="Usuario" actual={orden} alternar={alternar}>Usuario</Th>
               <Th campo="ingresos_facturados" actual={orden} alternar={alternar} align="right">Ingresos facturados</Th>
@@ -126,7 +126,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
             {visibles.map((r, i) => (
               <tr key={`${r.File}-${i}`}>
                 <td className="ini-id">{r.File}</td>
-                <td className="whitespace-nowrap tabular-nums text-center text-[var(--text-secondary)]">{fechaCorta(r.Fecha)}</td>
+                <td className="whitespace-nowrap tabular-nums text-center text-[var(--text-secondary)]">{fechaCorta(r.Fecha_cierre)}</td>
                 <td className="max-w-[240px] truncate text-[var(--text-secondary)]" title={r.Cliente}>{r.Cliente}</td>
                 <td className="max-w-[180px] truncate text-[var(--text-secondary)]" title={r.Usuario}>{r.Usuario}</td>
                 <td className="whitespace-nowrap tabular-nums text-right">{importe(r.ingresos_facturados)}</td>

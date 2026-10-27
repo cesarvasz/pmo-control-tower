@@ -269,7 +269,7 @@ function medirDoGet() {
 /** Columnas cuyo valor se repite mucho → van por diccionario. */
 var COLS_TEXTO = ["File", "Cliente", "Usuario"];
 /** Columnas de fecha → van como segundos desde EPOCA. */
-var COLS_FECHA = ["Fecha"];
+var COLS_FECHA = ["Fecha_cierre"];
 // Las columnas numéricas (ingresos_facturados, egresos_liquidados, Profit) no
 // necesitan lista: cualquier columna que no sea de texto ni de fecha va "libre",
 // es decir el valor tal cual — y un número viaja como número.

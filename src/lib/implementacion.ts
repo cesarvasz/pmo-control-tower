@@ -25,6 +25,9 @@ export function fechaDesdeSegundos(epoca: number, seg: number | null): string {
     `T${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
 }
 
+/** Columnas de texto de ImplementacionRow (la fecha llega ya como texto ISO). */
+const COLS_TEXTO = ["File", "Fecha_cierre", "Cliente", "Usuario"] as const;
+
 /** Columnas de importe: llegan como número, pero si en la hoja alguna celda es
  *  texto («Q1,234.50», «$1,234.50», «(500)») también se interpreta. */
 const COLS_NUMERICAS = ["ingresos_facturados", "egresos_liquidados", "Profit"] as const;
@@ -70,6 +73,10 @@ export function decodificarImplementacion(p: ImplementacionPayload): Implementac
       const v = f[nLibres + nTextos + i];
       row[c] = fechaDesdeSegundos(epoca, typeof v === "number" ? v : null);
     });
+    // Si la hoja renombra o pierde una columna, la fila conserva su forma (vacía)
+    // en vez de dejar un undefined que reventaría la tabla al ordenar o formatear.
+    for (const c of COLS_TEXTO) if (row[c] === undefined) row[c] = "";
+    for (const c of COLS_NUMERICAS) if (row[c] === undefined) row[c] = null;
     return row as unknown as ImplementacionRow;
   });
 }

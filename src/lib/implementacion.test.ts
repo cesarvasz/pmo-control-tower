@@ -16,7 +16,7 @@ const payload = (o: Partial<ImplementacionPayload> = {}): ImplementacionPayload 
   epoca: EPOCA,
   libres: ["ingresos_facturados", "egresos_liquidados", "Profit"],
   textos: ["File", "Cliente", "Usuario"],
-  fechas: ["Fecha"],
+  fechas: ["Fecha_cierre"],
   dicc: { File: ["GT-2025-1", "GT-2025-2"], Cliente: ["CLIENTE A", "CLIENTE B"], Usuario: ["Ana", "Luis"] },
   filas: [[1500.5, 900, 600.5, 0, 0, 0, seg(2026, 1, 5, 14, 30, 45)]],
   ...o,
@@ -67,7 +67,7 @@ describe("aNumero", () => {
 describe("decodificarImplementacion", () => {
   it("reconstruye la fila con todas sus columnas", () => {
     expect(decodificarImplementacion(payload())).toEqual([{
-      File: "GT-2025-1", Fecha: "2026-01-05T14:30:45", Cliente: "CLIENTE A", Usuario: "Ana",
+      File: "GT-2025-1", Fecha_cierre: "2026-01-05T14:30:45", Cliente: "CLIENTE A", Usuario: "Ana",
       ingresos_facturados: 1500.5, egresos_liquidados: 900, Profit: 600.5,
     }]);
   });
@@ -86,7 +86,7 @@ describe("decodificarImplementacion", () => {
     expect(r.ingresos_facturados).toBeNull();
     expect(r.egresos_liquidados).toBe(0);
     expect(r.Profit).toBeNull();
-    expect(r.Fecha).toBe("");
+    expect(r.Fecha_cierre).toBe("");
   });
 
   it("un importe que llega como texto se interpreta", () => {
@@ -110,6 +110,18 @@ describe("decodificarImplementacion", () => {
     expect(r.Nota).toBe("hola");
   });
 
+  it("si la hoja no trae una columna, la fila queda con ese campo vacío (no undefined)", () => {
+    // La hoja real llamó a la fecha "Fecha_cierre"; con otro nombre la columna no existe.
+    const [r] = decodificarImplementacion(payload({
+      fechas: ["Fecha_de_cierre"],
+      libres: ["ingresos_facturados"],
+      filas: [[100, 0, 0, 0, seg(2026, 1, 5)]],
+    }));
+    expect(r.Fecha_cierre).toBe("");
+    expect(r.egresos_liquidados).toBeNull();
+    expect(r.Profit).toBeNull();
+  });
+
   it("una hoja vacía devuelve lista vacía", () => {
     expect(decodificarImplementacion(payload({ filas: [] }))).toEqual([]);
   });
@@ -118,9 +130,9 @@ describe("decodificarImplementacion", () => {
     const tz = process.env.TZ;
     try {
       process.env.TZ = "Pacific/Kiritimati"; // UTC+14
-      expect(decodificarImplementacion(payload())[0].Fecha).toBe("2026-01-05T14:30:45");
+      expect(decodificarImplementacion(payload())[0].Fecha_cierre).toBe("2026-01-05T14:30:45");
       process.env.TZ = "Pacific/Midway"; // UTC-11
-      expect(decodificarImplementacion(payload())[0].Fecha).toBe("2026-01-05T14:30:45");
+      expect(decodificarImplementacion(payload())[0].Fecha_cierre).toBe("2026-01-05T14:30:45");
     } finally {
       process.env.TZ = tz;
     }
@@ -129,7 +141,7 @@ describe("decodificarImplementacion", () => {
 
 describe("totalesImplementacion", () => {
   const fila = (i: number | null, e: number | null, p: number | null): ImplementacionRow => ({
-    File: "F", Fecha: "", Cliente: "C", Usuario: "U",
+    File: "F", Fecha_cierre: "", Cliente: "C", Usuario: "U",
     ingresos_facturados: i, egresos_liquidados: e, Profit: p,
   });
 
