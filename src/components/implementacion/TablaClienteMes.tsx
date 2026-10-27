@@ -5,16 +5,17 @@
 //  · Justo después del cliente van las columnas de la META (Vol, CM1 por file y Total =
 //    Vol × CM1). Es la misma para todos los meses, así que sale una sola vez, con un
 //    estilo propio (ver estiloMeta.ts) para distinguirla de lo que viene de la hoja.
-//  · Cada mes agrega "% Meta": Profit real ÷ Total de la meta, en verde cuando llega al
-//    % a alcanzar de ese mes (que se muestra en el encabezado).
+//  · Cada mes agrega "% Meta": Profit real ÷ Total de la meta. Su color es un semáforo
+//    del cumplimiento del % a alcanzar de ese mes (que se muestra en el encabezado):
+//    rojo < 80 %, amarillo 80–89 %, verde ≥ 90 %.
 // El grupo Total (por cliente, columna) solo trae Vol y Profit. Cierra con el total por
 // mes (fila). Las columnas son los meses presentes en las filas que recibe, así que al
 // filtrar por mes solo quedan esos. La primera columna y los encabezados se quedan fijos
 // al hacer scroll.
 
 import {
-  SIN_FECHA, avanceMesCliente, avanceTotalMes, etiquetaMes, fmtImporte, fmtPct, metaProfitMensual, objetivoDe,
-  type Avance, type Celda, type IndiceMetas, type MatrizClienteMes,
+  SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, avanceMesCliente, avanceTotalMes, etiquetaMes, fmtImporte, fmtPct,
+  metaProfitMensual, objetivoDe, type Avance, type Celda, type IndiceMetas, type MatrizClienteMes, type Nivel,
 } from "@/lib/implementaciones";
 import { META_BORDE, META_FONDO, META_FONDO_ENCABEZADO, META_TEXTO } from "@/components/implementacion/estiloMeta";
 import type { MetaCliente } from "@/types";
@@ -33,17 +34,20 @@ function detalle(a: Avance, meta?: MetaCliente): string {
   const origen = meta
     ? ` (Vol ${num(meta.vol)} × CM1 ${fmtImporte(meta.cm1)})`
     : a.n > 1 ? ` (suma de ${a.n} metas; solo lo que tiene meta)` : "";
-  const objetivo = `A alcanzar: ${fmtPct(a.requerido / a.meta)} de la meta = ${fmtImporte(a.requerido)} → ${a.cumple ? "cumple" : "no llega"}`;
-  return `${base}${origen}\n${objetivo}`;
+  const objetivo = `A alcanzar: ${fmtPct(a.requerido / a.meta)} de la meta = ${fmtImporte(a.requerido)}`;
+  const cumplimiento = `Cumplimiento: ${fmtPct(a.cumplimiento)} de lo requerido → ${a.nivel}`;
+  return `${base}${origen}\n${objetivo}\n${cumplimiento}`;
 }
 
-/** Celda del % de la meta. Sin meta: «—» en gris. Verde cuando el Profit llega al
- *  % a alcanzar del mes (no siempre es el 100 %). */
+const COLOR_NIVEL: Record<Nivel, string> = { rojo: "var(--bad)", amarillo: "var(--warn)", verde: "var(--ok)" };
+
+/** Celda del % de la meta. Sin meta: «—» en gris. El color es el semáforo del
+ *  cumplimiento del % a alcanzar del mes: rojo, amarillo o verde. */
 function CeldaPct({ a, titulo, estilo }: { a: Avance | null; titulo?: string; estilo?: React.CSSProperties }) {
   if (!a) return <td className="tabular-nums text-right text-[var(--text-disabled)]" style={estilo}>—</td>;
   return (
     <td className="tabular-nums text-right font-semibold" title={titulo}
-      style={{ ...estilo, color: a.cumple ? "var(--ok)" : undefined }}>
+      style={{ ...estilo, color: COLOR_NIVEL[a.nivel] }}>
       {fmtPct(a.pct)}
     </td>
   );
@@ -152,7 +156,8 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
               hayMetas && (
                 <th key={`${k}-m`} style={{ ...th2, whiteSpace: "nowrap" }}
                   title={k === SIN_FECHA ? "Sin fecha no se compara con ninguna meta"
-                    : `Profit ÷ Total de la meta. Verde = llegó al ${pctTxt(objetivoDe(metas, k))}% a alcanzar en ${etiquetaMes(k)}`}>
+                    : `Profit ÷ Total de la meta. En ${etiquetaMes(k)} hay que alcanzar el ${pctTxt(objetivoDe(metas, k))}% de la meta. `
+                      + `Color según el cumplimiento de eso: rojo menos de ${UMBRAL_AMARILLO}%, amarillo ${UMBRAL_AMARILLO}% a ${UMBRAL_VERDE - 1}%, verde ${UMBRAL_VERDE}% o más`}>
                   % Meta
                   {k !== SIN_FECHA && (
                     <span className="ml-1 text-[0.72rem] font-normal text-[var(--text-muted)]">≥ {pctTxt(objetivoDe(metas, k))}%</span>

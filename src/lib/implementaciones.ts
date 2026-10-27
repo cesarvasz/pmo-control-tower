@@ -381,6 +381,21 @@ export function evaluarObjetivo(txt: string): ObjetivoEditado {
   return { objetivo: n, error: "" };
 }
 
+// Colores del «% Meta». Se mide el CUMPLIMIENTO: cuánto del Profit requerido (meta × %
+// a alcanzar del mes) se juntó. Menos de 80 % = rojo, de 80 a menos de 90 % = amarillo,
+// 90 % o más = verde. Con un % a alcanzar de 100 el cumplimiento es igual al % Meta.
+export const UMBRAL_AMARILLO = 80;
+export const UMBRAL_VERDE = 90;
+
+export type Nivel = "rojo" | "amarillo" | "verde";
+
+/** Fracción de cumplimiento (0.93 = 93 %) → color. Se redondea a un decimal, como se
+ *  muestra: un 89.96 % que se lee «90 %» sale verde, no amarillo. */
+export function nivelCumplimiento(fraccion: number): Nivel {
+  const pct = Math.round(fraccion * 1000) / 10;
+  return pct >= UMBRAL_VERDE ? "verde" : pct >= UMBRAL_AMARILLO ? "amarillo" : "rojo";
+}
+
 /** Profit real contra meta. `pct` es una fracción (0.85 = 85 %). */
 export interface Avance {
   /** Meta de Profit, en dólares (Vol × CM1; sumada si junta varias). */
@@ -389,8 +404,11 @@ export interface Avance {
   pct: number;
   /** Profit que hay que juntar para dar la meta por cumplida: meta × % a alcanzar del mes. */
   requerido: number;
-  /** ¿El Profit llega al requerido? Se compara en centavos. */
-  cumple: boolean;
+  /** Profit ÷ requerido, como fracción (1 = justo lo requerido). Con un % a alcanzar de
+   *  100 es igual a `pct`. */
+  cumplimiento: number;
+  /** Color según el cumplimiento (ver nivelCumplimiento). */
+  nivel: Nivel;
   /** Cuántas metas (un cliente) se juntaron en este avance. */
   n: number;
 }
@@ -405,10 +423,13 @@ function avance(partes: Parte[]): Avance | null {
   const profit = partes.reduce((s, p) => s + p.profit, 0);
   // meta (USD) × % = centavos exactos; se redondea cada parte para no arrastrar basura decimal.
   const requeridoCent = partes.reduce((s, p) => s + Math.round(p.meta * p.objetivo), 0);
+  // Un requerido de 0 centavos (meta diminuta) no se puede dividir: basta con no perder dinero.
+  const cumplimiento = requeridoCent > 0 ? centavos(profit) / requeridoCent : profit >= 0 ? 1 : 0;
   return {
     meta, profit, pct: profit / meta,
     requerido: requeridoCent / 100,
-    cumple: centavos(profit) >= requeridoCent,
+    cumplimiento,
+    nivel: nivelCumplimiento(cumplimiento),
     n: partes.length,
   };
 }

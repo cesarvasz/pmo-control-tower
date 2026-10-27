@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes,
+  OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes,
   claveMes, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorMeses, fmtFechaCorta, fmtImporte,
-  fmtPct, indexarMetas, leerDocMetas, metaProfitMensual, normalizarMetas, normalizarObjetivos, objetivoDe,
+  fmtPct, indexarMetas, leerDocMetas, metaProfitMensual, nivelCumplimiento, normalizarMetas, normalizarObjetivos, objetivoDe,
   pasaFiltroSemaforo, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
@@ -230,6 +230,33 @@ describe("formato", () => {
   });
 });
 
+describe("nivelCumplimiento (semáforo del % Meta)", () => {
+  it("menos de 80 % es rojo, de 80 a 89 % amarillo, 90 % o más verde", () => {
+    expect(nivelCumplimiento(0.799)).toBe("rojo");
+    expect(nivelCumplimiento(0.8)).toBe("amarillo");
+    expect(nivelCumplimiento(0.85)).toBe("amarillo");
+    expect(nivelCumplimiento(0.899)).toBe("amarillo");
+    expect(nivelCumplimiento(0.9)).toBe("verde");
+    expect(nivelCumplimiento(1)).toBe("verde");
+    expect(nivelCumplimiento(2.5)).toBe("verde");
+  });
+
+  it("cero y negativos son rojo", () => {
+    expect(nivelCumplimiento(0)).toBe("rojo");
+    expect(nivelCumplimiento(-0.1)).toBe("rojo");
+  });
+
+  it("decide con el mismo redondeo con que se muestra (un decimal): 89.96 % se lee «90 %» y es verde", () => {
+    expect(nivelCumplimiento(0.8996)).toBe("verde");
+    expect(nivelCumplimiento(0.7996)).toBe("amarillo");
+    expect(nivelCumplimiento(0.8994)).toBe("amarillo");
+  });
+
+  it("los umbrales son los publicados", () => {
+    expect([UMBRAL_AMARILLO, UMBRAL_VERDE]).toEqual([80, 90]);
+  });
+});
+
 /** Meta de un cliente: la misma para todos los meses. */
 const meta = (cliente: string, vol: number, cm1: number): MetaCliente => ({ cliente, vol, cm1 });
 /** % a alcanzar de un mes. */
@@ -308,10 +335,11 @@ describe("metas por cliente y % a alcanzar por mes", () => {
     });
 
     it("cada mes usa su propio % a alcanzar", () => {
-      const mar = avanceMesCliente(a, "2026-03", idx)!; // 70 % de 200 = 140 → 150.50 cumple
-      expect(mar).toMatchObject({ requerido: 140, cumple: true });
+      const mar = avanceMesCliente(a, "2026-03", idx)!; // 70 % de 200 = 140 → 150.50 es 107.5 % de lo requerido
+      expect(mar).toMatchObject({ requerido: 140, nivel: "verde" });
+      expect(mar.cumplimiento).toBeCloseTo(1.075);
       const may = avanceMesCliente(a, "2026-05", idx)!; // sin captura = 100 % → 200; −20 no llega
-      expect(may).toMatchObject({ requerido: 200, cumple: false });
+      expect(may).toMatchObject({ requerido: 200, nivel: "rojo" });
       expect(may.pct).toBeCloseTo(-0.1);
     });
 
@@ -319,7 +347,7 @@ describe("metas por cliente y % a alcanzar por mes", () => {
       const r = avanceMesCliente(a, "2026-04", idx)!;
       expect(r.profit).toBe(0);
       expect(r.pct).toBe(0);
-      expect(r.cumple).toBe(false);
+      expect(r.nivel).toBe("rojo");
     });
 
     it("sin meta para el cliente, o en «Sin fecha», no hay %", () => {
@@ -331,27 +359,47 @@ describe("metas por cliente y % a alcanzar por mes", () => {
     describe("el % a alcanzar (no siempre 100 %)", () => {
       const conObjetivo = (pct: number) => indexarMetas([meta("A", 10, 20)], [obj("2026-03", pct)]);
 
-      it("igualar el requerido cumple; un centavo menos, no", () => {
-        expect(avanceMesCliente(a, "2026-03", conObjetivo(75.25))!.cumple).toBe(true); // requerido 150.50
-        expect(avanceMesCliente(a, "2026-03", conObjetivo(75.26))!.cumple).toBe(false); // requerido 150.52
+      // El mismo Profit de marzo (150.50 de una meta de 200) cambia de color según el % a alcanzar del mes.
+      it("el color sale del cumplimiento del % a alcanzar, no del % Meta a secas", () => {
+        const nivel = (pct: number) => avanceMesCliente(a, "2026-03", conObjetivo(pct))!.nivel;
+        expect(nivel(70)).toBe("verde"); // pide 140 → 107.5 %
+        expect(nivel(100)).toBe("rojo"); // pide 200 → 75.3 %
+        expect(nivel(90)).toBe("amarillo"); // pide 180 → 83.6 %
+        expect(nivel(120)).toBe("rojo"); // pide 240 → 62.7 %
       });
 
-      it("un % mayor a 100 pide más que la meta", () => {
+      it("el requerido es meta × %, y el cumplimiento es Profit ÷ requerido", () => {
         const r = avanceMesCliente(a, "2026-03", conObjetivo(120))!;
         expect(r.requerido).toBe(240);
-        expect(r.cumple).toBe(false);
+        expect(r.cumplimiento).toBeCloseTo(150.5 / 240);
+        // con 100 % el cumplimiento es igual al % Meta
+        const cien = avanceMesCliente(a, "2026-03", conObjetivo(100))!;
+        expect(cien.cumplimiento).toBeCloseTo(cien.pct);
       });
 
       it("compara en centavos: la basura decimal de una suma no tumba un cumplimiento exacto", () => {
         const fila1 = agruparPorClienteYMes([fila("A", "2026-03-05T00:00:00", 0.1 + 12.2)]).clientes[0];
         expect(0.1 + 12.2 === 12.3).toBe(false); // el problema que se evita
-        expect(avanceMesCliente(fila1, "2026-03", indexarMetas([meta("A", 1, 12.3)]))!.cumple).toBe(true);
+        const r = avanceMesCliente(fila1, "2026-03", indexarMetas([meta("A", 1, 12.3)]))!;
+        expect(r.cumplimiento).toBe(1);
+        expect(r.nivel).toBe("verde");
+      });
+
+      it("en las fronteras: 80 % ya es amarillo y 90 % ya es verde (con la meta de 200 al 100 %)", () => {
+        const conProfit = (p: number) => {
+          const f1 = agruparPorClienteYMes([fila("A", "2026-03-05T00:00:00", p)]).clientes[0];
+          return avanceMesCliente(f1, "2026-03", indexarMetas([meta("A", 10, 20)]))!.nivel;
+        };
+        expect(conProfit(159.8)).toBe("rojo"); // 79.9 %
+        expect(conProfit(160)).toBe("amarillo"); // 80 %
+        expect(conProfit(179.8)).toBe("amarillo"); // 89.9 %
+        expect(conProfit(180)).toBe("verde"); // 90 %
       });
     });
 
     it("total del mes: solo los clientes con meta, y su Profit contra su meta", () => {
       const ambos = avanceTotalMes(matriz, "2026-03", idx)!;
-      expect(ambos).toMatchObject({ meta: 220, n: 2, requerido: 154, cumple: true }); // 70 % de 220
+      expect(ambos).toMatchObject({ meta: 220, n: 2, requerido: 154, nivel: "verde" }); // 70 % de 220; 160.50 es 104 %
       expect(ambos.profit).toBeCloseTo(160.5);
 
       // Con meta solo para A, el Profit de B (10) no se mezcla en el numerador.
