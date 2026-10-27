@@ -3,15 +3,15 @@
 // Detalle de Implementación: una fila por registro de la hoja. Ordenable por
 // cualquier columna y paginada. Recibe las filas ya filtradas por mes.
 //
-// Semáforo: cuando hay metas, el CM1 de la meta de cada cliente EN EL MES DE CIERRE
-// del file es lo que ese file debe dejar de Profit. Verde = el file lo alcanza, rojo =
-// se queda corto, «—» = no hay meta para su cliente en ese mes. Arriba de la tabla va
-// un resumen (# cumplen, # no cumplen) y un filtro. El resumen cuenta todas las filas
-// que recibe; el filtro solo recorta la tabla.
+// Semáforo: cuando hay metas, el CM1 de la meta de cada cliente (igual en todos los
+// meses) es lo que CADA file debe dejar de Profit. Verde = el file lo alcanza, rojo = se
+// queda corto, «—» = su cliente no tiene meta. Arriba de la tabla va un resumen (# cumplen,
+// # no cumplen) y un filtro. El resumen cuenta todas las filas que recibe; el filtro solo
+// recorta la tabla.
 
 import { useMemo, useState } from "react";
 import {
-  SIN_FECHA, claveMes, etiquetaMes, evaluarFile, fmtFechaCorta, fmtImporte, pasaFiltroSemaforo, resumenSemaforo,
+  evaluarFile, fmtFechaCorta, fmtImporte, pasaFiltroSemaforo, resumenSemaforo,
   type EvaluacionFile, type FiltroSemaforo, type IndiceMetas,
 } from "@/lib/implementaciones";
 import type { ImplementacionRow } from "@/types";
@@ -49,9 +49,7 @@ function Punto({ color }: { color: string }) {
 function explicar(r: ImplementacionRow, e: EvaluacionFile): string {
   if (e.estado === "cumple") return `Cumple: Profit ${fmtImporte(r.Profit)} ≥ CM1 ${fmtImporte(e.cm1)} por file`;
   if (e.estado === "no-cumple") return `No cumple: Profit ${fmtImporte(r.Profit)} < CM1 ${fmtImporte(e.cm1)} por file`;
-  if (r.Profit == null) return "Sin Profit en la hoja";
-  const mes = claveMes(r.Fecha_cierre);
-  return mes === SIN_FECHA ? "Sin fecha de cierre: no hay meta del mes que aplicarle" : `Sin meta de CM1 para este cliente en ${etiquetaMes(mes)}`;
+  return r.Profit == null ? "Sin Profit en la hoja" : "Su cliente no tiene meta de CM1";
 }
 
 export default function TablaDetalleImplementacion({ rows, metas }: { rows: ImplementacionRow[]; metas: IndiceMetas }) {
@@ -112,7 +110,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.95rem] text-[var(--text-secondary)]"
-              title="Un file cumple si su Profit es igual o mayor al CM1 de la meta de su cliente en el mes de cierre del file">
+              title="Un file cumple si su Profit es igual o mayor al CM1 de la meta de su cliente">
               <span className="flex items-center gap-1.5">
                 <Punto color="var(--ok)" />
                 <strong className="tabular-nums text-[var(--text-primary)]">{resumen.cumplen.toLocaleString("es-GT")}</strong> cumplen
@@ -158,7 +156,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                   <Th campo="Profit" actual={orden} alternar={alternar} align="right">Profit</Th>
                   {hayMetas && (
                     <Th campo="Semaforo" actual={orden} alternar={alternar} align="center"
-                      title="Profit del file contra el CM1 de la meta de su cliente en el mes de cierre">
+                      title="Profit del file contra el CM1 de la meta de su cliente">
                       Meta CM1
                     </Th>
                   )}

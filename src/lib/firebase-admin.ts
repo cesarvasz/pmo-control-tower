@@ -5,7 +5,8 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ObjetivoMes, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
+import { leerDocMetas } from "@/lib/implementaciones";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -145,20 +146,22 @@ export async function deleteMetodologiaCalif(phaseKey: string): Promise<void> {
 }
 
 // ── Metas de Implementación (pestaña Implementación de ROI) ──────────────
-// Un solo documento `implementacion_metas/actual` con todas las metas por cliente
-// y mes (Vol, CM1 y % a alcanzar): cargar la pestaña cuesta UNA lectura y guardar
-// reemplaza el documento completo. Las valida lib/implementaciones.ts::normalizarMetas.
-// Un documento del formato anterior (una meta por cliente, sin mes) se devuelve tal
-// cual; el cliente lo reparte a cada mes con expandirMetas hasta que se vuelva a guardar.
+// Un solo documento `implementacion_metas/actual` con la meta de cada cliente (Vol y
+// CM1, igual para todos los meses) y el % a alcanzar de cada mes: cargar la pestaña
+// cuesta UNA lectura y guardar reemplaza el documento completo. Las valida
+// lib/implementaciones.ts (normalizarMetas / normalizarObjetivos). Al leer, leerDocMetas
+// también entiende los formatos anteriores (sin mes, o una meta por cliente y mes).
 export async function getMetasImplementacion(): Promise<MetasImplementacionDoc> {
   const snap = await getAdminDb().collection("implementacion_metas").doc("actual").get();
-  if (!snap.exists) return { metas: [], by: "", at: "" };
-  const d = snap.data() as Partial<MetasImplementacionDoc>;
-  return { metas: Array.isArray(d.metas) ? d.metas : [], by: d.by ?? "", at: d.at ?? "" };
+  if (!snap.exists) return { metas: [], objetivos: [], by: "", at: "" };
+  const d = snap.data() as { metas?: unknown; objetivos?: unknown; by?: string; at?: string };
+  return { ...leerDocMetas(d), by: d.by ?? "", at: d.at ?? "" };
 }
 
-export async function saveMetasImplementacion(metas: MetaCliente[], by: string): Promise<MetasImplementacionDoc> {
-  const doc: MetasImplementacionDoc = { metas, by, at: new Date().toISOString() };
+export async function saveMetasImplementacion(
+  metas: MetaCliente[], objetivos: ObjetivoMes[], by: string,
+): Promise<MetasImplementacionDoc> {
+  const doc: MetasImplementacionDoc = { metas, objetivos, by, at: new Date().toISOString() };
   await getAdminDb().collection("implementacion_metas").doc("actual").set(doc);
   return doc;
 }
