@@ -65,6 +65,7 @@ export const ACTIONS: ActionDef[] = [
   { key: "manage_users", label: "Gestionar usuarios", description: "Ver usuarios y asignarles roles." },
   { key: "manage_roles", label: "Gestionar roles",    description: "Crear, editar y eliminar roles, grupos y sus permisos." },
   { key: "edit_proj_status", label: "Cambiar status en Proyectos", description: "Cambiar el status de items y hitos de Proyectos desde la app (escribe directo en Monday)." },
+  { key: "edit_implementacion_metas", label: "Editar metas de Implementación", description: "Capturar y modificar las metas por cliente (Vol y CM1) de la pestaña Implementación en ROI." },
 ];
 
 // Páginas "puras" (sin requiredAction) — las únicas que van en el mapa de

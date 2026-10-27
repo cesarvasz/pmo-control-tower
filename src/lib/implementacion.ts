@@ -10,6 +10,7 @@
 // igual que Clonación. Aquí se decodifica a ImplementacionRow[].
 
 import { gunzipSync } from "node:zlib";
+import { aNumero } from "@/lib/implementaciones";
 import type { ImplementacionRow, ImplementacionPayload } from "@/types";
 
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -31,28 +32,6 @@ const COLS_TEXTO = ["File", "Fecha_cierre", "Cliente", "Usuario"] as const;
 /** Columnas de importe: llegan como número, pero si en la hoja alguna celda es
  *  texto («Q1,234.50», «$1,234.50», «(500)») también se interpreta. */
 const COLS_NUMERICAS = ["ingresos_facturados", "egresos_liquidados", "Profit"] as const;
-
-/**
- * Celda → número. null si está vacía o no se puede interpretar (nunca NaN: un
- * NaN se colaría en las sumas y las arruinaría en silencio). Un paréntesis es
- * negativo, como en contabilidad. Se asume formato «1,234.50» (coma de miles).
- */
-export function aNumero(v: unknown): number | null {
-  if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  if (typeof v !== "string") return null;
-
-  const s = v.trim();
-  if (!s) return null;
-
-  const sinMoneda = s.replace(/^[^\d()-]+/, ""); // «Q», «$», «USD »…
-  const negativo = /^\(.*\)$/.test(sinMoneda) || sinMoneda.startsWith("-");
-  const limpio = s.replace(/[^\d.]/g, "");
-  if (!/\d/.test(limpio)) return null;
-
-  const n = Number(limpio);
-  if (!Number.isFinite(n)) return null;
-  return negativo ? -n : n;
-}
 
 /** Reconstruye las filas de la pestaña "implementacion" a partir del payload codificado. */
 export function decodificarImplementacion(p: ImplementacionPayload): ImplementacionRow[] {

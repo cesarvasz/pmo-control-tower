@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
-  SIN_CLIENTE, SIN_FECHA, agruparPorClienteYMes, claveMes, etiquetaMes, filtrarPorMeses,
-  fmtFechaCorta, fmtImporte, serieMensual, totalesImplementacion,
+  SIN_CLIENTE, SIN_FECHA, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalCliente,
+  avanceTotalGeneral, avanceTotalMes, claveMes, etiquetaMes, evaluarFilaMeta, filtrarPorMeses,
+  fmtFechaCorta, fmtImporte, fmtPct, indexarMetas, metaProfitMensual, normalizarMetas,
+  serieMensual, totalesImplementacion,
 } from "./implementaciones";
-import type { ImplementacionRow } from "@/types";
+import type { ImplementacionRow, MetaCliente } from "@/types";
 
 const fila = (
   cliente: string, fecha: string, profit: number | null,
@@ -169,17 +171,204 @@ describe("totalesImplementacion", () => {
   });
 });
 
+describe("aNumero", () => {
+  it("deja pasar los números tal cual", () => {
+    expect(aNumero(1500.5)).toBe(1500.5);
+    expect(aNumero(0)).toBe(0);
+    expect(aNumero(-20)).toBe(-20);
+  });
+
+  it("interpreta importes escritos como texto", () => {
+    expect(aNumero("Q1,234.50")).toBe(1234.5);
+    expect(aNumero("$ 1,234.50")).toBe(1234.5);
+    expect(aNumero("1234")).toBe(1234);
+    expect(aNumero("500 USD")).toBe(500);
+  });
+
+  it("paréntesis y signo menos son negativos", () => {
+    expect(aNumero("(500)")).toBe(-500);
+    expect(aNumero("$(1,200.75)")).toBe(-1200.75);
+    expect(aNumero("-300")).toBe(-300);
+    expect(aNumero("Q-300.5")).toBe(-300.5);
+  });
+
+  it("vacío o ilegible es null, nunca NaN ni 0", () => {
+    expect(aNumero("")).toBeNull();
+    expect(aNumero("   ")).toBeNull();
+    expect(aNumero("n/d")).toBeNull();
+    expect(aNumero(null)).toBeNull();
+    expect(aNumero(undefined)).toBeNull();
+    expect(aNumero(NaN)).toBeNull();
+    expect(aNumero(Infinity)).toBeNull();
+  });
+});
+
 describe("formato", () => {
-  it("importe con miles y dos decimales, «—» si no hay valor", () => {
-    expect(fmtImporte(1234.5)).toBe("1,234.50");
-    expect(fmtImporte(0)).toBe("0.00");
-    expect(fmtImporte(-20)).toBe("-20.00");
+  it("importe en dólares con miles y dos decimales, «—» si no hay valor", () => {
+    expect(fmtImporte(1234.5)).toBe("$1,234.50");
+    expect(fmtImporte(0)).toBe("$0.00");
+    expect(fmtImporte(-20)).toBe("-$20.00");
     expect(fmtImporte(null)).toBe("—");
+  });
+
+  it("un negativo que redondea a cero no lleva signo menos", () => {
+    expect(fmtImporte(-0.004)).toBe("$0.00");
+  });
+
+  it("porcentaje con hasta un decimal", () => {
+    expect(fmtPct(0.853)).toBe("85.3%");
+    expect(fmtPct(1)).toBe("100%");
+    expect(fmtPct(0)).toBe("0%");
+    expect(fmtPct(1.2345)).toBe("123.5%");
+    expect(fmtPct(-0.05)).toBe("-5%");
   });
 
   it("fecha corta sin pasar por Date (no depende de la zona horaria)", () => {
     expect(fmtFechaCorta("2026-03-02T00:00:00")).toBe("02/03/2026");
     expect(fmtFechaCorta("2026-03-02T14:30:45")).toBe("02/03/2026 14:30");
     expect(fmtFechaCorta("")).toBe("—");
+  });
+});
+
+describe("metas", () => {
+  const metaA: MetaCliente = { cliente: "A", vol: 10, cm1: 20 }; // 200 de Profit por mes
+  const metaB: MetaCliente = { cliente: "B", vol: 5, cm1: 4 };   // 20 de Profit por mes
+  const matriz = agruparPorClienteYMes(DATOS);
+  const a = matriz.clientes.find((c) => c.cliente === "A")!;
+
+  it("la meta de Profit por mes es Vol × CM1", () => {
+    expect(metaProfitMensual(metaA)).toBe(200);
+    expect(metaProfitMensual({ vol: 0, cm1: 50 })).toBe(0);
+  });
+
+  it("solo cuentan las metas con algo contra qué dividir", () => {
+    const idx = indexarMetas([metaA, { cliente: "Z", vol: 0, cm1: 10 }, { cliente: "Y", vol: 10, cm1: 0 }]);
+    expect([...idx.keys()]).toEqual(["A"]);
+  });
+
+  describe("avances", () => {
+    it("% de un cliente en un mes: Profit ÷ meta del mes", () => {
+      const r = avanceMesCliente(a, "2026-03", metaA)!;
+      expect(r.meta).toBe(200);
+      expect(r.profit).toBe(150.5);
+      expect(r.pct).toBeCloseTo(0.7525);
+    });
+
+    it("un mes sin files del cliente cuenta como 0 % de la meta, no como «sin dato»", () => {
+      const r = avanceMesCliente(a, "2026-04", metaA)!;
+      expect(r.profit).toBe(0);
+      expect(r.pct).toBe(0);
+    });
+
+    it("un Profit negativo da un % negativo", () => {
+      expect(avanceMesCliente(a, "2026-05", metaA)!.pct).toBeCloseTo(-0.1);
+    });
+
+    it("sin meta, o en «Sin fecha», no hay %", () => {
+      expect(avanceMesCliente(a, "2026-03", undefined)).toBeNull();
+      expect(avanceMesCliente(a, SIN_FECHA, metaA)).toBeNull();
+    });
+
+    it("total del cliente: meta mensual × cantidad de meses mostrados, contra el Profit de esos meses", () => {
+      const r = avanceTotalCliente(a, matriz.meses, metaA)!; // mar, abr, may (sin-fecha no cuenta)
+      expect(r.meta).toBe(600);
+      expect(r.profit).toBeCloseTo(130.5);
+      expect(r.pct).toBeCloseTo(0.2175);
+    });
+
+    it("el total del cliente respeta el filtro de meses", () => {
+      const soloMar = agruparPorClienteYMes(filtrarPorMeses(DATOS, ["2026-03"]));
+      const fila = soloMar.clientes.find((c) => c.cliente === "A")!;
+      expect(avanceTotalCliente(fila, soloMar.meses, metaA)!.meta).toBe(200);
+    });
+
+    it("si solo hay «Sin fecha» no hay % total", () => {
+      expect(avanceTotalCliente(a, [SIN_FECHA], metaA)).toBeNull();
+    });
+
+    it("total del mes: solo los clientes con meta, y su Profit contra su meta", () => {
+      const ambos = avanceTotalMes(matriz, "2026-03", indexarMetas([metaA, metaB]))!;
+      expect(ambos.meta).toBe(220);
+      expect(ambos.profit).toBeCloseTo(160.5);
+
+      // Con meta solo para A, el Profit de B (10) no se mezcla en el numerador.
+      const soloA = avanceTotalMes(matriz, "2026-03", indexarMetas([metaA]))!;
+      expect(soloA.meta).toBe(200);
+      expect(soloA.profit).toBeCloseTo(150.5);
+    });
+
+    it("total general: todas las metas × meses mostrados contra su Profit", () => {
+      const r = avanceTotalGeneral(matriz, indexarMetas([metaA, metaB]))!;
+      expect(r.meta).toBe(660); // (200 + 20) × 3 meses
+      expect(r.profit).toBeCloseTo(140.5); // A 130.5 + B 10 (sin contar «Sin fecha»)
+    });
+
+    it("sin ninguna meta aplicable, no hay % en ningún total", () => {
+      expect(avanceTotalMes(matriz, "2026-03", new Map())).toBeNull();
+      expect(avanceTotalGeneral(matriz, new Map())).toBeNull();
+    });
+  });
+
+  describe("normalizarMetas (lo que se guarda)", () => {
+    it("acepta una lista válida, ordena por cliente y redondea el CM1 a centavos", () => {
+      const r = normalizarMetas([{ cliente: " B ", vol: 5, cm1: 4.567 }, { cliente: "A", vol: 10, cm1: 20 }]);
+      expect(r).toEqual({ ok: true, metas: [{ cliente: "A", vol: 10, cm1: 20 }, { cliente: "B", vol: 5, cm1: 4.57 }] });
+    });
+
+    it("una lista vacía es válida (quita todas las metas)", () => {
+      expect(normalizarMetas([])).toEqual({ ok: true, metas: [] });
+    });
+
+    it("rechaza lo que no es una lista", () => {
+      expect(normalizarMetas(undefined).ok).toBe(false);
+      expect(normalizarMetas({ cliente: "A" }).ok).toBe(false);
+    });
+
+    it("rechaza cliente vacío, repetido o demasiado largo", () => {
+      expect(normalizarMetas([{ cliente: "  ", vol: 1, cm1: 1 }]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", vol: 1, cm1: 1 }, { cliente: "A", vol: 2, cm1: 2 }]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "x".repeat(201), vol: 1, cm1: 1 }]).ok).toBe(false);
+    });
+
+    it("rechaza Vol o CM1 negativos, no numéricos o infinitos", () => {
+      expect(normalizarMetas([{ cliente: "A", vol: -1, cm1: 1 }]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", vol: 1, cm1: -1 }]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", vol: "10", cm1: 1 }]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", vol: 1, cm1: Infinity }]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", vol: 1 }]).ok).toBe(false);
+      expect(normalizarMetas([null]).ok).toBe(false);
+    });
+
+    it("pone un tope al tamaño de la lista", () => {
+      const muchas = Array.from({ length: 501 }, (_, i) => ({ cliente: `C${i}`, vol: 1, cm1: 1 }));
+      expect(normalizarMetas(muchas).ok).toBe(false);
+    });
+  });
+
+  describe("evaluarFilaMeta (los campos del popup)", () => {
+    it("los dos vacíos = sin meta, sin errores", () => {
+      expect(evaluarFilaMeta("", "  ")).toMatchObject({ vacia: true, completa: false, errorVol: "", errorCm1: "" });
+    });
+
+    it("los dos válidos = meta completa; acepta «$» y comas en el CM1", () => {
+      const r = evaluarFilaMeta("120", "$1,250.50");
+      expect(r).toMatchObject({ vol: 120, cm1: 1250.5, completa: true, vacia: false, errorVol: "", errorCm1: "" });
+    });
+
+    it("con uno solo lleno, al otro le falta el dato", () => {
+      expect(evaluarFilaMeta("10", "").errorCm1).toBe("Falta CM1");
+      expect(evaluarFilaMeta("", "5").errorVol).toBe("Falta Vol");
+      expect(evaluarFilaMeta("10", "").completa).toBe(false);
+    });
+
+    it("texto que no es número o negativo es un error", () => {
+      expect(evaluarFilaMeta("abc", "5").errorVol).toBe("Número inválido");
+      expect(evaluarFilaMeta("10", "-3").errorCm1).toBe("Debe ser 0 o más");
+      expect(evaluarFilaMeta("abc", "5").completa).toBe(false);
+    });
+
+    it("el 0 es un valor válido (no cuenta como vacío)", () => {
+      expect(evaluarFilaMeta("0", "0")).toMatchObject({ vol: 0, cm1: 0, completa: true, vacia: false });
+    });
   });
 });

@@ -157,6 +157,26 @@ export interface ImplementacionPayload {
   filas: (string | number | null)[][];
 }
 
+/** Meta mensual de un cliente en Implementación (la captura el usuario a mano).
+ *  Meta de Profit por mes = vol × cm1. */
+export interface MetaCliente {
+  /** Nombre del cliente tal como aparece en la hoja (columna Cliente). */
+  cliente: string;
+  /** Volumen mensual esperado (cantidad de files). */
+  vol: number;
+  /** CM1 en dólares: Profit esperado por file. */
+  cm1: number;
+}
+
+/** Documento de Firestore `implementacion_metas/actual`: todas las metas juntas
+ *  (una sola lectura para cargar la pestaña). */
+export interface MetasImplementacionDoc {
+  metas: MetaCliente[];
+  /** Correo de quien guardó por última vez, y cuándo (ISO). Vacío si nunca se guardó. */
+  by: string;
+  at: string;
+}
+
 /** Costo planificado de un REQ guardado en Firestore (baseline para EV/CPI). */
 export interface ReqBaseline {
   costRH: number;

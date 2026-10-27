@@ -1,7 +1,7 @@
 import { gzipSync } from "node:zlib";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  aNumero, decodificarImplementacion, fechaDesdeSegundos, fetchImplementacionRows,
+  decodificarImplementacion, fechaDesdeSegundos, fetchImplementacionRows,
 } from "./implementacion";
 import type { ImplementacionPayload } from "@/types";
 
@@ -29,38 +29,6 @@ describe("fechaDesdeSegundos", () => {
 
   it("una fecha ausente queda vacía, no en la época", () => {
     expect(fechaDesdeSegundos(EPOCA, null)).toBe("");
-  });
-});
-
-describe("aNumero", () => {
-  it("deja pasar los números tal cual", () => {
-    expect(aNumero(1500.5)).toBe(1500.5);
-    expect(aNumero(0)).toBe(0);
-    expect(aNumero(-20)).toBe(-20);
-  });
-
-  it("interpreta importes escritos como texto", () => {
-    expect(aNumero("Q1,234.50")).toBe(1234.5);
-    expect(aNumero("$ 1,234.50")).toBe(1234.5);
-    expect(aNumero("1234")).toBe(1234);
-    expect(aNumero("500 USD")).toBe(500);
-  });
-
-  it("paréntesis y signo menos son negativos", () => {
-    expect(aNumero("(500)")).toBe(-500);
-    expect(aNumero("$(1,200.75)")).toBe(-1200.75);
-    expect(aNumero("-300")).toBe(-300);
-    expect(aNumero("Q-300.5")).toBe(-300.5);
-  });
-
-  it("vacío o ilegible es null, nunca NaN ni 0", () => {
-    expect(aNumero("")).toBeNull();
-    expect(aNumero("   ")).toBeNull();
-    expect(aNumero("n/d")).toBeNull();
-    expect(aNumero(null)).toBeNull();
-    expect(aNumero(undefined)).toBeNull();
-    expect(aNumero(NaN)).toBeNull();
-    expect(aNumero(Infinity)).toBeNull();
   });
 });
 

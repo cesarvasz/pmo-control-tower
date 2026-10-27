@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetodologiaCalif, DelayResponsible, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -142,6 +142,23 @@ export async function saveMetodologiaCalif(phaseKey: string, score: number, by: 
 export async function deleteMetodologiaCalif(phaseKey: string): Promise<void> {
   const db = getAdminDb();
   await db.collection("metodologia_califs").doc(phaseKey).delete();
+}
+
+// ── Metas de Implementación (pestaña Implementación de ROI) ──────────────
+// Un solo documento `implementacion_metas/actual` con todas las metas por
+// cliente (Vol y CM1): cargar la pestaña cuesta UNA lectura y guardar reemplaza
+// el documento completo. Las valida lib/implementaciones.ts::normalizarMetas.
+export async function getMetasImplementacion(): Promise<MetasImplementacionDoc> {
+  const snap = await getAdminDb().collection("implementacion_metas").doc("actual").get();
+  if (!snap.exists) return { metas: [], by: "", at: "" };
+  const d = snap.data() as Partial<MetasImplementacionDoc>;
+  return { metas: Array.isArray(d.metas) ? d.metas : [], by: d.by ?? "", at: d.at ?? "" };
+}
+
+export async function saveMetasImplementacion(metas: MetaCliente[], by: string): Promise<MetasImplementacionDoc> {
+  const doc: MetasImplementacionDoc = { metas, by, at: new Date().toISOString() };
+  await getAdminDb().collection("implementacion_metas").doc("actual").set(doc);
+  return doc;
 }
 
 // ── Detalle de atraso (tabla "Atrasos" del Resumen Ejecutivo) ────────────
