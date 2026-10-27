@@ -129,6 +129,34 @@ export interface ClonacionPayload {
   filas: (string | number | null)[][];
 }
 
+/** Fila del archivo "Clonacion files" (Google Sheets, pestaña "implementacion")
+ *  — el mismo archivo que Clonación, otra pestaña. Fuente independiente (ver
+ *  apps-script/roi-implementacion.gs). Claves = nombres exactos de columna en la
+ *  hoja. Los importes llegan ya como número; null = celda vacía. */
+export interface ImplementacionRow {
+  File: string;
+  /** "yyyy-MM-ddTHH:mm:ss" (hora de pared), "" si la hoja no trae fecha. */
+  Fecha: string;
+  Cliente: string;
+  Usuario: string;
+  ingresos_facturados: number | null;
+  egresos_liquidados: number | null;
+  /** Tal como viene en la hoja — la app no lo recalcula. */
+  Profit: number | null;
+}
+
+/** Hoja "implementacion" tal como la manda el Apps Script: codificada, mismo
+ *  esquema que RoiPayload (ver apps-script/roi-implementacion.gs). */
+export interface ImplementacionPayload {
+  epoca: number;
+  generado?: string;
+  libres: string[];
+  textos: string[];
+  fechas: string[];
+  dicc: Record<string, string[]>;
+  filas: (string | number | null)[][];
+}
+
 /** Costo planificado de un REQ guardado en Firestore (baseline para EV/CPI). */
 export interface ReqBaseline {
   costRH: number;
