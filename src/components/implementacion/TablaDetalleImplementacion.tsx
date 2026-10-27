@@ -49,7 +49,7 @@ function Punto({ color }: { color: string }) {
 function explicar(r: ImplementacionRow, e: EvaluacionFile): string {
   if (e.estado === "cumple") return `Cumple: Profit ${fmtImporte(r.Profit)} ≥ CM1 ${fmtImporte(e.cm1)} por file`;
   if (e.estado === "no-cumple") return `No cumple: Profit ${fmtImporte(r.Profit)} < CM1 ${fmtImporte(e.cm1)} por file`;
-  return r.Profit == null ? "Sin Profit en la hoja" : "Su cliente no tiene meta de CM1";
+  return r.Profit == null ? "Sin Profit en la hoja" : "Su cliente no tiene cumplimiento de CM1";
 }
 
 export default function TablaDetalleImplementacion({ rows, metas }: { rows: ImplementacionRow[]; metas: IndiceMetas }) {
@@ -110,7 +110,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.95rem] text-[var(--text-secondary)]"
-              title="Un file cumple si su Profit es igual o mayor al CM1 de la meta de su cliente">
+              title="Un file cumple si su Profit es igual o mayor al CM1 del cumplimiento de su cliente">
               <span className="flex items-center gap-1.5">
                 <Punto color="var(--ok)" />
                 <strong className="tabular-nums text-[var(--text-primary)]">{resumen.cumplen.toLocaleString("es-GT")}</strong> cumplen
@@ -120,7 +120,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                 <strong className="tabular-nums text-[var(--text-primary)]">{resumen.noCumplen.toLocaleString("es-GT")}</strong> no cumplen
               </span>
               {resumen.sinMeta > 0 && (
-                <span className="text-[var(--text-muted)]">{resumen.sinMeta.toLocaleString("es-GT")} sin meta</span>
+                <span className="text-[var(--text-muted)]">{resumen.sinMeta.toLocaleString("es-GT")} sin cumplimiento</span>
               )}
             </div>
           </>
@@ -156,8 +156,8 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                   <Th campo="Profit" actual={orden} alternar={alternar} align="right">Profit</Th>
                   {hayMetas && (
                     <Th campo="Semaforo" actual={orden} alternar={alternar} align="center"
-                      title="Profit del file contra el CM1 de la meta de su cliente">
-                      Meta CM1
+                      title="Profit del file contra el CM1 del cumplimiento de su cliente">
+                      Cumplimiento CM1
                     </Th>
                   )}
                 </tr>

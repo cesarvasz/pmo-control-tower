@@ -100,7 +100,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
       onGuardado((await res.json()) as MetasImplementacionDoc);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudieron guardar las metas");
+      setError(err instanceof Error ? err.message : "No se pudo guardar el cumplimiento");
       setGuardando(false);
     }
   };
@@ -111,13 +111,13 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
   });
 
   return (
-    <Modal open onClose={onClose} width={780} label="Metas de Implementación">
+    <Modal open onClose={onClose} width={780} label="Cumplimiento de Implementación">
       <div className="flex shrink-0 items-start justify-between gap-4 border-b p-5" style={{ borderColor: "var(--border)" }}>
         <div>
-          <h2 className="text-lg font-bold text-[var(--text-primary)]">Metas</h2>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">Cumplimiento</h2>
           <p className="mt-1 text-[0.9rem] leading-relaxed text-[var(--text-muted)]">
-            <strong>Meta de Profit del mes = Vol × CM1.</strong> Es la misma para todos los meses; lo que cambia de un mes a
-            otro es el % de la meta que hay que alcanzar.
+            <strong>Cumplimiento de Profit del mes = Vol × CM1.</strong> Es el mismo para todos los meses; lo que cambia de un
+            mes a otro es el % del cumplimiento que hay que alcanzar.
           </p>
         </div>
         <button type="button" onClick={onClose} aria-label="Cerrar"
@@ -130,13 +130,13 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
         {!puedeEditar && (
           <div className="mb-4 rounded-lg border px-3 py-2 text-[0.88rem] text-[var(--text-muted)]"
             style={{ borderColor: "var(--border)", background: "var(--bg-hover)" }}>
-            Solo lectura: tu rol no puede editar las metas.
+            Solo lectura: tu rol no puede editar el cumplimiento.
           </div>
         )}
 
         <section>
-          <Titulo nota="Igual para todos los meses. Deja Vol y CM1 vacíos para no ponerle meta a un cliente.">
-            Meta por cliente
+          <Titulo nota="Igual para todos los meses. Deja Vol y CM1 vacíos para no ponerle cumplimiento a un cliente.">
+            Cumplimiento por cliente
           </Titulo>
           <table className="w-full border-collapse text-[0.92rem]">
             <thead>
@@ -205,7 +205,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
         </section>
 
         <section className="mt-7">
-          <Titulo nota="Qué parte de la meta hay que lograr en cada mes para darla por cumplida. Vacío = 100 %. Vale para todos los clientes.">
+          <Titulo nota="Qué parte del cumplimiento hay que lograr en cada mes. Vacío = 100 %. Vale para todos los clientes.">
             % a alcanzar por mes
           </Titulo>
           {filasMes.length === 0 ? (
@@ -248,7 +248,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
 
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-t p-4" style={{ borderColor: "var(--border)" }}>
         <span className="text-[0.85rem]" style={{ color: error || hayErrores ? "var(--bad)" : "var(--text-muted)" }}>
-          {error || (hayErrores ? "Corrige los campos marcados para poder guardar." : `${nMetas} de ${nombres.length} clientes con meta`)}
+          {error || (hayErrores ? "Corrige los campos marcados para poder guardar." : `${nMetas} de ${nombres.length} clientes con cumplimiento`)}
         </span>
         <div className="ml-auto flex gap-2">
           <button type="button" onClick={onClose}
@@ -260,7 +260,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
             <button type="button" onClick={guardar} disabled={guardando || hayErrores}
               className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
               style={{ background: "var(--accent)" }}>
-              {guardando ? "Guardando…" : "Guardar metas"}
+              {guardando ? "Guardando…" : "Guardar cumplimiento"}
             </button>
           )}
         </div>

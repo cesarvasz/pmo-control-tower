@@ -72,7 +72,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
         const doc = (await res.json()) as MetasImplementacionDoc;
         if (vivo) { setMetas(doc.metas); setObjetivos(doc.objetivos); }
       } catch (err) {
-        if (vivo) setErrorMetas(err instanceof Error ? err.message : "No se pudieron cargar las metas");
+        if (vivo) setErrorMetas(err instanceof Error ? err.message : "No se pudo cargar el cumplimiento");
       }
     })();
     return () => { vivo = false; };
@@ -117,15 +117,15 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
           onClick={() => setMetasAbierto(true)}
           className="ml-auto self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors hover:bg-[var(--bg-hover)]"
           style={{ borderColor: "var(--accent)", color: "var(--accent-light)" }}
-          title="Capturar la meta de cada cliente (Vol × CM1) y el % a alcanzar de cada mes"
+          title="Capturar el cumplimiento de cada cliente (Vol × CM1) y el % a alcanzar de cada mes"
         >
-          🎯 Metas{metasPorCliente.clientes.size > 0 ? ` (${metasPorCliente.clientes.size})` : ""}
+          🎯 Cumplimiento{metasPorCliente.clientes.size > 0 ? ` (${metasPorCliente.clientes.size})` : ""}
         </button>
       </div>
 
       {errorMetas && (
         <div className="-mt-2 mb-4 text-[0.85rem]" style={{ color: "var(--warn)" }}>
-          No se pudieron cargar las metas ({errorMetas}); no se mostrará el % de meta.
+          No se pudo cargar el cumplimiento ({errorMetas}); no se mostrará el % de cumplimiento.
         </div>
       )}
 

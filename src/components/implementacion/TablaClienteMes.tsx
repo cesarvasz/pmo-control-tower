@@ -30,12 +30,12 @@ const pctTxt = (n: number) => String(Math.round(n * 100) / 100);
 
 /** Texto del tooltip de un %: de dónde sale la meta y cuánto hace falta para cumplirla. */
 function detalle(a: Avance, meta?: MetaCliente): string {
-  const base = `Profit ${fmtImporte(a.profit)} de una meta de ${fmtImporte(a.meta)}`;
+  const base = `Profit ${fmtImporte(a.profit)} de un cumplimiento de ${fmtImporte(a.meta)}`;
   const origen = meta
     ? ` (Vol ${num(meta.vol)} × CM1 ${fmtImporte(meta.cm1)})`
-    : a.n > 1 ? ` (suma de ${a.n} metas; solo lo que tiene meta)` : "";
-  const objetivo = `A alcanzar: ${fmtPct(a.requerido / a.meta)} de la meta = ${fmtImporte(a.requerido)}`;
-  const cumplimiento = `Cumplimiento: ${fmtPct(a.cumplimiento)} de lo requerido → ${a.nivel}`;
+    : a.n > 1 ? ` (suma de ${a.n} cumplimientos; solo lo que tiene cumplimiento)` : "";
+  const objetivo = `A alcanzar: ${fmtPct(a.requerido / a.meta)} del cumplimiento = ${fmtImporte(a.requerido)}`;
+  const cumplimiento = `Llevas ${fmtPct(a.cumplimiento)} de lo requerido → ${a.nivel}`;
   return `${base}${origen}\n${objetivo}\n${cumplimiento}`;
 }
 
@@ -127,9 +127,9 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
           <tr>
             <th rowSpan={2} style={{ ...fijaIzq, zIndex: 4, height: H1 * 2, minWidth: 180 }}>Cliente</th>
             {hayMetas && (
-              <th colSpan={3} title="La misma meta para todos los meses: Vol × CM1 por file = Total"
+              <th colSpan={3} title="El mismo cumplimiento para todos los meses: Vol × CM1 por file = Total"
                 style={{ textAlign: "center", height: H1, background: META_FONDO_ENCABEZADO, color: META_TEXTO, borderLeft: META_BORDE, borderRight: META_BORDE }}>
-                Meta mensual
+                Cumplimiento mensual
               </th>
             )}
             {meses.map((k) => (
@@ -147,7 +147,7 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
               <>
                 <th style={th2Meta({ borderLeft: META_BORDE })} title="Cantidad de files que se espera por mes">Vol</th>
                 <th style={th2Meta()} title="Profit que debe dejar cada file (dólares)">CM1 por file</th>
-                <th style={th2Meta({ borderRight: META_BORDE })} title="Meta de Profit del mes: Vol × CM1 por file">Total</th>
+                <th style={th2Meta({ borderRight: META_BORDE })} title="Cumplimiento de Profit del mes: Vol × CM1 por file">Total</th>
               </>
             )}
             {meses.map((k) => [
@@ -155,10 +155,10 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
               <th key={`${k}-p`} style={th2} title="Suma de Profit">Profit</th>,
               hayMetas && (
                 <th key={`${k}-m`} style={{ ...th2, whiteSpace: "nowrap" }}
-                  title={k === SIN_FECHA ? "Sin fecha no se compara con ninguna meta"
-                    : `Profit ÷ Total de la meta. En ${etiquetaMes(k)} hay que alcanzar el ${pctTxt(objetivoDe(metas, k))}% de la meta. `
-                      + `Color según el cumplimiento de eso: rojo menos de ${UMBRAL_AMARILLO}%, amarillo ${UMBRAL_AMARILLO}% a ${UMBRAL_VERDE - 1}%, verde ${UMBRAL_VERDE}% o más`}>
-                  % Meta
+                  title={k === SIN_FECHA ? "Sin fecha no se compara con ningún cumplimiento"
+                    : `Profit ÷ Total del cumplimiento. En ${etiquetaMes(k)} hay que alcanzar el ${pctTxt(objetivoDe(metas, k))}% de ese total. `
+                      + `Color según cuánto de eso se logró: rojo menos de ${UMBRAL_AMARILLO}%, amarillo ${UMBRAL_AMARILLO}% a ${UMBRAL_VERDE - 1}%, verde ${UMBRAL_VERDE}% o más`}>
+                  % Cumplimiento
                   {k !== SIN_FECHA && (
                     <span className="ml-1 text-[0.72rem] font-normal text-[var(--text-muted)]">≥ {pctTxt(objetivoDe(metas, k))}%</span>
                   )}
