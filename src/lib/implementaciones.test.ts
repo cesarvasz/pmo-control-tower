@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   SIN_CLIENTE, SIN_FECHA, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalCliente,
-  avanceTotalGeneral, avanceTotalMes, claveMes, etiquetaMes, evaluarFile, evaluarFilaMeta, filtrarPorMeses,
-  fmtFechaCorta, fmtImporte, fmtPct, indexarMetas, metaProfitMensual, normalizarMetas,
+  avanceTotalGeneral, avanceTotalMes, claveMes, claveMeta, etiquetaMes, evaluarFile, evaluarFilaMeta, expandirMetas,
+  filtrarPorMeses, fmtFechaCorta, fmtImporte, fmtPct, indexarMetas, mesesConMeta, metaProfitMensual, normalizarMetas,
   pasaFiltroSemaforo, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente } from "@/types";
@@ -230,89 +230,218 @@ describe("formato", () => {
   });
 });
 
-describe("metas", () => {
-  const metaA: MetaCliente = { cliente: "A", vol: 10, cm1: 20 }; // 200 de Profit por mes
-  const metaB: MetaCliente = { cliente: "B", vol: 5, cm1: 4 };   // 20 de Profit por mes
+/** Meta de un cliente en un mes (por defecto, hay que alcanzar el 100 %). */
+const mk = (cliente: string, mes: string, vol: number, cm1: number, objetivo = 100): MetaCliente => ({
+  cliente, mes, vol, cm1, objetivo,
+});
+
+describe("metas por cliente y mes", () => {
   const matriz = agruparPorClienteYMes(DATOS);
   const a = matriz.clientes.find((c) => c.cliente === "A")!;
 
-  it("la meta de Profit por mes es Vol × CM1", () => {
-    expect(metaProfitMensual(metaA)).toBe(200);
+  it("la meta de Profit del mes es Vol × CM1", () => {
+    expect(metaProfitMensual(mk("A", "2026-03", 10, 20))).toBe(200);
     expect(metaProfitMensual({ vol: 0, cm1: 50 })).toBe(0);
   });
 
-  it("solo cuentan las metas con algo contra qué dividir", () => {
-    const idx = indexarMetas([metaA, { cliente: "Z", vol: 0, cm1: 10 }, { cliente: "Y", vol: 10, cm1: 0 }]);
-    expect([...idx.keys()]).toEqual(["A"]);
+  it("solo cuentan las metas con algo contra qué dividir, y cada una es de un cliente en un mes", () => {
+    const idx = indexarMetas([
+      mk("A", "2026-03", 10, 20), mk("A", "2026-04", 5, 10),
+      mk("Z", "2026-03", 0, 10), mk("Y", "2026-03", 10, 0),
+    ]);
+    expect([...idx.keys()].sort()).toEqual(["2026-03|A", "2026-04|A"]);
+    expect(idx.get(claveMeta("A", "2026-04"))?.vol).toBe(5);
+  });
+
+  it("cuenta los meses distintos que tienen meta", () => {
+    expect(mesesConMeta(indexarMetas([]))).toBe(0);
+    expect(mesesConMeta(indexarMetas([mk("A", "2026-03", 1, 1), mk("B", "2026-03", 1, 1), mk("A", "2026-04", 1, 1)]))).toBe(2);
+  });
+
+  describe("expandirMetas (lo guardado en el formato anterior)", () => {
+    const legacy = { cliente: "A", vol: 10, cm1: 20 }; // una meta por cliente, sin mes
+
+    it("una meta sin mes vale para cada mes de la hoja, con el 100 % a alcanzar", () => {
+      expect(expandirMetas([legacy], ["2026-03", "2026-04"])).toEqual([
+        mk("A", "2026-03", 10, 20), mk("A", "2026-04", 10, 20),
+      ]);
+    });
+
+    it("si un mes ya tiene su propia meta, manda esa sobre la del formato anterior", () => {
+      expect(expandirMetas([legacy, mk("A", "2026-04", 99, 1, 80)], ["2026-03", "2026-04"])).toEqual([
+        mk("A", "2026-03", 10, 20), mk("A", "2026-04", 99, 1, 80),
+      ]);
+    });
+
+    it("las metas con mes se conservan aunque el mes ya no esté en la hoja", () => {
+      expect(expandirMetas([mk("A", "2025-01", 1, 2, 90)], ["2026-03"])).toEqual([mk("A", "2025-01", 1, 2, 90)]);
+    });
+
+    it("un objetivo ausente o ilegible se toma como 100 %", () => {
+      const sin = { cliente: "A", mes: "2026-03", vol: 1, cm1: 1 } as unknown as MetaCliente;
+      expect(expandirMetas([sin], [])[0].objetivo).toBe(100);
+      expect(expandirMetas([mk("A", "2026-03", 1, 1, 0)], [])[0].objetivo).toBe(100);
+    });
+
+    it("sin meses en la hoja, el formato anterior no genera nada", () => {
+      expect(expandirMetas([legacy], [])).toEqual([]);
+    });
   });
 
   describe("avances", () => {
-    it("% de un cliente en un mes: Profit ÷ meta del mes", () => {
-      const r = avanceMesCliente(a, "2026-03", metaA)!;
-      expect(r.meta).toBe(200);
-      expect(r.profit).toBe(150.5);
+    // A tiene meta en marzo (200) y en mayo (300), pero no en abril.
+    const idx = indexarMetas([mk("A", "2026-03", 10, 20), mk("A", "2026-05", 10, 30)]);
+
+    it("% de un cliente en un mes: Profit ÷ la meta de ESE mes", () => {
+      const r = avanceMesCliente(a, "2026-03", idx)!;
+      expect(r).toMatchObject({ meta: 200, profit: 150.5, requerido: 200, cumple: false, n: 1 });
       expect(r.pct).toBeCloseTo(0.7525);
+      expect(avanceMesCliente(a, "2026-05", idx)!.meta).toBe(300);
     });
 
-    it("un mes sin files del cliente cuenta como 0 % de la meta, no como «sin dato»", () => {
-      const r = avanceMesCliente(a, "2026-04", metaA)!;
+    it("un mes sin meta para ese cliente no tiene %, aunque haya meta en otros meses", () => {
+      expect(avanceMesCliente(a, "2026-04", idx)).toBeNull();
+    });
+
+    it("un mes con meta pero sin files del cliente cuenta como 0 % de la meta, no como «sin dato»", () => {
+      const r = avanceMesCliente(a, "2026-04", indexarMetas([mk("A", "2026-04", 10, 20)]))!;
       expect(r.profit).toBe(0);
       expect(r.pct).toBe(0);
+      expect(r.cumple).toBe(false);
     });
 
     it("un Profit negativo da un % negativo", () => {
-      expect(avanceMesCliente(a, "2026-05", metaA)!.pct).toBeCloseTo(-0.1);
+      expect(avanceMesCliente(a, "2026-05", idx)!.pct).toBeCloseTo(-20 / 300);
     });
 
     it("sin meta, o en «Sin fecha», no hay %", () => {
-      expect(avanceMesCliente(a, "2026-03", undefined)).toBeNull();
-      expect(avanceMesCliente(a, SIN_FECHA, metaA)).toBeNull();
+      expect(avanceMesCliente(a, "2026-03", new Map())).toBeNull();
+      expect(avanceMesCliente(a, SIN_FECHA, idx)).toBeNull();
     });
 
-    it("total del cliente: meta mensual × cantidad de meses mostrados, contra el Profit de esos meses", () => {
-      const r = avanceTotalCliente(a, matriz.meses, metaA)!; // mar, abr, may (sin-fecha no cuenta)
-      expect(r.meta).toBe(600);
-      expect(r.profit).toBeCloseTo(130.5);
-      expect(r.pct).toBeCloseTo(0.2175);
+    describe("el % a alcanzar (no siempre 100 %)", () => {
+      const conObjetivo = (obj: number) => indexarMetas([mk("A", "2026-03", 10, 20, obj)]);
+
+      it("con 100 % hay que llegar a toda la meta", () => {
+        const r = avanceMesCliente(a, "2026-03", conObjetivo(100))!;
+        expect(r.requerido).toBe(200);
+        expect(r.cumple).toBe(false); // 150.5 < 200
+      });
+
+      it("con un % menor basta con esa parte de la meta, aunque el % mostrado siga siendo el real", () => {
+        const r = avanceMesCliente(a, "2026-03", conObjetivo(70))!; // 70 % de 200 = 140
+        expect(r.requerido).toBe(140);
+        expect(r.cumple).toBe(true); // 150.5 ≥ 140
+        expect(r.pct).toBeCloseTo(0.7525);
+      });
+
+      it("igualar el requerido cumple; un centavo menos, no", () => {
+        expect(avanceMesCliente(a, "2026-03", conObjetivo(75.25))!.cumple).toBe(true); // requerido 150.50
+        expect(avanceMesCliente(a, "2026-03", conObjetivo(75.26))!.cumple).toBe(false); // requerido 150.52
+      });
+
+      it("un % mayor a 100 pide más que la meta", () => {
+        const r = avanceMesCliente(a, "2026-03", conObjetivo(120))!;
+        expect(r.requerido).toBe(240);
+        expect(r.cumple).toBe(false);
+      });
+
+      it("compara en centavos: la basura decimal de una suma no tumba un cumplimiento exacto", () => {
+        const filas = agruparPorClienteYMes([fila("A", "2026-03-05T00:00:00", 0.1 + 12.2)]).clientes[0];
+        expect(0.1 + 12.2 === 12.3).toBe(false); // el problema que se evita
+        expect(avanceMesCliente(filas, "2026-03", indexarMetas([mk("A", "2026-03", 1, 12.3)]))!.cumple).toBe(true);
+      });
+    });
+
+    it("total del cliente: suma las metas de los meses mostrados que tienen meta, contra el Profit de esos meses", () => {
+      const r = avanceTotalCliente(a, matriz.meses, idx)!; // marzo y mayo; abril no tiene meta
+      expect(r).toMatchObject({ meta: 500, requerido: 500, n: 2 });
+      expect(r.profit).toBeCloseTo(130.5); // 150.5 − 20
+      expect(r.pct).toBeCloseTo(0.261);
+    });
+
+    it("el Profit de un mes sin meta no se mezcla en el total del cliente", () => {
+      const m = agruparPorClienteYMes([fila("A", "2026-03-05T00:00:00", 100), fila("A", "2026-04-05T00:00:00", 1000)]);
+      const r = avanceTotalCliente(m.clientes[0], m.meses, indexarMetas([mk("A", "2026-03", 1, 100)]))!;
+      expect(r).toMatchObject({ meta: 100, profit: 100, cumple: true });
+      expect(r.pct).toBe(1);
+    });
+
+    it("total del cliente con un % distinto por mes: se suma lo requerido de cada mes", () => {
+      // marzo: meta 200 al 50 % → 100; mayo: meta 300 al 10 % → 30. Requerido total 130, Profit 130.50.
+      const flojo = indexarMetas([mk("A", "2026-03", 10, 20, 50), mk("A", "2026-05", 10, 30, 10)]);
+      const r = avanceTotalCliente(a, matriz.meses, flojo)!;
+      expect(r.requerido).toBe(130);
+      expect(r.cumple).toBe(true);
+      // Con el 100 % en mayo el requerido sube a 400 y ya no llega.
+      const exigente = avanceTotalCliente(a, matriz.meses, indexarMetas([mk("A", "2026-03", 10, 20, 50), mk("A", "2026-05", 10, 30)]))!;
+      expect(exigente.requerido).toBe(400);
+      expect(exigente.cumple).toBe(false);
     });
 
     it("el total del cliente respeta el filtro de meses", () => {
       const soloMar = agruparPorClienteYMes(filtrarPorMeses(DATOS, ["2026-03"]));
-      const fila = soloMar.clientes.find((c) => c.cliente === "A")!;
-      expect(avanceTotalCliente(fila, soloMar.meses, metaA)!.meta).toBe(200);
+      const fila3 = soloMar.clientes.find((c) => c.cliente === "A")!;
+      expect(avanceTotalCliente(fila3, soloMar.meses, idx)).toMatchObject({ meta: 200, n: 1 });
     });
 
     it("si solo hay «Sin fecha» no hay % total", () => {
-      expect(avanceTotalCliente(a, [SIN_FECHA], metaA)).toBeNull();
+      expect(avanceTotalCliente(a, [SIN_FECHA], idx)).toBeNull();
     });
 
-    it("total del mes: solo los clientes con meta, y su Profit contra su meta", () => {
-      const ambos = avanceTotalMes(matriz, "2026-03", indexarMetas([metaA, metaB]))!;
-      expect(ambos.meta).toBe(220);
+    it("total del mes: solo los clientes con meta ese mes, y su Profit contra su meta", () => {
+      const ambos = avanceTotalMes(matriz, "2026-03", indexarMetas([mk("A", "2026-03", 10, 20), mk("B", "2026-03", 5, 4)]))!;
+      expect(ambos).toMatchObject({ meta: 220, n: 2 });
       expect(ambos.profit).toBeCloseTo(160.5);
 
       // Con meta solo para A, el Profit de B (10) no se mezcla en el numerador.
-      const soloA = avanceTotalMes(matriz, "2026-03", indexarMetas([metaA]))!;
+      const soloA = avanceTotalMes(matriz, "2026-03", indexarMetas([mk("A", "2026-03", 10, 20)]))!;
       expect(soloA.meta).toBe(200);
       expect(soloA.profit).toBeCloseTo(150.5);
     });
 
-    it("total general: todas las metas × meses mostrados contra su Profit", () => {
-      const r = avanceTotalGeneral(matriz, indexarMetas([metaA, metaB]))!;
-      expect(r.meta).toBe(660); // (200 + 20) × 3 meses
-      expect(r.profit).toBeCloseTo(140.5); // A 130.5 + B 10 (sin contar «Sin fecha»)
+    it("total del mes: cada cliente aporta su propio % a alcanzar", () => {
+      const r = avanceTotalMes(matriz, "2026-03", indexarMetas([mk("A", "2026-03", 10, 20, 50), mk("B", "2026-03", 5, 4, 100)]))!;
+      expect(r.requerido).toBe(120); // 100 (A al 50 %) + 20 (B al 100 %)
+      expect(r.cumple).toBe(true); // 160.50 ≥ 120
+    });
+
+    it("total general: todas las metas de los meses mostrados contra su Profit", () => {
+      const todas = indexarMetas([
+        mk("A", "2026-03", 10, 20), mk("A", "2026-05", 10, 30), mk("B", "2026-03", 5, 4), mk("B", "2026-04", 5, 4),
+      ]);
+      const r = avanceTotalGeneral(matriz, todas)!;
+      expect(r).toMatchObject({ meta: 540, n: 4 }); // 200 + 300 + 20 + 20
+      expect(r.profit).toBeCloseTo(140.5); // A 150.5 − 20, B 10 + 0 (sin contar «Sin fecha»)
     });
 
     it("sin ninguna meta aplicable, no hay % en ningún total", () => {
       expect(avanceTotalMes(matriz, "2026-03", new Map())).toBeNull();
       expect(avanceTotalGeneral(matriz, new Map())).toBeNull();
+      expect(avanceTotalMes(matriz, "2026-04", idx)).toBeNull(); // hay metas, pero no en abril
     });
   });
 
   describe("normalizarMetas (lo que se guarda)", () => {
-    it("acepta una lista válida, ordena por cliente y redondea el CM1 a centavos", () => {
-      const r = normalizarMetas([{ cliente: " B ", vol: 5, cm1: 4.567 }, { cliente: "A", vol: 10, cm1: 20 }]);
-      expect(r).toEqual({ ok: true, metas: [{ cliente: "A", vol: 10, cm1: 20 }, { cliente: "B", vol: 5, cm1: 4.57 }] });
+    it("acepta una lista válida, ordena por cliente y mes, y redondea CM1 y % a centavos", () => {
+      const r = normalizarMetas([
+        { cliente: " B ", mes: "2026-03", vol: 5, cm1: 4.567, objetivo: 90.123 },
+        { cliente: "A", mes: "2026-04", vol: 10, cm1: 20, objetivo: 100 },
+        { cliente: "A", mes: "2026-03", vol: 8, cm1: 25, objetivo: 95 },
+      ]);
+      expect(r).toEqual({
+        ok: true,
+        metas: [mk("A", "2026-03", 8, 25, 95), mk("A", "2026-04", 10, 20), mk("B", "2026-03", 5, 4.57, 90.12)],
+      });
+    });
+
+    it("el mismo cliente puede tener una meta en cada mes", () => {
+      expect(normalizarMetas([mk("A", "2026-03", 1, 1), mk("A", "2026-04", 2, 2)]).ok).toBe(true);
+    });
+
+    it("sin % a alcanzar se toma 100", () => {
+      const r = normalizarMetas([{ cliente: "A", mes: "2026-03", vol: 1, cm1: 1 }]);
+      expect(r).toEqual({ ok: true, metas: [mk("A", "2026-03", 1, 1, 100)] });
     });
 
     it("una lista vacía es válida (quita todas las metas)", () => {
@@ -324,41 +453,77 @@ describe("metas", () => {
       expect(normalizarMetas({ cliente: "A" }).ok).toBe(false);
     });
 
-    it("rechaza cliente vacío, repetido o demasiado largo", () => {
-      expect(normalizarMetas([{ cliente: "  ", vol: 1, cm1: 1 }]).ok).toBe(false);
-      expect(normalizarMetas([{ cliente: "A", vol: 1, cm1: 1 }, { cliente: "A", vol: 2, cm1: 2 }]).ok).toBe(false);
-      expect(normalizarMetas([{ cliente: "x".repeat(201), vol: 1, cm1: 1 }]).ok).toBe(false);
+    it("rechaza cliente vacío o demasiado largo, y dos metas del mismo cliente en el mismo mes", () => {
+      expect(normalizarMetas([mk("  ", "2026-03", 1, 1)]).ok).toBe(false);
+      expect(normalizarMetas([mk("x".repeat(201), "2026-03", 1, 1)]).ok).toBe(false);
+      const repetida = normalizarMetas([mk("A", "2026-03", 1, 1), mk("A", "2026-03", 2, 2)]);
+      expect(repetida).toEqual({ ok: false, error: "Meta repetida: A en Mar 2026" });
+    });
+
+    it("rechaza un mes que no sea «yyyy-MM» (incluido «Sin fecha»)", () => {
+      expect(normalizarMetas([{ cliente: "A", vol: 1, cm1: 1 }]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", SIN_FECHA, 1, 1)]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-13", 1, 1)]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-3", 1, 1)]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", mes: 202603, vol: 1, cm1: 1 }]).ok).toBe(false);
     });
 
     it("rechaza Vol o CM1 negativos, no numéricos o infinitos", () => {
-      expect(normalizarMetas([{ cliente: "A", vol: -1, cm1: 1 }]).ok).toBe(false);
-      expect(normalizarMetas([{ cliente: "A", vol: 1, cm1: -1 }]).ok).toBe(false);
-      expect(normalizarMetas([{ cliente: "A", vol: "10", cm1: 1 }]).ok).toBe(false);
-      expect(normalizarMetas([{ cliente: "A", vol: 1, cm1: Infinity }]).ok).toBe(false);
-      expect(normalizarMetas([{ cliente: "A", vol: 1 }]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-03", -1, 1)]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-03", 1, -1)]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", mes: "2026-03", vol: "10", cm1: 1 }]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-03", 1, Infinity)]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", mes: "2026-03", vol: 1 }]).ok).toBe(false);
       expect(normalizarMetas([null]).ok).toBe(false);
     });
 
+    it("rechaza un % a alcanzar de 0 o menos, enorme o que no sea número", () => {
+      expect(normalizarMetas([mk("A", "2026-03", 1, 1, 0)]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-03", 1, 1, -5)]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-03", 1, 1, 1001)]).ok).toBe(false);
+      expect(normalizarMetas([{ cliente: "A", mes: "2026-03", vol: 1, cm1: 1, objetivo: "90" }]).ok).toBe(false);
+      expect(normalizarMetas([mk("A", "2026-03", 1, 1, 150)]).ok).toBe(true); // pasarse de 100 sí vale
+    });
+
     it("pone un tope al tamaño de la lista", () => {
-      const muchas = Array.from({ length: 501 }, (_, i) => ({ cliente: `C${i}`, vol: 1, cm1: 1 }));
+      const muchas = Array.from({ length: 2001 }, (_, i) => mk(`C${i}`, "2026-03", 1, 1));
       expect(normalizarMetas(muchas).ok).toBe(false);
+      expect(normalizarMetas(muchas.slice(0, 2000)).ok).toBe(true);
     });
   });
 
   describe("evaluarFilaMeta (los campos del popup)", () => {
-    it("los dos vacíos = sin meta, sin errores", () => {
-      expect(evaluarFilaMeta("", "  ")).toMatchObject({ vacia: true, completa: false, errorVol: "", errorCm1: "" });
+    it("los tres vacíos = sin meta, sin errores", () => {
+      expect(evaluarFilaMeta("", "  ", "")).toMatchObject({ vacia: true, completa: false, errorVol: "", errorCm1: "", errorObjetivo: "" });
+      expect(evaluarFilaMeta("", "")).toMatchObject({ vacia: true, completa: false }); // % opcional
     });
 
-    it("los dos válidos = meta completa; acepta «$» y comas en el CM1", () => {
-      const r = evaluarFilaMeta("120", "$1,250.50");
-      expect(r).toMatchObject({ vol: 120, cm1: 1250.5, completa: true, vacia: false, errorVol: "", errorCm1: "" });
+    it("Vol y CM1 válidos = meta completa; acepta «$» y comas en el CM1; el % vacío es 100", () => {
+      const r = evaluarFilaMeta("120", "$1,250.50", "");
+      expect(r).toMatchObject({ vol: 120, cm1: 1250.5, objetivo: 100, completa: true, vacia: false, errorVol: "", errorCm1: "" });
+    });
+
+    it("lee el % a alcanzar, con o sin el signo %", () => {
+      expect(evaluarFilaMeta("10", "5", "90")).toMatchObject({ objetivo: 90, completa: true });
+      expect(evaluarFilaMeta("10", "5", "92.5 %")).toMatchObject({ objetivo: 92.5, completa: true });
+      expect(evaluarFilaMeta("10", "5", "120")).toMatchObject({ objetivo: 120, completa: true });
+    });
+
+    it("un % de 0 o menos, ilegible o desmedido es un error y la meta no está lista", () => {
+      expect(evaluarFilaMeta("10", "5", "0")).toMatchObject({ errorObjetivo: "Debe ser mayor que 0", completa: false });
+      expect(evaluarFilaMeta("10", "5", "abc")).toMatchObject({ errorObjetivo: "Número inválido", completa: false });
+      expect(evaluarFilaMeta("10", "5", "1500")).toMatchObject({ errorObjetivo: "Máximo 1000%", completa: false });
     });
 
     it("con uno solo lleno, al otro le falta el dato", () => {
       expect(evaluarFilaMeta("10", "").errorCm1).toBe("Falta CM1");
       expect(evaluarFilaMeta("", "5").errorVol).toBe("Falta Vol");
       expect(evaluarFilaMeta("10", "").completa).toBe(false);
+    });
+
+    it("escribir solo el % pide también Vol y CM1 (no se descarta en silencio)", () => {
+      const r = evaluarFilaMeta("", "", "90");
+      expect(r).toMatchObject({ vacia: false, completa: false, errorVol: "Falta Vol", errorCm1: "Falta CM1" });
     });
 
     it("texto que no es número o negativo es un error", () => {
@@ -373,9 +538,11 @@ describe("metas", () => {
   });
 });
 
-describe("semáforo por file (Profit vs CM1 del cliente)", () => {
-  const metas = indexarMetas([{ cliente: "A", vol: 10, cm1: 50 }, { cliente: "B", vol: 0, cm1: 30 }]);
-  const file = (cliente: string, profit: number | null) => fila(cliente, "2026-03-02T00:00:00", profit);
+describe("semáforo por file (Profit vs CM1 del cliente en el mes de cierre)", () => {
+  const metas = indexarMetas([
+    mk("A", "2026-03", 10, 50), mk("A", "2026-04", 10, 80), mk("B", "2026-03", 0, 30),
+  ]);
+  const file = (cliente: string, profit: number | null, fecha = "2026-03-02T00:00:00") => fila(cliente, fecha, profit);
 
   it("cumple si el Profit alcanza el CM1, y también si lo iguala", () => {
     expect(evaluarFile(file("A", 80), metas)).toEqual({ estado: "cumple", cm1: 50 });
@@ -388,8 +555,27 @@ describe("semáforo por file (Profit vs CM1 del cliente)", () => {
     expect(evaluarFile(file("A", -5), metas).estado).toBe("no-cumple");
   });
 
+  it("usa el CM1 del mes en que cerró el file, no el de otro mes", () => {
+    const abril = "2026-04-10T00:00:00";
+    expect(evaluarFile(file("A", 60, abril), metas)).toEqual({ estado: "no-cumple", cm1: 80 }); // en marzo bastaba con 50
+    expect(evaluarFile(file("A", 80, abril), metas)).toEqual({ estado: "cumple", cm1: 80 });
+  });
+
+  it("un mes sin meta para su cliente no se puede juzgar", () => {
+    expect(evaluarFile(file("A", 500, "2026-05-01T00:00:00"), metas)).toEqual({ estado: "sin-meta", cm1: null });
+  });
+
+  it("sin fecha de cierre no hay mes cuya meta aplicar", () => {
+    expect(evaluarFile(file("A", 500, ""), metas)).toEqual({ estado: "sin-meta", cm1: null });
+  });
+
+  it("el % a alcanzar de la meta mensual no relaja el CM1 de cada file", () => {
+    const flojo = indexarMetas([mk("A", "2026-03", 10, 50, 50)]); // al 50 % del total del mes
+    expect(evaluarFile(file("A", 40), flojo)).toEqual({ estado: "no-cumple", cm1: 50 });
+  });
+
   it("compara en centavos: la basura decimal de una resta no tumba un file que cumple", () => {
-    const m = indexarMetas([{ cliente: "A", vol: 1, cm1: 12.3 }]);
+    const m = indexarMetas([mk("A", "2026-03", 1, 12.3)]);
     expect(0.1 + 12.2 === 12.3).toBe(false); // el problema que se evita
     expect(evaluarFile(file("A", 0.1 + 12.2), m).estado).toBe("cumple");
     expect(evaluarFile(file("A", 12.299999999999997), m).estado).toBe("cumple");
@@ -408,7 +594,7 @@ describe("semáforo por file (Profit vs CM1 del cliente)", () => {
   });
 
   it("el cliente vacío se busca como «(Sin cliente)», igual que en la tabla por cliente", () => {
-    const m = indexarMetas([{ cliente: SIN_CLIENTE, vol: 1, cm1: 10 }]);
+    const m = indexarMetas([mk(SIN_CLIENTE, "2026-03", 1, 10)]);
     expect(evaluarFile(file("  ", 20), m).estado).toBe("cumple");
   });
 

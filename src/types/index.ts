@@ -157,21 +157,30 @@ export interface ImplementacionPayload {
   filas: (string | number | null)[][];
 }
 
-/** Meta mensual de un cliente en Implementación (la captura el usuario a mano).
- *  Meta de Profit por mes = vol × cm1. */
+/** Meta de un cliente en UN mes de Implementación (la captura el usuario a mano).
+ *  Meta de Profit del mes = vol × cm1. */
 export interface MetaCliente {
   /** Nombre del cliente tal como aparece en la hoja (columna Cliente). */
   cliente: string;
-  /** Volumen mensual esperado (cantidad de files). */
+  /** Mes de cierre al que aplica, "yyyy-MM". */
+  mes: string;
+  /** Volumen del mes esperado (cantidad de files). */
   vol: number;
   /** CM1 en dólares: Profit esperado por file. */
   cm1: number;
+  /** % de la meta de Profit que hay que alcanzar para darla por cumplida, en
+   *  porcentaje (100 = toda la meta, 90 = basta con el 90 %). */
+  objetivo: number;
 }
+
+/** Formato anterior: una sola meta por cliente, válida para todos los meses. Puede
+ *  seguir guardada en Firestore hasta que alguien vuelva a guardar las metas. */
+export type MetaClienteLegacy = Pick<MetaCliente, "cliente" | "vol" | "cm1">;
 
 /** Documento de Firestore `implementacion_metas/actual`: todas las metas juntas
  *  (una sola lectura para cargar la pestaña). */
 export interface MetasImplementacionDoc {
-  metas: MetaCliente[];
+  metas: (MetaCliente | MetaClienteLegacy)[];
   /** Correo de quien guardó por última vez, y cuándo (ISO). Vacío si nunca se guardó. */
   by: string;
   at: string;

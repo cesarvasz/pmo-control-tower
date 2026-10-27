@@ -145,9 +145,11 @@ export async function deleteMetodologiaCalif(phaseKey: string): Promise<void> {
 }
 
 // ── Metas de Implementación (pestaña Implementación de ROI) ──────────────
-// Un solo documento `implementacion_metas/actual` con todas las metas por
-// cliente (Vol y CM1): cargar la pestaña cuesta UNA lectura y guardar reemplaza
-// el documento completo. Las valida lib/implementaciones.ts::normalizarMetas.
+// Un solo documento `implementacion_metas/actual` con todas las metas por cliente
+// y mes (Vol, CM1 y % a alcanzar): cargar la pestaña cuesta UNA lectura y guardar
+// reemplaza el documento completo. Las valida lib/implementaciones.ts::normalizarMetas.
+// Un documento del formato anterior (una meta por cliente, sin mes) se devuelve tal
+// cual; el cliente lo reparte a cada mes con expandirMetas hasta que se vuelva a guardar.
 export async function getMetasImplementacion(): Promise<MetasImplementacionDoc> {
   const snap = await getAdminDb().collection("implementacion_metas").doc("actual").get();
   if (!snap.exists) return { metas: [], by: "", at: "" };

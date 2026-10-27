@@ -2,15 +2,16 @@
 
 // Implementación agrupada por Cliente: una fila por cliente y, por cada mes de
 // cierre, Volumen (cantidad de files) y Profit (suma). Cuando hay metas
-// capturadas se agrega "% Meta" por mes: Profit real ÷ (Vol × CM1) del cliente.
-// Cierra con el total por cliente (columna) y el total por mes (fila). Las
-// columnas son los meses presentes en las filas que recibe, así que al filtrar
-// por mes solo quedan esos. La primera columna y los encabezados se quedan fijos
-// al hacer scroll.
+// capturadas se agrega "% Meta" por mes: Profit real ÷ (Vol × CM1) de ESE cliente
+// en ESE mes, en verde cuando llega al % a alcanzar que se le puso a la meta.
+// Cierra con el total por cliente (columna) y el total por mes (fila): ahí se suman
+// solo los meses (y clientes) que tienen meta. Las columnas son los meses presentes
+// en las filas que recibe, así que al filtrar por mes solo quedan esos. La primera
+// columna y los encabezados se quedan fijos al hacer scroll.
 
 import {
   SIN_FECHA, avanceMesCliente, avanceTotalCliente, avanceTotalGeneral, avanceTotalMes,
-  etiquetaMes, fmtImporte, fmtPct, type Avance, type Celda, type MatrizClienteMes,
+  claveMeta, etiquetaMes, fmtImporte, fmtPct, type Avance, type Celda, type IndiceMetas, type MatrizClienteMes,
 } from "@/lib/implementaciones";
 import type { MetaCliente } from "@/types";
 
@@ -20,20 +21,23 @@ const SEPARADOR = "1px solid var(--border)";
 
 const num = (n: number) => n.toLocaleString("es-GT");
 
-/** Texto del tooltip de un %: de dónde sale. */
-function detalle(a: Avance, meta?: MetaCliente, meses?: number): string {
+/** Texto del tooltip de un %: de dónde sale la meta y cuánto hace falta para cumplirla. */
+function detalle(a: Avance, meta?: MetaCliente): string {
   const base = `Profit ${fmtImporte(a.profit)} de una meta de ${fmtImporte(a.meta)}`;
-  if (!meta) return `${base} (solo clientes con meta)`;
-  const mensual = `Vol ${num(meta.vol)} × CM1 ${fmtImporte(meta.cm1)} por mes`;
-  return meses && meses > 1 ? `${base} (${mensual}, ${meses} meses)` : `${base} (${mensual})`;
+  const origen = meta
+    ? ` (Vol ${num(meta.vol)} × CM1 ${fmtImporte(meta.cm1)})`
+    : a.n > 1 ? ` (suma de ${a.n} metas; solo lo que tiene meta)` : "";
+  const objetivo = `A alcanzar: ${fmtPct(a.requerido / a.meta)} de la meta = ${fmtImporte(a.requerido)} → ${a.cumple ? "cumple" : "no llega"}`;
+  return `${base}${origen}\n${objetivo}`;
 }
 
-/** Celda del % de la meta. Sin meta: «—» en gris. ≥ 100 %: verde. */
+/** Celda del % de la meta. Sin meta: «—» en gris. Verde cuando el Profit llega al
+ *  % a alcanzar de la meta (no siempre es el 100 %). */
 function CeldaPct({ a, titulo, estilo }: { a: Avance | null; titulo?: string; estilo?: React.CSSProperties }) {
   if (!a) return <td className="tabular-nums text-right text-[var(--text-disabled)]" style={estilo}>—</td>;
   return (
     <td className="tabular-nums text-right font-semibold" title={titulo}
-      style={{ ...estilo, color: a.pct >= 1 ? "var(--ok)" : undefined }}>
+      style={{ ...estilo, color: a.cumple ? "var(--ok)" : undefined }}>
       {fmtPct(a.pct)}
     </td>
   );
@@ -63,7 +67,7 @@ function Celdas({ c, pct, fuerte }: { c: Celda | undefined; pct?: React.ReactNod
   );
 }
 
-export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClienteMes; metas: Map<string, MetaCliente> }) {
+export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClienteMes; metas: IndiceMetas }) {
   const { meses, clientes, totalesPorMes, total } = matriz;
 
   if (clientes.length === 0) {
@@ -75,9 +79,9 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
     );
   }
 
-  const hayMetas = clientes.some((c) => metas.has(c.cliente));
+  // Hay metas que mostrar si algún cliente de la tabla tiene meta en algún mes de la tabla.
+  const hayMetas = clientes.some((c) => meses.some((k) => metas.has(claveMeta(c.cliente, k))));
   const colsPorGrupo = hayMetas ? 3 : 2;
-  const mesesReales = meses.filter((k) => k !== SIN_FECHA).length;
 
   const fijaIzq: React.CSSProperties = { position: "sticky", left: 0, zIndex: 2 };
   const th2: React.CSSProperties = { top: H1, height: H1, textAlign: "right" };
@@ -104,7 +108,7 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
               <th key={`${k}-v`} style={{ ...th2, borderLeft: SEPARADOR }} title="Cantidad de files">Vol.</th>,
               <th key={`${k}-p`} style={th2} title="Suma de Profit">Profit</th>,
               hayMetas && (
-                <th key={`${k}-m`} style={th2} title="Profit ÷ meta de Profit (Vol × CM1)">% Meta</th>
+                <th key={`${k}-m`} style={th2} title="Profit ÷ meta de Profit del mes (Vol × CM1). Verde = llegó al % a alcanzar">% Meta</th>
               ),
             ])}
           </tr>
@@ -112,22 +116,21 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
 
         <tbody>
           {clientes.map((c) => {
-            const meta = metas.get(c.cliente);
-            const totalCli = avanceTotalCliente(c, meses, meta);
+            const totalCli = avanceTotalCliente(c, meses, metas);
             return (
               <tr key={c.cliente}>
                 <td className="max-w-[260px] truncate font-medium text-[var(--text-primary)]" style={fijaIzq} title={c.cliente}>
                   {c.cliente}
                 </td>
                 {meses.map((k) => {
-                  const a = avanceMesCliente(c, k, meta);
+                  const a = avanceMesCliente(c, k, metas);
                   return (
                     <Celdas key={k} c={c.porMes[k]}
-                      pct={hayMetas && <CeldaPct a={a} titulo={a ? detalle(a, meta) : undefined} />} />
+                      pct={hayMetas && <CeldaPct a={a} titulo={a ? detalle(a, metas.get(claveMeta(c.cliente, k))) : undefined} />} />
                   );
                 })}
                 <Celdas c={c.total} fuerte
-                  pct={hayMetas && <CeldaPct a={totalCli} titulo={totalCli ? detalle(totalCli, meta, mesesReales) : undefined} estilo={{ fontWeight: 700 }} />} />
+                  pct={hayMetas && <CeldaPct a={totalCli} titulo={totalCli ? detalle(totalCli) : undefined} estilo={{ fontWeight: 700 }} />} />
               </tr>
             );
           })}

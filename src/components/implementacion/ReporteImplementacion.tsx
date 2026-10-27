@@ -8,9 +8,10 @@
 // Vista principal: Clientes en filas y, por mes de cierre, Volumen (cantidad de
 // files) y Profit (suma). El filtro de mes (línea de tiempo + selector) recorta
 // las filas ANTES de agrupar, así que KPIs, matriz y detalle siempre cuadran.
-// El botón «Metas» abre un popup para capturar Vol y CM1 por cliente; con eso la
-// matriz agrega «% Meta» (Profit real ÷ Vol × CM1) por mes y en el total, y el
-// detalle agrega un semáforo por file (¿su Profit alcanza el CM1 de su cliente?).
+// El botón «Metas» abre un popup para capturar, por cliente Y por mes, Vol, CM1 y el
+// % de la meta a alcanzar; con eso la matriz agrega «% Meta» (Profit real ÷ Vol × CM1)
+// por mes y en el total, y el detalle agrega un semáforo por file (¿su Profit alcanza
+// el CM1 de su cliente en el mes en que cerró?).
 
 import { useEffect, useMemo, useState } from "react";
 import { FilterReset, SectionHeader } from "@/components/ui";
@@ -23,9 +24,10 @@ import TablaClienteMes from "@/components/implementacion/TablaClienteMes";
 import TablaDetalleImplementacion from "@/components/implementacion/TablaDetalleImplementacion";
 import MetasModal from "@/components/implementacion/MetasModal";
 import {
-  agruparPorClienteYMes, filtrarPorMeses, fmtImporte, indexarMetas, serieMensual, totalesImplementacion,
+  SIN_FECHA, agruparPorClienteYMes, expandirMetas, filtrarPorMeses, fmtImporte, indexarMetas, mesesConMeta,
+  serieMensual, totalesImplementacion,
 } from "@/lib/implementaciones";
-import type { ImplementacionRow, MetaCliente, MetasImplementacionDoc } from "@/types";
+import type { ImplementacionRow, MetasImplementacionDoc } from "@/types";
 
 function KpiCard({ label, valor, color }: { label: string; valor: string; color?: string }) {
   return (
@@ -43,11 +45,15 @@ function KpiCard({ label, valor, color }: { label: string; valor: string; color?
 export default function ReporteImplementacion({ rows }: { rows: ImplementacionRow[] }) {
   const [elegidos, setElegidos] = useState<string[]>([]);
 
-  // Metas por cliente (Vol y CM1): viven en Firestore, no en la hoja. Si no cargan,
-  // la tabla sigue funcionando — solo faltan las columnas de % de meta.
+  const serie = useMemo(() => serieMensual(rows), [rows]);
+  // Meses con fecha de la hoja, sin importar el filtro: el popup de metas edita todos.
+  const mesesHoja = useMemo(() => serie.filter((p) => p.clave !== SIN_FECHA), [serie]);
+
+  // Metas por cliente y mes (Vol, CM1 y % a alcanzar): viven en Firestore, no en la
+  // hoja. Si no cargan, la tabla sigue funcionando — solo faltan las columnas de % de meta.
   const { me } = useMe();
   const puedeEditarMetas = hasAction(me?.permissions, "edit_implementacion_metas");
-  const [metas, setMetas] = useState<MetaCliente[]>([]);
+  const [guardadas, setGuardadas] = useState<MetasImplementacionDoc["metas"]>([]);
   const [errorMetas, setErrorMetas] = useState("");
   const [metasAbierto, setMetasAbierto] = useState(false);
 
@@ -58,7 +64,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
         const res = await authedFetch("/api/roi/implementacion/metas");
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
         const doc = (await res.json()) as MetasImplementacionDoc;
-        if (vivo) setMetas(doc.metas);
+        if (vivo) setGuardadas(doc.metas);
       } catch (err) {
         if (vivo) setErrorMetas(err instanceof Error ? err.message : "No se pudieron cargar las metas");
       }
@@ -66,12 +72,15 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
     return () => { vivo = false; };
   }, []);
 
+  // Si lo guardado es del formato anterior (una meta por cliente, sin mes), se
+  // reparte a cada mes de la hoja hasta que se guarden las metas por mes.
+  const metas = useMemo(() => expandirMetas(guardadas, mesesHoja.map((p) => p.clave)), [guardadas, mesesHoja]);
   const metasPorCliente = useMemo(() => indexarMetas(metas), [metas]);
+  const nMesesConMeta = mesesConMeta(metasPorCliente);
   // Todos los clientes de la hoja (sin importar el filtro de mes): el popup edita
   // las metas de todos, no solo de los que se ven.
   const clientesTodos = useMemo(() => agruparPorClienteYMes(rows).clientes.map((c) => c.cliente), [rows]);
 
-  const serie = useMemo(() => serieMensual(rows), [rows]);
   // Si al recargar desaparece un mes que estaba elegido, se descarta: dejarlo
   // vaciaría la vista sin que haya nada que el usuario pueda quitar.
   const meses = useMemo(() => elegidos.filter((m) => serie.some((p) => p.clave === m)), [elegidos, serie]);
@@ -106,9 +115,9 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
           onClick={() => setMetasAbierto(true)}
           className="ml-auto self-end whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors hover:bg-[var(--bg-hover)]"
           style={{ borderColor: "var(--accent)", color: "var(--accent-light)" }}
-          title="Capturar la meta mensual (Vol × CM1) de cada cliente"
+          title="Capturar las metas de cada cliente, mes por mes (Vol × CM1 y % a alcanzar)"
         >
-          🎯 Metas{metasPorCliente.size > 0 ? ` (${metasPorCliente.size})` : ""}
+          🎯 Metas{nMesesConMeta > 0 ? ` (${nMesesConMeta} ${nMesesConMeta === 1 ? "mes" : "meses"})` : ""}
         </button>
       </div>
 
@@ -143,10 +152,11 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
       {metasAbierto && (
         <MetasModal
           clientes={clientesTodos}
+          meses={mesesHoja}
           metas={metas}
           puedeEditar={puedeEditarMetas}
           onClose={() => setMetasAbierto(false)}
-          onGuardado={setMetas}
+          onGuardado={setGuardadas}
         />
       )}
     </div>

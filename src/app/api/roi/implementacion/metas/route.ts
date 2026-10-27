@@ -1,9 +1,11 @@
 // src/app/api/roi/implementacion/metas/route.ts
-// Metas por cliente (Vol y CM1) de la pestaña Implementación de ROI.
-//  GET: las metas guardadas. Requiere el permiso de la página "roi".
+// Metas por cliente y mes (Vol, CM1 y % a alcanzar) de la pestaña Implementación de ROI.
+//  GET: las metas guardadas. Requiere el permiso de la página "roi". Si el documento
+//       es del formato anterior (una meta por cliente, sin mes) las devuelve tal cual:
+//       el cliente las reparte a cada mes (ver expandirMetas).
 //  PUT: reemplaza TODAS las metas. Requiere la acción "edit_implementacion_metas"
 //       (Admin siempre; otros roles se la otorgan en /roles).
-//       Body: { metas: [{ cliente, vol, cm1 }] } — ver normalizarMetas.
+//       Body: { metas: [{ cliente, mes, vol, cm1, objetivo }] } — ver normalizarMetas.
 
 import { NextResponse } from "next/server";
 import { requireAction, requirePage } from "@/lib/users";
