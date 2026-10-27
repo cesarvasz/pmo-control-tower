@@ -9,7 +9,8 @@
 // files) y Profit (suma). El filtro de mes (línea de tiempo + selector) recorta
 // las filas ANTES de agrupar, así que KPIs, matriz y detalle siempre cuadran.
 // El botón «Metas» abre un popup para capturar Vol y CM1 por cliente; con eso la
-// matriz agrega «% Meta» (Profit real ÷ Vol × CM1) por mes y en el total.
+// matriz agrega «% Meta» (Profit real ÷ Vol × CM1) por mes y en el total, y el
+// detalle agrega un semáforo por file (¿su Profit alcanza el CM1 de su cliente?).
 
 import { useEffect, useMemo, useState } from "react";
 import { FilterReset, SectionHeader } from "@/components/ui";
@@ -136,7 +137,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
 
       <section className="mt-7">
         <SectionHeader title="Detalle" badge={`${filtradas.length.toLocaleString("es-GT")} registros`} />
-        <TablaDetalleImplementacion rows={filtradas} />
+        <TablaDetalleImplementacion rows={filtradas} metas={metasPorCliente} />
       </section>
 
       {metasAbierto && (

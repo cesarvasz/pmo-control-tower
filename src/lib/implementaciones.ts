@@ -332,3 +332,52 @@ export function avanceTotalGeneral(matriz: MatrizClienteMes, metas: Map<string, 
   }
   return avance(meta, profit);
 }
+
+// ── Semáforo por file ─────────────────────────────────────────────────────
+// El CM1 de la meta de un cliente es lo que CADA file debe dejar de Profit. Un file
+// cumple si su Profit es igual o mayor que ese CM1. Sin meta para su cliente (o sin
+// Profit en la hoja) no se puede juzgar: queda «sin-meta», en gris.
+
+export type Semaforo = "cumple" | "no-cumple" | "sin-meta";
+export type FiltroSemaforo = "todos" | "cumplen" | "no-cumplen";
+
+export interface EvaluacionFile {
+  estado: Semaforo;
+  /** CM1 contra el que se juzgó; null si no hubo meta. */
+  cm1: number | null;
+}
+
+const centavos = (n: number) => Math.round(n * 100);
+
+/** Juzga un file contra el CM1 de su cliente. Compara en centavos: un Profit de
+ *  12.299999999999997 (resta de decimales en la hoja) que se muestra «$12.30» no
+ *  debe salir en rojo contra un CM1 de $12.30. `metas` es el índice de
+ *  `indexarMetas` (solo metas con Vol × CM1 > 0, por lo que su CM1 es > 0). */
+export function evaluarFile(r: ImplementacionRow, metas: Map<string, MetaCliente>): EvaluacionFile {
+  const meta = metas.get(r.Cliente.trim() || SIN_CLIENTE);
+  if (!meta || r.Profit == null) return { estado: "sin-meta", cm1: meta?.cm1 ?? null };
+  return { estado: centavos(r.Profit) >= centavos(meta.cm1) ? "cumple" : "no-cumple", cm1: meta.cm1 };
+}
+
+export interface ResumenSemaforo {
+  cumplen: number;
+  noCumplen: number;
+  sinMeta: number;
+}
+
+export function resumenSemaforo(estados: Semaforo[]): ResumenSemaforo {
+  const r: ResumenSemaforo = { cumplen: 0, noCumplen: 0, sinMeta: 0 };
+  for (const e of estados) {
+    if (e === "cumple") r.cumplen += 1;
+    else if (e === "no-cumple") r.noCumplen += 1;
+    else r.sinMeta += 1;
+  }
+  return r;
+}
+
+/** ¿Pasa este estado el filtro? «todos» deja pasar todo, incluidos los sin meta. */
+export function pasaFiltroSemaforo(estado: Semaforo, filtro: FiltroSemaforo): boolean {
+  if (filtro === "cumplen") return estado === "cumple";
+  if (filtro === "no-cumplen") return estado === "no-cumple";
+  return true;
+}

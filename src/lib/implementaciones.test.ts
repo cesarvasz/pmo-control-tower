@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   SIN_CLIENTE, SIN_FECHA, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalCliente,
-  avanceTotalGeneral, avanceTotalMes, claveMes, etiquetaMes, evaluarFilaMeta, filtrarPorMeses,
+  avanceTotalGeneral, avanceTotalMes, claveMes, etiquetaMes, evaluarFile, evaluarFilaMeta, filtrarPorMeses,
   fmtFechaCorta, fmtImporte, fmtPct, indexarMetas, metaProfitMensual, normalizarMetas,
-  serieMensual, totalesImplementacion,
+  pasaFiltroSemaforo, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente } from "@/types";
 
@@ -370,5 +370,64 @@ describe("metas", () => {
     it("el 0 es un valor válido (no cuenta como vacío)", () => {
       expect(evaluarFilaMeta("0", "0")).toMatchObject({ vol: 0, cm1: 0, completa: true, vacia: false });
     });
+  });
+});
+
+describe("semáforo por file (Profit vs CM1 del cliente)", () => {
+  const metas = indexarMetas([{ cliente: "A", vol: 10, cm1: 50 }, { cliente: "B", vol: 0, cm1: 30 }]);
+  const file = (cliente: string, profit: number | null) => fila(cliente, "2026-03-02T00:00:00", profit);
+
+  it("cumple si el Profit alcanza el CM1, y también si lo iguala", () => {
+    expect(evaluarFile(file("A", 80), metas)).toEqual({ estado: "cumple", cm1: 50 });
+    expect(evaluarFile(file("A", 50), metas).estado).toBe("cumple");
+  });
+
+  it("no cumple si el Profit se queda corto, aunque sea por un centavo", () => {
+    expect(evaluarFile(file("A", 49.99), metas)).toEqual({ estado: "no-cumple", cm1: 50 });
+    expect(evaluarFile(file("A", 0), metas).estado).toBe("no-cumple");
+    expect(evaluarFile(file("A", -5), metas).estado).toBe("no-cumple");
+  });
+
+  it("compara en centavos: la basura decimal de una resta no tumba un file que cumple", () => {
+    const m = indexarMetas([{ cliente: "A", vol: 1, cm1: 12.3 }]);
+    expect(0.1 + 12.2 === 12.3).toBe(false); // el problema que se evita
+    expect(evaluarFile(file("A", 0.1 + 12.2), m).estado).toBe("cumple");
+    expect(evaluarFile(file("A", 12.299999999999997), m).estado).toBe("cumple");
+  });
+
+  it("sin meta para su cliente no se puede juzgar", () => {
+    expect(evaluarFile(file("Otro", 500), metas)).toEqual({ estado: "sin-meta", cm1: null });
+  });
+
+  it("una meta con Vol × CM1 = 0 no es meta (misma regla que el % de meta)", () => {
+    expect(evaluarFile(file("B", 500), metas).estado).toBe("sin-meta");
+  });
+
+  it("sin Profit en la hoja no se puede juzgar, ni siquiera contra una meta", () => {
+    expect(evaluarFile(file("A", null), metas)).toEqual({ estado: "sin-meta", cm1: 50 });
+  });
+
+  it("el cliente vacío se busca como «(Sin cliente)», igual que en la tabla por cliente", () => {
+    const m = indexarMetas([{ cliente: SIN_CLIENTE, vol: 1, cm1: 10 }]);
+    expect(evaluarFile(file("  ", 20), m).estado).toBe("cumple");
+  });
+
+  it("el resumen cuenta cada estado y suma el total", () => {
+    const estados = [
+      evaluarFile(file("A", 80), metas), evaluarFile(file("A", 10), metas), evaluarFile(file("A", 55), metas),
+      evaluarFile(file("Otro", 1), metas), evaluarFile(file("A", null), metas),
+    ].map((e) => e.estado);
+    expect(resumenSemaforo(estados)).toEqual({ cumplen: 2, noCumplen: 1, sinMeta: 2 });
+    expect(resumenSemaforo([])).toEqual({ cumplen: 0, noCumplen: 0, sinMeta: 0 });
+  });
+
+  it("el filtro deja pasar solo lo pedido; «todos» incluye a los sin meta", () => {
+    expect(pasaFiltroSemaforo("cumple", "cumplen")).toBe(true);
+    expect(pasaFiltroSemaforo("no-cumple", "cumplen")).toBe(false);
+    expect(pasaFiltroSemaforo("sin-meta", "cumplen")).toBe(false);
+    expect(pasaFiltroSemaforo("no-cumple", "no-cumplen")).toBe(true);
+    expect(pasaFiltroSemaforo("cumple", "no-cumplen")).toBe(false);
+    expect(pasaFiltroSemaforo("sin-meta", "no-cumplen")).toBe(false);
+    expect(pasaFiltroSemaforo("sin-meta", "todos")).toBe(true);
   });
 });
