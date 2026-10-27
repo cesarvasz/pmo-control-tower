@@ -2,46 +2,23 @@
 
 // Reporte de Implementación (archivo "Clonacion files" → pestaña
 // "implementacion"). Se monta como pestaña dentro de la página ROI, hermana de
-// 003 y de Clonación pero con su propio dominio (lib/implementacion.ts) — no
+// 003 y de Clonación pero con su propio dominio (lib/implementaciones.ts) — no
 // comparte código con ellas a propósito.
 //
-// Primera versión: totales + tabla ordenable y paginada. Los filtros y las
-// gráficas se agregan encima de este mismo arreglo de filas.
+// Vista principal: Clientes en filas y, por mes de cierre, Volumen (cantidad de
+// files) y Profit (suma). El filtro de mes (línea de tiempo + selector) recorta
+// las filas ANTES de agrupar, así que KPIs, matriz y detalle siempre cuadran.
 
 import { useMemo, useState } from "react";
-import { SectionHeader } from "@/components/ui";
-import { totalesImplementacion } from "@/lib/implementacion";
+import { FilterReset, SectionHeader } from "@/components/ui";
+import MultiSelect, { type MSOption } from "@/components/MultiSelect";
+import TimelineImplementacion from "@/components/implementacion/TimelineImplementacion";
+import TablaClienteMes from "@/components/implementacion/TablaClienteMes";
+import TablaDetalleImplementacion from "@/components/implementacion/TablaDetalleImplementacion";
+import {
+  agruparPorClienteYMes, filtrarPorMeses, fmtImporte, serieMensual, totalesImplementacion,
+} from "@/lib/implementaciones";
 import type { ImplementacionRow } from "@/types";
-
-type Campo = "File" | "Fecha_cierre" | "Cliente" | "Usuario" | "ingresos_facturados" | "egresos_liquidados" | "Profit";
-type Dir = "asc" | "desc";
-const TAMANOS = [25, 50, 100, 250] as const;
-
-const importe = (n: number | null) =>
-  n == null ? "—" : n.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** "yyyy-MM-ddTHH:mm:ss" → "dd/mm/yyyy" (o con hora si la trae). Se parte el texto
- *  a mano: pasar por Date movería la hora según la zona del navegador. */
-function fechaCorta(iso: string): string {
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (!m) return "—";
-  const dia = `${m[3]}/${m[2]}/${m[1]}`;
-  return m[4] === "00" && m[5] === "00" ? dia : `${dia} ${m[4]}:${m[5]}`;
-}
-
-function Th({ children, campo, actual, alternar, align = "left" }: {
-  children: React.ReactNode; campo: Campo; actual: { campo: Campo; dir: Dir };
-  alternar: (c: Campo) => void; align?: "left" | "right" | "center";
-}) {
-  const activo = actual.campo === campo;
-  return (
-    <th onClick={() => alternar(campo)} className="cursor-pointer select-none"
-      style={{ textAlign: align, color: activo ? "var(--accent-light)" : undefined }}>
-      {children}
-      {activo && <span className="ml-1">{actual.dir === "asc" ? "▲" : "▼"}</span>}
-    </th>
-  );
-}
 
 function KpiCard({ label, valor, color }: { label: string; valor: string; color?: string }) {
   return (
@@ -57,104 +34,60 @@ function KpiCard({ label, valor, color }: { label: string; valor: string; color?
 }
 
 export default function ReporteImplementacion({ rows }: { rows: ImplementacionRow[] }) {
-  const [orden, setOrden] = useState<{ campo: Campo; dir: Dir }>({ campo: "Fecha_cierre", dir: "desc" });
-  const [pagina, setPagina] = useState(1);
-  const [tamano, setTamano] = useState<number>(25);
+  const [elegidos, setElegidos] = useState<string[]>([]);
 
-  const totales = useMemo(() => totalesImplementacion(rows), [rows]);
+  const serie = useMemo(() => serieMensual(rows), [rows]);
+  // Si al recargar desaparece un mes que estaba elegido, se descarta: dejarlo
+  // vaciaría la vista sin que haya nada que el usuario pueda quitar.
+  const meses = useMemo(() => elegidos.filter((m) => serie.some((p) => p.clave === m)), [elegidos, serie]);
+  const filtradas = useMemo(() => filtrarPorMeses(rows, meses), [rows, meses]);
+  const matriz = useMemo(() => agruparPorClienteYMes(filtradas), [filtradas]);
+  const totales = useMemo(() => totalesImplementacion(filtradas), [filtradas]);
+  const opcionesMes = useMemo<MSOption[]>(
+    () => serie.map((p) => ({ value: p.clave, label: p.label, count: p.volumen })), [serie]);
 
-  const alternar = (c: Campo) => {
-    setPagina(1);
-    setOrden((o) => (o.campo === c ? { campo: c, dir: o.dir === "asc" ? "desc" : "asc" } : { campo: c, dir: "desc" }));
-  };
-
-  const ordenados = useMemo(() => {
-    const num = (v: number | null) => (v == null ? -Infinity : v);
-    return [...rows].sort((a, b) => {
-      const c = orden.campo;
-      let v: number;
-      if (c === "ingresos_facturados" || c === "egresos_liquidados" || c === "Profit") {
-        const x = num(a[c]), y = num(b[c]);
-        v = x === y ? 0 : x < y ? -1 : 1;
-      } else {
-        v = a[c].localeCompare(b[c], "es");
-      }
-      return orden.dir === "asc" ? v : -v;
-    });
-  }, [rows, orden]);
-
-  const totalPaginas = Math.max(1, Math.ceil(ordenados.length / tamano));
-  const paginaActual = Math.min(pagina, totalPaginas);
-  const visibles = ordenados.slice((paginaActual - 1) * tamano, paginaActual * tamano);
+  const alternarMes = (clave: string) =>
+    setElegidos(meses.includes(clave) ? meses.filter((m) => m !== clave) : [...meses, clave]);
 
   return (
     <div>
-      <SectionHeader title="Implementación" badge={`${rows.length.toLocaleString("es-GT")} registros`} />
+      <SectionHeader
+        title="Implementación"
+        badge={`${filtradas.length.toLocaleString("es-GT")} de ${rows.length.toLocaleString("es-GT")} registros`}
+      />
 
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <KpiCard label="Ingresos facturados" valor={importe(totales.ingresos)} />
-        <KpiCard label="Egresos liquidados" valor={importe(totales.egresos)} />
-        <KpiCard label="Profit" valor={importe(totales.profit)}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <MultiSelect
+          label="Mes de cierre"
+          options={opcionesMes}
+          selected={meses}
+          onToggle={(v, ch) => setElegidos(ch ? [...meses.filter((m) => m !== v), v] : meses.filter((m) => m !== v))}
+          onToggleAll={() => setElegidos([])}
+        />
+        {meses.length > 0 && <FilterReset onClick={() => setElegidos([])} />}
+      </div>
+
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard label="Volumen" valor={filtradas.length.toLocaleString("es-GT")} />
+        <KpiCard label="Ingresos facturados" valor={fmtImporte(totales.ingresos)} />
+        <KpiCard label="Egresos liquidados" valor={fmtImporte(totales.egresos)} />
+        <KpiCard label="Profit" valor={fmtImporte(totales.profit)}
           color={totales.profit < 0 ? "var(--bad)" : "var(--ok)"} />
       </div>
 
-      <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
-        <label className="ml-auto flex items-center gap-1.5 text-[0.95rem] text-[var(--text-muted)]">
-          Filas por página
-          <select value={tamano} onChange={(e) => { setTamano(Number(e.target.value)); setPagina(1); }}
-            className="rounded-lg border px-2 py-1 text-[1rem] outline-none"
-            style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }}>
-            {TAMANOS.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </label>
+      <div className="mb-5">
+        <TimelineImplementacion serie={serie} seleccion={meses} onAlternarMes={alternarMes} />
       </div>
 
-      <div className="table-wrap">
-        <table className="pmo">
-          <thead>
-            <tr>
-              <Th campo="File" actual={orden} alternar={alternar}>File</Th>
-              <Th campo="Fecha_cierre" actual={orden} alternar={alternar} align="center">Fecha de cierre</Th>
-              <Th campo="Cliente" actual={orden} alternar={alternar}>Cliente</Th>
-              <Th campo="Usuario" actual={orden} alternar={alternar}>Usuario</Th>
-              <Th campo="ingresos_facturados" actual={orden} alternar={alternar} align="right">Ingresos facturados</Th>
-              <Th campo="egresos_liquidados" actual={orden} alternar={alternar} align="right">Egresos liquidados</Th>
-              <Th campo="Profit" actual={orden} alternar={alternar} align="right">Profit</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibles.map((r, i) => (
-              <tr key={`${r.File}-${i}`}>
-                <td className="ini-id">{r.File}</td>
-                <td className="whitespace-nowrap tabular-nums text-center text-[var(--text-secondary)]">{fechaCorta(r.Fecha_cierre)}</td>
-                <td className="max-w-[240px] truncate text-[var(--text-secondary)]" title={r.Cliente}>{r.Cliente}</td>
-                <td className="max-w-[180px] truncate text-[var(--text-secondary)]" title={r.Usuario}>{r.Usuario}</td>
-                <td className="whitespace-nowrap tabular-nums text-right">{importe(r.ingresos_facturados)}</td>
-                <td className="whitespace-nowrap tabular-nums text-right">{importe(r.egresos_liquidados)}</td>
-                <td className="whitespace-nowrap tabular-nums text-right font-semibold"
-                  style={{ color: r.Profit != null && r.Profit < 0 ? "var(--bad)" : undefined }}>
-                  {importe(r.Profit)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <section className="mt-7">
+        <SectionHeader title="Por cliente y mes" badge={`${matriz.clientes.length.toLocaleString("es-GT")} clientes`} />
+        <TablaClienteMes matriz={matriz} />
+      </section>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[0.95rem] text-[var(--text-muted)]">
-        <span>
-          {(paginaActual - 1) * tamano + 1}–{Math.min(paginaActual * tamano, ordenados.length)} de {ordenados.length.toLocaleString("es-GT")}
-        </span>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setPagina((p) => Math.max(1, p - 1))} disabled={paginaActual === 1}
-            className="rounded-lg border px-2.5 py-1 font-semibold transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
-            style={{ borderColor: "var(--border)" }}>← Anterior</button>
-          <span>Página {paginaActual} de {totalPaginas}</span>
-          <button onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} disabled={paginaActual === totalPaginas}
-            className="rounded-lg border px-2.5 py-1 font-semibold transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
-            style={{ borderColor: "var(--border)" }}>Siguiente →</button>
-        </div>
-      </div>
+      <section className="mt-7">
+        <SectionHeader title="Detalle" badge={`${filtradas.length.toLocaleString("es-GT")} registros`} />
+        <TablaDetalleImplementacion rows={filtradas} />
+      </section>
     </div>
   );
 }

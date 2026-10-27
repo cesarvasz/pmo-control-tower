@@ -81,23 +81,6 @@ export function decodificarImplementacion(p: ImplementacionPayload): Implementac
   });
 }
 
-export interface TotalesImplementacion {
-  ingresos: number;
-  egresos: number;
-  profit: number;
-}
-
-/** Suma de las tres columnas de importe. Una celda vacía (null) cuenta como 0. */
-export function totalesImplementacion(rows: ImplementacionRow[]): TotalesImplementacion {
-  const t: TotalesImplementacion = { ingresos: 0, egresos: 0, profit: 0 };
-  for (const r of rows) {
-    t.ingresos += r.ingresos_facturados ?? 0;
-    t.egresos += r.egresos_liquidados ?? 0;
-    t.profit += r.Profit ?? 0;
-  }
-  return t;
-}
-
 /** Apps Script responde HTTP 200 con una página HTML cuando la ejecución falla. */
 function diagnosticarHtml(cuerpo: string): string {
   if (/Excedió el tiempo máximo|Exceeded maximum execution time/i.test(cuerpo)) {

@@ -1,9 +1,9 @@
 import { gzipSync } from "node:zlib";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  aNumero, decodificarImplementacion, fechaDesdeSegundos, fetchImplementacionRows, totalesImplementacion,
+  aNumero, decodificarImplementacion, fechaDesdeSegundos, fetchImplementacionRows,
 } from "./implementacion";
-import type { ImplementacionPayload, ImplementacionRow } from "@/types";
+import type { ImplementacionPayload } from "@/types";
 
 const EPOCA = Date.UTC(2024, 0, 1);
 
@@ -136,27 +136,6 @@ describe("decodificarImplementacion", () => {
     } finally {
       process.env.TZ = tz;
     }
-  });
-});
-
-describe("totalesImplementacion", () => {
-  const fila = (i: number | null, e: number | null, p: number | null): ImplementacionRow => ({
-    File: "F", Fecha_cierre: "", Cliente: "C", Usuario: "U",
-    ingresos_facturados: i, egresos_liquidados: e, Profit: p,
-  });
-
-  it("suma cada columna por separado", () => {
-    expect(totalesImplementacion([fila(100, 40, 60), fila(50.5, 10, 40.5)]))
-      .toEqual({ ingresos: 150.5, egresos: 50, profit: 100.5 });
-  });
-
-  it("una celda vacía cuenta como 0 y no contamina la suma", () => {
-    expect(totalesImplementacion([fila(100, null, null), fila(null, 30, -30)]))
-      .toEqual({ ingresos: 100, egresos: 30, profit: -30 });
-  });
-
-  it("sin filas, todo en 0", () => {
-    expect(totalesImplementacion([])).toEqual({ ingresos: 0, egresos: 0, profit: 0 });
   });
 });
 
