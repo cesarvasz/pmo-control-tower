@@ -8,6 +8,7 @@
 // completo y usan enOnHold(). Módulo PURO: sin React ni Firestore.
 
 import { calcNpsFromRecords } from "@/lib/nps";
+import { estaFueraDeMedicion, itemsMedibles } from "@/lib/proj";
 import { npsStepIds } from "@/lib/projectMetrics";
 import type { DashboardData, OnHoldDoc, OnHoldEntry, ProjBoard, ReqItem } from "@/types";
 
@@ -89,14 +90,19 @@ export function conOnHold(h: OnHoldDoc, tipo: OnHoldTipo, id: string, activo: bo
   return { ...h, [campo]: mapa };
 }
 
-/** El dashboard SIN lo que está en On Hold: sus boards e items de Proyectos (y los
- *  baselines de esos items), sus PML y las encuestas de NPS ligadas a ellos (el NPS se
- *  recalcula). Sin nada en On Hold devuelve el mismo objeto. No modifica el original. */
+/** El dashboard SIN lo que no cuenta en las métricas:
+ *  · lo que está en On Hold: sus boards e items de Proyectos (y los baselines de esos items),
+ *    sus PML y las encuestas de NPS ligadas a ellos (el NPS se recalcula);
+ *  · los items y subitems de Proyectos con status «No Viable» u «On Hold» de Monday (ver
+ *    itemsMedibles en lib/proj.ts), que la app sí muestra pero no mide.
+ *  Sin nada de eso devuelve el mismo objeto. No modifica el original. */
 export function aplicarOnHold(data: DashboardData): DashboardData {
   const { proyectos, pml } = data.onHold;
-  if (Object.keys(proyectos).length === 0 && Object.keys(pml).length === 0) return data;
+  const hayPausa = Object.keys(proyectos).length > 0 || Object.keys(pml).length > 0;
+  const itemsFuera = data.proj.some((p) => estaFueraDeMedicion(p.status) || p.subitems.some((s) => estaFueraDeMedicion(s.status)));
+  if (!hayPausa && !itemsFuera) return data;
 
-  const proj = data.proj.filter((p) => !tiene(proyectos, p.boardId));
+  const proj = itemsMedibles(data.proj.filter((p) => !tiene(proyectos, p.boardId)));
   const projBoards = data.projBoards.filter((b) => !tiene(proyectos, b.id));
   const req = data.req.filter((r) => !tiene(pml, r.id));
   const projItemBaselines = Object.fromEntries(

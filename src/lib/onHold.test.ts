@@ -90,6 +90,22 @@ describe("aplicarOnHold", () => {
     expect(aplicarOnHold(d)).toBe(d);
   });
 
+  it("los items y subitems con status No Viable / On Hold de Monday salen de las métricas (el original no se toca)", () => {
+    const d = base(onHoldVacio());
+    d.proj = [
+      { id: "p1", boardId: "b1", name: "Kick Off", status: "Working on it", subitems: [{ id: "x1", status: "On Hold" }, { id: "x2", status: "Done" }] },
+      { id: "p2", boardId: "b1", name: "Fuera", status: "No Viable", subitems: [{ id: "x3", status: "Done" }] },
+      { id: "p3", boardId: "b2", name: "Pausado", status: "On Hold", subitems: [] },
+      { id: "p4", boardId: "b2", name: "Encuesta para NPS", status: "Done", subitems: [{ id: "s2", status: "Done" }] },
+    ] as unknown as DashboardData["proj"];
+    const r = aplicarOnHold(d);
+    expect(r).not.toBe(d);
+    expect(r.proj.map((p) => p.id)).toEqual(["p1", "p4"]);
+    expect(r.proj[0].subitems.map((s) => s.id)).toEqual(["x2"]);
+    expect(d.proj).toHaveLength(4); // el original sigue completo: la app lo sigue mostrando
+    expect(r.projBoards).toHaveLength(2); // el board sigue contando: solo salen los items
+  });
+
   it("un proyecto en On Hold sale con su board, sus items y sus baselines; el otro queda", () => {
     const d = aplicarOnHold(base({ proyectos: { b1: ent }, pml: {} }));
     expect(d.projBoards.map((b) => b.id)).toEqual(["b2"]);

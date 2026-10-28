@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcBoardMetrics, estaFueraDeMedicion, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards, buildIniLookup, soloBoardsDeProyecto } from "./proj";
+import { calcBoardMetrics, estaFueraDeMedicion, itemsMedibles, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards, buildIniLookup, soloBoardsDeProyecto } from "./proj";
 import { today } from "./business";
 import type { MondayColumnValue, MondayItem, MondaySubitem, ProjItem } from "@/types";
 
@@ -174,31 +174,16 @@ describe("projProcess", () => {
     expect(r.subitems[0].name).toBe("Vigente");
   });
 
-  it.each(["No Viable", "no viable", "No viable ", "On Hold", "on hold", "On-Hold", "ON  HOLD"])(
-    "excluye por completo los items con Status '%s' (no cuentan en ninguna métrica)",
-    (status) => {
-      const rows = projProcess("Board X", "b1", [
-        mkProj("Fuera", [pcol("Status", status), pcol("Cost $", "500")]),
-        mkProj("Vigente", [pcol("Status", "Working on it"), pcol("Cost $", "100")]),
-      ]);
-      expect(rows.map((r) => r.name)).toEqual(["Vigente"]);
-    },
-  );
-
-  it("excluye también los SUBITEMS 'No Viable' y 'On Hold', y deja los demás", () => {
-    const [r] = projProcess("Board X", "b1", [mkProj("I", [pcol("Status", "Done")], [
-      { id: "s1", name: "No viable", column_values: [pcol("Status", "No Viable")] },
-      { id: "s2", name: "En pausa", column_values: [pcol("Status", "On Hold")] },
-      { id: "s3", name: "Trabado", column_values: [pcol("Status", "Stuck")] },
-      { id: "s4", name: "Futuro", column_values: [pcol("Status", "Future Steps")] },
-    ])]);
-    expect(r.subitems.map((s) => s.name)).toEqual(["Trabado", "Futuro"]);
-  });
-
-  it("NO excluye Stuck, Working on it, Future Steps, Done ni vacío (siguen siendo trabajo del proyecto)", () => {
-    for (const s of ["Stuck", "Working on it", "Future Steps", "Done", ""]) expect(estaFueraDeMedicion(s)).toBe(false);
-    expect(estaFueraDeMedicion(null)).toBe(false);
-    expect(estaFueraDeMedicion(undefined)).toBe(false);
+  it("los items y subitems 'No Viable' / 'On Hold' SIGUEN en la lista, con su status (la app los muestra)", () => {
+    const rows = projProcess("Board X", "b1", [
+      mkProj("No viable", [pcol("Status", "No Viable"), pcol("Cost $", "500")]),
+      mkProj("En pausa", [pcol("Status", "On Hold"), pcol("Cost $", "300")]),
+      mkProj("Vigente", [pcol("Status", "Working on it"), pcol("Cost $", "100")], [
+        { id: "s1", name: "Sub en pausa", column_values: [pcol("Status", "On Hold")] },
+      ]),
+    ]);
+    expect(rows.map((r) => [r.name, r.status])).toEqual([["No viable", "No Viable"], ["En pausa", "On Hold"], ["Vigente", "Working on it"]]);
+    expect(rows[2].subitems.map((s) => s.status)).toEqual(["On Hold"]);
   });
 
   it("lee Benefit $ desde una columna espejo/formateada (display_value con $ y comas)", () => {
@@ -372,5 +357,39 @@ describe("projEnrichBoards", () => {
       expect(buildIniLookup([ini("A", "PM-020", " Luis Aguilar , Daniela Alvarez ")]).byId.get("PM-020")?.pm).toBe("Luis Aguilar");
       expect(buildIniLookup([ini("B", "PM-021", "")]).byId.get("PM-021")?.pm).toBe("");
     });
+  });
+});
+
+describe("estaFueraDeMedicion / itemsMedibles (No Viable y On Hold se muestran pero no cuentan)", () => {
+  const item = (id: string, status: string, subs: string[] = []) =>
+    ({ id, status, subitems: subs.map((s, i) => ({ id: `${id}.${i}`, status: s })) }) as unknown as ProjItem;
+
+  it.each(["No Viable", "no viable", "No viable ", "On Hold", "on hold", "On-Hold", "ON  HOLD"])("'%s' queda fuera de la medición", (status) => {
+    expect(estaFueraDeMedicion(status)).toBe(true);
+  });
+
+  it("Stuck, Working on it, Future Steps, Done, Out Of Scope y vacío NO son de este grupo", () => {
+    for (const s of ["Stuck", "Working on it", "Future Steps", "Done", "Out Of Scope", ""]) expect(estaFueraDeMedicion(s)).toBe(false);
+    expect(estaFueraDeMedicion(null)).toBe(false);
+    expect(estaFueraDeMedicion(undefined)).toBe(false);
+  });
+
+  it("itemsMedibles quita los items fuera (con sus subitems) y los subitems fuera de los items que sí cuentan", () => {
+    const lista = [
+      item("a", "Working on it", ["Done", "On Hold", "Stuck"]),
+      item("b", "On Hold", ["Done"]),
+      item("c", "No Viable"),
+      item("d", "Done", ["Done"]),
+    ];
+    const r = itemsMedibles(lista);
+    expect(r.map((x) => x.id)).toEqual(["a", "d"]);
+    expect(r[0].subitems.map((s) => s.status)).toEqual(["Done", "Stuck"]);
+  });
+
+  it("itemsMedibles no toca el original y reutiliza los items que no cambian", () => {
+    const lista = [item("a", "Working on it", ["On Hold"]), item("d", "Done", ["Done"])];
+    const r = itemsMedibles(lista);
+    expect(lista[0].subitems).toHaveLength(1); // el original sigue igual
+    expect(r[1]).toBe(lista[1]);
   });
 });

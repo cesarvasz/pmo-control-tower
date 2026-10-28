@@ -7,10 +7,10 @@ import { auth } from "@/lib/firebase";
 import { fmtDate, fmtMoney } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
-import { PROJ_ACTIVE_STS, calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
+import { PROJ_ACTIVE_STS, calcBoardMetrics, estaFueraDeMedicion, itemsMedibles, type BoardHealthData } from "@/lib/proj";
 import { calcItemCalidad, calcItemNota, isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
 import { HEALTH_CFG, type HealthStatus } from "@/lib/health";
-import type { ProjBoard, ProjItem } from "@/types";
+import type { ProjBoard, ProjItem, ProjSubitem } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
 import MultiSelect from "@/components/MultiSelect";
 import ProjectReportModal from "@/components/ProjectReportModal";
@@ -39,8 +39,13 @@ function estadoPill(status: string, estado: string, deadline: Date | null): [str
   return ["pill-skip", "— Pending"];
 }
 
-// Off Track = está atrasado y no se completó (un Done cuenta como On Track).
-const isOffTrack = (status: string, estado: string, deadline: Date | null) => status !== "Done" && estado === "ATRASADO" && deadline !== null;
+// Off Track = está atrasado y no se completó (un Done cuenta como On Track). Un item No Viable /
+// On Hold (status de Monday) no cuenta: se muestra con su status pero sin etiqueta, solo «—».
+const isOffTrack = (status: string, estado: string, deadline: Date | null) =>
+  !estaFueraDeMedicion(status) && status !== "Done" && estado === "ATRASADO" && deadline !== null;
+
+/** Lo que se pinta donde iría una etiqueta On Track / Off Track para algo que no se mide. */
+const SinEtiqueta = () => <span className="text-[var(--text-disabled)]" title="No cuenta en las métricas (status No Viable / On Hold)">—</span>;
 
 
 export default function ProyectosPage() {
@@ -95,19 +100,22 @@ function ProyectosInner() {
 
   const projData = data.proj;
   const projBoards = data.projBoards;
+  // Las tablas muestran TODO `projData` (también los items No Viable / On Hold, con su status);
+  // las métricas de esta página miden solo `projMedible`.
+  const projMedible = itemsMedibles(projData);
 
   const projItemBaselines = data.projItemBaselines;
   // SPI/CPI/Scope/EVM salen de la medición única (projectMetrics.ts) — mismo
   // dato que "Ver cálculo" de cada proyecto y que el Control Tower. `ac` sigue
   // viniendo de calcBoardMetrics (no es parte de esa medición).
   const projMetricsByBoard = new Map(
-    buildAllProjectMetrics(projBoards, projData, { baselines: projItemBaselines }).map((m) => [m.boardId, m]),
+    buildAllProjectMetrics(projBoards, projMedible, { baselines: projItemBaselines }).map((m) => [m.boardId, m]),
   );
   const boardHealthMap = new Map<string, BoardHealthData>();
   projBoards.forEach((b) => {
     const m = projMetricsByBoard.get(b.id);
     if (!m) return;
-    const { ac } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id), projItemBaselines);
+    const { ac } = calcBoardMetrics(projMedible.filter((r) => r.boardId === b.id), projItemBaselines);
     boardHealthMap.set(b.id, boardHealthFromMetrics(m, ac));
   });
   // Los proyectos en On Hold no cuentan en las tarjetas: salen aparte.
@@ -228,13 +236,14 @@ function ProyectosInner() {
 }
 
 // ── Acordeón por board ─────────────────────────────────────────────────
-function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean }) {
+function dlCell(dl: Date | null, opts?: { isDone?: boolean; redDash?: boolean; neutral?: boolean }) {
+  // `neutral`: lo que no se mide (No Viable / On Hold) muestra su fecha sin colores de atraso.
   if (!dl) {
-    return opts?.redDash
+    return opts?.redDash && !opts?.neutral
       ? <span style={{ color: "var(--bad)", fontWeight: 600 }}>—</span>
       : <span className="text-[var(--text-disabled)]">—</span>;
   }
-  if (opts?.isDone) {
+  if (opts?.isDone || opts?.neutral) {
     return <span style={{ color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{fmtDate(dl)}</span>;
   }
   const t = new Date(); t.setHours(0, 0, 0, 0);
@@ -315,7 +324,7 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
       {showReport && (
         <ProjectReportModal
           board={board}
-          items={items}
+          items={itemsMedibles(items)}
           ev={ev}
           pv={pv}
           ac={ac}
@@ -324,7 +333,7 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
           cpi={cpi}
           metrics={buildProjectMetrics({
             board,
-            items: allBoardItems,
+            items: itemsMedibles(allBoardItems),
             baselines: ctx?.projItemBaselines,
             delays: ctx?.delayAttributions,
             reproceso: ctx?.reprocesoAttributions,
@@ -531,7 +540,9 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
                   : allGItems;
                 if (filterNoDl && gItems.length === 0) return null;
                 const gOpen = filterNoDl || openGroups.has(grupo);
-                const gOffTrack = gItems.some((r) => isOffTrack(r.status, r.estado, r.deadline) || r.subitems.some((s) => isOffTrack(s.status, s.estado, s.deadline)));
+                // Solo cuentan los items que se miden; si la fase no tiene ninguno, punto gris (sin etiqueta).
+                const gMedibles = gItems.filter((r) => !estaFueraDeMedicion(r.status));
+                const gOffTrack = gMedibles.some((r) => isOffTrack(r.status, r.estado, r.deadline) || r.subitems.some((s) => isOffTrack(s.status, s.estado, s.deadline)));
                 // Cumplimiento de Entrega mide progresivo (no espera a que la fase cierre):
                 // basta un step o hito YA evaluado y atrasado para que la fase entera cuente
                 // "con atraso" — un solo responsable decide la excusa de todos a la vez.
@@ -539,7 +550,7 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
                 // por iteraciones..." (plantilla vieja), la unidad de Calidad son SUS hitos —
                 // ningún step de la fase (ni ese ni los demás) mide a nivel de step. Si no
                 // existe (plantilla nueva), cada step de la fase mide por sí mismo.
-                const desarrolloStep = isFase3(grupo) ? allGItems.find((r) => isDesarrolloPorIteracionesStep(r.name)) : undefined;
+                const desarrolloStep = isFase3(grupo) ? allGItems.find((r) => !estaFueraDeMedicion(r.status) && isDesarrolloPorIteracionesStep(r.name)) : undefined;
                 return (
                   <React.Fragment key={grupo}>
                     {/* ── Group header row ── */}
@@ -560,8 +571,8 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
                               en /calidad-cumplimiento. Este header solo informa. */}
                           <span
                             className="ml-auto h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                            style={{ background: gOffTrack ? "#ef4444" : "#10b981" }}
-                            title={gOffTrack ? "Hay items Off Track en esta fase" : "Fase On Track"}
+                            style={{ background: gMedibles.length === 0 ? "var(--text-disabled)" : gOffTrack ? "#ef4444" : "#10b981" }}
+                            title={gMedibles.length === 0 ? "Sin items que cuenten en las métricas" : gOffTrack ? "Hay items Off Track en esta fase" : "Fase On Track"}
                           />
                           <span
                             className="rounded-full px-2 py-px text-[0.63rem]"
@@ -594,7 +605,11 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   const allSubitems = r.subitems;
   const visibleSubitems = filterNoDl ? allSubitems.filter((s) => s.deadline === null) : allSubitems;
   const hasSubitems = allSubitems.length > 0;
-  const subOffTrack = allSubitems.some((s) => isOffTrack(s.status, s.estado, s.deadline));
+  // Un item No Viable / On Hold (y sus subitems) se muestra con su status pero no se mide ni se etiqueta.
+  const itemFuera = estaFueraDeMedicion(r.status);
+  const subFuera = (s: ProjSubitem) => itemFuera || estaFueraDeMedicion(s.status);
+  const subMedibles = allSubitems.filter((s) => !subFuera(s));
+  const subOffTrack = subMedibles.some((s) => isOffTrack(s.status, s.estado, s.deadline));
   const isOpen = (filterNoDl && visibleSubitems.length > 0) || open;
 
   // Solo los subitems del step "Encuesta para NPS" que estén en Working on it llevan encuesta.
@@ -609,7 +624,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   // se hace únicamente en /calidad-cumplimiento.
   const inFase3 = isFase3(r.grupo);
   const stepMideCalidad = inFase3 && (desarrolloStepId ? desarrolloStepId === r.id : true);
-  const calc = stepMideCalidad ? calcItemCalidad(r) : null;
+  const calc = stepMideCalidad && !itemFuera ? calcItemCalidad(itemsMedibles([r])[0]) : null;
   const nota = calc?.qualifies ? calcItemNota(r.id, calc.recuperado, data?.reprocesoAttributions ?? {}) : null;
   const fueraDeCpmIds = new Set((calc?.fueraDeCpm ?? []).map((x) => x.id));
 
@@ -646,8 +661,8 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
           {hasSubitems && (
             <span
               className="ml-2 inline-block h-2 w-2 rounded-full align-middle"
-              style={{ background: subOffTrack ? "#ef4444" : "#10b981" }}
-              title={subOffTrack ? "Hay subitems Off Track" : "Subitems On Track"}
+              style={{ background: subMedibles.length === 0 ? "var(--text-disabled)" : subOffTrack ? "#ef4444" : "#10b981" }}
+              title={subMedibles.length === 0 ? "Sin subitems que cuenten en las métricas" : subOffTrack ? "Hay subitems Off Track" : "Subitems On Track"}
             />
           )}
           {hasSubitems && (
@@ -661,9 +676,9 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
         <td style={{ fontSize: ".75rem", color: "var(--text-secondary)" }}>
           <StatusSelect boardId={r.boardId} itemId={r.id} columnId={r.statusColId} options={r.statusOptions} current={r.status} />
         </td>
-        <td><span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span></td>
-        <td>{dlCell(r.deadline, { isDone: r.status === "Done" })}</td>
-        <td>{entregaCell(r.entrega, r.endDate, r.deadline)}</td>
+        <td>{itemFuera ? <SinEtiqueta /> : <span className={`pill ${ecls}`} style={{ fontSize: ".68rem" }}>{elbl}</span>}</td>
+        <td>{dlCell(r.deadline, { isDone: r.status === "Done", neutral: itemFuera })}</td>
+        <td>{itemFuera ? <SinEtiqueta /> : entregaCell(r.entrega, r.endDate, r.deadline)}</td>
         <td>{nota != null && calc
           ? reprocesoCell(nota)
           : <span className="text-[var(--text-disabled)]">—</span>}</td>
@@ -713,11 +728,11 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
             <td style={{ fontSize: ".72rem", color: "var(--text-muted)", background: SUB_BG }}>
               <StatusSelect boardId={s.statusBoardId ?? ""} itemId={s.id} columnId={s.statusColId} options={s.statusOptions} current={s.status} />
             </td>
-            <td style={{ background: SUB_BG }}><span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span></td>
-            <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true })}</td>
-            <td style={{ background: SUB_BG }}>{entregaCell(s.entrega, s.actualEnd, s.deadline)}</td>
+            <td style={{ background: SUB_BG }}>{subFuera(s) ? <SinEtiqueta /> : <span className={`pill ${secls}`} style={{ fontSize: ".63rem" }}>{selbl}</span>}</td>
+            <td style={{ background: SUB_BG }}>{dlCell(s.deadline, { isDone: s.status === "Done", redDash: true, neutral: subFuera(s) })}</td>
+            <td style={{ background: SUB_BG }}>{subFuera(s) ? <SinEtiqueta /> : entregaCell(s.entrega, s.actualEnd, s.deadline)}</td>
             <td style={{ background: SUB_BG }}>
-              {stepMideCalidad ? hitoCalidadReadOnly(s.entrega, fueraDeCpmIds.has(s.id)) : <span className="text-[var(--text-disabled)]">—</span>}
+              {stepMideCalidad && !subFuera(s) ? hitoCalidadReadOnly(s.entrega, fueraDeCpmIds.has(s.id)) : <span className="text-[var(--text-disabled)]">—</span>}
             </td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
             <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>

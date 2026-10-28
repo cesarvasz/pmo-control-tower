@@ -23,9 +23,9 @@ const data = (onHold: DashboardData["onHold"]) => ({
     { id: "b4", name: "Sin barra", pm: "Ana" },
   ],
   proj: [
-    { id: "p1", boardId: "b1", fase: "Aprobación" },
-    { id: "p2", boardId: "b2", fase: "Launch" },
-    { id: "p3", boardId: "b3", fase: "Revisión", completo: true },
+    { id: "p1", boardId: "b1", fase: "Aprobación", subitems: [] },
+    { id: "p2", boardId: "b2", fase: "Launch", subitems: [] },
+    { id: "p3", boardId: "b3", fase: "Revisión", completo: true, subitems: [] },
   ],
   req: [
     { id: "PML-2", name: "Dos", pm: "Luis", grupo: "Desarrollo", estado: "EN TIEMPO" },
@@ -78,6 +78,12 @@ describe("filasOnHold", () => {
     expect(motivo("PML-10")).toBe("Sin presupuesto");
     expect(motivo("PML-2")).toBe(""); // pausado antes de que existiera el motivo
     expect(motivo("b2")).toBe(""); // activo
+  });
+
+  it("un item On Hold / No Viable sin cerrar no impide que el proyecto cuente como completo (no se mide)", () => {
+    const d = data({ proyectos: {}, pml: {} });
+    d.proj.push({ id: "p9", boardId: "b3", fase: "Revisión", status: "On Hold", completo: false, subitems: [] } as unknown as DashboardData["proj"][number]);
+    expect(filasOnHold(d).map((f) => f.id)).not.toContain("b3");
   });
 
   it("un proyecto completo en On Hold tampoco aparece (ya no hay nada que pausar)", () => {

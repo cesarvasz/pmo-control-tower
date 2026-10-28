@@ -4,7 +4,7 @@
 // Módulo PURO. Recibe el dashboard COMPLETO (`dataTodo`, con lo pausado incluido).
 
 import { enOnHold as estaPausado, type OnHoldTipo } from "@/lib/onHold";
-import { splitBoardName } from "@/lib/proj";
+import { itemsMedibles, splitBoardName } from "@/lib/proj";
 import { buildProjectSummary, currentPhaseIndex } from "@/lib/projSummary";
 import type { DashboardData } from "@/types";
 
@@ -35,7 +35,8 @@ export function filasOnHold(data: DashboardData): FilaOnHold[] {
   const filas: FilaOnHold[] = [];
 
   for (const b of data.projBoards) {
-    const items = data.proj.filter((p) => p.boardId === b.id);
+    // Solo lo que cuenta: un proyecto con items No Viable / On Hold sin cerrar puede estar completo.
+    const items = itemsMedibles(data.proj.filter((p) => p.boardId === b.id));
     const resumen = buildProjectSummary(items);
     if (resumen.completion.isComplete) continue;
     const { code, name } = splitBoardName(b.name);
