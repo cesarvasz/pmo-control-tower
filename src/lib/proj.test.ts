@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcBoardMetrics, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards, buildIniLookup, soloBoardsDeProyecto } from "./proj";
+import { calcBoardMetrics, estaFueraDeMedicion, calcProjEstado, calcProjEntrega, deriveBoardHealth, projProcess, splitBoardName, projEnrichBoards, buildIniLookup, soloBoardsDeProyecto } from "./proj";
 import { today } from "./business";
 import type { MondayColumnValue, MondayItem, MondaySubitem, ProjItem } from "@/types";
 
@@ -172,6 +172,33 @@ describe("projProcess", () => {
     ])]);
     expect(r.subitems).toHaveLength(1);
     expect(r.subitems[0].name).toBe("Vigente");
+  });
+
+  it.each(["No Viable", "no viable", "No viable ", "On Hold", "on hold", "On-Hold", "ON  HOLD"])(
+    "excluye por completo los items con Status '%s' (no cuentan en ninguna métrica)",
+    (status) => {
+      const rows = projProcess("Board X", "b1", [
+        mkProj("Fuera", [pcol("Status", status), pcol("Cost $", "500")]),
+        mkProj("Vigente", [pcol("Status", "Working on it"), pcol("Cost $", "100")]),
+      ]);
+      expect(rows.map((r) => r.name)).toEqual(["Vigente"]);
+    },
+  );
+
+  it("excluye también los SUBITEMS 'No Viable' y 'On Hold', y deja los demás", () => {
+    const [r] = projProcess("Board X", "b1", [mkProj("I", [pcol("Status", "Done")], [
+      { id: "s1", name: "No viable", column_values: [pcol("Status", "No Viable")] },
+      { id: "s2", name: "En pausa", column_values: [pcol("Status", "On Hold")] },
+      { id: "s3", name: "Trabado", column_values: [pcol("Status", "Stuck")] },
+      { id: "s4", name: "Futuro", column_values: [pcol("Status", "Future Steps")] },
+    ])]);
+    expect(r.subitems.map((s) => s.name)).toEqual(["Trabado", "Futuro"]);
+  });
+
+  it("NO excluye Stuck, Working on it, Future Steps, Done ni vacío (siguen siendo trabajo del proyecto)", () => {
+    for (const s of ["Stuck", "Working on it", "Future Steps", "Done", ""]) expect(estaFueraDeMedicion(s)).toBe(false);
+    expect(estaFueraDeMedicion(null)).toBe(false);
+    expect(estaFueraDeMedicion(undefined)).toBe(false);
   });
 
   it("lee Benefit $ desde una columna espejo/formateada (display_value con $ y comas)", () => {

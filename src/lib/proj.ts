@@ -119,11 +119,23 @@ function statusMeta(cv: MondayColumnValue[]): { colId: string; options: string[]
 // fase nunca llega a done===total y currentPhaseIndex la deja "en curso"
 // para siempre, ej. PM-002/Valuación). Distinto de "Stuck": ese SÍ sigue
 // siendo trabajo pendiente (atrasado), este ya no es trabajo del proyecto.
-const isOutOfScope = (status: string) => status?.trim().toLowerCase() === "out of scope";
+//
+// Lo mismo para "No Viable" (el entregable se descartó) y "On Hold" (el entregable
+// está en pausa): ninguno de los dos cuenta en ninguna métrica mientras tenga ese
+// status. Ojo: este "On Hold" es el STATUS de un item/hito en Monday; NO es el On
+// Hold de un Proyecto o PML completo que se pone desde la app (ver lib/onHold.ts).
+// Efecto secundario: el item sale también de las tablas de la app (como los
+// Out Of Scope); para verlo o devolverlo a su status hay que ir a Monday.
+const STATUS_FUERA_DE_MEDICION = new Set(["out of scope", "no viable", "on hold"]);
+
+/** ¿Este status saca al item/hito de toda medición? Tolera mayúsculas, espacios de más
+ *  y guiones («No viable», «on-hold»). */
+export const estaFueraDeMedicion = (status: string | null | undefined) =>
+  STATUS_FUERA_DE_MEDICION.has((status ?? "").trim().toLowerCase().replace(/[\s_-]+/g, " "));
 
 export function projProcess(boardName: string, boardId: string, items: MondayItem[]): ProjItem[] {
   return items
-    .filter((item) => !isOutOfScope(colByTitle(item.column_values || [], PROJ_COL.status)))
+    .filter((item) => !estaFueraDeMedicion(colByTitle(item.column_values || [], PROJ_COL.status)))
     .map((item): ProjItem => {
     const cv = item.column_values || [];
     const pm = colByTitle(cv, PROJ_COL.pm);
@@ -140,7 +152,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
     const { colId: statusColId, options: statusOptions } = statusMeta(cv);
 
     const subitems = (item.subitems || [])
-      .filter((sub) => !isOutOfScope(colByTitle(sub.column_values || [], PROJ_COL.status)))
+      .filter((sub) => !estaFueraDeMedicion(colByTitle(sub.column_values || [], PROJ_COL.status)))
       .map((sub) => {
       const scv = sub.column_values || [];
       const sdl = resolveDeadline(scv, FORMULA_FALLBACK_COL.subTimeline);
