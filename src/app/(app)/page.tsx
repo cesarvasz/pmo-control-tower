@@ -158,12 +158,9 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
   // (ver EVM_WEIGHTS / weightedEvm en lib/health.ts).
   const teamVem = weightedEvm({ ini: teamIniHealth, req: teamReqHealth, proj: teamProjHealth });
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
-  // Estado del equipo = peor estado entre los PMs, y el de cada PM sale de su nota EVM (ver pmHealthStatus): si un PM está Off Track, el EVM del equipo es Off Track. El % sigue siendo el promedio.
-  const pmStatuses = allPMs.map((pm) => pmHealthStatus(calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap)));
-  const teamStatus: HealthStatus | null = teamVem === null ? null
-    : pmStatuses.includes("off-track") ? "off-track"
-    : pmStatuses.includes("in-risk") ? "in-risk"
-    : "on-track";
+  // Estado del equipo = el de su nota EVM (el % de arriba) con los mismos umbrales que cada PM
+  // (VEM_THRESHOLDS). Ya no es «el peor de los PMs»; sin nota queda «Sin datos».
+  const teamStatus: HealthStatus | null = healthStatusFromIndex(teamVem);
   const teamCfg = teamStatus ? HEALTH_CFG[teamStatus] : null;
   const hColor = teamCfg?.color ?? "#6b7280";
   const hBg    = teamCfg?.bg ?? "var(--health-neutral-bg)";
