@@ -8,6 +8,7 @@
 // deshace el cambio y avisa. El motivo de algo ya pausado se ve y se edita con <OnHoldMotivo>.
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import Modal from "@/components/Modal";
@@ -29,7 +30,10 @@ function MotivoDialog({ titulo, ayuda, inicial, confirmar, soloLectura, onCancel
 }) {
   const [texto, setTexto] = useState(inicial);
   const motivo = texto.trim();
-  return (
+  // Portal al <body>: el diálogo nace dentro de una fila de tabla, y las de On Hold van atenuadas
+  // (opacity). Un ancestro con opacity vuelve translúcido a todo lo que lleva dentro, incluido un
+  // `position: fixed`, y el texto de la tabla se traslapaba con el popup.
+  return createPortal(
     <Modal open onClose={onCancel} width={480} label={titulo}>
       <div className="border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
         <div className="text-[0.68rem] uppercase tracking-widest text-[var(--text-muted)]">On Hold</div>
@@ -68,7 +72,8 @@ function MotivoDialog({ titulo, ayuda, inicial, confirmar, soloLectura, onCancel
           </button>
         )}
       </div>
-    </Modal>
+    </Modal>,
+    document.body,
   );
 }
 
