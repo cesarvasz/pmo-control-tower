@@ -703,10 +703,8 @@ function Stat({ n, color, label, showZero }: { n: number; color: string; label: 
 // Celda de la fila de métricas del PM (EVM · Beneficio · Calidad · Cumplimiento · NPS).
 // La etiqueta tiene altura mínima fija para que los valores queden alineados aunque
 // el texto ocupe una o dos líneas.
-function MetricCell({ label, value, color, onClick, title, divider, sub, badge }: {
+function MetricCell({ label, value, color, onClick, title, divider, sub }: {
   label: string; value: React.ReactNode; color: string; onClick?: () => void; title?: string; divider?: boolean; sub?: string;
-  /** Etiqueta de salud (con su fondo) debajo del valor — la del EVM del PM. */
-  badge?: { text: string; color: string; bg: string };
 }) {
   const style = divider ? { borderLeft: "1px solid var(--border)" } : undefined;
   const cls = `flex flex-col items-center px-1.5 py-2.5 text-center ${onClick ? "cursor-pointer transition-colors hover:bg-[var(--bg-hover)]" : ""}`;
@@ -721,11 +719,6 @@ function MetricCell({ label, value, color, onClick, title, divider, sub, badge }
       {sub && (
         <span className="mt-0.5 text-[0.56rem] font-bold uppercase leading-tight tracking-wide" style={{ color }}>
           {sub}
-        </span>
-      )}
-      {badge && (
-        <span className="mt-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[0.56rem] font-bold uppercase leading-none tracking-wide" style={{ color: badge.color, background: badge.bg }}>
-          {badge.text}
         </span>
       )}
     </>
@@ -968,6 +961,8 @@ function PMPortfolioCard({
           >
             Player {pmKpiPct}
           </button>
+          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.75rem] font-bold" style={{ color: hc.color, background: hc.bg }}
+            title={`Salud del PM: sale de su nota EVM · ${VEM_RANGOS_TXT}`}>{hc.icon} {hc.label}</span>
         </div>
       </div>
 
@@ -981,9 +976,8 @@ function PMPortfolioCard({
         // ($84K ÷ 12 × meses cerrados; el mes en curso no cuenta).
         const confRatio = ratioConfirmacion(pmValueHard.confirmacionBenefit);
         const confColor = kpiColorFor(confRatio);
-        const metrics: { label: string; value: React.ReactNode; color: string; onClick?: () => void; title: string; sub?: string; badge?: { text: string; color: string; bg: string } }[] = [
-          // La salud del PM (también el borde de la tarjeta) sale de esta misma nota (umbrales en VEM_THRESHOLDS, lib/health.ts).
-          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, badge: { text: `${hc.icon} ${hc.label}`, color: hc.color, bg: hc.bg }, title: "EVM del PM · ponderado Iniciativas 10% · PML 20% · Proyectos 70% · su salud sale de esta nota: " + VEM_RANGOS_TXT },
+        const metrics: { label: string; value: React.ReactNode; color: string; onClick?: () => void; title: string; sub?: string }[] = [
+          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, title: "EVM del PM · ponderado Iniciativas 10% · PML 20% · Proyectos 70%" },
           { label: "Beneficio $", value: (
             // Validado arriba (negro) y Confirmado abajo (semáforo), apilados para no ensanchar la celda.
             <span className="flex flex-col items-center gap-0.5 text-[0.8rem] leading-none">
