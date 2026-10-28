@@ -22,6 +22,7 @@ import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES, RESPONSIBLE_COLOR, countByR
 import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
 import MetodologiaTab from "@/components/MetodologiaTab";
+import OnHoldTab from "@/components/OnHoldTab";
 import { listPMs } from "@/lib/players";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard } from "@/components/ui";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -30,9 +31,11 @@ const SIN_ASIGNAR = "Sin asignar";
 const responsableOf = (id: string, map: DelayMap) => map[id]?.responsible || SIN_ASIGNAR;
 
 export default function CalidadCumplimientoPage() {
-  const { data, loading, error } = useData();
+  // `data` no trae lo que está en On Hold (no cuenta en ninguna métrica): las tres pestañas de
+  // medición lo usan. La pestaña «On Hold» necesita verlo todo para poder pausar y reactivar.
+  const { data, dataTodo, loading, error } = useData();
   const { me } = useMe();
-  const [tab, setTab] = useState<"entrega" | "reproceso" | "metodologia">("entrega");
+  const [tab, setTab] = useState<"entrega" | "reproceso" | "metodologia" | "onhold">("entrega");
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -56,6 +59,7 @@ export default function CalidadCumplimientoPage() {
           ["entrega", "Cumplimiento de Entrega"],
           ["reproceso", "Calidad de Entregas"],
           ["metodologia", "Metodología"],
+          ["onhold", "On Hold"],
         ] as const).map(([v, label]) => (
           <button
             key={v}
@@ -72,6 +76,8 @@ export default function CalidadCumplimientoPage() {
         ? <EntregaTab req={req} proj={proj} projBoards={projBoards} delays={delays} canEditFilters={canEditFilters} ini={ini} />
         : tab === "metodologia"
         ? <MetodologiaTab pms={listPMs(ini, req)} califs={metodologiaCalifs} />
+        : tab === "onhold"
+        ? <OnHoldTab data={dataTodo ?? data} />
         : <ReprocesoTab ini={ini} req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} canEditFilters={canEditFilters} />}
     </div>
   );
