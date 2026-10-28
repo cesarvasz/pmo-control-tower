@@ -843,7 +843,7 @@ function PMPortfolioCard({
   const {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
-    reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
+    reqAct, rvc, reqBadgePct, rEvmOff, rEvmRisk, rEvmOn,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
   } = useMemo(() => {
@@ -875,13 +875,16 @@ function PMPortfolioCard({
   // El estado REQ del PM es el peor de sus REQs (un Off Track → Off Track; si no, un At Risk → At Risk; si todos On Track → On Track). El % sigue siendo el promedio.
   const reqSts = reqVemItems.map((r) => healthStatusFromIndex(r.vem as number));
   const reqVemStatus = reqSts.includes("off-track") ? "off-track" : reqSts.includes("in-risk") ? "in-risk" : reqSts.length ? "on-track" : null;
-  const rvc = reqVemStatus ? HEALTH_CFG[reqVemStatus] : null;
+  // Igual que Iniciativas (calcIniPMHealth): sin PML activos la sección no queda en blanco, muestra
+  // «0 total» y On Track 100 %. Solo es lo que se muestra: para el EVM del PM, `reqAvgVem` sigue
+  // en null y su peso se reparte (ver weightedEvm), exactamente como pasa con Iniciativas.
+  const sinPml = reqAct.length === 0;
+  const rvc = sinPml ? HEALTH_CFG["on-track"] : reqVemStatus ? HEALTH_CFG[reqVemStatus] : null;
+  const reqBadgePct = sinPml ? 100 : reqAvgVem !== null ? Math.round(reqAvgVem * 100) : null;
 
   const rEvmOff  = reqAct.filter((r) => r.vem !== null && (r.vem as number) < 0.85).length;
   const rEvmRisk = reqAct.filter((r) => r.vem !== null && (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length;
   const rEvmOn   = reqAct.filter((r) => r.vem !== null && (r.vem as number) >= 0.95).length;
-  const reqEnEsperaN = reqItems.filter((r) => r.estado === "EN_ESPERA").length;
-  const reqHas = reqAct.length > 0 || reqEnEsperaN > 0;
 
   const pmProjBoards = projBoards.filter((b) => b.pm === pm);
   const projHas = pmProjBoards.length > 0;
@@ -929,7 +932,7 @@ function PMPortfolioCard({
   return {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
-    reqAct, rvc, reqAvgVem, rEvmOff, rEvmRisk, rEvmOn, reqHas,
+    reqAct, rvc, reqBadgePct, rEvmOff, rEvmRisk, rEvmOn,
     pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
   };
@@ -1022,15 +1025,15 @@ function PMPortfolioCard({
         <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
         <Section
           label="PML"
-          has={reqHas}
+          has={true}
           onClick={onGoReq}
-          badge={rvc ? (
+          badge={rvc && reqBadgePct !== null ? (
             <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: rvc.color, background: rvc.bg }}>
-              {rvc.icon} {rvc.label} · {Math.round((reqAvgVem as number) * 100)}%
+              {rvc.icon} {rvc.label} · {reqBadgePct}%
             </span>
           ) : undefined}
         >
-          <Stat n={reqAct.length} color="#6b7280" label="total" />
+          <Stat n={reqAct.length} color="#6b7280" label="total" showZero />
           <Stat n={rEvmOff} color="#ef4444" label="Off Track" />
           <Stat n={rEvmRisk} color="#f59e0b" label="At Risk" />
           <Stat n={rEvmOn} color="#10b981" label="On Track" />
