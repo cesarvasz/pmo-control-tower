@@ -21,8 +21,9 @@ export interface FilaOnHold {
   enOnHold: boolean;
 }
 
-/** Proyectos aún sin completar y PML que no están CERRADOS, ordenados por PM, luego proyectos
- *  antes que PML, luego por código. Un proyecto sin items (no hay con qué juzgarlo) cuenta como
+/** Proyectos aún sin completar y PML que no están CERRADOS: primero los proyectos, ordenados por
+ *  su ID (PM-015 antes que PM-016), y luego los PML por su PML ID (PML-2 antes que PML-10). Un
+ *  proyecto sin items (no hay con qué juzgarlo) cuenta como
  *  no completado, igual que en las tarjetas del Control Tower. */
 export function filasOnHold(data: DashboardData): FilaOnHold[] {
   const pausados = estaPausado(data);
@@ -51,7 +52,6 @@ export function filasOnHold(data: DashboardData): FilaOnHold[] {
   }
 
   return filas.sort((a, b) =>
-    a.pm.localeCompare(b.pm, "es")
-    || (a.tipo === b.tipo ? 0 : a.tipo === "proyecto" ? -1 : 1)
+    (a.tipo === b.tipo ? 0 : a.tipo === "proyecto" ? -1 : 1)
     || a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
 }

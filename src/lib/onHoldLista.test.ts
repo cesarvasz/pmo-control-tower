@@ -46,8 +46,8 @@ describe("filasOnHold", () => {
     expect(filas).toHaveLength(6);
   });
 
-  it("ordena por PM, proyectos antes que PML, y por código en orden natural (PML-2 antes que PML-10)", () => {
-    expect(filas.map((f) => f.codigo)).toEqual(["Sin barra", "PML-4", "PM-015", "PM-016", "PML-2", "PML-10"]);
+  it("primero los proyectos por su ID y luego los PML por su PML ID, en orden natural (PML-2 antes que PML-10), sin importar el PM", () => {
+    expect(filas.map((f) => f.codigo)).toEqual(["PM-015", "PM-016", "Sin barra", "PML-2", "PML-4", "PML-10"]);
   });
 
   it("proyecto: código y nombre salen del nombre del board, y la fase es la actual", () => {
