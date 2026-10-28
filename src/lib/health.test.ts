@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcVem, healthStatusFromIndex, pmHealthStatus, vemCfg, weightedEvm, EVM_WEIGHTS } from "./health";
+import { calcVem, healthStatusFromIndex, pmHealthStatus, vemCfg, weightedEvm, EVM_WEIGHTS, VEM_RANGOS_TXT, VEM_THRESHOLDS } from "./health";
 
 describe("calcVem", () => {
   it("promedia SPI, CPI y Scope", () => {
@@ -14,11 +14,23 @@ describe("calcVem", () => {
 });
 
 describe("healthStatusFromIndex", () => {
-  it("umbrales 0.95 (on-track) / 0.85 (in-risk) / resto (off-track)", () => {
+  it("95 o más On Track · 90 a 94 At Risk · 89 o menos Off Track", () => {
+    expect(VEM_THRESHOLDS).toEqual({ onTrack: 95, inRisk: 90 });
+    expect(healthStatusFromIndex(1)).toBe("on-track");
     expect(healthStatusFromIndex(0.95)).toBe("on-track");
     expect(healthStatusFromIndex(0.94)).toBe("in-risk");
-    expect(healthStatusFromIndex(0.85)).toBe("in-risk");
-    expect(healthStatusFromIndex(0.84)).toBe("off-track");
+    expect(healthStatusFromIndex(0.9)).toBe("in-risk");
+    expect(healthStatusFromIndex(0.89)).toBe("off-track");
+    expect(healthStatusFromIndex(0)).toBe("off-track");
+  });
+  it("compara el % redondeado, el que se ve: 94.6% sale «95%» y es On Track; 89.6% sale «90%» y es At Risk", () => {
+    expect(healthStatusFromIndex(0.946)).toBe("on-track");
+    expect(healthStatusFromIndex(0.944)).toBe("in-risk");
+    expect(healthStatusFromIndex(0.896)).toBe("in-risk");
+    expect(healthStatusFromIndex(0.894)).toBe("off-track");
+  });
+  it("el texto de los rangos sale de los mismos umbrales", () => {
+    expect(VEM_RANGOS_TXT).toBe("≥95% On Track · 90–94% At Risk · <90% Off Track");
   });
   it("null → null", () => {
     expect(healthStatusFromIndex(null)).toBeNull();
@@ -54,12 +66,12 @@ describe("weightedEvm", () => {
 });
 
 describe("pmHealthStatus (estado del PM = el de su nota EVM)", () => {
-  it("usa los mismos umbrales: ≥ 95% On Track · 85–95% At Risk · < 85% Off Track", () => {
+  it("usa los mismos umbrales: 95+ On Track · 90–94 At Risk · 89− Off Track", () => {
     expect(pmHealthStatus(1)).toBe("on-track");
     expect(pmHealthStatus(0.95)).toBe("on-track");
-    expect(pmHealthStatus(0.9499)).toBe("in-risk");
-    expect(pmHealthStatus(0.85)).toBe("in-risk");
-    expect(pmHealthStatus(0.8499)).toBe("off-track");
+    expect(pmHealthStatus(0.94)).toBe("in-risk");
+    expect(pmHealthStatus(0.9)).toBe("in-risk");
+    expect(pmHealthStatus(0.89)).toBe("off-track");
     expect(pmHealthStatus(0)).toBe("off-track");
   });
   it("sin nota (nada que medir) queda On Track, como sus bloques vacíos", () => {

@@ -42,6 +42,7 @@ import {
   type ConfirmacionRoiPm,
 } from "./dashboard";
 import { KPI_W_CKU } from "./kpi";
+import { pmHealthStatus } from "./health";
 import { today } from "./business";
 import { metodologiaKey, mesDe } from "./metodologia";
 import type { BoardHealthData } from "./proj";
@@ -387,10 +388,10 @@ describe("calcPmEvm (nota EVM del PM, de la que sale su estado)", () => {
     expect(v).toBeCloseTo(0.5 * (2 / 9) + 0.8 * (7 / 9), 10);
   });
 
-  it("un solo PML Off Track no hunde al PM si el resto aguanta (ya no manda el peor)", () => {
-    const v = calcPmEvm("Luis", [], [reqLuis(0.33)], boards, bhm({ b1: 1, b2: 1 }), new Map());
-    expect(v).toBeCloseTo(0.33 * (2 / 9) + 1 * (7 / 9), 10); // ≈ 0.85 → At Risk, no Off Track
-    expect(v!).toBeGreaterThanOrEqual(0.85);
+  it("un PML atrasado (su vem tope es 0.67) no hunde solo al PM si el resto aguanta (ya no manda el peor)", () => {
+    const v = calcPmEvm("Luis", [], [reqLuis(0.67)], boards, bhm({ b1: 1, b2: 1 }), new Map());
+    expect(v).toBeCloseTo(0.67 * (2 / 9) + 1 * (7 / 9), 10); // ≈ 0.93
+    expect(pmHealthStatus(v)).toBe("in-risk"); // At Risk, no Off Track
   });
 
   it("ignora lo de otros PM, los PML cerrados o en grupos inactivos y los proyectos sin índice", () => {

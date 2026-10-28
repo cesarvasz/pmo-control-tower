@@ -16,7 +16,7 @@ import {
   isFase1, isFase2, isFase5,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { healthStatusFromIndex, pmHealthStatus, weightedEvm, vemCfg, HEALTH_CFG, type HealthStatus } from "@/lib/health";
+import { healthStatusFromIndex, pmHealthStatus, weightedEvm, vemCfg, HEALTH_CFG, VEM_RANGOS_TXT, type HealthStatus } from "@/lib/health";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -886,9 +886,10 @@ function PMPortfolioCard({
   const rvc = sinPml ? HEALTH_CFG["on-track"] : reqVemStatus ? HEALTH_CFG[reqVemStatus] : null;
   const reqBadgePct = sinPml ? 100 : reqAvgVem !== null ? Math.round(reqAvgVem * 100) : null;
 
-  const rEvmOff  = reqAct.filter((r) => r.vem !== null && (r.vem as number) < 0.85).length;
-  const rEvmRisk = reqAct.filter((r) => r.vem !== null && (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length;
-  const rEvmOn   = reqAct.filter((r) => r.vem !== null && (r.vem as number) >= 0.95).length;
+  const rEvmCount = (st: HealthStatus) => reqAct.filter((r) => r.vem != null && healthStatusFromIndex(r.vem) === st).length;
+  const rEvmOff  = rEvmCount("off-track");
+  const rEvmRisk = rEvmCount("in-risk");
+  const rEvmOn   = rEvmCount("on-track");
 
   const pmProjBoards = projBoards.filter((b) => b.pm === pm);
   const projHas = pmProjBoards.length > 0;
@@ -978,8 +979,8 @@ function PMPortfolioCard({
         const confRatio = ratioConfirmacion(pmValueHard.confirmacionBenefit);
         const confColor = kpiColorFor(confRatio);
         const metrics: { label: string; value: React.ReactNode; color: string; onClick?: () => void; title: string; sub?: string; badge?: { text: string; color: string; bg: string } }[] = [
-          // La salud del PM (también el borde de la tarjeta) sale de esta misma nota: ≥ 95% On Track · 85–95% At Risk · < 85% Off Track.
-          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, badge: { text: `${hc.icon} ${hc.label}`, color: hc.color, bg: hc.bg }, title: "EVM del PM · ponderado Iniciativas 10% · PML 20% · Proyectos 70% · su salud sale de esta nota: ≥95% On Track · 85–95% At Risk · <85% Off Track" },
+          // La salud del PM (también el borde de la tarjeta) sale de esta misma nota (umbrales en VEM_THRESHOLDS, lib/health.ts).
+          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, badge: { text: `${hc.icon} ${hc.label}`, color: hc.color, bg: hc.bg }, title: "EVM del PM · ponderado Iniciativas 10% · PML 20% · Proyectos 70% · su salud sale de esta nota: " + VEM_RANGOS_TXT },
           { label: "Beneficio $", value: (
             // Validado arriba (negro) y Confirmado abajo (semáforo), apilados para no ensanchar la celda.
             <span className="flex flex-col items-center gap-0.5 text-[0.8rem] leading-none">

@@ -7,8 +7,9 @@
 
 export type HealthStatus = "on-track" | "in-risk" | "off-track";
 
-/** Umbrales de salud sobre el índice VEM (0–1). */
-export const VEM_THRESHOLDS = { onTrack: 0.95, inRisk: 0.85 } as const;
+/** Umbrales de salud en % ENTERO (el que se ve en pantalla): de onTrack para arriba On Track, de
+ *  inRisk a onTrack−1 At Risk, de inRisk−1 para abajo Off Track. Hoy: 95+ · 90–94 · 89−. */
+export const VEM_THRESHOLDS = { onTrack: 95, inRisk: 90 } as const;
 
 /** VEM = promedio de SPI, CPI y Scope (todos en fracción 0–1). null si falta alguno. */
 export function calcVem(spi: number | null, cpi: number | null, scope01: number | null): number | null {
@@ -40,13 +41,19 @@ export function weightedEvm(parts: { ini: number | null; req: number | null; pro
   return present.reduce((s, p) => s + p.v * p.w, 0) / wSum;
 }
 
-/** Deriva el estado de salud a partir de un índice VEM (0–1). */
+/** Deriva el estado de salud a partir de un índice VEM (0–1). Se compara el índice REDONDEADO a %
+ *  entero, que es el que se muestra: un 89.6 % que sale como «90%» es At Risk, no Off Track. */
 export function healthStatusFromIndex(index: number | null): HealthStatus | null {
   if (index === null) return null;
-  return index >= VEM_THRESHOLDS.onTrack ? "on-track"
-       : index >= VEM_THRESHOLDS.inRisk  ? "in-risk"
+  const pct = Math.round(index * 100);
+  return pct >= VEM_THRESHOLDS.onTrack ? "on-track"
+       : pct >= VEM_THRESHOLDS.inRisk  ? "in-risk"
        : "off-track";
 }
+
+/** Los rangos como texto para tooltips: «≥95% On Track · 90–94% At Risk · <90% Off Track». */
+export const VEM_RANGOS_TXT =
+  `≥${VEM_THRESHOLDS.onTrack}% On Track · ${VEM_THRESHOLDS.inRisk}–${VEM_THRESHOLDS.onTrack - 1}% At Risk · <${VEM_THRESHOLDS.inRisk}% Off Track`;
 
 /** Estado de salud de un PM: el de su nota EVM (la del % de su tarjeta) con los umbrales de
  *  VEM_THRESHOLDS. Ya no es «el peor» de sus Iniciativas, PML y Proyectos: un solo atraso no lo

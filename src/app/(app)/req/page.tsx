@@ -187,9 +187,9 @@ function ReqInner() {
             {vemCfg(portVEM).icon} {vemCfg(portVEM).label}
           </span>
           <div className="ml-auto flex gap-4 text-[0.78rem]">
-            <span style={{ color: "#10b981" }}>✓ {allVEM.filter((r) => (r.vem as number) >= 0.95).length} On Track</span>
-            <span style={{ color: "#f59e0b" }}>⚠ {allVEM.filter((r) => (r.vem as number) >= 0.85 && (r.vem as number) < 0.95).length} At Risk</span>
-            <span style={{ color: "#ef4444" }}>✕ {allVEM.filter((r) => (r.vem as number) < 0.85).length} Off Track</span>
+            <span style={{ color: "#10b981" }}>✓ {allVEM.filter((r) => healthStatusFromIndex(r.vem as number) === "on-track").length} On Track</span>
+            <span style={{ color: "#f59e0b" }}>⚠ {allVEM.filter((r) => healthStatusFromIndex(r.vem as number) === "in-risk").length} At Risk</span>
+            <span style={{ color: "#ef4444" }}>✕ {allVEM.filter((r) => healthStatusFromIndex(r.vem as number) === "off-track").length} Off Track</span>
           </div>
         </div>
       )}
