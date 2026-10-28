@@ -17,6 +17,7 @@ import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyResultModal from "@/components/SurveyResultModal";
+import OnHoldButton from "@/components/OnHoldButton";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, SectionHeader, StatCard } from "@/components/ui";
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
@@ -51,7 +52,9 @@ export default function ReqPage() {
 
 function ReqInner() {
   const sp = useSearchParams();
-  const { data, loading, error } = useData();
+  // `data` ya no trae los PML en On Hold (no cuentan en ninguna métrica); `enPausa` sí los
+  // trae, para listarlos aparte y poder reactivarlos.
+  const { data, enPausa, loading, error } = useData();
   const [pms, setPms] = useState<string[]>(() => {
     const pm = sp.get("pm");
     return pm ? [pm] : [];
@@ -68,6 +71,7 @@ function ReqInner() {
 
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_roles");
+  const puedeOnHold = hasAction(me?.permissions, "edit_on_hold");
   const delays: DelayMap = data?.delayAttributions ?? {};
 
   const loadSurveys = useCallback(async () => {
@@ -111,6 +115,9 @@ function ReqInner() {
       (!pms.length || pms.includes(r.pm)) &&
       (!statuses.length || statuses.includes(r.status)),
   );
+
+  // PML en On Hold: respetan el filtro de PM; el resto de filtros aplica al pipeline activo.
+  const enOnHold = enPausa.pml.filter((r) => !pms.length || pms.includes(r.pm));
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -229,6 +236,7 @@ function ReqInner() {
         onRowClick={setSelected}
         surveys={surveys}
         onSend={setSendTarget}
+        conOnHold={puedeOnHold}
       />
 
       {/* REQ Cerrados (tabla aparte al fondo) */}
@@ -240,7 +248,16 @@ function ReqInner() {
             onRowClick={setSelected}
             surveys={surveys}
             onSend={setSendTarget}
+            conOnHold={puedeOnHold}
           />
+        </div>
+      )}
+
+      {/* PML en On Hold: fuera de toda métrica (cards, EVM, entregas…); aquí solo se listan. */}
+      {enOnHold.length > 0 && (
+        <div className="mt-9">
+          <SectionHeader title="PML en On Hold" badge={`${enOnHold.length} items · no cuentan en las métricas`} />
+          <ReqOnHoldTable rows={enOnHold} onRowClick={setSelected} />
         </div>
       )}
 
@@ -264,11 +281,53 @@ function ReqInner() {
   );
 }
 
-function ReqTable({ rows, onRowClick, surveys, onSend }: {
+/** Los PML en On Hold: solo datos de identificación y el botón para reactivarlos. A propósito
+ *  sin EVM, entrega ni reproceso — en On Hold no se miden. */
+function ReqOnHoldTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r: ReqItem) => void }) {
+  const { dataTodo } = useData();
+  const { me } = useMe();
+  const puede = hasAction(me?.permissions, "edit_on_hold");
+  return (
+    <div className="table-wrap">
+      <table className="pmo">
+        <thead>
+          <tr>
+            <th>PML ID</th><th>Requerimiento</th><th>PM</th><th>Fase</th>
+            <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
+            <th>En On Hold desde</th>{puede && <th />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const e = dataTodo?.onHold.pml[r.id];
+            return (
+              <tr key={r.id}>
+                <td className="ini-id">{r.id}</td>
+                <td className="ini-name" style={{ cursor: "pointer", color: "var(--accent)" }} onClick={() => onRowClick(r)}>{r.name}</td>
+                <td className="pm-name">{r.pm || "—"}</td>
+                <td><span style={{ fontSize: ".72rem", fontWeight: 600, color: REQ_GROUP_COLOR[r.grupo] || "var(--text-muted)" }}>{r.grupo}</span></td>
+                <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.costRH + r.costSft > 0 ? fmtMoney(r.costRH + r.costSft) : "—"}</td>
+                <td style={{ textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
+                <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }} title={e?.by ? `Por ${e.by}` : undefined}>
+                  {e?.at ? fmtDate(new Date(e.at)) : "—"}
+                </td>
+                {puede && <td><OnHoldButton tipo="pml" id={r.id} nombre={r.id || r.name} activo /></td>}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReqTable({ rows, onRowClick, surveys, onSend, conOnHold }: {
   rows: ReqItem[];
   onRowClick: (r: ReqItem) => void;
   surveys: Map<string, SurveyDoc[]>;
   onSend: (r: ReqItem) => void;
+  /** Muestra la columna para poner el PML en On Hold (solo quien tiene la acción). */
+  conOnHold: boolean;
 }) {
   if (!rows.length) return <EmptyRow />;
   const t = today();
@@ -357,6 +416,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
             <th>PML ID</th><th>Requerimiento</th><th>PM</th><th>Resp</th><th>Fase</th><th>Estado</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th><th>Benefit Type</th>
             <th>Deadline</th><th>Diferencia</th><th>EVM</th><th>Entrega</th><th>Reproceso</th><th>Encuesta</th>
+            {conOnHold && <th />}
           </tr>
         </thead>
         <tbody>
@@ -382,6 +442,7 @@ function ReqTable({ rows, onRowClick, surveys, onSend }: {
                 <td>{onTimeCell(r)}</td>
                 <td><ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.estado === "CERRADO"} /></td>
                 <td>{surveyCell(r)}</td>
+                {conOnHold && <td><OnHoldButton tipo="pml" id={r.id} nombre={r.id || r.name} activo={false} /></td>}
               </tr>
             );
           })}

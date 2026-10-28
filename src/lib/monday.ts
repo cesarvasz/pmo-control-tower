@@ -252,6 +252,7 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     metodologiaCalifs: {}, // el route handler inyecta las notas de Metodología VALOR desde Firestore
     atrasoDetalles: {},     // el route handler inyecta el detalle de atrasos desde Firestore
     boardAlcance: {},       // el route handler inyecta el Alcance de proyectos desde Firestore
+    onHold: { proyectos: {}, pml: {} }, // el route handler inyecta los Proyectos y PML en On Hold desde Firestore
     reminderLog,
     fetchedAt: new Date().toISOString(),
   };

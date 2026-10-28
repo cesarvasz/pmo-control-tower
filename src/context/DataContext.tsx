@@ -17,14 +17,22 @@ import { authedFetch } from "@/lib/api";
 import { esRolSponsor } from "@/lib/permissions";
 import { calcProjEntrega, projProcess } from "@/lib/proj";
 import { buildDashboardData } from "@/lib/dashboardData";
+import { aplicarOnHold, conOnHold, enOnHold, type EnOnHold, type OnHoldTipo } from "@/lib/onHold";
 import { nombreDeEmail, scopeToSponsor } from "@/lib/sponsorScope";
 import type { BoardRefreshResponse } from "@/app/api/dashboard/board/[boardId]/route";
 import type { AtrasoReparto, AttributionKind, DashboardData, DashboardRaw, DelayResponsible, ProjItem } from "@/types";
 
 interface DataContextValue {
-  /** Lo que ven las páginas. Para un usuario con rol "Sponsor" ya viene recortado a lo ligado
-   *  a su nombre (ver lib/sponsorScope); para los demás roles es el dashboard completo. */
+  /** Lo que ven las páginas y miden TODAS las métricas. Para un usuario con rol "Sponsor" ya
+   *  viene recortado a lo ligado a su nombre (ver lib/sponsorScope); para los demás roles es el
+   *  dashboard completo. Sin lo que está en On Hold (ver lib/onHold): ni sus Proyectos ni sus
+   *  PML cuentan en ninguna métrica. */
   data: DashboardData | null;
+  /** Igual que `data` pero CON los Proyectos y PML en On Hold. Solo para las pantallas que
+   *  tienen que mostrarlos (Proyectos, PML) — nunca para calcular una métrica. */
+  dataTodo: DashboardData | null;
+  /** Los Proyectos (boards) y PML en On Hold, listos para mostrar. */
+  enPausa: EnOnHold;
   /** Presente cuando `data` está recortado: de quién es el alcance (nombre null = su correo no
    *  está en el Directorio RH y por eso no se le muestra nada). null = sin recorte. */
   alcance: { rol: "Sponsor"; nombre: string | null } | null;
@@ -54,6 +62,9 @@ interface DataContextValue {
   /** Actualiza localmente (optimista) el Alcance de un proyecto (Status Card).
    *  alcance vacío → quita el detalle. La persistencia la hace el caller. */
   setBoardAlcance: (boardId: string, alcance: string) => void;
+  /** Pone o quita (optimista) un Proyecto o PML de On Hold. La persistencia la hace el caller
+   *  vía POST /api/on-hold (ver OnHoldButton). */
+  setOnHold: (tipo: OnHoldTipo, id: string, activo: boolean) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -72,10 +83,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       : null),
     [fullData, me?.roleName, me?.email],
   );
-  const data = useMemo(
+  const dataTodo = useMemo(
     () => (fullData && alcance ? scopeToSponsor(fullData, alcance.nombre) : fullData),
     [fullData, alcance],
   );
+  // Lo que miden las métricas: sin lo que está en On Hold.
+  const data = useMemo(() => (dataTodo ? aplicarOnHold(dataTodo) : null), [dataTodo]);
+  const enPausa = useMemo(() => (dataTodo ? enOnHold(dataTodo) : { proyectos: [], pml: [] }), [dataTodo]);
   const [error, setError] = useState<string | null>(null);
   const fetchedOnce = useRef(false);
 
@@ -212,6 +226,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Actualización optimista de On Hold; evita un refetch completo. Todas las métricas se
+  // recalculan solas porque `data` se vuelve a derivar de `fullData`.
+  const setOnHold = useCallback((tipo: OnHoldTipo, id: string, activo: boolean) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      return { ...prev, onHold: conOnHold(prev.onHold, tipo, id, activo, { by: "", at: new Date().toISOString() }) };
+    });
+  }, []);
+
   // Carga inicial una sola vez, cuando hay sesión. Los datos NO se refrescan solos:
   // solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
   useEffect(() => {
@@ -228,7 +251,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance }}>
+    <DataContext.Provider value={{ data, dataTodo, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold }}>
       {children}
     </DataContext.Provider>
   );

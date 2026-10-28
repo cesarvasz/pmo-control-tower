@@ -19,6 +19,7 @@ import { buildProjectMetrics, buildAllProjectMetrics, boardHealthFromMetrics } f
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyResultModal from "@/components/SurveyResultModal";
 import BitacoraModal from "@/components/BitacoraModal";
+import OnHoldButton, { OnHoldBadge } from "@/components/OnHoldButton";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard } from "@/components/ui";
 
 // El step del proyecto que habilita la encuesta de NPS y el estado que la activa.
@@ -51,7 +52,9 @@ export default function ProyectosPage() {
 }
 
 function ProyectosInner() {
-  const { data, loading, error, refresh, refreshBoard } = useData();
+  // Esta pantalla lee el dashboard CON lo que está en On Hold (`dataTodo`): tiene que mostrarlo
+  // para poder reactivarlo. Los conteos de arriba sí lo excluyen.
+  const { dataTodo: data, loading, error, refresh, refreshBoard } = useData();
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_users");
   const [boardFilter, setBoardFilter] = useState<string[]>([]);
@@ -107,9 +110,13 @@ function ProyectosInner() {
     const { ac } = calcBoardMetrics(projData.filter((r) => r.boardId === b.id), projItemBaselines);
     boardHealthMap.set(b.id, boardHealthFromMetrics(m, ac));
   });
-  const boardsOffTrack = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
-  const boardsInRisk   = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;
-  const boardsOnTrack  = projBoards.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "on-track").length;
+  // Los proyectos en On Hold no cuentan en las tarjetas: salen aparte.
+  const enPausa = new Set(Object.keys(data.onHold.proyectos));
+  const boardsActivos = projBoards.filter((b) => !enPausa.has(b.id));
+  const boardsOffTrack = boardsActivos.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track").length;
+  const boardsInRisk   = boardsActivos.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk").length;
+  const boardsOnTrack  = boardsActivos.filter((b) => boardHealthMap.get(b.id)?.healthStatus === "on-track").length;
+  const boardsOnHold   = projBoards.length - boardsActivos.length;
 
   // Al abrir un proyecto se confirma su status real contra Monday (por si
   // alguien lo cambió fuera de la app) antes de que el usuario lo edite de
@@ -153,11 +160,12 @@ function ProyectosInner() {
   return (
     <div>
       {/* Cards */}
-      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard value={projBoards.length} label="Total Proyectos" />
+      <div className={`mb-4 grid grid-cols-2 gap-4 ${boardsOnHold > 0 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+        <StatCard value={boardsActivos.length} label="Total Proyectos" />
         <StatCard value={boardsOffTrack} label="Off Track" color="#ef4444" borderColor="#ef4444" />
         <StatCard value={boardsInRisk}   label="At Risk"   color="#f59e0b" borderColor="#f59e0b" />
         <StatCard value={boardsOnTrack}  label="On Track"  color="#10b981" borderColor="#10b981" />
+        {boardsOnHold > 0 && <StatCard value={boardsOnHold} label="On Hold" color="var(--text-muted)" borderColor="var(--border)" />}
       </div>
 
       {/* Filtro de proyecto */}
@@ -194,7 +202,7 @@ function ProyectosInner() {
             // Ya no hay filtro de PM: `items` siempre es el board completo. Se
             // sigue pasando como `allBoardItems` porque BoardAccordion la usa
             // aparte para la medición (buildProjectMetrics) y el reset de baseline.
-            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} spi={bh.spi} cpi={bh.cpi} healthIndex={bh.healthIndex} healthStatus={bh.healthStatus} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} isAdmin={isAdmin} allBoardItems={items} onResetBaseline={() => handleResetBaseline(b.id, items)} surveysByReq={surveys} onOpenSurvey={setSendTarget} canComment={canComment} onOpenBitacora={setBitacoraTarget} />;
+            return <BoardAccordion key={b.id} board={b} items={items} ev={bh.ev} pv={bh.pv} ac={bh.ac} scope={bh.scope} spi={bh.spi} cpi={bh.cpi} healthIndex={bh.healthIndex} healthStatus={bh.healthStatus} onHold={enPausa.has(b.id)} open={openBoards.has(b.id) || filterNoDl} onToggle={() => toggleAcc(b.id)} filterNoDl={filterNoDl} isAdmin={isAdmin} allBoardItems={items} onResetBaseline={() => handleResetBaseline(b.id, items)} surveysByReq={surveys} onOpenSurvey={setSendTarget} canComment={canComment} onOpenBitacora={setBitacoraTarget} />;
           })
           .filter(Boolean);
         return accordions.length ? accordions : <EmptyRow msg="Sin resultados." />;
@@ -275,10 +283,11 @@ function hitoCalidadReadOnly(entrega: "on-time" | "late" | null, fueraDeCpm: boo
   );
 }
 
-function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey, canComment, onOpenBitacora }: { board: ProjBoard; items: ProjItem[]; allBoardItems: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void; canComment: boolean; onOpenBitacora: (t: { id: string; name: string; email?: string }) => void }) {
+function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, cpi, healthIndex, healthStatus, onHold, open, onToggle, filterNoDl, isAdmin, onResetBaseline, surveysByReq, onOpenSurvey, canComment, onOpenBitacora }: { board: ProjBoard; items: ProjItem[]; allBoardItems: ProjItem[]; ev: number; pv: number; ac: number; scope: number | null; spi: number | null; cpi: number | null; healthIndex: number | null; healthStatus: HealthStatus | null; onHold: boolean; open: boolean; onToggle: () => void; filterNoDl: boolean; isAdmin?: boolean; onResetBaseline?: () => Promise<void>; surveysByReq: Map<string, SurveyDoc[]>; onOpenSurvey: (t: SurveyTarget) => void; canComment: boolean; onOpenBitacora: (t: { id: string; name: string; email?: string }) => void }) {
   const [showModal, setShowModal] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const { data: ctx, refreshBoard, refreshingBoards } = useData();
+  // `dataTodo`: el reporte de un proyecto en On Hold necesita sus baselines, que `data` ya no trae.
+  const { dataTodo: ctx, refreshBoard, refreshingBoards } = useData();
   const [refreshErr, setRefreshErr] = useState(false);
   const refreshingThis = refreshingBoards.has(board.id);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -429,7 +438,9 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
         <span className="rounded-full px-2 py-0.5 text-[0.7rem]" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
           {items.length} items
         </span>
-        {badge ? (
+        {onHold ? (
+          <OnHoldBadge />
+        ) : badge ? (
           <button
             onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
             className="rounded-full px-2.5 py-0.5 text-[0.7rem] font-bold"
@@ -446,6 +457,7 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
             — Sin datos
           </span>
         )}
+        <OnHoldButton tipo="proyecto" id={board.id} nombre={board.name} activo={onHold} />
         {isAdmin && onResetBaseline && (
           <button
             onClick={async (e) => {

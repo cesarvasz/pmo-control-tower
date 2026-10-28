@@ -263,6 +263,19 @@ export interface BoardAlcance {
   at?: string;     // ISO timestamp
 }
 
+/** Quién y cuándo puso un Proyecto o PML en On Hold. */
+export interface OnHoldEntry {
+  by: string; // correo de quien lo puso en On Hold
+  at: string; // ISO timestamp
+}
+
+/** Proyectos (por id de board) y PML (por id del item) en On Hold: no cuentan en ninguna
+ *  métrica (ver lib/onHold.ts). Vive en Firestore (`on_hold/actual`). */
+export interface OnHoldDoc {
+  proyectos: Record<string, OnHoldEntry>;
+  pml: Record<string, OnHoldEntry>;
+}
+
 /** Snapshot semanal del portafolio (Control Tower) — guardado cada lunes 8am
  *  por el cron (ver lib/weeklySnapshot.ts). doc id = "YYYY-MM-DD" del lunes. */
 export interface WeeklySnapshotDoc {
@@ -293,6 +306,7 @@ export interface DashboardRaw {
   metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR (Firestore)
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Firestore) — tabla Atrasos
   boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto (Firestore) — Status Card
+  onHold: OnHoldDoc; // Proyectos y PML en On Hold (Firestore) — fuera de toda métrica
   reminderLog: ReminderEnvio[]; // registro de correos "Sin Valor Def" enviados por Apps Script
   fetchedAt: string;
 }
@@ -554,6 +568,9 @@ export interface DashboardData {
   metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso — tabla Atrasos
   boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto — Status Card
+  /** Proyectos y PML en On Hold. En el `data` que ven las métricas ya vienen EXCLUIDOS (ver
+   *  aplicarOnHold); este mapa se conserva para saber cuáles son. */
+  onHold: OnHoldDoc;
   directorio: DirectorioEntry[];
   /** nombres normalizados del Equipo de Desarrollo Interno + Externo (Directorio RH) —
    *  filtra los hitos de plantilla nueva en "Desarrollo Timelines" (ver devTimeline.ts). */

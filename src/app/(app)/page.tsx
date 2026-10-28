@@ -31,6 +31,7 @@ import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
 import EntregaDetailModal from "@/components/EntregaDetailModal";
 import { computeKpi, kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion } from "@/lib/kpi";
 import { buildVpaActions } from "@/lib/vpaActions";
+import type { EnOnHold } from "@/lib/onHold";
 import WeeklyProgressChart from "@/components/WeeklyProgressChart";
 import NotificationsBell from "@/components/NotificationsBell";
 import PreprodRestoreDatesModal from "@/components/PreprodRestoreDatesModal";
@@ -48,14 +49,16 @@ const HIDDEN_FROM_CONTROL_TOWER = ["PM-014"];
 const isHiddenFromControlTower = (boardName: string) => HIDDEN_FROM_CONTROL_TOWER.some((code) => boardName.startsWith(code));
 
 export default function ControlTowerPage() {
-  const { data, loading, error } = useData();
+  const { data, enPausa, loading, error } = useData();
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
-  return <ControlTower data={data} />;
+  return <ControlTower data={data} enPausa={enPausa} />;
 }
 
-function ControlTower({ data }: { data: DashboardData }) {
+// `data` ya viene SIN los Proyectos y PML en On Hold (no cuentan en ninguna métrica); `enPausa`
+// los trae solo para listarlos en la franja «On Hold» de la tarjeta de cada PM.
+function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHold }) {
   const router = useRouter();
   const { me } = useMe();
   const greetName = me?.displayName || "";
@@ -658,7 +661,7 @@ function ControlTower({ data }: { data: DashboardData }) {
           {allPMs.map((pm) => {
             const q = encodeURIComponent(pm);
             return (
-              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} boardCompleteMap={boardCompleteMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} confirmacionRoi={confirmacionRoiPm[pm]} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} boardCompleteMap={boardCompleteMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} confirmacionRoi={confirmacionRoiPm[pm]} onHoldProyectos={enPausa.proyectos.filter((b) => b.pm === pm)} onHoldPml={enPausa.pml.filter((r) => r.pm === pm)} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
             );
           })}
         </div>
@@ -820,13 +823,16 @@ function ValueGateColumn({ label, rows, onSelect }: { label: string; rows: Value
 }
 
 function PMPortfolioCard({
-  pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoi, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoi, onHoldProyectos, onHoldPml, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[];
   projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; boardCompleteMap: Map<string, boolean>; calMap: CalMap;
   npsRecords: NpsRecord[]; delays: DelayMap; reproceso: DelayMap; metodologia: MetodologiaMap;
   /** Confirmación vía ROI de este PM, si le aplica (ver CONFIRMACION_ROI_PM). */
   confirmacionRoi?: ConfirmacionRoiPm;
+  /** Proyectos y PML de este PM en On Hold: no entran en ninguna de las cifras de la tarjeta,
+   *  solo se listan en la franja «On Hold» del pie. */
+  onHoldProyectos: ProjBoard[]; onHoldPml: ReqItem[];
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
@@ -1052,6 +1058,31 @@ function PMPortfolioCard({
           </div>
         </Section>
       </div>
+
+      {/* On Hold: pausados, fuera de toda cifra de esta tarjeta. Solo aparece si el PM tiene alguno. */}
+      {(onHoldProyectos.length > 0 || onHoldPml.length > 0) && (
+        <div className="border-t px-[18px] py-2.5" style={{ borderColor: "var(--border)" }}>
+          <div className="mb-1.5 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            On Hold <span className="font-normal text-[var(--text-disabled)]">({onHoldProyectos.length + onHoldPml.length})</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {onHoldPml.map((r) => (
+              <button key={`pml-${r.id}`} onClick={onGoReq} title={`PML en On Hold: ${r.name}`}
+                className="rounded border px-1.5 py-0.5 font-mono text-[0.72rem] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
+                style={{ borderColor: "var(--border)" }}>
+                {r.id}
+              </button>
+            ))}
+            {onHoldProyectos.map((b) => (
+              <button key={`proy-${b.id}`} onClick={onGoProj} title={`Proyecto en On Hold: ${b.name}`}
+                className="rounded border px-1.5 py-0.5 font-mono text-[0.72rem] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
+                style={{ borderColor: "var(--border)" }}>
+                {b.name.slice(0, 6)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showValue && (
         <PMValueModal pm={pm} valueAll={pmValueAll} valueHard={pmValueHard} initialHard={true} onClose={() => setShowValue(false)} />

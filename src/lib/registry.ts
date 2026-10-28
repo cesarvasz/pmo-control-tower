@@ -65,6 +65,7 @@ export const ACTIONS: ActionDef[] = [
   { key: "manage_users", label: "Gestionar usuarios", description: "Ver usuarios y asignarles roles." },
   { key: "manage_roles", label: "Gestionar roles",    description: "Crear, editar y eliminar roles, grupos y sus permisos." },
   { key: "edit_proj_status", label: "Cambiar status en Proyectos", description: "Cambiar el status de items y hitos de Proyectos desde la app (escribe directo en Monday)." },
+  { key: "edit_on_hold", label: "Poner Proyectos y PML en On Hold", description: "Pausar un Proyecto o un PML (On Hold) y reactivarlo. Mientras está en On Hold no cuenta en ninguna métrica." },
   { key: "edit_implementacion_metas", label: "Editar cumplimiento de Implementación", description: "Capturar y modificar el cumplimiento por cliente (Vol y CM1) y el % a alcanzar por mes de la pestaña Implementación en ROI." },
 ];
 

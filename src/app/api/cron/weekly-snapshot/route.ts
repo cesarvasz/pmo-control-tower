@@ -15,8 +15,9 @@
 import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
-import { getReqBaselines, getProjItemBaselines, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, saveWeeklySnapshot } from "@/lib/firebase-admin";
+import { getReqBaselines, getProjItemBaselines, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, getOnHold, saveWeeklySnapshot } from "@/lib/firebase-admin";
 import { buildDashboardData } from "@/lib/dashboardData";
+import { aplicarOnHold } from "@/lib/onHold";
 import { computeWeeklySnapshotMetrics } from "@/lib/weeklySnapshot";
 import { calcConfirmacionRoi } from "@/lib/dashboard";
 import { fetchRoiRows } from "@/lib/roi";
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [raw, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, roi, clonacion] = await Promise.all([
+    const [raw, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, onHold, roi, clonacion] = await Promise.all([
       fetchDashboardRaw(),
       getReqBaselines(),
       getProjItemBaselines(),
@@ -45,14 +46,16 @@ export async function GET(request: Request) {
       getMetodologiaCalifs(),
       getAtrasoDetalles(),
       getBoardAlcances(),
+      getOnHold(),
       fetchRoiRows(),
       fetchClonacionRows(),
     ]);
 
-    const data = buildDashboardData({
+    // Lo que está en On Hold no cuenta en el histórico, igual que no cuenta en pantalla.
+    const data = aplicarOnHold(buildDashboardData({
       ...raw, baselines, projItemBaselines, npsRecords,
-      delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance,
-    });
+      delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, onHold,
+    }));
 
     // Confirmación vía ROI (Ahorro Ducafast + Ahorro Clonación) — reemplaza a
     // la de Monday, ver calcConfirmacionRoi en lib/dashboard.ts.

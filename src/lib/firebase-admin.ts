@@ -4,9 +4,10 @@
 
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ObjetivoMes, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
+import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ObjetivoMes, OnHoldDoc, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
 import { leerDocMetas } from "@/lib/implementaciones";
+import { leerOnHold, type OnHoldTipo } from "@/lib/onHold";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -164,6 +165,22 @@ export async function saveMetasImplementacion(
   const doc: MetasImplementacionDoc = { metas, objetivos, by, at: new Date().toISOString() };
   await getAdminDb().collection("implementacion_metas").doc("actual").set(doc);
   return doc;
+}
+
+// ── On Hold (Proyectos y PML en pausa — fuera de toda métrica) ───────────
+// Un solo documento `on_hold/actual` con dos mapas, `proyectos` (por id de board) y `pml`
+// (por id de item): cargar el dashboard cuesta UNA lectura sin importar cuántos haya.
+// Poner o quitar uno escribe solo su llave (merge), así dos personas que pausen cosas
+// distintas a la vez no se pisan. Ver lib/onHold.ts.
+export async function getOnHold(): Promise<OnHoldDoc> {
+  const snap = await getAdminDb().collection("on_hold").doc("actual").get();
+  return leerOnHold(snap.exists ? snap.data() : undefined);
+}
+
+export async function setOnHold(tipo: OnHoldTipo, id: string, activo: boolean, by: string): Promise<void> {
+  const campo = tipo === "proyecto" ? "proyectos" : "pml";
+  const valor = activo ? { by, at: new Date().toISOString() } : FieldValue.delete();
+  await getAdminDb().collection("on_hold").doc("actual").set({ [campo]: { [id]: valor } }, { merge: true });
 }
 
 // ── Detalle de atraso (tabla "Atrasos" del Resumen Ejecutivo) ────────────
