@@ -10,7 +10,7 @@ import {
   isCierreVmoStep,
   shortPhaseName,
   calcPmValue,
-  pmWorstStatus,
+  calcPmEvm,
   buildBoardHealthMap,
   calcPmMetrics,
   calcEntregaStats,
@@ -374,17 +374,37 @@ describe("buildBoardHealthMap", () => {
   });
 });
 
-describe("pmWorstStatus", () => {
-  const emptyBhm = new Map<string, BoardHealthData>();
+describe("calcPmEvm (nota EVM del PM, de la que sale su estado)", () => {
+  const bhm = (hi: Record<string, number | null>) =>
+    new Map<string, BoardHealthData>(Object.entries(hi).map(([id, healthIndex]) => [id, { healthIndex } as BoardHealthData]));
+  const boards = [board({ id: "b1", pm: "Luis" }), board({ id: "b2", pm: "Luis" }), board({ id: "b3", pm: "Ana" })];
+  const reqLuis = (vem: number | null, o: Partial<ReqItem> = {}) =>
+    req({ pm: "Luis", estado: "EN PROCESO", grupo: "Desarrollo", vem, ...o });
 
-  it("un REQ off-track del PM → estado peor off-track", () => {
-    const reqs = [req({ pm: "Luis", estado: "EN PROCESO", grupo: "Desarrollo", vem: 0.5 })];
-    expect(pmWorstStatus("Luis", [], reqs, [], emptyBhm, new Map())).toBe("off-track");
+  it("pondera Iniciativas 10% · PML 20% · Proyectos 70%, cada fuente por el promedio de sus items", () => {
+    // Sin iniciativas: PML 0.5 (20%) y Proyectos (1 + 0.6)/2 = 0.8 (70%), pesos renormalizados a 2/9 y 7/9.
+    const v = calcPmEvm("Luis", [], [reqLuis(0.5)], boards, bhm({ b1: 1, b2: 0.6, b3: 0 }), new Map());
+    expect(v).toBeCloseTo(0.5 * (2 / 9) + 0.8 * (7 / 9), 10);
   });
 
-  it("todo On Track → on-track", () => {
-    const reqs = [req({ pm: "Luis", estado: "EN PROCESO", grupo: "Desarrollo", vem: 0.98 })];
-    expect(pmWorstStatus("Luis", [], reqs, [], emptyBhm, new Map())).toBe("on-track");
+  it("un solo PML Off Track no hunde al PM si el resto aguanta (ya no manda el peor)", () => {
+    const v = calcPmEvm("Luis", [], [reqLuis(0.33)], boards, bhm({ b1: 1, b2: 1 }), new Map());
+    expect(v).toBeCloseTo(0.33 * (2 / 9) + 1 * (7 / 9), 10); // ≈ 0.85 → At Risk, no Off Track
+    expect(v!).toBeGreaterThanOrEqual(0.85);
+  });
+
+  it("ignora lo de otros PM, los PML cerrados o en grupos inactivos y los proyectos sin índice", () => {
+    const reqs = [
+      reqLuis(1),
+      req({ pm: "Ana", estado: "EN PROCESO", grupo: "Desarrollo", vem: 0 }),
+      reqLuis(0, { estado: "CERRADO" }),
+      reqLuis(0, { grupo: "En Espera" }),
+    ];
+    expect(calcPmEvm("Luis", [], reqs, boards, bhm({ b1: null, b3: 0 }), new Map())).toBe(1);
+  });
+
+  it("null si el PM no tiene nada que medir", () => {
+    expect(calcPmEvm("Luis", [], [], boards, bhm({}), new Map())).toBeNull();
   });
 });
 

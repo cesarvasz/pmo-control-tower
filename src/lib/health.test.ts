@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcVem, healthStatusFromIndex, vemCfg, weightedEvm, EVM_WEIGHTS } from "./health";
+import { calcVem, healthStatusFromIndex, pmHealthStatus, vemCfg, weightedEvm, EVM_WEIGHTS } from "./health";
 
 describe("calcVem", () => {
   it("promedia SPI, CPI y Scope", () => {
@@ -50,6 +50,20 @@ describe("weightedEvm", () => {
 
   it("una fuente en 0 sí cuenta (no se confunde con ausente)", () => {
     expect(weightedEvm({ ini: 0, req: 1, proj: 1 })).toBeCloseTo(0 * 0.1 + 1 * 0.2 + 1 * 0.7, 10);
+  });
+});
+
+describe("pmHealthStatus (estado del PM = el de su nota EVM)", () => {
+  it("usa los mismos umbrales: ≥ 95% On Track · 85–95% At Risk · < 85% Off Track", () => {
+    expect(pmHealthStatus(1)).toBe("on-track");
+    expect(pmHealthStatus(0.95)).toBe("on-track");
+    expect(pmHealthStatus(0.9499)).toBe("in-risk");
+    expect(pmHealthStatus(0.85)).toBe("in-risk");
+    expect(pmHealthStatus(0.8499)).toBe("off-track");
+    expect(pmHealthStatus(0)).toBe("off-track");
+  });
+  it("sin nota (nada que medir) queda On Track, como sus bloques vacíos", () => {
+    expect(pmHealthStatus(null)).toBe("on-track");
   });
 });
 

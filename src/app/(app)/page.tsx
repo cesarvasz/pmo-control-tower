@@ -12,11 +12,11 @@ import { buildUnits, calcEvm, detectPlantilla } from "@/lib/projectMetrics";
 import { buildProjectSummary, currentPhaseIndex } from "@/lib/projSummary";
 import {
   reqStageAmounts, projStageAmounts, sumStageAmounts, type StageAmounts,
-  pmWorstStatus, calcPmValue, conConfirmacionRoi, type ConfirmacionRoiPm, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
+  calcPmEvm, calcPmValue, conConfirmacionRoi, type ConfirmacionRoiPm, calcEntregaStats, calcEntregaStatsRaw, calcReprocesoPct, calcReprocesoStats, calcReprocesoStatsRaw, buildReprocesoRowsRaw, buildLateResponsibleRows, buildLateResponsibleRowsRaw,
   isFase1, isFase2, isFase5,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { healthStatusFromIndex, weightedEvm, vemCfg, HEALTH_CFG, type HealthStatus } from "@/lib/health";
+import { healthStatusFromIndex, pmHealthStatus, weightedEvm, vemCfg, HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -158,8 +158,8 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
   // (ver EVM_WEIGHTS / weightedEvm en lib/health.ts).
   const teamVem = weightedEvm({ ini: teamIniHealth, req: teamReqHealth, proj: teamProjHealth });
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
-  // Estado del equipo = peor estado entre los PMs: si un PM está Off Track, el EVM del equipo es Off Track. El % sigue siendo el promedio.
-  const pmStatuses = allPMs.map((pm) => pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap));
+  // Estado del equipo = peor estado entre los PMs, y el de cada PM sale de su nota EVM (ver pmHealthStatus): si un PM está Off Track, el EVM del equipo es Off Track. El % sigue siendo el promedio.
+  const pmStatuses = allPMs.map((pm) => pmHealthStatus(calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap)));
   const teamStatus: HealthStatus | null = teamVem === null ? null
     : pmStatuses.includes("off-track") ? "off-track"
     : pmStatuses.includes("in-risk") ? "in-risk"
@@ -895,14 +895,9 @@ function PMPortfolioCard({
 
   const ihc = INI_HEALTH_CFG[iniHealth.status];
 
-  // Nota EVM del PM: mismo ponderado que el del equipo (Iniciativas 10% · REQ 20%
-  // · Proyectos 70%, ver weightedEvm). Sin iniciativas, ese 10% se reparte entre
-  // REQ y Proyectos (no un 1.0 gratis).
-  const pmEvmRaw = weightedEvm({
-    ini: iniHealth.total > 0 ? iniHealth.index : null,
-    req: reqAvgVem,
-    proj: pmProjAvgHI,
-  });
+  // Nota EVM del PM: Iniciativas 10% · REQ 20% · Proyectos 70% (ver calcPmEvm). Sin
+  // iniciativas, ese 10% se reparte entre REQ y Proyectos (no un 1.0 gratis).
+  const pmEvmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap);
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
 
   // KPI del PM: mismo cálculo ponderado que el del equipo, con las métricas del PM
@@ -925,8 +920,8 @@ function PMPortfolioCard({
   const pmKpiPct = Math.round(pmKpi.score);
   const pmKpiColor = kpiColorFor(pmKpi.ratio);
 
-  // Estado de la tarjeta = peor estado entre Iniciativas, REQ y Proyectos. El % sigue siendo el promedio.
-  const pmHealth: HealthStatus = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
+  // Estado de la tarjeta = el de su nota EVM (el % de arriba), con los umbrales de VEM_THRESHOLDS.
+  const pmHealth: HealthStatus = pmHealthStatus(pmEvmRaw);
   const hc = HEALTH_CFG[pmHealth];
 
   return {

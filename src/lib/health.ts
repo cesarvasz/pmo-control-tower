@@ -48,6 +48,14 @@ export function healthStatusFromIndex(index: number | null): HealthStatus | null
        : "off-track";
 }
 
+/** Estado de salud de un PM: el de su nota EVM (la del % de su tarjeta) con los umbrales de
+ *  VEM_THRESHOLDS. Ya no es «el peor» de sus Iniciativas, PML y Proyectos: un solo atraso no lo
+ *  vuelve Off Track si el promedio ponderado aguanta. Un PM sin nada que medir (nota null) queda
+ *  On Track, igual que sus bloques vacíos en la tarjeta («0 total · On Track 100%»). */
+export function pmHealthStatus(evm: number | null): HealthStatus {
+  return healthStatusFromIndex(evm) ?? "on-track";
+}
+
 /** Config visual por estado de salud (color, fondo, wording, icono). */
 export const HEALTH_CFG: Record<HealthStatus, { color: string; bg: string; label: string; icon: string }> = {
   "on-track":  { color: "#10b981", bg: "var(--health-on-track-bg)",  label: "On Track",  icon: "✓" },

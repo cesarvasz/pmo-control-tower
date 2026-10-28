@@ -5,7 +5,7 @@
 
 import { today, businessDays, parseYMD } from "@/lib/business";
 import { calcIniPMHealth, INI_LIMITS } from "@/lib/ini";
-import { healthStatusFromIndex, weightedEvm, type HealthStatus } from "@/lib/health";
+import { pmHealthStatus, weightedEvm } from "@/lib/health";
 import { calcBoardMetrics, deriveBoardHealth, esPlantillaLite, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
@@ -297,36 +297,36 @@ export function buildBoardHealthMap(
   return map;
 }
 
-/** Estado general de un PM = peor estado entre Iniciativas, REQ y Proyectos. */
-export function pmWorstStatus(
+/** Nota EVM (0–1) de un PM: promedio PONDERADO Iniciativas 10% · PML 20% · Proyectos 70% (ver
+ *  weightedEvm / EVM_WEIGHTS en lib/health.ts). Cada fuente vale el promedio de sus items; una
+ *  sin datos no cuenta y su peso se reparte entre las otras. null si el PM no tiene ninguna.
+ *  Es el % de la tarjeta del PM y de lo que sale su estado (ver pmHealthStatus). */
+export function calcPmEvm(
   pm: string,
   ini: IniItem[],
   req: ReqItem[],
   projBoards: ProjBoard[],
   boardHealthMap: Map<string, BoardHealthData>,
   calMap: CalMap,
-): HealthStatus {
+): number | null {
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
-  const iniStatus: HealthStatus | null = iniHealth.total > 0
-    ? (iniHealth.offTrack > 0 ? "off-track" : iniHealth.inRisk > 0 ? "in-risk" : "on-track")
-    : null;
 
-  const reqVemItems = req.filter(
-    (r) => r.pm === pm && r.estado !== "CERRADO" && REQ_ACTIVE_GRUPOS.has(r.grupo) && r.vem != null,
-  );
-  const reqSts = reqVemItems.map((r) => healthStatusFromIndex(r.vem as number));
-  const reqStatus: HealthStatus | null = reqSts.includes("off-track") ? "off-track"
-    : reqSts.includes("in-risk") ? "in-risk" : reqSts.length ? "on-track" : null;
+  const reqVems = req
+    .filter((r) => r.pm === pm && r.estado !== "CERRADO" && REQ_ACTIVE_GRUPOS.has(r.grupo) && r.vem != null)
+    .map((r) => r.vem as number);
+  const reqAvgVem = reqVems.length ? reqVems.reduce((s, v) => s + v, 0) / reqVems.length : null;
 
-  const pmBoards = projBoards.filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus != null);
-  const projStatus: HealthStatus | null = pmBoards.length
-    ? (pmBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "off-track") ? "off-track"
-      : pmBoards.some((b) => boardHealthMap.get(b.id)?.healthStatus === "in-risk") ? "in-risk"
-      : "on-track")
-    : null;
+  const projHIs = projBoards
+    .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null)
+    .map((b) => boardHealthMap.get(b.id)?.healthIndex)
+    .filter((v): v is number => v != null);
+  const projAvgHI = projHIs.length > 0 ? projHIs.reduce((a, b) => a + b, 0) / projHIs.length : null;
 
-  const all = [iniStatus, reqStatus, projStatus];
-  return all.includes("off-track") ? "off-track" : all.includes("in-risk") ? "in-risk" : "on-track";
+  return weightedEvm({
+    ini: iniHealth.total > 0 ? iniHealth.index : null,
+    req: reqAvgVem,
+    proj: projAvgHI,
+  });
 }
 
 /** Costo/beneficio por PM en tres etapas (Validación VPA / Aprobación VPB / Confirmación
@@ -1317,23 +1317,8 @@ export function calcPmMetrics(
    *  calcEntregaStatsCku). Hoy solo los Players por CKU. */
   ponderarPorFuente = false,
 ) {
-  const iniHealth = calcIniPMHealth(pm, ini, calMap);
-
-  const reqVemItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO" && REQ_ACTIVE_GRUPOS.has(r.grupo) && r.vem != null);
-  const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
-
-  const pmProjBoards = projBoards.filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null);
-  const pmProjHIs = pmProjBoards.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
-  const pmProjAvgHI = pmProjHIs.length > 0 ? pmProjHIs.reduce((a, b) => a + b, 0) / pmProjHIs.length : null;
-
-  // Nota EVM del PM: promedio PONDERADO Iniciativas 10% · REQ 20% · Proyectos 70%
-  // (ver weightedEvm / EVM_WEIGHTS en lib/health.ts). Sin iniciativas ese 10% se
-  // reparte entre REQ y Proyectos.
-  const evmRaw = weightedEvm({
-    ini: iniHealth.total > 0 ? iniHealth.index : null,
-    req: reqAvgVem,
-    proj: pmProjAvgHI,
-  });
+  // Nota EVM del PM (ver calcPmEvm). Sin iniciativas ese 10% se reparte entre REQ y Proyectos.
+  const evmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap);
   const evmPct = evmRaw !== null ? Math.round(evmRaw * 100) : null;
 
   const nps = calcNpsFromRecords(npsRecords, pm);
@@ -1363,7 +1348,7 @@ export function calcPmMetrics(
     benefitAprobado: pmValueHard.aprobacionBenefit, benefitConfirmado: pmValueHard.confirmacionBenefit,
     entregasPct: entPct, reprocesoPct, metodologiaPct, weights,
   });
-  const health = pmWorstStatus(pm, ini, req, projBoards, boardHealthMap, calMap);
+  const health = pmHealthStatus(evmRaw);
 
   return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, reprocesoPct, metodologiaPct, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };
 }
