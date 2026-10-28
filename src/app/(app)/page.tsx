@@ -19,7 +19,8 @@ import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, pmHealthStatus, weightedEvm, vemCfg, HEALTH_CFG, VEM_RANGOS_TXT, type HealthStatus } from "@/lib/health";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
-import type { CalMap, DashboardData, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { CalMap, DashboardData, IniItem, NpsRecord, OnHoldDoc, ProjBoard, ProjItem, ReqItem } from "@/types";
+import { OnHoldChip } from "@/components/OnHoldButton";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
 import NpsRangesModal from "@/components/NpsRangesModal";
@@ -658,7 +659,7 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
           {allPMs.map((pm) => {
             const q = encodeURIComponent(pm);
             return (
-              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} boardCompleteMap={boardCompleteMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} confirmacionRoi={confirmacionRoiPm[pm]} onHoldProyectos={enPausa.proyectos.filter((b) => b.pm === pm)} onHoldPml={enPausa.pml.filter((r) => r.pm === pm)} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} boardCompleteMap={boardCompleteMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} confirmacionRoi={confirmacionRoiPm[pm]} onHoldProyectos={enPausa.proyectos.filter((b) => b.pm === pm)} onHoldPml={enPausa.pml.filter((r) => r.pm === pm)} onHoldInfo={data.onHold} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
             );
           })}
         </div>
@@ -827,7 +828,7 @@ function ValueGateColumn({ label, rows, onSelect }: { label: string; rows: Value
 }
 
 function PMPortfolioCard({
-  pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoi, onHoldProyectos, onHoldPml, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoi, onHoldProyectos, onHoldPml, onHoldInfo, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[];
   projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; boardCompleteMap: Map<string, boolean>; calMap: CalMap;
@@ -837,6 +838,8 @@ function PMPortfolioCard({
   /** Proyectos y PML de este PM en On Hold: no entran en ninguna de las cifras de la tarjeta,
    *  solo se listan en la franja «On Hold» del pie. */
   onHoldProyectos: ProjBoard[]; onHoldPml: ReqItem[];
+  /** Quién, cuándo y por qué se pausó cada uno (para el popup de cada chip). */
+  onHoldInfo: OnHoldDoc;
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
@@ -1070,18 +1073,10 @@ function PMPortfolioCard({
           </div>
           <div className="flex flex-wrap gap-1.5">
             {onHoldPml.map((r) => (
-              <button key={`pml-${r.id}`} onClick={onGoReq} title={`PML en On Hold: ${r.name}`}
-                className="rounded border px-1.5 py-0.5 font-mono text-[0.72rem] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
-                style={{ borderColor: "var(--border)" }}>
-                {r.id}
-              </button>
+              <OnHoldChip key={`pml-${r.id}`} tipo="pml" codigo={r.id} nombre={r.name} entry={onHoldInfo.pml[r.id]} onIr={onGoReq} />
             ))}
             {onHoldProyectos.map((b) => (
-              <button key={`proy-${b.id}`} onClick={onGoProj} title={`Proyecto en On Hold: ${b.name}`}
-                className="rounded border px-1.5 py-0.5 font-mono text-[0.72rem] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
-                style={{ borderColor: "var(--border)" }}>
-                {b.name.slice(0, 6)}
-              </button>
+              <OnHoldChip key={`proy-${b.id}`} tipo="proyecto" codigo={b.name.slice(0, 6)} nombre={b.name} entry={onHoldInfo.proyectos[b.id]} onIr={onGoProj} />
             ))}
           </div>
         </div>

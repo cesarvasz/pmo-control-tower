@@ -7,14 +7,16 @@
 // optimista que AlcanceInlineEdit: actualiza el contexto y hace POST /api/on-hold; si falla,
 // deshace el cambio y avisa. El motivo de algo ya pausado se ve y se edita con <OnHoldMotivo>.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import Modal from "@/components/Modal";
 import { authedFetch } from "@/lib/api";
+import { fmtDate } from "@/lib/business";
 import { hasAction } from "@/lib/permissions";
 import { MOTIVO_ON_HOLD_MAX, type OnHoldTipo } from "@/lib/onHold";
+import type { OnHoldEntry } from "@/types";
 
 async function errorDe(res: Response): Promise<Error> {
   return new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
@@ -22,10 +24,16 @@ async function errorDe(res: Response): Promise<Error> {
 
 /** Diálogo del motivo de un On Hold: lo pide (al pausar), lo edita (Admin) o solo lo muestra
  *  (`soloLectura`). Se monta solo mientras está abierto, así el texto arranca siempre desde `inicial`. */
-function MotivoDialog({ titulo, ayuda, inicial, confirmar, soloLectura, onCancel, onConfirm }: {
+function MotivoDialog({ titulo, subtitulo, ayuda, inicial, confirmar, soloLectura, detalle, accionExtra, onCancel, onConfirm }: {
   titulo: string; ayuda: string; inicial: string; confirmar: string;
+  /** Línea chica bajo el título (p. ej. el nombre completo del proyecto). */
+  subtitulo?: string;
   /** Solo muestra el motivo, sin campo de texto ni botón de guardar. */
   soloLectura?: boolean;
+  /** Información extra bajo el motivo (quién y cuándo lo puso en On Hold). */
+  detalle?: ReactNode;
+  /** Botón de acción junto a «Cerrar» (solo en soloLectura). */
+  accionExtra?: { label: string; onClick: () => void };
   onCancel: () => void; onConfirm: (motivo: string) => void;
 }) {
   const [texto, setTexto] = useState(inicial);
@@ -38,10 +46,13 @@ function MotivoDialog({ titulo, ayuda, inicial, confirmar, soloLectura, onCancel
       <div className="border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
         <div className="text-[0.68rem] uppercase tracking-widest text-[var(--text-muted)]">On Hold</div>
         <div className="mt-0.5 truncate text-[1rem] font-bold text-[var(--text-primary)]">{titulo}</div>
+        {subtitulo && <div className="mt-0.5 truncate text-[0.78rem] text-[var(--text-secondary)]" title={subtitulo}>{subtitulo}</div>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         {soloLectura ? (
-          <div className="whitespace-pre-wrap break-words text-[0.88rem] text-[var(--text-primary)]">{inicial}</div>
+          inicial
+            ? <div className="whitespace-pre-wrap break-words text-[0.88rem] text-[var(--text-primary)]">{inicial}</div>
+            : <div className="text-[0.85rem] italic text-[var(--text-muted)]">Sin motivo registrado.</div>
         ) : (
           <>
             <label className="mb-1.5 block text-[0.78rem] text-[var(--text-secondary)]" htmlFor="on-hold-motivo">{ayuda}</label>
@@ -57,6 +68,9 @@ function MotivoDialog({ titulo, ayuda, inicial, confirmar, soloLectura, onCancel
             <div className="mt-1 text-right text-[0.68rem] tabular-nums text-[var(--text-muted)]">{texto.length}/{MOTIVO_ON_HOLD_MAX}</div>
           </>
         )}
+        {detalle && (
+          <div className="mt-4 border-t pt-3 text-[0.78rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border)" }}>{detalle}</div>
+        )}
       </div>
       <div className="flex justify-end gap-2 border-t px-6 py-4" style={{ borderColor: "var(--border)" }}>
         <button type="button" onClick={onCancel}
@@ -64,6 +78,13 @@ function MotivoDialog({ titulo, ayuda, inicial, confirmar, soloLectura, onCancel
           style={{ borderColor: "var(--border)" }}>
           {soloLectura ? "Cerrar" : "Cancelar"}
         </button>
+        {soloLectura && accionExtra && (
+          <button type="button" onClick={accionExtra.onClick}
+            className="rounded-lg px-4 py-2 text-[0.85rem] font-semibold text-white"
+            style={{ background: "var(--accent)" }}>
+            {accionExtra.label}
+          </button>
+        )}
         {!soloLectura && (
           <button type="button" onClick={() => onConfirm(motivo)} disabled={!motivo}
             className="rounded-lg px-4 py-2 text-[0.85rem] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
@@ -91,7 +112,7 @@ export default function OnHoldButton({ tipo, id, nombre, activo }: {
 
   const guardar = async (nuevoActivo: boolean, motivo: string) => {
     setGuardando(true);
-    setOnHold(tipo, id, nuevoActivo, motivo); // optimista
+    setOnHold(tipo, id, nuevoActivo, motivo, me?.email); // optimista
     try {
       const res = await authedFetch("/api/on-hold", {
         method: "POST",
@@ -205,6 +226,45 @@ export function OnHoldBadge({ motivo }: { motivo?: string }) {
       title={motivo ? `En On Hold — ${motivo}` : "En On Hold: no cuenta en ninguna métrica"}
     >
       ⏸ On Hold
+    </span>
+  );
+}
+
+/** Un Proyecto o PML en On Hold como chip clicable (franja «On Hold» de la tarjeta del PM): al
+ *  hacer clic abre, solo para leer, el motivo y quién y cuándo lo puso en On Hold, con un botón
+ *  para ir a la lista (lo que hacía el chip antes). Editar el motivo sigue siendo desde la
+ *  pestaña On Hold. */
+export function OnHoldChip({ tipo, codigo, nombre, entry, onIr }: {
+  tipo: OnHoldTipo;
+  /** Lo que se ve en el chip: el PML ID o el código del proyecto. */
+  codigo: string;
+  nombre: string;
+  entry?: OnHoldEntry;
+  onIr: () => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const etiqueta = tipo === "pml" ? "PML" : "Proyecto";
+  const cuando = entry?.at ? fmtDate(new Date(entry.at)) : "";
+
+  return (
+    <span onClick={(e) => e.stopPropagation()}>
+      <button type="button" onClick={() => setAbierto(true)}
+        title={`${etiqueta} en On Hold: ${nombre} · clic para ver el motivo`}
+        className="rounded border px-1.5 py-0.5 font-mono text-[0.72rem] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
+        style={{ borderColor: "var(--border)" }}>
+        {codigo}
+      </button>
+      {abierto && (
+        <MotivoDialog
+          titulo={`${codigo} en On Hold`} subtitulo={nombre}
+          ayuda="" inicial={entry?.motivo ?? ""} confirmar="" soloLectura
+          detalle={entry?.by || cuando ? (
+            <>Puesto en On Hold por <strong className="font-semibold text-[var(--text-secondary)]">{entry?.by || "—"}</strong>{cuando && <> · {cuando}</>}</>
+          ) : undefined}
+          accionExtra={{ label: tipo === "pml" ? "Ir a PML" : "Ir a Proyectos", onClick: () => { setAbierto(false); onIr(); } }}
+          onCancel={() => setAbierto(false)} onConfirm={() => {}}
+        />
+      )}
     </span>
   );
 }

@@ -64,7 +64,7 @@ interface DataContextValue {
   setBoardAlcance: (boardId: string, alcance: string) => void;
   /** Pone o quita (optimista) un Proyecto o PML de On Hold, con su motivo. La persistencia la
    *  hace el caller vía POST /api/on-hold (ver OnHoldButton). */
-  setOnHold: (tipo: OnHoldTipo, id: string, activo: boolean, motivo?: string) => void;
+  setOnHold: (tipo: OnHoldTipo, id: string, activo: boolean, motivo?: string, by?: string) => void;
   /** Cambia (optimista) el motivo de algo que ya está en On Hold. La persistencia la hace el
    *  caller vía PATCH /api/on-hold. */
   setMotivoOnHold: (tipo: OnHoldTipo, id: string, motivo: string) => void;
@@ -231,10 +231,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // Actualización optimista de On Hold; evita un refetch completo. Todas las métricas se
   // recalculan solas porque `data` se vuelve a derivar de `fullData`.
-  const setOnHold = useCallback((tipo: OnHoldTipo, id: string, activo: boolean, motivo = "") => {
+  const setOnHold = useCallback((tipo: OnHoldTipo, id: string, activo: boolean, motivo = "", by = "") => {
     setData((prev) => {
       if (!prev) return prev;
-      return { ...prev, onHold: conOnHold(prev.onHold, tipo, id, activo, { by: "", at: new Date().toISOString(), motivo }) };
+      return { ...prev, onHold: conOnHold(prev.onHold, tipo, id, activo, { by, at: new Date().toISOString(), motivo }) };
     });
   }, []);
 
