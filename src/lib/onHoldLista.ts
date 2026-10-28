@@ -19,6 +19,8 @@ export interface FilaOnHold {
   /** Fase en la que está hoy (proyecto: la primera que aún no está 100 % Done). */
   fase: string;
   enOnHold: boolean;
+  /** Por qué se pausó; "" si no está en On Hold o se pausó antes de que existiera el motivo. */
+  motivo: string;
 }
 
 /** Proyectos aún sin completar y PML que no están CERRADOS: primero los proyectos, ordenados por
@@ -41,6 +43,7 @@ export function filasOnHold(data: DashboardData): FilaOnHold[] {
     filas.push({
       tipo: "proyecto", id: b.id, codigo: code || b.name, nombre: code ? name : "", pm: b.pm,
       fase: i >= 0 ? resumen.phases[i].grupo : "—", enOnHold: proyectosPausados.has(b.id),
+      motivo: data.onHold.proyectos[b.id]?.motivo ?? "",
     });
   }
 
@@ -48,6 +51,7 @@ export function filasOnHold(data: DashboardData): FilaOnHold[] {
     if (r.estado === "CERRADO") continue;
     filas.push({
       tipo: "pml", id: r.id, codigo: r.id, nombre: r.name, pm: r.pm, fase: r.grupo || "—", enOnHold: pmlPausados.has(r.id),
+      motivo: data.onHold.pml[r.id]?.motivo ?? "",
     });
   }
 

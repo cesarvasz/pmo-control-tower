@@ -6,6 +6,8 @@
 // dashboard COMPLETO (`dataTodo`) y no el que usan las métricas. Sin la acción "edit_on_hold"
 // la lista se ve igual pero sin botones. Primero van los Proyectos (por su ID) y luego los PML
 // (por su PML ID); cada tipo lleva su color (los mismos de la campanita de notificaciones).
+// Lo que está en On Hold muestra su motivo (la justificación que se escribe al pausarlo), que
+// quien tiene la acción puede editar desde aquí.
 
 import { useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
@@ -13,7 +15,7 @@ import { hasAction } from "@/lib/permissions";
 import { filasOnHold, type FilaOnHold } from "@/lib/onHoldLista";
 import type { OnHoldTipo } from "@/lib/onHold";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
-import OnHoldButton, { OnHoldBadge } from "@/components/OnHoldButton";
+import OnHoldButton, { OnHoldBadge, OnHoldMotivo } from "@/components/OnHoldButton";
 import { EmptyRow, FilterReset, StatCard } from "@/components/ui";
 import type { DashboardData } from "@/types";
 
@@ -100,7 +102,7 @@ export default function OnHoldTab({ data }: { data: DashboardData }) {
           <table className="pmo">
             <thead>
               <tr>
-                <th>Tipo</th><th>ID</th><th>Nombre</th><th>PM</th><th>Fase</th><th>Situación</th>
+                <th>Tipo</th><th>ID</th><th>Nombre</th><th>PM</th><th>Fase</th><th>Situación</th><th>Motivo</th>
                 {puede && <th />}
               </tr>
             </thead>
@@ -121,8 +123,13 @@ export default function OnHoldTab({ data }: { data: DashboardData }) {
                     <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{f.fase}</td>
                     <td>
                       {f.enOnHold
-                        ? <OnHoldBadge />
+                        ? <OnHoldBadge motivo={f.motivo} />
                         : <span className="text-[0.78rem] text-[var(--text-muted)]">Activo</span>}
+                    </td>
+                    <td className="min-w-[240px] max-w-[360px]">
+                      {f.enOnHold
+                        ? <OnHoldMotivo tipo={f.tipo} id={f.id} nombre={f.codigo} motivo={f.motivo} />
+                        : <span className="text-[var(--text-muted)]">—</span>}
                     </td>
                     {puede && (
                       <td style={{ textAlign: "right" }}>

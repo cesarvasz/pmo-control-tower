@@ -17,7 +17,7 @@ import MultiSelect from "@/components/MultiSelect";
 import ReqDetailModal from "@/components/ReqDetailModal";
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyResultModal from "@/components/SurveyResultModal";
-import OnHoldButton from "@/components/OnHoldButton";
+import OnHoldButton, { OnHoldMotivo } from "@/components/OnHoldButton";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, SectionHeader, StatCard } from "@/components/ui";
 
 const isActive = (r: ReqItem) => REQ_ACTIVE_GRUPOS.has(r.grupo);
@@ -294,7 +294,7 @@ function ReqOnHoldTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r:
           <tr>
             <th>PML ID</th><th>Requerimiento</th><th>PM</th><th>Fase</th>
             <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Benefit</th>
-            <th>En On Hold desde</th>{puede && <th />}
+            <th>En On Hold desde</th><th>Motivo</th>{puede && <th />}
           </tr>
         </thead>
         <tbody>
@@ -310,6 +310,9 @@ function ReqOnHoldTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r:
                 <td style={{ textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
                 <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }} title={e?.by ? `Por ${e.by}` : undefined}>
                   {e?.at ? fmtDate(new Date(e.at)) : "—"}
+                </td>
+                <td className="min-w-[240px] max-w-[360px]">
+                  <OnHoldMotivo tipo="pml" id={r.id} nombre={r.id || r.name} motivo={e?.motivo ?? ""} />
                 </td>
                 {puede && <td><OnHoldButton tipo="pml" id={r.id} nombre={r.id || r.name} activo /></td>}
               </tr>

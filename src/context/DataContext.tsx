@@ -17,7 +17,7 @@ import { authedFetch } from "@/lib/api";
 import { esRolSponsor } from "@/lib/permissions";
 import { calcProjEntrega, projProcess } from "@/lib/proj";
 import { buildDashboardData } from "@/lib/dashboardData";
-import { aplicarOnHold, conOnHold, enOnHold, type EnOnHold, type OnHoldTipo } from "@/lib/onHold";
+import { aplicarOnHold, conMotivoOnHold, conOnHold, enOnHold, type EnOnHold, type OnHoldTipo } from "@/lib/onHold";
 import { nombreDeEmail, scopeToSponsor } from "@/lib/sponsorScope";
 import type { BoardRefreshResponse } from "@/app/api/dashboard/board/[boardId]/route";
 import type { AtrasoReparto, AttributionKind, DashboardData, DashboardRaw, DelayResponsible, ProjItem } from "@/types";
@@ -62,9 +62,12 @@ interface DataContextValue {
   /** Actualiza localmente (optimista) el Alcance de un proyecto (Status Card).
    *  alcance vacío → quita el detalle. La persistencia la hace el caller. */
   setBoardAlcance: (boardId: string, alcance: string) => void;
-  /** Pone o quita (optimista) un Proyecto o PML de On Hold. La persistencia la hace el caller
-   *  vía POST /api/on-hold (ver OnHoldButton). */
-  setOnHold: (tipo: OnHoldTipo, id: string, activo: boolean) => void;
+  /** Pone o quita (optimista) un Proyecto o PML de On Hold, con su motivo. La persistencia la
+   *  hace el caller vía POST /api/on-hold (ver OnHoldButton). */
+  setOnHold: (tipo: OnHoldTipo, id: string, activo: boolean, motivo?: string) => void;
+  /** Cambia (optimista) el motivo de algo que ya está en On Hold. La persistencia la hace el
+   *  caller vía PATCH /api/on-hold. */
+  setMotivoOnHold: (tipo: OnHoldTipo, id: string, motivo: string) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -228,11 +231,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // Actualización optimista de On Hold; evita un refetch completo. Todas las métricas se
   // recalculan solas porque `data` se vuelve a derivar de `fullData`.
-  const setOnHold = useCallback((tipo: OnHoldTipo, id: string, activo: boolean) => {
+  const setOnHold = useCallback((tipo: OnHoldTipo, id: string, activo: boolean, motivo = "") => {
     setData((prev) => {
       if (!prev) return prev;
-      return { ...prev, onHold: conOnHold(prev.onHold, tipo, id, activo, { by: "", at: new Date().toISOString() }) };
+      return { ...prev, onHold: conOnHold(prev.onHold, tipo, id, activo, { by: "", at: new Date().toISOString(), motivo }) };
     });
+  }, []);
+
+  const setMotivoOnHold = useCallback((tipo: OnHoldTipo, id: string, motivo: string) => {
+    setData((prev) => (prev ? { ...prev, onHold: conMotivoOnHold(prev.onHold, tipo, id, motivo) } : prev));
   }, []);
 
   // Carga inicial una sola vez, cuando hay sesión. Los datos NO se refrescan solos:
@@ -251,7 +258,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, dataTodo, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold }}>
+    <DataContext.Provider value={{ data, dataTodo, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold }}>
       {children}
     </DataContext.Provider>
   );

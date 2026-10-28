@@ -13,7 +13,7 @@ vi.mock("@/lib/projSummary", () => ({
 
 import { filasOnHold } from "./onHoldLista";
 
-const ent = { by: "admin@c807.com", at: "2026-10-28T10:00:00.000Z" };
+const ent = { by: "admin@c807.com", at: "2026-10-28T10:00:00.000Z", motivo: "Esperando al cliente" };
 
 const data = (onHold: DashboardData["onHold"]) => ({
   projBoards: [
@@ -69,6 +69,15 @@ describe("filasOnHold", () => {
     const f = filasOnHold(data({ proyectos: { b1: ent }, pml: { "PML-10": ent, noExiste: ent } }));
     expect(f.filter((x) => x.enOnHold).map((x) => x.id).sort()).toEqual(["PML-10", "b1"]);
     expect(f).toHaveLength(6);
+  });
+
+  it("trae el motivo de lo que está en On Hold, y vacío en lo demás", () => {
+    const f = filasOnHold(data({ proyectos: { b1: ent }, pml: { "PML-10": { ...ent, motivo: "Sin presupuesto" }, "PML-2": { ...ent, motivo: "" } } }));
+    const motivo = (id: string) => f.find((x) => x.id === id)!.motivo;
+    expect(motivo("b1")).toBe("Esperando al cliente");
+    expect(motivo("PML-10")).toBe("Sin presupuesto");
+    expect(motivo("PML-2")).toBe(""); // pausado antes de que existiera el motivo
+    expect(motivo("b2")).toBe(""); // activo
   });
 
   it("un proyecto completo en On Hold tampoco aparece (ya no hay nada que pausar)", () => {

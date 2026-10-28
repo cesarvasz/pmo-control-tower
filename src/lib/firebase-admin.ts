@@ -7,7 +7,7 @@ import { getAuth, type Auth } from "firebase-admin/auth";
 import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
 import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ObjetivoMes, OnHoldDoc, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
 import { leerDocMetas } from "@/lib/implementaciones";
-import { leerOnHold, type OnHoldTipo } from "@/lib/onHold";
+import { estaEnOnHold, leerOnHold, type OnHoldTipo } from "@/lib/onHold";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -177,10 +177,25 @@ export async function getOnHold(): Promise<OnHoldDoc> {
   return leerOnHold(snap.exists ? snap.data() : undefined);
 }
 
-export async function setOnHold(tipo: OnHoldTipo, id: string, activo: boolean, by: string): Promise<void> {
+export async function setOnHold(tipo: OnHoldTipo, id: string, activo: boolean, by: string, motivo = ""): Promise<void> {
   const campo = tipo === "proyecto" ? "proyectos" : "pml";
-  const valor = activo ? { by, at: new Date().toISOString() } : FieldValue.delete();
+  const valor = activo ? { by, at: new Date().toISOString(), motivo } : FieldValue.delete();
   await getAdminDb().collection("on_hold").doc("actual").set({ [campo]: { [id]: valor } }, { merge: true });
+}
+
+/** Cambia el motivo de algo que YA está en On Hold (quién y cuándo lo pausó se quedan). Devuelve
+ *  false si ya no está en On Hold (alguien lo reactivó): un merge a ciegas lo dejaría pausado sin
+ *  quién ni cuándo, así que se revisa y se escribe en la misma transacción. */
+export async function setMotivoOnHold(tipo: OnHoldTipo, id: string, motivo: string): Promise<boolean> {
+  const db = getAdminDb();
+  const ref = db.collection("on_hold").doc("actual");
+  const campo = tipo === "proyecto" ? "proyectos" : "pml";
+  return db.runTransaction(async (tx) => {
+    const estaPausado = estaEnOnHold(leerOnHold((await tx.get(ref)).data()), tipo, id);
+    if (!estaPausado) return false;
+    tx.set(ref, { [campo]: { [id]: { motivo } } }, { merge: true });
+    return true;
+  });
 }
 
 // ── Detalle de atraso (tabla "Atrasos" del Resumen Ejecutivo) ────────────

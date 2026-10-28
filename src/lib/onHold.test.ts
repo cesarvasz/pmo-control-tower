@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
-  aplicarOnHold, cantidadOnHold, conOnHold, enOnHold, esTipoOnHold, estaEnOnHold, leerOnHold, normalizarIdOnHold, onHoldVacio,
+  aplicarOnHold, cantidadOnHold, conMotivoOnHold, conOnHold, enOnHold, esTipoOnHold, estaEnOnHold, leerOnHold, MOTIVO_ON_HOLD_MAX,
+  normalizarIdOnHold, normalizarMotivoOnHold, onHoldVacio,
 } from "./onHold";
 import type { DashboardData, NpsRecord, OnHoldDoc } from "@/types";
 
-const ent = { by: "admin@c807.com", at: "2026-10-28T10:00:00.000Z" };
+const ent = { by: "admin@c807.com", at: "2026-10-28T10:00:00.000Z", motivo: "Cliente pausó el proyecto" };
 
 const rec = (reqId: string, score: number): NpsRecord => ({
   answers: { nps: score }, pm: "", invalidated: false, respondentEmail: "", submittedAt: "", reqCode: "", reqId,
@@ -36,11 +37,11 @@ describe("leerOnHold", () => {
     }
   });
 
-  it("lee proyectos y PML con quién y cuándo; lo incompleto se rellena con vacío", () => {
+  it("lee proyectos y PML con quién, cuándo y por qué; lo incompleto se rellena con vacío", () => {
     const d = leerOnHold({ proyectos: { b1: ent, b2: {} }, pml: { R1: { by: "x@c807.com" } } });
     expect(d.proyectos.b1).toEqual(ent);
-    expect(d.proyectos.b2).toEqual({ by: "", at: "" });
-    expect(d.pml.R1).toEqual({ by: "x@c807.com", at: "" });
+    expect(d.proyectos.b2).toEqual({ by: "", at: "", motivo: "" });
+    expect(d.pml.R1).toEqual({ by: "x@c807.com", at: "", motivo: "" });
   });
 
   it("descarta ids que no sirven de llave", () => {
@@ -137,5 +138,32 @@ describe("enOnHold", () => {
 
   it("vacío cuando no hay nada", () => {
     expect(enOnHold(base(onHoldVacio()))).toEqual({ proyectos: [], pml: [] });
+  });
+});
+
+describe("normalizarMotivoOnHold", () => {
+  it("recorta espacios y deja pasar hasta el máximo", () => {
+    expect(normalizarMotivoOnHold("  Esperando al cliente \n")).toBe("Esperando al cliente");
+    expect(normalizarMotivoOnHold("x".repeat(MOTIVO_ON_HOLD_MAX))).toHaveLength(MOTIVO_ON_HOLD_MAX);
+  });
+
+  it("vacío es válido (quien lo exige lo revisa aparte); texto de más o lo que no es texto, no", () => {
+    expect(normalizarMotivoOnHold("   ")).toBe("");
+    expect(normalizarMotivoOnHold("x".repeat(MOTIVO_ON_HOLD_MAX + 1))).toBeNull();
+    for (const x of [undefined, null, 5, {}, []]) expect(normalizarMotivoOnHold(x)).toBeNull();
+  });
+});
+
+describe("conMotivoOnHold", () => {
+  it("cambia solo el motivo y conserva quién y cuándo, sin tocar el original", () => {
+    const a = conOnHold(onHoldVacio(), "pml", "R1", true, ent);
+    const b = conMotivoOnHold(a, "pml", "R1", "Nuevo motivo");
+    expect(b.pml.R1).toEqual({ ...ent, motivo: "Nuevo motivo" });
+    expect(a.pml.R1.motivo).toBe(ent.motivo);
+  });
+
+  it("si no está en On Hold no lo crea", () => {
+    const a = onHoldVacio();
+    expect(conMotivoOnHold(a, "proyecto", "b1", "x")).toBe(a);
   });
 });

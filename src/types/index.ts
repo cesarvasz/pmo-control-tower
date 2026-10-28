@@ -263,10 +263,11 @@ export interface BoardAlcance {
   at?: string;     // ISO timestamp
 }
 
-/** Quién y cuándo puso un Proyecto o PML en On Hold. */
+/** Quién, cuándo y por qué se puso un Proyecto o PML en On Hold. */
 export interface OnHoldEntry {
   by: string; // correo de quien lo puso en On Hold
   at: string; // ISO timestamp
+  motivo: string; // justificación (texto libre); "" en los que se pausaron antes de existir el campo
 }
 
 /** Proyectos (por id de board) y PML (por id del item) en On Hold: no cuentan en ninguna

@@ -23,6 +23,17 @@ const campoDe = (tipo: OnHoldTipo): keyof OnHoldDoc => (tipo === "proyecto" ? "p
 
 const tiene = (mapa: Record<string, OnHoldEntry>, id: string) => Object.prototype.hasOwnProperty.call(mapa, id);
 
+/** Largo máximo del motivo de un On Hold. */
+export const MOTIVO_ON_HOLD_MAX = 500;
+
+/** Motivo limpio (sin espacios de más) o null si no es texto o pasa del máximo. Vacío es válido
+ *  ("") — quien lo exija (poner en On Hold) lo revisa aparte. */
+export function normalizarMotivoOnHold(m: unknown): string | null {
+  if (typeof m !== "string") return null;
+  const t = m.trim();
+  return t.length <= MOTIVO_ON_HOLD_MAX ? t : null;
+}
+
 /** Id válido de board o item de Monday (se usa como llave del documento en Firestore). */
 export function normalizarIdOnHold(id: unknown): string | null {
   return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
@@ -38,7 +49,11 @@ function leerMapa(raw: unknown): Record<string, OnHoldEntry> {
   for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!normalizarIdOnHold(id)) continue;
     const e = (v && typeof v === "object" ? v : {}) as Partial<OnHoldEntry>;
-    out[id] = { by: typeof e.by === "string" ? e.by : "", at: typeof e.at === "string" ? e.at : "" };
+    out[id] = {
+      by: typeof e.by === "string" ? e.by : "",
+      at: typeof e.at === "string" ? e.at : "",
+      motivo: typeof e.motivo === "string" ? e.motivo : "",
+    };
   }
   return out;
 }
@@ -55,6 +70,14 @@ export function estaEnOnHold(h: OnHoldDoc, tipo: OnHoldTipo, id: string): boolea
 
 export function cantidadOnHold(h: OnHoldDoc): number {
   return Object.keys(h.proyectos).length + Object.keys(h.pml).length;
+}
+
+/** Copia del documento con el motivo de un Proyecto/PML que YA está en On Hold cambiado (quién y
+ *  cuándo lo pausó se conservan). Si no está en On Hold devuelve el mismo documento. */
+export function conMotivoOnHold(h: OnHoldDoc, tipo: OnHoldTipo, id: string, motivo: string): OnHoldDoc {
+  const campo = campoDe(tipo);
+  if (!tiene(h[campo], id)) return h;
+  return { ...h, [campo]: { ...h[campo], [id]: { ...h[campo][id], motivo } } };
 }
 
 /** Copia del documento con ese Proyecto/PML puesto (`activo`) o quitado de On Hold. */

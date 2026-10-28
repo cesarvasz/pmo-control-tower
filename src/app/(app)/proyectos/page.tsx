@@ -439,7 +439,7 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
           {items.length} items
         </span>
         {onHold ? (
-          <OnHoldBadge />
+          <OnHoldBadge motivo={ctx?.onHold.proyectos[board.id]?.motivo} />
         ) : badge ? (
           <button
             onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
