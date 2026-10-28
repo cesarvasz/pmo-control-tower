@@ -126,7 +126,7 @@ export default function OnHoldTab({ data }: { data: DashboardData }) {
                         ? <OnHoldBadge motivo={f.motivo} />
                         : <span className="text-[0.78rem] text-[var(--text-muted)]">Activo</span>}
                     </td>
-                    <td className="min-w-[240px] max-w-[360px]">
+                    <td>
                       {f.enOnHold
                         ? <OnHoldMotivo tipo={f.tipo} id={f.id} nombre={f.codigo} motivo={f.motivo} />
                         : <span className="text-[var(--text-muted)]">—</span>}

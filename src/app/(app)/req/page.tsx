@@ -311,7 +311,7 @@ function ReqOnHoldTable({ rows, onRowClick }: { rows: ReqItem[]; onRowClick: (r:
                 <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }} title={e?.by ? `Por ${e.by}` : undefined}>
                   {e?.at ? fmtDate(new Date(e.at)) : "—"}
                 </td>
-                <td className="min-w-[240px] max-w-[360px]">
+                <td>
                   <OnHoldMotivo tipo="pml" id={r.id} nombre={r.id || r.name} motivo={e?.motivo ?? ""} />
                 </td>
                 {puede && <td><OnHoldButton tipo="pml" id={r.id} nombre={r.id || r.name} activo /></td>}
