@@ -21,6 +21,9 @@ import PmScoreboard from "@/components/PmScoreboard";
 import { lookupEstrategia, type BoardHealthData } from "@/lib/proj";
 import type { DashboardData, EstrategiaInfo, IniItem, ProjBoard, ReqItem } from "@/types";
 
+// Sin Confirmación vía ROI (aún cargando o falló): la de Monday. Referencia estable para no invalidar getRow.
+const SIN_ROI: Record<string, ConfirmacionRoiPm> = {};
+
 export default function PlayersPage() {
   const { data, loading, error } = useData();
   if (loading && !data) return <Loader />;
@@ -72,34 +75,48 @@ function Players({ data }: { data: DashboardData }) {
   const ckuReproceso = useMemo(() => swapPmCku(reproceso), [reproceso]);
 
   // Confirmación vía ROI: Javier toma los tiempos de Luis y Victoria los de David
-  // (ver CONFIRMACION_ROI_CKU). Fetch aparte (fuente externa lenta); vacío mientras
-  // carga, y entonces la Confirmación sigue siendo la de Monday.
-  const [confirmacionRoiCku, setConfirmacionRoiCku] = useState<Record<string, ConfirmacionRoiPm>>({});
+  // (ver CONFIRMACION_ROI_CKU). Fetch aparte (fuente externa lenta). null = aún cargando: mientras tanto el
+  // Beneficio y el Player salen como esqueleto (ver `cargando`) en vez de un valor provisional con la
+  // Confirmación de Monday. Si falla, queda {} y la Confirmación sigue siendo la de Monday.
+  const [confirmacionRoiCku, setConfirmacionRoiCku] = useState<Record<string, ConfirmacionRoiPm> | null>(null);
   useEffect(() => {
     authedFetch("/api/dashboard/confirmacion-roi")
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((d: { porPm?: Record<string, ConfirmacionRoiPm> }) => setConfirmacionRoiCku(confirmacionRoiPorCku(d.porPm ?? {})))
-      .catch((err) => console.warn("Confirmación ROI: no se pudo cargar:", err));
+      .catch((err) => {
+        console.warn("Confirmación ROI: no se pudo cargar:", err);
+        setConfirmacionRoiCku({});
+      });
   }, []);
 
   // Implementación (página ROI) del CKU que la lleva: meta y Profit del mes elegido o, con «Todos los
-  // meses», del mes en curso. Fetch aparte como el de ROI; mientras carga (o si falla) no se suma.
-  const [resumenImpl, setResumenImpl] = useState<ResumenImplementacionCku | null>(null);
+  // meses», del mes en curso. Fetch aparte como el de ROI; undefined = aún cargando, null = falló (no se suma).
+  const [resumenImpl, setResumenImpl] = useState<ResumenImplementacionCku | null | undefined>(undefined);
   useEffect(() => {
     authedFetch("/api/dashboard/implementacion-cku")
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((d: ResumenImplementacionCku) => setResumenImpl(d))
-      .catch((err) => console.warn("Implementación (Players): no se pudo cargar:", err));
+      .catch((err) => {
+        console.warn("Implementación (Players): no se pudo cargar:", err);
+        setResumenImpl(null);
+      });
   }, []);
   const implementacionMes = useMemo(
     () => (resumenImpl ? implementacionDelMes(resumenImpl, mesActivo ?? claveMesDe(today())) : null),
     [resumenImpl, mesActivo],
   );
 
+  // El Beneficio de un CKU depende del ROI y, en el que lleva Implementación, también de ésta; mientras
+  // falte alguno su Beneficio y su Player aún no son los finales.
+  const cargando = useCallback(
+    (cku: string) => confirmacionRoiCku === null || (sameCku(cku, CKU_CON_IMPLEMENTACION) && resumenImpl === undefined),
+    [confirmacionRoiCku, resumenImpl],
+  );
+
   const getRow = useCallback((cku: string) => {
     const s = scopesMes.get(cku)!;
     const impl = sameCku(cku, CKU_CON_IMPLEMENTACION) ? implementacionMes ?? undefined : undefined;
-    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku, true, impl);
+    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku ?? SIN_ROI, true, impl);
   }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku, implementacionMes]);
 
   const subtitle = (cku: string) => {
@@ -144,7 +161,7 @@ function Players({ data }: { data: DashboardData }) {
         pms={ckus} ini={ini} req={req} proj={proj} projBoards={projBoards}
         boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords}
         delays={ckuDelays} reproceso={ckuReproceso}
-        getRow={getRow} weights={KPI_W_CKU} nameHeader="CKU" label={(cku) => cku} subtitle={subtitle} ponderadoPorFuente
+        getRow={getRow} cargando={cargando} weights={KPI_W_CKU} nameHeader="CKU" label={(cku) => cku} subtitle={subtitle} ponderadoPorFuente
       />
 
       <h2 className="mb-3 mt-8 text-base font-semibold text-[var(--text-primary)]">{soloMio ? "Qué manejas" : "Qué maneja cada CKU"}</h2>

@@ -37,7 +37,7 @@ export function playerPalette(pct: number): { bg: string; fg: string } {
 // Scoreboard comparativo de PMs: tabla ordenada por KPI (desc). KPI y $ abren su detalle.
 type PmRow = ReturnType<typeof calcPmMetrics>;
 
-export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W, ponderadoPorFuente = false }: {
+export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow, cargando, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W, ponderadoPorFuente = false }: {
   /** Calidad y Cumplimiento se midieron como el EVM (Iniciativas 10% · PML 20% · Proyectos 70%) — solo cambia el texto de ayuda. */
   ponderadoPorFuente?: boolean;
   /** Pesos del KPI que se muestran en los encabezados (los mismos con los que se calculó getRow). */
@@ -50,6 +50,9 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
   confirmacionRoiPm?: Record<string, ConfirmacionRoiPm>;
   /** Calcula la fila de un player con datos propios (p. ej. recortados por CKU). Por defecto: calcPmMetrics sobre los datos completos. */
   getRow?: (pm: string) => PmRow;
+  /** ¿Este player aún espera datos que cambian su Beneficio (ROI, Implementación)? Mientras sí, su Beneficio y su
+   *  Player salen como esqueleto en vez del valor provisional, y la tabla no se ordena para que las filas no salten. */
+  cargando?: (pm: string) => boolean;
   nameHeader?: string;
   label?: (pm: string) => string;
   subtitle?: (pm: string) => string;
@@ -57,12 +60,12 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
   const [kpiPm, setKpiPm] = useState<string | null>(null);
   const [valuePm, setValuePm] = useState<string | null>(null);
 
-  const rows = useMemo(
-    () => pms
-      .map((pm) => (getRow ? getRow(pm) : calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, undefined, metodologia, confirmacionRoiPm)))
-      .sort((a, b) => b.kpi.score - a.kpi.score),
-    [pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow],
-  );
+  // Con algún player esperando datos, su nota es provisional: no se ordena (el orden final sale al terminar).
+  const hayCargando = pms.some((pm) => cargando?.(pm));
+  const rows = useMemo(() => {
+    const filas = pms.map((pm) => (getRow ? getRow(pm) : calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, undefined, metodologia, confirmacionRoiPm)));
+    return hayCargando ? filas : filas.sort((a, b) => b.kpi.score - a.kpi.score);
+  }, [pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow, hayCargando]);
 
   const openKpi = rows.find((r) => r.pm === kpiPm);
   const openValue = rows.find((r) => r.pm === valuePm);
@@ -103,23 +106,28 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
               const c = r.kpi.components.find((x) => x.key === key);
               return c ? Math.round(c.logro * c.weight) : 0;
             };
+            const esperando = !!cargando?.(r.pm);
             return (
               <tr key={r.pm} className="border-t transition-colors hover:bg-[var(--bg-hover)]" style={{ borderColor: "var(--border)" }}>
-                <td className={`${td} text-center tabular-nums font-bold text-[var(--text-muted)]`}>{i + 1}</td>
+                <td className={`${td} text-center tabular-nums font-bold text-[var(--text-muted)]`}>{hayCargando ? "–" : i + 1}</td>
                 <td className={td}>
                   <div className="font-semibold text-[var(--text-primary)]">{label(r.pm)}</div>
                   <div className="text-[0.7rem] text-[var(--text-muted)]">{subtitle ? subtitle(r.pm) : r.pm}</div>
                 </td>
                 {/* Player (KPI) — número héroe, formato diferenciado (pill con borde) */}
                 <td className={`${td} text-center`}>
-                  <button
-                    onClick={() => setKpiPm(r.pm)}
-                    title={`KPI ${r.kpiPct}/100 · ver detalle`}
-                    className="inline-flex items-center rounded-full px-3 py-1 text-[0.95rem] font-extrabold transition-transform hover:-translate-y-0.5"
-                    style={{ color: player.fg, background: player.bg, boxShadow: "inset 0 0 0 1px rgba(128,128,128,0.35)" }}
-                  >
-                    {r.kpiPct}
-                  </button>
+                  {esperando ? (
+                    <span role="status" aria-label="Calculando el Player…" title="Calculando el Player (falta el Beneficio)…" className="skeleton h-[1.9rem] w-14 rounded-full align-middle" />
+                  ) : (
+                    <button
+                      onClick={() => setKpiPm(r.pm)}
+                      title={`KPI ${r.kpiPct}/100 · ver detalle`}
+                      className="reveal inline-flex items-center rounded-full px-3 py-1 text-[0.95rem] font-extrabold transition-transform hover:-translate-y-0.5"
+                      style={{ color: player.fg, background: player.bg, boxShadow: "inset 0 0 0 1px rgba(128,128,128,0.35)" }}
+                    >
+                      {r.kpiPct}
+                    </button>
+                  )}
                 </td>
                 {/* EVM (peso 25) */}
                 <td className={`${td} text-center`}>
@@ -128,18 +136,28 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                 </td>
                 {/* Beneficio HardSaving confirmado (peso 25) */}
                 <td className={`${td} text-center`}>
-                  <button
-                    onClick={() => setValuePm(r.pm)}
-                    title={r.beneficioCku
-                      ? `Meta (beneficio aprobado de sus proyectos y PML HardSaving): ${fmtMoney(r.beneficioCku.meta)}${r.beneficioCku.implementacion ? ` + meta de Implementación ${etiquetaMesLargo(r.beneficioCku.implementacion.mes)} ${fmtMoney(r.beneficioCku.implementacion.meta)} = ${fmtMoney(r.beneficioCku.metaTotal)}` : ""} · Cumplimiento (${r.pmValueHard.confirmacionRoi ?? "VPC"}): ${fmtMoney(r.beneficioCku.benefitConfirmado)}${r.beneficioCku.implementacion ? ` + Profit de Implementación ${fmtMoney(r.beneficioCku.implementacion.profit)} = ${fmtMoney(r.beneficioCku.real)}` : ""} → ${Math.round(r.beneficioCku.logro * 100)}% de la meta · clic para ver el detalle`
-                      : `Validado (Aprobación VPB): ${fmtMoney(r.benefit)} · Confirmado (VPC${r.pmValueHard.confirmacionRoi ? `, ${r.pmValueHard.confirmacionRoi}` : ""}): ${fmtMoney(r.pmValueHard.confirmacionBenefit)} (${Math.round(ratioConfirmacion(r.pmValueHard.confirmacionBenefit) * 100)}% de la meta a ${mesesTerminados()} meses terminados, ${fmtMoney(metaConfirmacionAcumulada())}) · clic para ver el detalle`}
-                    className="inline-flex flex-col items-center gap-0.5 text-[0.78rem] leading-none tabular-nums font-bold transition-colors hover:underline"
-                  >
-                    {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados). En un CKU: su meta arriba y lo cumplido abajo (semáforo vs. esa meta). */}
-                    <span style={{ color: "var(--text-primary)" }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.metaTotal : r.benefit)}</span>
-                    <span style={{ color: kpiColorFor(r.beneficioCku ? r.beneficioCku.logro : ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.real : r.pmValueHard.confirmacionBenefit)}</span>
-                  </button>
-                  <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
+                  {esperando ? (
+                    <div role="status" aria-label="Calculando el Beneficio…" title="Calculando el Beneficio (ROI e Implementación)…" className="inline-flex flex-col items-center gap-1.5">
+                      <span className="skeleton h-3 w-16 rounded-md" />
+                      <span className="skeleton h-3 w-12 rounded-md" />
+                      <span className="text-[0.6rem] font-semibold tracking-wide text-[var(--text-muted)]">calculando…</span>
+                    </div>
+                  ) : (
+                    <div className="reveal">
+                      <button
+                        onClick={() => setValuePm(r.pm)}
+                        title={r.beneficioCku
+                          ? `Meta (beneficio aprobado de sus proyectos y PML HardSaving): ${fmtMoney(r.beneficioCku.meta)}${r.beneficioCku.implementacion ? ` + meta de Implementación ${etiquetaMesLargo(r.beneficioCku.implementacion.mes)} ${fmtMoney(r.beneficioCku.implementacion.meta)} = ${fmtMoney(r.beneficioCku.metaTotal)}` : ""} · Cumplimiento (${r.pmValueHard.confirmacionRoi ?? "VPC"}): ${fmtMoney(r.beneficioCku.benefitConfirmado)}${r.beneficioCku.implementacion ? ` + Profit de Implementación ${fmtMoney(r.beneficioCku.implementacion.profit)} = ${fmtMoney(r.beneficioCku.real)}` : ""} → ${Math.round(r.beneficioCku.logro * 100)}% de la meta · clic para ver el detalle`
+                          : `Validado (Aprobación VPB): ${fmtMoney(r.benefit)} · Confirmado (VPC${r.pmValueHard.confirmacionRoi ? `, ${r.pmValueHard.confirmacionRoi}` : ""}): ${fmtMoney(r.pmValueHard.confirmacionBenefit)} (${Math.round(ratioConfirmacion(r.pmValueHard.confirmacionBenefit) * 100)}% de la meta a ${mesesTerminados()} meses terminados, ${fmtMoney(metaConfirmacionAcumulada())}) · clic para ver el detalle`}
+                        className="inline-flex flex-col items-center gap-0.5 text-[0.78rem] leading-none tabular-nums font-bold transition-colors hover:underline"
+                      >
+                        {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados). En un CKU: su meta arriba y lo cumplido abajo (semáforo vs. esa meta). */}
+                        <span style={{ color: "var(--text-primary)" }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.metaTotal : r.benefit)}</span>
+                        <span style={{ color: kpiColorFor(r.beneficioCku ? r.beneficioCku.logro : ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.real : r.pmValueHard.confirmacionBenefit)}</span>
+                      </button>
+                      <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
+                    </div>
+                  )}
                 </td>
                 {/* NPS (peso 15) */}
                 <td className={`${td} text-center`}>
