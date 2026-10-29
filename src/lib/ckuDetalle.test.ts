@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { agruparPorProyecto, contarActividades, detalleCalidad, detalleCumplimiento } from "./ckuDetalle";
+import { contarActividades, contarCalidad, detalleCalidad, detalleCumplimiento } from "./ckuDetalle";
 import { calcEntregaStatsCku, calcReprocesoStatsPonderado } from "./dashboard";
 import { swapPmCku } from "./players";
 import type { DelayMap } from "./delay";
@@ -243,95 +243,142 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
   });
 });
 
-describe("detalleCalidad — nota 0 / 100 por unidad según su responsable", () => {
-  const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
-  // Fase 3 ("Launch"), Done, con ventana CPM propia (recuperado). Para un CKU eso no cuenta: solo el responsable.
-  const stepF3 = (id: string): ProjItem =>
-    ({ id, name: `Entregable ${id}`, boardId: "b1", boardName: "PM-001 | Demo", pm: "Javier", grupo: "Launch",
-      status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [] }) as unknown as ProjItem;
+describe("detalleCalidad — PML e Iniciativas por su responsable; actividades de Proyectos por sus fechas", () => {
+  const f = (d: string) => new Date(`${d}T00:00:00`);
+  const cal = (s: Omit<Parameters<typeof detalleCalidad>[0], "cku">, reproceso: DelayMap, original?: DelayMap) =>
+    detalleCalidad({ ...s, cku: CKU }, reproceso, original);
+  // Una actividad a cargo del CKU que cerró el mismo día de su Limit Date (calidad 1), salvo que se diga otra cosa.
+  const actK = (id: string, extra: Record<string, unknown> = {}) =>
+    act(id, null, { status: "Done", deadline: f("2026-06-10"), actualEnd: f("2026-06-10"), newLimitDate: null, ...extra });
 
-  it("PML, Iniciativas y Proyectos son binarios: 100 con un responsable ≠ CKU, 0 sin asignar (aunque el item se haya recuperado)", () => {
+  it("PML e Iniciativas son binarios: 100 con un responsable ≠ CKU, 0 sin asignar", () => {
     const rep: DelayMap = { r1: { responsible: "Sponsor" } };
-    const s = { req: [reqE("r1", "on-time"), reqE("r2", "on-time")], proj: [stepF3("p1")], projBoards: [board], ini: [iniE("i1", true)] };
-    const d = detalleCalidad(s, rep);
+    const s = { req: [reqE("r1", "on-time"), reqE("r2", "on-time")], proj: [], projBoards: [board], ini: [iniE("i1", true)] };
+    const d = cal(s, rep);
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
     expect(por("r1")).toMatchObject({ nota: 100, estado: "ok", responsable: "Sponsor" });
     expect(por("r2")).toMatchObject({ nota: 0, estado: "atraso", responsable: null });
-    expect(por("p1")).toMatchObject({ nota: 0, estado: "atraso", fuente: "proj", responsable: null });
     expect(por("i1")).toMatchObject({ nota: 0, estado: "atraso", fuente: "ini" });
   });
 
-  it("un entregable de Proyecto con un responsable ≠ CKU vale 100; con el CKU como responsable, 0", () => {
-    // Mapa ya intercambiado (swapPmCku): el CKU aparece como "PM" y penaliza.
-    const original: DelayMap = { p1: { responsible: "CKU" }, p2: { responsible: "Desarrollo" } };
-    const s = { req: [], proj: [stepF3("p1"), stepF3("p2")], projBoards: [board], ini: [] };
-    const d = detalleCalidad(s, swapPmCku(original), original);
+  it("cada actividad a cargo del CKU es una unidad con su nota por fechas: 1 / 0, y las que aún no se miden no cuentan", () => {
+    const proj = [item3("i1", "b1", [
+      actK("a"),                                                                      // cerró a tiempo → 100
+      actK("b", { actualEnd: f("2026-06-20") }),                                      // cerró tarde → 0
+      actK("c", { status: "Working on it", actualEnd: null }),                        // en curso → 100
+      actK("d", { newLimitDate: f("2026-12-01") }),                                   // nueva fecha límite → 0
+      actK("e", { status: "Future Steps", actualEnd: null }),                         // aún no se mide
+      actK("f", { responsible: "Javier Aragon", actualEnd: f("2026-06-30") }),        // de otra persona
+    ])];
+    const d = cal({ req: [], proj, projBoards: boards, ini: [] }, {});
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
-    expect(por("p1")).toMatchObject({ nota: 0, estado: "atraso", responsable: "CKU" });
-    expect(por("p2")).toMatchObject({ nota: 100, estado: "ok", responsable: "Desarrollo" });
+    expect(por("a")).toMatchObject({ fuente: "proj", nota: 100, estado: "ok", valor: 1, fase: "Item i1", proyecto: "PM-001 · Demo b1" });
+    expect(por("b")).toMatchObject({ nota: 0, estado: "atraso", valor: 0 });
+    expect(por("c")).toMatchObject({ nota: 100 });
+    expect(por("d")).toMatchObject({ nota: 0 });
+    expect(d.unidades.some((u) => u.id === "e" || u.id === "f")).toBe(false);
+    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 4, buenas: 2, pct: 50 });
     expect(d.pct).toBe(50);
   });
 
-  it("los proyectos de plantilla vieja no entran: ni sus unidades ni su peso", () => {
-    const vieja = { ...stepF3("v1"), boardId: "b2", boardName: "PM-002 | Viejo", grupo: "Launch | Desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU" } as ProjItem;
-    const rep: DelayMap = { p1: { responsible: "Desarrollo" }, v1: { responsible: "Desarrollo" } };
-    const d = detalleCalidad({ req: [], proj: [stepF3("p1"), vieja], projBoards: [board], ini: [] }, rep);
-    expect(d.unidades.map((u) => u.id)).toEqual(["p1"]);
-    expect(agruparPorProyecto(d.unidades).map((g) => g.proyecto)).toEqual(["PM-001 · Demo"]);
+  it("en Proyectos ya no decide el responsable asignado a mano: una actividad tarde vale 0 aunque se excuse", () => {
+    const proj = [item3("i1", "b1", [actK("a", { actualEnd: f("2026-06-20") })])];
+    const d = cal({ req: [], proj, projBoards: boards, ini: [] }, { a: { responsible: "Desarrollo" }, i1: { responsible: "Desarrollo" } });
+    expect(d.unidades.find((u) => u.id === "a")).toMatchObject({ nota: 0, estado: "atraso" });
+  });
+
+  it("solo entregables a cargo del CKU: los de otra persona no son unidades ni salen en el árbol", () => {
+    const proj = [
+      item3("i1", "b1", [actK("a")]),
+      item3("i2", "b1", [actK("b", { actualEnd: f("2026-06-20") })], { responsible: "Luis Aguilar", name: "Ajeno" }),
+    ];
+    const d = cal({ req: [], proj, projBoards: boards, ini: [] }, {});
+    expect(d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id)).toEqual(["a"]);
+    expect(d.proyectosCalidad!.flatMap((p) => p.items.map((i) => i.nombre))).toEqual(["Item i1"]);
+  });
+
+  it("los boards de plantilla vieja no aparecen", () => {
+    const vieja = item3("v1", "b2", [actK("v-s1", { actualEnd: f("2026-06-20") })], { name: "Desarrollo por iteraciones (Hitos) / Entrega CKU" }, "Launch | Desarrollo");
+    const nueva = item3("n1", "b1", [actK("n-s1")], { name: "POC" });
+    const d = cal({ req: [], proj: [vieja, nueva], projBoards: boards, ini: [] }, {});
+    expect(d.proyectosCalidad!.map((p) => p.proyecto)).toEqual(["PM-001 · Demo b1"]);
+    expect(d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id)).toEqual(["n-s1"]);
   });
 
   it("el % del detalle y el conteo coinciden con el del scoreboard", () => {
-    const rep: DelayMap = { r1: { responsible: "Sponsor" }, p1: { responsible: "Sin reproceso" } };
-    const s = { req: [reqE("r1", "on-time"), reqE("r2", "on-time")], proj: [stepF3("p1"), stepF3("p2")], projBoards: [board], ini: [iniE("i1", true)] };
-    const d = detalleCalidad(s, rep);
-    const stats = calcReprocesoStatsPonderado(s.req, s.proj, rep, s.ini);
+    const rep: DelayMap = { r1: { responsible: "Sponsor" } };
+    const s = {
+      req: [reqE("r1", "on-time"), reqE("r2", "on-time")],
+      proj: [item3("i1", "b1", [actK("a"), actK("b", { actualEnd: f("2026-06-20") }), actK("c", { newLimitDate: f("2026-12-01") })])],
+      projBoards: [board], ini: [iniE("i1", true)],
+    };
+    const d = cal(s, rep);
+    const stats = calcReprocesoStatsPonderado(CKU, s.req, s.proj, rep, s.ini);
     expect(d.pct).toBe(stats.pct);
-    expect(d.fuentes.reduce((n, f) => n + f.total, 0)).toBe(stats.total);
-    expect(d.fuentes.reduce((n, f) => n + f.buenas, 0)).toBe(stats.limpias);
+    expect(d.fuentes.reduce((n, x) => n + x.total, 0)).toBe(stats.total);
+    expect(d.fuentes.reduce((n, x) => n + x.buenas, 0)).toBe(stats.limpias);
   });
 
-  it("marca como 'en curso' el entregable de Proyecto con hitos aún abiertos (su nota es provisional)", () => {
-    // Un hito Done y otro todavía en trabajo → ya mide (hay señal) pero no ha cerrado del todo.
-    const abierto = {
-      ...stepF3("p9"), status: "Working on it",
-      subitems: [{ id: "h1", name: "Hito 1", status: "Done" }, { id: "h2", name: "Hito 2", status: "Working on it" }],
-    } as unknown as ProjItem;
-    const d = detalleCalidad({ req: [], proj: [stepF3("p1"), abierto], projBoards: [board], ini: [] }, {});
-    expect(d.unidades.find((u) => u.id === "p9")?.enCurso).toBe(true);
-    expect(d.unidades.find((u) => u.id === "p1")?.enCurso).toBe(false);
+  describe("árbol proyecto → item → actividad", () => {
+    it("trae el proyecto con sus items y actividades por fecha límite (sin fecha al final), con nota, motivo y nueva fecha", () => {
+      const p = item3("a", "b1", [
+        actK("s3", { name: "Salida", status: "Future Steps", actualEnd: null, deadline: f("2026-07-14") }),
+        actK("s1", { name: "Requerimiento", deadline: f("2026-05-29"), actualEnd: f("2026-07-31") }),
+        actK("s2", { name: "Análisis", deadline: f("2026-06-05"), actualEnd: f("2026-06-05"), newLimitDate: f("2026-12-01") }),
+        actK("s4", { name: "Sin fecha", status: "Working on it", actualEnd: null, deadline: null }),
+      ], { name: "Clasificación" });
+      const d = cal({ req: [], proj: [p], projBoards: boards, ini: [] }, {});
+      const it0 = d.proyectosCalidad![0].items[0];
+      expect(it0.nombre).toBe("Clasificación");
+      expect(it0.actividades.map((a) => [a.nombre, a.nota, a.motivo])).toEqual([
+        ["Requerimiento", 0, "tarde"],
+        ["Análisis", 0, "nueva-fecha"],
+        ["Salida", null, null],
+        ["Sin fecha", 100, "en-curso"],
+      ]);
+      expect(it0.actividades[1].nuevaFecha).toEqual(f("2026-12-01"));
+      expect(it0.actividades[0].cierre).toEqual(f("2026-07-31"));
+      expect(contarCalidad(d.proyectosCalidad![0].items)).toEqual({ buenas: 1, malas: 2, sinMedir: 1 });
+    });
+
+    it("los items con calidad 0 van primero y el proyecto con peor calidad va primero", () => {
+      const proj = [
+        item3("ok", "b1", [actK("o1")], { name: "Alfa" }),
+        item3("mal", "b1", [actK("m1", { actualEnd: f("2026-06-20") })], { name: "Zulu" }),
+        item3("otro", "b2", [actK("x1")], { name: "Otro" }),
+      ];
+      const d = cal({ req: [], proj, projBoards: boards, ini: [] }, {});
+      expect(d.proyectosCalidad!.map((p) => p.proyecto)).toEqual(["PM-001 · Demo b1", "PM-002 · Demo b2"]);   // b1: 50 % · b2: 100 %
+      expect(d.proyectosCalidad![0].items.map((i) => i.nombre)).toEqual(["Zulu", "Alfa"]);
+    });
+
+    it("cada item trae su responsable de Monday y las actividades su Responsible", () => {
+      const proj = [item3("a", "b1", [actK("s1", { responsible: " Javier Juarez " })], { name: "A", responsible: "", resp: "javier JUÁREZ" })];
+      const d = cal({ req: [], proj, projBoards: boards, ini: [] }, {});
+      const it0 = d.proyectosCalidad![0].items[0];
+      expect(it0.responsable).toBe("javier JUÁREZ");
+      expect(it0.actividades[0].responsable).toBe("Javier Juarez");
+    });
+
+    it("PML e Iniciativas no forman proyectos", () => {
+      const d = cal({ req: [reqE("r1", "on-time")], proj: [], projBoards: [], ini: [iniE("i1", true)] }, {});
+      expect(d.proyectosCalidad).toEqual([]);
+    });
+  });
+
+  it("un empate exacto en .5 (52.5) redondea igual hacia arriba en el detalle y en el scoreboard", () => {
+    // Iniciativas 100 (peso 10) · PML 0 (peso 20) · Proyectos 17 de 28 = 60.71 (peso 70) → 52.5 exacto.
+    const rep: DelayMap = { i1: { responsible: "Sponsor" } };
+    const buenas = Array.from({ length: 17 }, (_, i) => actK(`ok${i}`));
+    const malas = Array.from({ length: 11 }, (_, i) => actK(`mal${i}`, { actualEnd: f("2026-06-20") }));
+    const s = { req: [reqE("r1", "on-time")], proj: [item3("i1", "b1", [...buenas, ...malas])], projBoards: [board], ini: [iniE("i1", true)] };
+    const stats = calcReprocesoStatsPonderado(CKU, s.req, s.proj, rep, s.ini);
+    expect(stats.pct).toBe(53);
+    expect(cal(s, rep).pct).toBe(53);
   });
 
   it("sin unidades: pct null", () => {
-    const d = detalleCalidad({ req: [], proj: [], projBoards: [], ini: [] }, {});
+    const d = cal({ req: [], proj: [], projBoards: [], ini: [] }, {});
     expect(d.pct).toBeNull();
-  });
-
-  describe("agruparPorProyecto", () => {
-    const step = (id: string, boardId: string, boardName: string): ProjItem => ({ ...stepF3(id), boardId, boardName }) as ProjItem;
-
-    it("agrupa los entregables por proyecto: nota promedio, la peor primero, con el nombre del item", () => {
-      const rep: DelayMap = { a1: { responsible: "Sponsor" }, a2: { responsible: "Sponsor" } };   // a1, a2 → 100 · b1 → 0
-      const s = { req: [reqE("r1", "on-time")], proj: [step("a1", "bA", "PM-001 | Alfa"), step("a2", "bA", "PM-001 | Alfa"), step("b1", "bB", "PM-002 | Beta")], projBoards: [board], ini: [iniE("i1", true)] };
-      const grupos = agruparPorProyecto(detalleCalidad(s, rep).unidades);
-      expect(grupos.map((g) => [g.proyecto, g.nota, g.buenas, g.unidades.length])).toEqual([
-        ["PM-002 · Beta", 0, 0, 1],
-        ["PM-001 · Alfa", 100, 2, 2],
-      ]);
-      expect(grupos[1].unidades.map((u) => u.nombre)).toEqual(["Entregable a1", "Entregable a2"]);
-    });
-
-    it("dentro del proyecto, el entregable de peor nota va primero", () => {
-      const rep: DelayMap = { a2: { responsible: "Sponsor" } };   // a1 → 0 · a2 → 100
-      const s = { req: [], proj: [step("a2", "bA", "PM-001 | Alfa"), step("a1", "bA", "PM-001 | Alfa")], projBoards: [board], ini: [] };
-      const [g] = agruparPorProyecto(detalleCalidad(s, rep).unidades);
-      expect(g.unidades.map((u) => [u.id, u.nota])).toEqual([["a1", 0], ["a2", 100]]);
-      expect(g.nota).toBe(50);
-    });
-
-    it("PML e Iniciativas no forman proyecto", () => {
-      const d = detalleCalidad({ req: [reqE("r1", "on-time")], proj: [], projBoards: [], ini: [iniE("i1", true)] }, {});
-      expect(d.unidades.every((u) => u.proyecto === undefined)).toBe(true);
-      expect(agruparPorProyecto(d.unidades)).toEqual([]);
-    });
   });
 });

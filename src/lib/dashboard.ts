@@ -15,7 +15,7 @@ import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
 import { construirExpedientes, ahorroDucafast, ahorroPorTiempos, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "@/lib/tramites";
 import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "@/lib/clonaciones";
 import type {
-  CalMap, ClonacionRow, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem, RoiRow,
+  CalMap, ClonacionRow, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ProjSubitem, ReqItem, RoiRow,
 } from "@/types";
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -575,6 +575,11 @@ export function calcEntregaStatsPonderado(reqs: ReqItem[], projs: ProjItem[], de
   return combinarEntregaPonderada(entregaPorFuente(reqs, projs, delays, ini));
 }
 
+/** Fracción (0–1) a % entero para las notas ponderadas de un CKU. Un empate exacto (52.5) puede salir
+ *  del punto flotante como 52.49999999999999 y redondear para abajo según el orden de las operaciones;
+ *  el epsilon lo deja siempre hacia arriba (53), igual en el scoreboard y en el detalle de /players. */
+export const redondearPct = (fraccion: number): number => Math.round(fraccion * 100 + 1e-9);
+
 /** Combina el conteo por fuente en un EntregaStats: conteos = suma de todas las unidades, `pct` =
  *  nota por fuente ponderada 10/20/70 (la fuente sin unidades no cuenta). */
 function combinarEntregaPonderada(f: { req: FuenteEntrega; proj: FuenteEntrega; ini: FuenteEntrega }): EntregaStats {
@@ -582,7 +587,7 @@ function combinarEntregaPonderada(f: { req: FuenteEntrega; proj: FuenteEntrega; 
   const onTime = f.req.onTime + f.proj.onTime + f.ini.onTime;
   const frac = (x: FuenteEntrega) => (x.total ? x.onTime / x.total : null);
   const ponderado = weightedEvm({ ini: frac(f.ini), req: frac(f.req), proj: frac(f.proj) });
-  return { total, onTime, late: total - onTime, pct: ponderado === null ? null : Math.round(ponderado * 100) };
+  return { total, onTime, late: total - onTime, pct: ponderado === null ? null : redondearPct(ponderado) };
 }
 
 /** Variante "todos los atrasados" de Cumplimiento de Entrega — SOLO para la
@@ -929,6 +934,24 @@ export function calcItemNota(id: string, recuperado: boolean, reproceso: DelayMa
  *  significa "≠ CKU". No usa la recuperación ni el 0/50/100 de calcItemNota, que es el de los PM. */
 export const notaCalidadCku = (id: string, reproceso: DelayMap): number => (lateExcused(id, reproceso) ? 100 : 0);
 
+/** Por qué una actividad de Proyecto vale lo que vale en la Calidad de un CKU. */
+export type MotivoCalidadActividad = "nueva-fecha" | "a-tiempo" | "tarde" | "en-curso";
+
+/** Calidad de una ACTIVIDAD (subitem) de un CKU en Proyectos, por sus fechas — no por un responsable
+ *  asignado a mano. Vale 100 (calidad 1) o 0, en este orden:
+ *   · con «New Limit Date» llena (se le movió la fecha límite) → 0, sin importar su estado;
+ *   · con «Actual End» y «Limit Date»: cerró en o antes del límite → 100, después → 0;
+ *   · sigue en «Working on it» → 100;
+ *   · cualquier otra (Future Steps, Stuck, cerrada sin fechas…) → null: todavía no se mide. */
+export function calidadActividadCku(s: ProjSubitem): { nota: 0 | 100; motivo: MotivoCalidadActividad } | null {
+  if (s.newLimitDate) return { nota: 0, motivo: "nueva-fecha" };
+  if (s.actualEnd && s.deadline) {
+    return s.actualEnd.getTime() <= s.deadline.getTime() ? { nota: 100, motivo: "a-tiempo" } : { nota: 0, motivo: "tarde" };
+  }
+  if ((s.status ?? "").trim().toLowerCase() === "working on it") return { nota: 100, motivo: "en-curso" };
+  return null;
+}
+
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
 /** Unidades de Calidad de INICIATIVAS: las ya aprobadas (PM Aprobado / PML Aprobado,
@@ -963,13 +986,14 @@ export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso
  *  PML cerrados, Fase 3 de Proyectos e Iniciativas aprobadas. Base común de
  *  calcReprocesoStats (todo junto) y calcReprocesoStatsPonderado (una nota por fuente). */
 function notasReprocesoPorFuente(
-  reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[], paraCku = false,
+  reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[], cku?: string,
 ): { req: number[]; proj: number[]; ini: number[] } {
   return {
     req: reqs.filter((r) => r.estado === "CERRADO").map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
-    // CKU: solo los proyectos de plantilla nueva, y cada entregable vale 0 o 100 (ver notaCalidadCku).
-    proj: paraCku
-      ? calidadUnits(proyectosFase3Nueva(projs)).map((u) => notaCalidadCku(u.id, reproceso))
+    // CKU: cada actividad a cargo suya, de sus entregables de la Fase 3 (plantilla nueva), vale 0 o 100
+    // por sus fechas (ver calidadActividadCku); las que aún no se miden no entran.
+    proj: cku !== undefined
+      ? entregablesDelCku(projs, cku).flatMap((p) => p.subitems.flatMap((s) => calidadActividadCku(s)?.nota ?? []))
       : calidadUnits(projs).map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
     ini: iniUnidadesCalidad(ini).map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
   };
@@ -978,18 +1002,19 @@ function notasReprocesoPorFuente(
 /** Calidad de Entregas de los CKUs (Players): medida COMO EL EVM (ver weightedEvm /
  *  EVM_WEIGHTS en lib/health.ts) — la nota promedio de cada fuente por separado
  *  (Iniciativas, PML, Proyectos), combinadas 10% · 20% · 70%. Una fuente sin unidades no
- *  cuenta y su peso se reparte entre las demás. A diferencia de los PM, TODAS las unidades
- *  (también las de Proyectos) valen 0 o 100 según su responsable, ver notaCalidadCku, y en
- *  Proyectos solo cuentan los de plantilla nueva (ver proyectosFase3Nueva). Los
- *  conteos (`total`/`limpias`/`conReproceso`) son los de todas las unidades juntas. */
-export function calcReprocesoStatsPonderado(reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
-  const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini, true);
+ *  cuenta y su peso se reparte entre las demás. A diferencia de los PM, TODAS las unidades valen
+ *  0 o 100: PML e Iniciativas según su responsable (ver notaCalidadCku) y Proyectos por las FECHAS
+ *  de cada actividad a cargo del CKU, de sus entregables de la Fase 3 de plantilla nueva (ver
+ *  entregablesDelCku y calidadActividadCku). Los conteos (`total`/`limpias`/`conReproceso`) son los
+ *  de todas las unidades juntas. */
+export function calcReprocesoStatsPonderado(cku: string, reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
+  const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini, cku);
   const notas = [...n.req, ...n.proj, ...n.ini];
   const total = notas.length;
   const limpias = notas.filter((x) => x === 100).length;
   const media = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length / 100 : null);
   const ponderado = weightedEvm({ ini: media(n.ini), req: media(n.req), proj: media(n.proj) });
-  return { total, limpias, conReproceso: total - limpias, pct: ponderado === null ? null : Math.round(ponderado * 100) };
+  return { total, limpias, conReproceso: total - limpias, pct: ponderado === null ? null : redondearPct(ponderado) };
 }
 
 /** % de unidades "limpias" de reproceso (ideal 100%). null si no hay unidades en scope
@@ -1379,12 +1404,13 @@ export function calcPmMetrics(
   // Beneficio mostrado (scoreboard) = solo Aprobación VPB, igual que la tarjeta de PM.
   const benefit = pmValueHard.aprobacionBenefit;
 
-  const reprocesoPct = (ponderarPorFuente ? calcReprocesoStatsPonderado : calcReprocesoStats)(
+  const reprocesoArgs = [
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     reproceso,
     ini.filter((i) => i.pm === pm),
-  ).pct;
+  ] as const;
+  const reprocesoPct = (ponderarPorFuente ? calcReprocesoStatsPonderado(pm, ...reprocesoArgs) : calcReprocesoStats(...reprocesoArgs)).pct;
   const metodologiaPct = metodologiaActual(metodologia, pm);
   const kpi = computeKpi({
     evm: evmRaw, nps: nps.nps,

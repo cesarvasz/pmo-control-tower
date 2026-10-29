@@ -23,6 +23,7 @@ import {
   calcReprocesoPct,
   calcReprocesoStats,
   calcReprocesoStatsPonderado,
+  calidadActividadCku,
   calcReprocesoStatsRaw,
   iniUnidadesCalidad,
   calcReprocesoCascade,
@@ -571,8 +572,6 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
   const iniOnTime = (id: string): IniItem =>
     ({ id, estado: "APROBADA", creacion, meet1: "2026-01-12", meet2: "2026-01-26", pm: "Luis" }) as IniItem;
   const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
-  // Fase 3 ("Launch"), Done y con ventana CPM propia → recuperado: nota 50 sin responsable, 100 con uno ≠ PM.
-  const stepF3 = (id: string) => proj({ id, grupo: "Launch", status: "Done", startDate: CPM_INI, deadline: CPM_FIN });
 
   it("Cumplimiento: cada fuente aporta su propio %, no su volumen — 1 PML a tiempo pesa 20% aunque haya 9 fases atrasadas", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
@@ -613,43 +612,99 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(calcEntregaStatsPonderado([], projs, { "b1::Fase 1": { responsible: "Sponsor" } }).pct).toBe(100);
   });
 
-  it("Calidad (CKU): cada fuente aporta su nota promedio — 1 PML limpio pesa 20% aunque haya 9 steps sin asignar", () => {
-    const reqs = [req({ id: "r1", estado: "CERRADO" })];
-    const projs = Array.from({ length: 9 }, (_, i) => stepF3(`p${i}`));
-    const m: DelayMap = { r1: { responsible: "VPA" } };                     // PML excusado → 100
-    // Los PM: (100 + 9·50) / 10 = 55 (el step recuperado sin responsable vale 50).
-    expect(calcReprocesoStats(reqs, projs, m).pct).toBe(55);
-    // El CKU: el step sin responsable vale 0 aunque se haya recuperado. PML 100 (peso 20), Proyectos 0 (peso 70) → 20 / 0.9 = 22.
-    expect(calcReprocesoStatsPonderado(reqs, projs, m).pct).toBe(22);
+  // ── Calidad de un CKU en Proyectos: cada actividad a su cargo vale 1 o 0 por sus FECHAS ─────────
+  const CKU = "Javier Juarez";
+  const fecha = (s: string) => new Date(`${s}T00:00:00`);
+  /** Una actividad (subitem) a cargo del CKU: cerrada el mismo día de su Limit Date, sin New Limit Date. */
+  const actC = (id: string, o: Partial<ProjSubitem> = {}) =>
+    sub({ id, status: "Done", responsible: CKU, deadline: fecha("2026-06-10"), actualEnd: fecha("2026-06-10"), newLimitDate: null, ...o });
+  /** Un entregable (item) de la Fase 3 de un board, a cargo del CKU salvo que se diga otra cosa. */
+  const itemC = (id: string, subs: ProjSubitem[], o: Partial<ProjItem> = {}) =>
+    proj({ id, boardId: "b1", grupo: "Launch | Lanzamiento", responsible: CKU, subitems: subs, ...o });
+
+  describe("calidadActividadCku", () => {
+    it("cerró en o antes de su Limit Date → 1", () => {
+      expect(calidadActividadCku(actC("a"))).toEqual({ nota: 100, motivo: "a-tiempo" });                                   // el mismo día
+      expect(calidadActividadCku(actC("b", { actualEnd: fecha("2026-06-01") }))).toEqual({ nota: 100, motivo: "a-tiempo" }); // antes
+    });
+
+    it("cerró después de su Limit Date y sin New Limit Date → 0", () => {
+      expect(calidadActividadCku(actC("a", { actualEnd: fecha("2026-06-11") }))).toEqual({ nota: 0, motivo: "tarde" });
+    });
+
+    it("sigue en Working on it → 1 (aunque no tenga fechas o ya pasó su límite)", () => {
+      expect(calidadActividadCku(actC("a", { status: "Working on it", actualEnd: null }))).toEqual({ nota: 100, motivo: "en-curso" });
+      expect(calidadActividadCku(actC("b", { status: " working on IT ", actualEnd: null, deadline: null }))).toEqual({ nota: 100, motivo: "en-curso" });
+    });
+
+    it("con New Limit Date llena → 0, gane lo que gane el resto: cerró a tiempo, está en curso o ni empezó", () => {
+      const nueva = fecha("2026-12-01");
+      expect(calidadActividadCku(actC("a", { newLimitDate: nueva }))).toEqual({ nota: 0, motivo: "nueva-fecha" });                                    // a tiempo
+      expect(calidadActividadCku(actC("b", { newLimitDate: nueva, status: "Working on it", actualEnd: null }))).toEqual({ nota: 0, motivo: "nueva-fecha" }); // en curso
+      expect(calidadActividadCku(actC("c", { newLimitDate: nueva, status: "Future Steps", actualEnd: null }))).toEqual({ nota: 0, motivo: "nueva-fecha" }); // sin empezar
+    });
+
+    it("lo que todavía no se puede medir da null: Future Steps, Stuck, cerrada sin fechas…", () => {
+      expect(calidadActividadCku(actC("a", { status: "Future Steps", actualEnd: null }))).toBeNull();
+      expect(calidadActividadCku(actC("b", { status: "Stuck", actualEnd: null }))).toBeNull();
+      expect(calidadActividadCku(actC("c", { actualEnd: null }))).toBeNull();     // Done sin Actual End
+      expect(calidadActividadCku(actC("d", { deadline: null }))).toBeNull();      // con Actual End pero sin Limit Date
+    });
+  });
+
+  it("Calidad (CKU): cada actividad a cargo del CKU cuenta una vez, las pendientes no, y las de otras personas tampoco", () => {
+    const projs = [itemC("i1", [
+      actC("a"),                                                         // a tiempo → 100
+      actC("b", { actualEnd: fecha("2026-06-20") }),                     // tarde → 0
+      actC("c", { status: "Working on it", actualEnd: null }),           // en curso → 100
+      actC("d", { newLimitDate: fecha("2026-12-01") }),                  // nueva fecha → 0
+      actC("e", { status: "Future Steps", actualEnd: null }),            // aún no se mide
+      actC("f", { responsible: "Javier Aragon", actualEnd: fecha("2026-06-30") }),   // de otra persona: no entra
+    ])];
+    expect(calcReprocesoStatsPonderado(CKU, [], projs, {})).toEqual({ total: 4, limpias: 2, conReproceso: 2, pct: 50 });
+  });
+
+  it("Calidad (CKU): solo los entregables a cargo del CKU; los de otra persona no cuentan aunque el CKU figure en sus actividades", () => {
+    const mio = itemC("i1", [actC("a")]);                                                                // 100
+    const ajeno = itemC("i2", [actC("b", { actualEnd: fecha("2026-06-20") })], { responsible: "Luis Aguilar" });   // sería 0
+    expect(calcReprocesoStatsPonderado(CKU, [], [mio, ajeno], {}).pct).toBe(100);
+    expect(calcReprocesoStatsPonderado(CKU, [], [ajeno], {}).pct).toBeNull();     // sin nada suyo, Proyectos no pesa
+    // Para otro CKU, el entregable y las actividades que son suyos sí cuentan.
+    const deLuis = itemC("i3", [actC("c", { responsible: "Luis Aguilar", actualEnd: fecha("2026-06-20") })], { responsible: "Luis Aguilar" });
+    expect(calcReprocesoStatsPonderado("Luis Aguilar", [], [deLuis], {}).pct).toBe(0);
   });
 
   it("Calidad (CKU): los proyectos de plantilla vieja no cuentan — los PM sí los siguen midiendo", () => {
-    const nueva = stepF3("nueva");
-    const vieja = proj({ id: "vieja", boardId: "b-vieja", grupo: "Launch | Desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", status: "Done", startDate: CPM_INI, deadline: CPM_FIN });
-    const m: DelayMap = { nueva: { responsible: "Desarrollo" } };                    // la vieja queda sin asignar
-    expect(calcReprocesoStatsPonderado([], [nueva, vieja], m)).toMatchObject({ total: 1, limpias: 1, pct: 100 });
-    expect(calcReprocesoStats([], [nueva, vieja], m).total).toBe(2);
-    expect(calcReprocesoStatsPonderado([], [vieja], {}).pct).toBeNull();               // sin proyectos nuevos → Proyectos no pesa
+    const nueva = itemC("nueva", [actC("a")]);
+    const vieja = proj({ id: "vieja", boardId: "b-vieja", grupo: "Launch | Desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", status: "Done",
+      startDate: CPM_INI, deadline: CPM_FIN, responsible: CKU, subitems: [actC("v", { actualEnd: fecha("2026-06-20") })] });
+    expect(calcReprocesoStatsPonderado(CKU, [], [nueva, vieja], {})).toMatchObject({ total: 1, limpias: 1, pct: 100 });
+    expect(calcReprocesoStats([], [nueva, vieja], {}).total).toBe(2);                  // los PM miden los dos
+    expect(calcReprocesoStatsPonderado(CKU, [], [vieja], {}).pct).toBeNull();          // sin proyectos nuevos → Proyectos no pesa
   });
 
-  it("Calidad (CKU): un step de Proyecto vale 100 con un responsable ≠ PM y 0 sin él o con el PM — sin 50, recuperado o no", () => {
-    const projs = ["a", "b", "c"].map((id) => stepF3(id));
-    const m: DelayMap = { a: { responsible: "Desarrollo" }, b: { responsible: "PM" } };   // c sin asignar
-    expect(notaCalidadCku("a", m)).toBe(100);
-    expect(notaCalidadCku("b", m)).toBe(0);
-    expect(notaCalidadCku("c", m)).toBe(0);
-    expect(calcReprocesoStatsPonderado([], projs, m).pct).toBe(33);
-    // La medición de los PM no cambia: la misma situación da (50+50 · recuperado) → a=100, b=50, c=50.
-    expect(calcReprocesoStats([], projs, m).pct).toBe(67);
+  it("Calidad (CKU): en Proyectos ya no importa el responsable asignado a mano; PML e Iniciativas siguen con él", () => {
+    const projs = [itemC("i1", [actC("a", { actualEnd: fecha("2026-06-20") })])];   // tarde → 0
+    // Aunque se excuse con un responsable ≠ PM, la actividad vale 0 por sus fechas.
+    expect(calcReprocesoStatsPonderado(CKU, [], projs, { i1: { responsible: "Desarrollo" }, a: { responsible: "Desarrollo" } }).pct).toBe(0);
+    expect(notaCalidadCku("x", { x: { responsible: "Desarrollo" } })).toBe(100);   // PML / Iniciativa: sigue por responsable
+    expect(notaCalidadCku("y", {})).toBe(0);
   });
 
   it("Calidad: con las tres fuentes aplica 10/20/70 exacto y una fuente vacía no cuenta", () => {
     const ini = { id: "INI-1", estado: "APROBADA", pm: "Luis" } as IniItem;
     const reqs = [req({ id: "r1", estado: "CERRADO" })];
-    const m: DelayMap = { "INI-1": { responsible: "VPA" }, p1: { responsible: "Sin reproceso" } };
-    // Iniciativa 100·0.10 + PML sin asignar 0·0.20 + Proyecto (100) 100·0.70 = 80
-    expect(calcReprocesoStatsPonderado(reqs, [stepF3("p1")], m, [ini]).pct).toBe(80);
-    expect(calcReprocesoStatsPonderado([], [], {}).pct).toBeNull();
+    const m: DelayMap = { "INI-1": { responsible: "VPA" } };
+    // Iniciativa 100·0.10 + PML sin asignar 0·0.20 + Proyecto (1 actividad a tiempo) 100·0.70 = 80
+    expect(calcReprocesoStatsPonderado(CKU, reqs, [itemC("p1", [actC("a")])], m, [ini]).pct).toBe(80);
+    expect(calcReprocesoStatsPonderado(CKU, [], [], {}).pct).toBeNull();
+  });
+
+  it("Calidad (CKU): 1 PML limpio pesa 20% aunque haya 9 actividades con calidad 0", () => {
+    const reqs = [req({ id: "r1", estado: "CERRADO" })];
+    const projs = [itemC("i1", Array.from({ length: 9 }, (_, i) => actC(`a${i}`, { actualEnd: fecha("2026-06-20") })))];
+    // PML 100 (peso 20), Proyectos 0 (peso 70) → 20 / 0.9 = 22; los conteos suman todo.
+    expect(calcReprocesoStatsPonderado(CKU, reqs, projs, { r1: { responsible: "VPA" } })).toMatchObject({ total: 10, limpias: 1, pct: 22 });
   });
 
   it("calcPmMetrics solo usa la medición de CKU si se pide (los PM siguen igual por defecto)", () => {

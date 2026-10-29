@@ -428,6 +428,7 @@ export interface ProjSubitem {
   estado: string;
   startDate: Date | null;                     // fecha real de inicio del hito (solo plantilla nueva, vía Timeline; null si Monday no lo registra)
   actualEnd: Date | null;                     // "Actual End": fecha real de cierre del hito
+  newLimitDate: Date | null;                  // "New Limit Date": la nueva fecha límite si se movió la original (null = vacía)
   entrega: "on-time" | "late" | null;         // a tiempo si Actual End ≤ Limit Date (solo Done)
   cost: number;
   benefit: number;

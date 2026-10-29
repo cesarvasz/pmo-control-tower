@@ -27,6 +27,7 @@ export const PROJ_COL = {
   startDate: "Start Date", // fecha real de inicio del item (columna directa; sin equivalente en subitems)
   endDate: "End Date",   // fecha real de cierre del item
   actualEnd: "Actual End", // fecha real de cierre del subitem (hito)
+  newLimitDate: "New Limit Date", // nueva fecha límite del subitem, si se reprogramó (vacía si no)
 };
 
 // Plantilla "NEW" de boards de Proyectos (PM-010/011/012): "Cost $" y "Limit Date"
@@ -184,6 +185,7 @@ export function projProcess(boardName: string, boardId: string, items: MondayIte
         deadline: sdl, estado: calcProjEstado(sdl),
         startDate: sStartDate,
         actualEnd: sActualEnd,
+        newLimitDate: parseYMD(colByTitle(scv, PROJ_COL.newLimitDate)),
         entrega: calcProjEntrega(sStatus, sActualEnd, sdl),
         cost: colNumByTitle(scv, PROJ_COL.cost) || 0,
         benefit: colNumByTitle(scv, PROJ_COL.benefit) || 0,
