@@ -8,10 +8,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
-import { calcPmMetrics, confirmacionRoiPorCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
+import { calcPmMetrics, confirmacionRoiPorCku, entregablesDelCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import { KPI_W_CKU } from "@/lib/kpi";
 import { esRolCku } from "@/lib/permissions";
-import { buildBoardMaps, buildCkuScope, ckuDeEmail, cuentaEnPlayers, PLAYER_CKUS, sameCku, swapPmCku } from "@/lib/players";
+import { buildBoardMaps, buildCkuScope, ckuDeEmail, cuentaEnPlayers, etiquetaMesLargo, mesesConActividades, PLAYER_CKUS, proyectosDelMes, sameCku, swapPmCku, type CkuScope } from "@/lib/players";
 import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
 import { ErrorBox, Loader } from "@/components/ui";
 import CkuMedicion from "@/components/CkuMedicion";
@@ -48,6 +48,20 @@ function Players({ data }: { data: DashboardData }) {
     [ckus, ini, req, proj, projBoards, npsRecords],
   );
 
+  // Filtro por mes: Cumplimiento y Calidad (y con ellos el Player) miden solo las actividades de Proyectos
+  // cuyo Limit Date cae en el mes elegido. EVM, Beneficio, NPS, PML e Iniciativas no se filtran. Los meses
+  // que se ofrecen son los que tienen algo que medir en lo que miden los CKUs visibles.
+  const [mes, setMes] = useState<string | null>(null);
+  const meses = useMemo(
+    () => mesesConActividades([...scopes].flatMap(([cku, s]) => entregablesDelCku(s.proj, cku).flatMap((p) => p.subitems))),
+    [scopes],
+  );
+  const mesActivo = mes && meses.includes(mes) ? mes : null;   // si el mes ya no existe tras un refresh, vuelve a «todos»
+  const scopesMes = useMemo(
+    () => new Map<string, CkuScope>([...scopes].map(([cku, s]) => [cku, { ...s, proj: proyectosDelMes(s.proj, mesActivo) }])),
+    [scopes, mesActivo],
+  );
+
   // Para un CKU, lo que penaliza es el responsable "CKU" (en vez de "PM") — ver swapPmCku.
   const ckuDelays = useMemo(() => swapPmCku(delays), [delays]);
   const ckuReproceso = useMemo(() => swapPmCku(reproceso), [reproceso]);
@@ -64,9 +78,9 @@ function Players({ data }: { data: DashboardData }) {
   }, []);
 
   const getRow = useCallback((cku: string) => {
-    const s = scopes.get(cku)!;
+    const s = scopesMes.get(cku)!;
     return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku, true);
-  }, [scopes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku]);
+  }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku]);
 
   const subtitle = (cku: string) => {
     const s = scopes.get(cku)!;
@@ -87,6 +101,25 @@ function Players({ data }: { data: DashboardData }) {
           Directorio RH, así que no hay información para mostrarte. Pide a un Admin que lo revise.
         </div>
       ) : (<>
+      {/* Mes: acota a las actividades con Limit Date en ese mes y recalcula Cumplimiento, Calidad y el Player. */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <label htmlFor="players-mes" className="text-[0.78rem] font-semibold text-[var(--text-secondary)]">Mes:</label>
+        <select
+          id="players-mes"
+          value={mesActivo ?? ""}
+          onChange={(e) => setMes(e.target.value || null)}
+          className="rounded-lg border px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+          style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}
+        >
+          <option value="">Todos los meses</option>
+          {meses.map((m) => <option key={m} value={m}>{etiquetaMesLargo(m)}</option>)}
+        </select>
+        {mesActivo && (
+          <span className="text-[0.72rem] text-[var(--text-muted)]">
+            Cumplimiento y Calidad miden solo las actividades con Limit Date en {etiquetaMesLargo(mesActivo)}; EVM, Beneficio, NPS, PML e Iniciativas no se filtran por mes.
+          </span>
+        )}
+      </div>
       <PmScoreboard
         pms={ckus} ini={ini} req={req} proj={proj} projBoards={projBoards}
         boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords}
@@ -106,7 +139,8 @@ function Players({ data }: { data: DashboardData }) {
             estrategiaMap={estrategiaMap}
           >
             <CkuMedicion
-              scope={scopes.get(cku)!}
+              scope={scopesMes.get(cku)!}
+              mesLabel={mesActivo ? etiquetaMesLargo(mesActivo) : undefined}
               delays={ckuDelays} delaysOriginal={delays}
               reproceso={ckuReproceso} reprocesoOriginal={reproceso}
             />

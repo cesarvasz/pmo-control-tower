@@ -22,24 +22,28 @@ const ORDEN: FuenteMedida[] = ["proj", "req", "ini"];
 const pctColor = (p: number | null) => (p === null ? "#6b7280" : p >= 90 ? "var(--ok)" : p >= 75 ? "var(--warn)" : "var(--bad)");
 const pesoTxt = (w: number) => `${Math.round(w * 1000) / 10}%`;
 
-export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, reprocesoOriginal }: {
+export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, reprocesoOriginal, mesLabel }: {
   scope: CkuScope;
   /** Mapas con PM ↔ CKU intercambiado (deciden qué penaliza) y los originales (etiqueta real). */
   delays: DelayMap; delaysOriginal: DelayMap; reproceso: DelayMap; reprocesoOriginal: DelayMap;
+  /** Mes filtrado, p. ej. "Octubre 2026" (el `scope` ya viene recortado a sus actividades). Sin él, todos los meses. */
+  mesLabel?: string;
 }) {
   const cumplimiento = useMemo(() => detalleCumplimiento(scope, delays, delaysOriginal), [scope, delays, delaysOriginal]);
   const calidad = useMemo(() => detalleCalidad(scope, reproceso, reprocesoOriginal), [scope, reproceso, reprocesoOriginal]);
+  const sufijo = mesLabel ? ` · ${mesLabel}` : "";
+  const notaMes = mesLabel ? ` Filtrado a ${mesLabel}: solo las actividades con Limit Date en ese mes; PML e Iniciativas no se filtran por mes.` : "";
 
   return (
     <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t p-4 lg:grid-cols-2" style={{ borderColor: "var(--border)" }}>
       <Panel
-        titulo="Cumplimiento de Entrega" medida="% a tiempo" detalle={cumplimiento}
-        notaProyectos="En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad ya cerrada y las pendientes no cuentan."
+        titulo={`Cumplimiento de Entrega${sufijo}`} medida="% a tiempo" detalle={cumplimiento}
+        notaProyectos={`En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad ya cerrada y las pendientes no cuentan.${notaMes}`}
         regla="Un atraso no penaliza al CKU si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Una Iniciativa, un PML o una actividad con un atraso así no se cuenta. En Proyectos el responsable se asigna por fase, y las actividades excusadas se listan marcadas «no cuenta»."
       />
       <Panel
-        titulo="Calidad de Entregas" medida="nota promedio" esCalidad detalle={calidad}
-        notaProyectos="En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad y se mide por sus fechas."
+        titulo={`Calidad de Entregas${sufijo}`} medida="nota promedio" esCalidad detalle={calidad}
+        notaProyectos={`En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad y se mide por sus fechas.${notaMes}`}
         regla="PML e Iniciativas valen 100 si tienen un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tienen (sin asignar penaliza). Una actividad de Proyecto vale 1 si cerró en o antes de su Limit Date o sigue en Working on it, y 0 si tiene New Limit Date o cerró después de su Limit Date. Las demás (Future Steps, Stuck…) todavía no se miden."
       />
     </div>

@@ -162,7 +162,7 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       expect(sinAsignar.proyectos![0].responsableFase).toBeNull();
     });
 
-    it("el item no es unidad: uno cerrado a tiempo sin actividades no aporta nada, y uno atrasado tampoco si sus actividades no cerraron", () => {
+    it("el item no es unidad: uno cerrado a tiempo sin actividades no aporta nada ni se lista, y uno atrasado tampoco aporta si sus actividades no cerraron", () => {
       const proj = [
         item3("a", "b1", [], { name: "Sin actividades", status: "Done", entrega: "on-time" }),
         item3("b", "b1", [act("s1", null)], { name: "Atrasado sin cerrar", status: "Stuck", entrega: "late" }),
@@ -170,16 +170,16 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
       expect(d.unidades.filter((u) => u.fuente === "proj")).toEqual([]);
       expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
-      expect(d.proyectos![0].items.map((i) => i.nombre).sort()).toEqual(["Atrasado sin cerrar", "Sin actividades"]);
+      expect(d.proyectos![0].items.map((i) => i.nombre)).toEqual(["Atrasado sin cerrar"]);   // el que no tiene actividades no sale
     });
 
     it("un entregable es del CKU si su 'Responsible' lo es ('Resp' solo si 'Responsible' viene vacío); sin acentos ni mayúsculas", () => {
       const proj = [
-        item3("a", "b1", [], { name: "A", responsible: " Javier Juarez ", resp: "" }),
-        item3("b", "b1", [], { name: "B", responsible: "", resp: "JAVIER juárez" }),     // cae a "Resp"
-        item3("c", "b1", [], { name: "C", responsible: "Luis Coronado", resp: CKU }),    // "Responsible" manda sobre "Resp"
-        item3("d", "b1", [], { name: "D", responsible: "", resp: "" }),                  // nadie
-        item3("e", "b1", [], { name: "E", responsible: "Javier Juarez Jr." }),           // otro nombre
+        item3("a", "b1", [act("s1", "on-time")], { name: "A", responsible: " Javier Juarez ", resp: "" }),
+        item3("b", "b1", [act("s2", "on-time")], { name: "B", responsible: "", resp: "JAVIER juárez" }),     // cae a "Resp"
+        item3("c", "b1", [act("s3", "on-time")], { name: "C", responsible: "Luis Coronado", resp: CKU }),    // "Responsible" manda sobre "Resp"
+        item3("d", "b1", [act("s4", "on-time")], { name: "D", responsible: "", resp: "" }),                  // nadie
+        item3("e", "b1", [act("s5", "on-time")], { name: "E", responsible: "Javier Juarez Jr." }),           // otro nombre
       ];
       const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
       expect(d.proyectos![0].items.map((i) => [i.nombre, i.responsable])).toEqual([["A", "Javier Juarez"], ["B", "JAVIER juárez"]]);

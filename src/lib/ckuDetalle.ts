@@ -94,11 +94,13 @@ const porFechaLimite = (a: { deadline: Date | null; nombre: string }, b: { deadl
 const rangoItem = (it: ItemCumplimiento) =>
   it.actividades.some((a) => a.estado === "atraso") ? 0 : it.actividades.some((a) => a.estado === "excusado") ? 1 : 2;
 
-/** Arma el árbol proyecto → item → actividad de la Fase 3 (ya recortada a plantilla nueva). `delays` es
- *  el mapa con PM ↔ CKU intercambiado (decide la excusa); `delaysOriginal`, solo para la etiqueta. */
+/** Arma el árbol proyecto → item → actividad de la Fase 3 (ya recortada a plantilla nueva). Un item sin
+ *  actividades (p. ej. ninguna cae en el mes filtrado) no se lista, ni el proyecto que se quede sin items.
+ *  `delays` es el mapa con PM ↔ CKU intercambiado (decide la excusa); `delaysOriginal`, solo para la etiqueta. */
 function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: DelayMap): ProyectoCumplimiento[] {
   const porBoard = new Map<string, ProyectoCumplimiento>();
   for (const p of fase3) {
+    if (p.subitems.length === 0) continue;
     const llave = projPhaseKey(p.boardId, p.grupo);
     const excusada = lateExcused(llave, delays);
     let proy = porBoard.get(p.boardId);
@@ -166,10 +168,12 @@ export function contarCalidad(items: ItemCalidad[]): ConteoCalidad {
 }
 
 /** Arma el árbol proyecto → item → actividad con la Calidad de cada actividad (la Fase 3 ya recortada a
- *  lo del CKU). Los items con calidad 0 primero, y el proyecto con peor calidad primero. */
+ *  lo del CKU). Los items con calidad 0 primero, y el proyecto con peor calidad primero. Un item sin
+ *  actividades no se lista, ni el proyecto que se quede sin items. */
 function armarProyectosCalidad(fase3: ProjItem[]): ProyectoCalidadCku[] {
   const porBoard = new Map<string, ProyectoCalidadCku>();
   for (const p of fase3) {
+    if (p.subitems.length === 0) continue;
     let proy = porBoard.get(p.boardId);
     if (!proy) {
       const { code, name } = splitBoardName(p.boardName);

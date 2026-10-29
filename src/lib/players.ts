@@ -1,12 +1,13 @@
 // Datos base compartidos por la tabla de Players (Control Tower y /players):
 // salud por board (EVM) y lista ordenada de PMs. Una sola fuente para ambas vistas.
 
+import { calidadActividadCku } from "@/lib/dashboard";
 import { calcBoardMetrics, type BoardHealthData } from "@/lib/proj";
 import type { DelayMap } from "@/lib/delay";
 import { RH_EMAIL_COL, RH_ROLE_COL } from "@/lib/dashboardData";
 import { buildAllProjectMetrics, boardHealthFromMetrics, npsStepIds } from "@/lib/projectMetrics";
 import { buildProjectSummary } from "@/lib/projSummary";
-import type { DirectorioEntry, IniItem, MondayItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ReqItem } from "@/types";
+import type { DirectorioEntry, IniItem, MondayItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ProjSubitem, ReqItem } from "@/types";
 
 /** Portafolio asignado a cada PM (orden fijo en la lista de PMs). */
 export const PM_PORTFOLIO: Record<string, { prefix: string; name: string }> = {
@@ -112,6 +113,42 @@ export function buildCkuScope(
     .map((r) => ({ ...r, pm: cku, cku }));
 
   return { cku, ini, req, proj, projBoards, npsRecords };
+}
+
+// ── Filtro por mes (Players por CKU) ─────────────────────────────────────
+// Una actividad (subitem) corresponde al mes de su Limit Date: el mes en que debía entregarse, sin
+// importar cuándo cerró de verdad ni si después se le movió la fecha (New Limit Date). Las que no
+// tienen Limit Date no pertenecen a ningún mes.
+
+/** "2026-10": el mes de una fecha (hora local, como las fechas de Monday ya parseadas). */
+export const claveMesDe = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+const MESES_LARGO = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+/** "2026-10" → "Octubre 2026". */
+export function etiquetaMesLargo(clave: string): string {
+  const [a, m] = clave.split("-");
+  const i = Number(m) - 1;
+  return i >= 0 && i < 12 ? `${MESES_LARGO[i]} ${a}` : clave;
+}
+
+/** Los meses (cronológicos, "YYYY-MM") con al menos una actividad que ya tenga algo que medir: un
+ *  veredicto de entrega (cerró con fechas) o una calidad (ver calidadActividadCku). Los meses con
+ *  actividades solo pendientes (Future Steps…) no salen: seleccionarlos no mostraría nada. */
+export function mesesConActividades(actividades: ProjSubitem[]): string[] {
+  const meses = new Set<string>();
+  for (const s of actividades) {
+    if (s.deadline && (s.entrega !== null || calidadActividadCku(s) !== null)) meses.add(claveMesDe(s.deadline));
+  }
+  return [...meses].sort();
+}
+
+/** Deja en cada item solo las actividades cuyo Limit Date cae en el mes (`mes` null = todas, el mismo
+ *  arreglo). Los items se conservan aunque se queden sin actividades: la plantilla de un board se
+ *  decide con sus items (ver esPlantillaNueva), así que no se pueden quitar. No modifica el original. */
+export function proyectosDelMes(proj: ProjItem[], mes: string | null): ProjItem[] {
+  if (!mes) return proj;
+  return proj.map((p) => (p.subitems.length === 0 ? p : { ...p, subitems: p.subitems.filter((s) => !!s.deadline && claveMesDe(s.deadline) === mes) }));
 }
 
 /** Para un CKU, el responsable que PENALIZA es "CKU" (no "PM"). La lógica de excusa
