@@ -41,8 +41,8 @@ function Players({ data }: { data: DashboardData }) {
   const ckus = useMemo(() => (soloMio ? (miCku ? [miCku] : []) : PLAYER_CKUS), [soloMio, miCku]);
 
   const { boardHealthMap } = useMemo(
-    // Players por CKU: el EVM de cada proyecto se mide SOLO con su Fase 3 (plantilla antigua y nueva).
-    () => buildBoardMaps(proj, projBoards, projItemBaselines, { soloFase3: true }),
+    // El EVM de cada proyecto es el del proyecto completo, el mismo que ve su PM.
+    () => buildBoardMaps(proj, projBoards, projItemBaselines),
     [proj, projBoards, projItemBaselines],
   );
   const scopes = useMemo(

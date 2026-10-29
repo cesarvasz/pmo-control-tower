@@ -28,10 +28,9 @@ export function buildBoardMaps(
   proj: ProjItem[],
   projBoards: ProjBoard[],
   projItemBaselines: Record<string, ProjItemBaseline>,
-  opts: { soloFase3?: boolean } = {},
 ) {
   const projMetricsByBoard = new Map(
-    buildAllProjectMetrics(projBoards, proj, { baselines: projItemBaselines, soloFase3: opts.soloFase3 }).map((m) => [m.boardId, m]),
+    buildAllProjectMetrics(projBoards, proj, { baselines: projItemBaselines }).map((m) => [m.boardId, m]),
   );
   const boardHealthMap = new Map<string, BoardHealthData>();
   const boardCompleteMap = new Map<string, boolean>();
