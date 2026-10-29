@@ -115,9 +115,59 @@ export function computeBenefitKpi(
   };
 }
 
+export interface BenefitKpiCku {
+  meta: number;              // Aprobación VPB de sus proyectos y PML HardSaving
+  benefitAprobado: number;   // Aprobación VPB de sus proyectos HardSaving (sin PML)
+  benefitConfirmado: number; // confirmado (ROI, o Monday mientras ROI no carga)
+  logroAprobacion: number;   // benefitAprobado / meta, tope 100%
+  logroConfirmacion: number; // confirmacionReal / confirmacionMeta, tope 100% — el "% de alcance"
+  /** Implementación del mes, solo para el CKU que la lleva (ver CKU_CON_IMPLEMENTACION). */
+  implementacion?: { mes: string; meta: number; profit: number };
+  /** Contra qué se mide la Confirmación: lo aprobado + la meta de Implementación del mes. */
+  confirmacionMeta: number;
+  /** Lo que se mide: lo confirmado + el Profit de Implementación del mes. */
+  confirmacionReal: number;
+  pesoAprobacion: number;
+  pesoConfirmacion: number;
+  ptsAprobacion: number;
+  ptsConfirmacion: number;
+  total: number;
+}
+
+/**
+ * Componente "Beneficio" del KPI de un CKU (Players, /players): ya no hay meta fija de $84,000
+ * prorrateada por mes. La META del CKU es la suma del beneficio aprobado (Aprobación VPB) de
+ * los proyectos y PML HardSaving en los que trabaja; mismo reparto 90/10 que los PM (BENEFIT_SPLIT):
+ *   · Aprobación: beneficio aprobado de sus proyectos HardSaving ÷ meta.
+ *   · Confirmación: "% de alcance" = beneficio confirmado ÷ beneficio aprobado (de lo que se
+ *     aprobó, cuánto ya se confirmó). Con `implementacion` (meta y Profit de UN mes, solo el CKU
+ *     que la lleva): (confirmado + Profit del mes) ÷ (aprobado + meta del mes).
+ * Ambos con tope en 100%. Sin meta (nada aprobado ni meta de Implementación) el componente queda
+ * pendiente (ver computeKpi).
+ */
+export function computeBenefitKpiCku(
+  meta: number, benefitAprobado: number, benefitConfirmado: number, weights: KpiWeights = KPI_W_CKU,
+  implementacion?: { mes: string; meta: number; profit: number },
+): BenefitKpiCku {
+  const pesoAprobacion = weights.benefit * BENEFIT_SPLIT.aprobacion;
+  const pesoConfirmacion = weights.benefit * BENEFIT_SPLIT.confirmacion;
+  const confirmacionMeta = benefitAprobado + (implementacion?.meta ?? 0);
+  const confirmacionReal = benefitConfirmado + (implementacion?.profit ?? 0);
+  const logroAprobacion = meta > 0 ? clamp01(benefitAprobado / meta) : 0;
+  const logroConfirmacion = confirmacionMeta > 0 ? clamp01(confirmacionReal / confirmacionMeta) : 0;
+  const ptsAprobacion = logroAprobacion * pesoAprobacion;
+  const ptsConfirmacion = logroConfirmacion * pesoConfirmacion;
+  return {
+    meta, benefitAprobado, benefitConfirmado, logroAprobacion, logroConfirmacion, implementacion, confirmacionMeta, confirmacionReal,
+    pesoAprobacion, pesoConfirmacion, ptsAprobacion, ptsConfirmacion, total: ptsAprobacion + ptsConfirmacion,
+  };
+}
+
 export type KpiInput = {
   evm: number | null; nps: number | null;
   benefitAprobado: number; benefitConfirmado: number;
+  /** Beneficio de un CKU (ver computeBenefitKpiCku): reemplaza la meta acumulada de los PM. */
+  beneficioCku?: BenefitKpiCku;
   entregasPct: number | null; reprocesoPct?: number | null;
   /** Promedio (0-100) de las notas de Metodología VALOR de las fases calificadas; null = sin calificar. */
   metodologiaPct?: number | null;
@@ -142,9 +192,17 @@ export interface KpiResult {
   components: KpiComponent[];
 }
 
-export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, entregasPct, reprocesoPct = null, metodologiaPct = null, month, weights = KPI_W }: KpiInput): KpiResult {
+export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, beneficioCku, entregasPct, reprocesoPct = null, metodologiaPct = null, month, weights = KPI_W }: KpiInput): KpiResult {
   const W = weights;
   const b = computeBenefitKpi(benefitAprobado, benefitConfirmado, month, W);
+  const benefitComp: KpiComponent = beneficioCku
+    ? { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
+        logro: W.benefit > 0 ? beneficioCku.total / W.benefit : 0,
+        real: fmtMoney(beneficioCku.benefitAprobado), meta: fmtMoney(beneficioCku.meta),
+        pending: beneficioCku.meta <= 0 && beneficioCku.confirmacionMeta <= 0 }
+    : { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
+        logro: W.benefit > 0 ? b.total / W.benefit : 0,
+        real: fmtMoney(benefitAprobado + benefitConfirmado), meta: fmtMoney(b.metaAcumulada) };
   const components: KpiComponent[] = [
     { key: "evm", label: "EVM", weight: W.evm,
       logro: evm != null ? clamp01(evm / KPI_META.evm) : 0,
@@ -152,9 +210,7 @@ export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, entre
     { key: "nps", label: "NPS", weight: W.nps,
       logro: npsLogro(nps),
       real: nps != null ? `${nps}` : "—", meta: `≥${KPI_META.nps}` },
-    { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
-      logro: W.benefit > 0 ? b.total / W.benefit : 0,
-      real: fmtMoney(benefitAprobado + benefitConfirmado), meta: fmtMoney(b.metaAcumulada) },
+    benefitComp,
     { key: "entregas", label: "Cumplimiento de Entrega", weight: W.entregas,
       logro: entregasPct != null ? clamp01(entregasPct / 100 / KPI_META.entregas) : 0,
       real: entregasPct != null ? `${entregasPct}%` : "—", meta: `${Math.round(KPI_META.entregas * 100)}%` },

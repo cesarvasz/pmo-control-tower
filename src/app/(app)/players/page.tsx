@@ -11,7 +11,9 @@ import { authedFetch } from "@/lib/api";
 import { calcPmMetrics, confirmacionRoiPorCku, entregablesDelCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import { KPI_W_CKU } from "@/lib/kpi";
 import { esRolCku } from "@/lib/permissions";
-import { buildBoardMaps, buildCkuScope, ckuDeEmail, cuentaEnPlayers, etiquetaMesLargo, mesesConActividades, PLAYER_CKUS, proyectosDelMes, sameCku, swapPmCku, type CkuScope } from "@/lib/players";
+import { buildBoardMaps, buildCkuScope, ckuDeEmail, CKU_CON_IMPLEMENTACION, claveMesDe, cuentaEnPlayers, etiquetaMesLargo, mesesConActividades, PLAYER_CKUS, proyectosDelMes, sameCku, swapPmCku, type CkuScope } from "@/lib/players";
+import { implementacionDelMes, type ResumenImplementacionCku } from "@/lib/implementaciones";
+import { today } from "@/lib/business";
 import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
 import { ErrorBox, Loader } from "@/components/ui";
 import CkuMedicion from "@/components/CkuMedicion";
@@ -49,7 +51,8 @@ function Players({ data }: { data: DashboardData }) {
   );
 
   // Filtro por mes: Cumplimiento y Calidad (y con ellos el Player) miden solo las actividades de Proyectos
-  // cuyo Limit Date cae en el mes elegido. EVM, Beneficio, NPS, PML e Iniciativas no se filtran. Los meses
+  // cuyo Limit Date cae en el mes elegido. EVM, NPS, PML e Iniciativas no se filtran; del Beneficio, solo la
+  // Implementación (ver implementacionMes abajo). Los meses
   // que se ofrecen son los que tienen algo que medir en lo que miden los CKUs visibles.
   const [mes, setMes] = useState<string | null>(null);
   const meses = useMemo(
@@ -77,10 +80,25 @@ function Players({ data }: { data: DashboardData }) {
       .catch((err) => console.warn("Confirmación ROI: no se pudo cargar:", err));
   }, []);
 
+  // Implementación (página ROI) del CKU que la lleva: meta y Profit del mes elegido o, con «Todos los
+  // meses», del mes en curso. Fetch aparte como el de ROI; mientras carga (o si falla) no se suma.
+  const [resumenImpl, setResumenImpl] = useState<ResumenImplementacionCku | null>(null);
+  useEffect(() => {
+    authedFetch("/api/dashboard/implementacion-cku")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((d: ResumenImplementacionCku) => setResumenImpl(d))
+      .catch((err) => console.warn("Implementación (Players): no se pudo cargar:", err));
+  }, []);
+  const implementacionMes = useMemo(
+    () => (resumenImpl ? implementacionDelMes(resumenImpl, mesActivo ?? claveMesDe(today())) : null),
+    [resumenImpl, mesActivo],
+  );
+
   const getRow = useCallback((cku: string) => {
     const s = scopesMes.get(cku)!;
-    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku, true);
-  }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku]);
+    const impl = sameCku(cku, CKU_CON_IMPLEMENTACION) ? implementacionMes ?? undefined : undefined;
+    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku, true, impl);
+  }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku, implementacionMes]);
 
   const subtitle = (cku: string) => {
     const s = scopes.get(cku)!;
@@ -116,7 +134,7 @@ function Players({ data }: { data: DashboardData }) {
         </select>
         {mesActivo && (
           <span className="text-[0.72rem] text-[var(--text-muted)]">
-            Cumplimiento y Calidad miden solo las actividades con Limit Date en {etiquetaMesLargo(mesActivo)}; EVM, Beneficio, NPS, PML e Iniciativas no se filtran por mes.
+            Cumplimiento y Calidad miden solo las actividades con Limit Date en {etiquetaMesLargo(mesActivo)}; EVM, NPS, PML e Iniciativas no se filtran por mes. En el Beneficio, solo la Implementación ({CKU_CON_IMPLEMENTACION}) es la del mes.
           </span>
         )}
       </div>

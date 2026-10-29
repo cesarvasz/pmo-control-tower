@@ -62,6 +62,9 @@ export function listPMs(ini: IniItem[], req: ReqItem[]): string[] {
 // ── Players por CKU ───────────────────────────────────────────────────
 /** CKUs que se miden como "players" en /players. */
 export const PLAYER_CKUS = ["Javier Juarez", "Victoria Escobar"];
+/** El CKU que lleva Implementación (página ROI): su meta y Profit del mes entran a la Confirmación
+ *  de su Beneficio (ver computeBenefitKpiCku e implementacionDelMes). */
+export const CKU_CON_IMPLEMENTACION = "Victoria Escobar";
 
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 

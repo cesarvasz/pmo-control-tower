@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { fmtMoney } from "@/lib/business";
-import { computeBenefitKpi, BENEFIT_SPLIT, KPI_W, type KpiWeights } from "@/lib/kpi";
+import { computeBenefitKpi, BENEFIT_SPLIT, KPI_W, type BenefitKpiCku, type KpiWeights } from "@/lib/kpi";
 import Modal from "@/components/Modal";
+import { etiquetaMesLargo } from "@/lib/players";
 import type { PmValue } from "@/lib/dashboard";
 
 const COST = "var(--info)";
@@ -61,9 +62,11 @@ function KpiWeightRow({ label, weight, monto, meta, logro }: { label: string; we
 
 const Dash = () => <span className="text-[var(--text-disabled)]">—</span>;
 
-export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onClose, weights = KPI_W }: {
+export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onClose, weights = KPI_W, beneficioCku }: {
   /** Pesos del KPI con los que se muestra el aporte del Beneficio (por defecto los de PM). */
   weights?: KpiWeights;
+  /** Beneficio de un CKU (Players): se mide contra su propia meta, no contra la meta acumulada de los PM. */
+  beneficioCku?: BenefitKpiCku;
   pm: string; valueAll: PmValue; valueHard: PmValue; initialHard: boolean; onClose: () => void;
 }) {
   const [tab, setTab] = useState<"resumen" | "detalle">("resumen");
@@ -154,7 +157,38 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
               </div>
 
               {/* Cómo pesa el Beneficio en el KPI (peso 25, siempre HardSaving) */}
-              {(() => {
+              {beneficioCku ? (
+                <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: "var(--border)" }}>
+                  <div>
+                    <div className="text-[0.62rem] uppercase tracking-widest text-[var(--text-muted)]">
+                      Cómo pesa en tu KPI (peso {weights.benefit})
+                    </div>
+                    <div className="mt-1 text-[0.72rem] leading-relaxed text-[var(--text-muted)]">
+                      Meta = beneficio aprobado (Aprobación VPB) de sus proyectos y PML HardSaving:{" "}
+                      <b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.meta)}</b>.
+                      Aprobación: lo aprobado de sus proyectos HardSaving contra esa meta.
+                      Confirmación: % de alcance, lo confirmado contra lo aprobado.
+                      {beneficioCku.implementacion && (
+                        <>
+                          {" "}Con Implementación de {etiquetaMesLargo(beneficioCku.implementacion.mes)}: se suman su Profit{" "}
+                          (<b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.implementacion.profit)}</b>) a lo confirmado{" "}
+                          ({fmtMoney(beneficioCku.benefitConfirmado)}) y su meta del mes{" "}
+                          (<b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.implementacion.meta)}</b>) a lo aprobado.
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <KpiWeightRow label={`Aprobación VPB (${Math.round(BENEFIT_SPLIT.aprobacion * 100)}% del peso)`} weight={beneficioCku.pesoAprobacion} monto={beneficioCku.benefitAprobado} meta={beneficioCku.meta} logro={beneficioCku.logroAprobacion} />
+                  <KpiWeightRow label={`Confirmación · % de alcance (${Math.round(BENEFIT_SPLIT.confirmacion * 100)}% del peso)`} weight={beneficioCku.pesoConfirmacion} monto={beneficioCku.confirmacionReal} meta={beneficioCku.confirmacionMeta} logro={beneficioCku.logroConfirmacion} />
+                  <div className="h-px" style={{ background: "var(--border)" }} />
+                  <div className="flex items-center justify-between text-[0.8rem] font-bold text-[var(--text-primary)]">
+                    <span>Total aportado al KPI</span>
+                    <span className="tabular-nums" style={{ color: BEN }}>
+                      {beneficioCku.total.toFixed(1)} <span className="text-[0.72rem] font-semibold text-[var(--text-muted)]">/ {weights.benefit}</span>
+                    </span>
+                  </div>
+                </div>
+              ) : (() => {
                 const bk = computeBenefitKpi(valueHard.aprobacionBenefit, valueHard.confirmacionBenefit, undefined, weights);
                 return (
                   <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: "var(--border)" }}>

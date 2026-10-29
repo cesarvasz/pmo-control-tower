@@ -16,7 +16,7 @@ const mesesTerminados = () => today().getMonth();
 
 const POR_FUENTE_TIP = (medida: string) =>
   `Medido como el EVM: ${medida} de cada fuente por separado, combinadas Iniciativas 10% · PML 20% · Proyectos 70% (una fuente sin unidades no cuenta y su peso se reparte entre las demás)`;
-import { pmLabel } from "@/lib/players";
+import { etiquetaMesLargo, pmLabel } from "@/lib/players";
 import type { MetodologiaMap } from "@/lib/metodologia";
 import type { BoardHealthData } from "@/lib/proj";
 import type { CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -130,12 +130,14 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                 <td className={`${td} text-center`}>
                   <button
                     onClick={() => setValuePm(r.pm)}
-                    title={`Validado (Aprobación VPB): ${fmtMoney(r.benefit)} · Confirmado (VPC${r.pmValueHard.confirmacionRoi ? `, ${r.pmValueHard.confirmacionRoi}` : ""}): ${fmtMoney(r.pmValueHard.confirmacionBenefit)} (${Math.round(ratioConfirmacion(r.pmValueHard.confirmacionBenefit) * 100)}% de la meta a ${mesesTerminados()} meses terminados, ${fmtMoney(metaConfirmacionAcumulada())}) · clic para ver el detalle`}
+                    title={r.beneficioCku
+                      ? `Aprobado (proyectos HardSaving): ${fmtMoney(r.beneficioCku.benefitAprobado)} de su meta ${fmtMoney(r.beneficioCku.meta)} (aprobado de sus proyectos y PML HardSaving) · Confirmado (${r.pmValueHard.confirmacionRoi ?? "VPC"}): ${fmtMoney(r.beneficioCku.benefitConfirmado)}${r.beneficioCku.implementacion ? ` + Profit de Implementación ${etiquetaMesLargo(r.beneficioCku.implementacion.mes)} ${fmtMoney(r.beneficioCku.implementacion.profit)} = ${fmtMoney(r.beneficioCku.confirmacionReal)}, contra lo aprobado + meta de Implementación ${fmtMoney(r.beneficioCku.implementacion.meta)} = ${fmtMoney(r.beneficioCku.confirmacionMeta)}` : ""} → ${Math.round(r.beneficioCku.logroConfirmacion * 100)}% de alcance · clic para ver el detalle`
+                      : `Validado (Aprobación VPB): ${fmtMoney(r.benefit)} · Confirmado (VPC${r.pmValueHard.confirmacionRoi ? `, ${r.pmValueHard.confirmacionRoi}` : ""}): ${fmtMoney(r.pmValueHard.confirmacionBenefit)} (${Math.round(ratioConfirmacion(r.pmValueHard.confirmacionBenefit) * 100)}% de la meta a ${mesesTerminados()} meses terminados, ${fmtMoney(metaConfirmacionAcumulada())}) · clic para ver el detalle`}
                     className="inline-flex flex-col items-center gap-0.5 text-[0.78rem] leading-none tabular-nums font-bold transition-colors hover:underline"
                   >
-                    {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados). */}
+                    {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados; en un CKU, vs. lo aprobado). */}
                     <span style={{ color: "var(--text-primary)" }}>{fmtMoneyShort(r.benefit)}</span>
-                    <span style={{ color: kpiColorFor(ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.pmValueHard.confirmacionBenefit)}</span>
+                    <span style={{ color: kpiColorFor(r.beneficioCku ? r.beneficioCku.logroConfirmacion : ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.confirmacionReal : r.pmValueHard.confirmacionBenefit)}</span>
                   </button>
                   <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
                 </td>
@@ -171,7 +173,7 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
         <KpiModal title={`KPI · ${openKpi.pm}`} pct={openKpi.kpiPct} achievable={openKpi.kpi.achievable} pendingWeight={100 - openKpi.kpi.achievable} color={kpiColorFor(openKpi.kpi.ratio)} components={openKpi.kpi.components} onClose={() => setKpiPm(null)} />
       )}
       {openValue && (
-        <PMValueModal pm={openValue.pm} valueAll={openValue.pmValueAll} valueHard={openValue.pmValueHard} initialHard={true} onClose={() => setValuePm(null)} weights={weights} />
+        <PMValueModal pm={openValue.pm} valueAll={openValue.pmValueAll} valueHard={openValue.pmValueHard} initialHard={true} onClose={() => setValuePm(null)} weights={weights} beneficioCku={openValue.beneficioCku} />
       )}
     </div>
   );

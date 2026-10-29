@@ -9,7 +9,7 @@ import { pmHealthStatus, weightedEvm } from "@/lib/health";
 import { calcBoardMetrics, deriveBoardHealth, esPlantillaLite, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
-import { computeKpi, type KpiWeights } from "@/lib/kpi";
+import { computeBenefitKpiCku, computeKpi, type KpiWeights } from "@/lib/kpi";
 import { metodologiaActual, type MetodologiaMap } from "@/lib/metodologia";
 import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
 import { construirExpedientes, ahorroDucafast, ahorroPorTiempos, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "@/lib/tramites";
@@ -1378,8 +1378,12 @@ export function calcPmMetrics(
   confirmacionRoiPm: Record<string, ConfirmacionRoiPm> = {},
   /** Medición de un CKU: Cumplimiento de Entrega y Calidad de Entregas como el EVM (nota por
    *  fuente ponderada 10/20/70) y, en Cumplimiento, Proyectos solo con su Fase 3 (ver
-   *  calcEntregaStatsCku). Hoy solo los Players por CKU. */
+   *  calcEntregaStatsCku); el Beneficio, contra su propia meta (ver computeBenefitKpiCku).
+   *  Hoy solo los Players por CKU. */
   ponderarPorFuente = false,
+  /** Meta y Profit de Implementación de un mes, para el CKU que la lleva: se suman a la
+   *  Confirmación de su Beneficio (ver computeBenefitKpiCku). */
+  implementacionCku?: { mes: string; meta: number; profit: number },
 ) {
   // Nota EVM del PM (ver calcPmEvm). Sin iniciativas ese 10% se reparte entre REQ y Proyectos.
   const evmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap);
@@ -1401,8 +1405,19 @@ export function calcPmMetrics(
 
   const pmValueAll = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, false), confirmacionRoiPm[pm]);
   const pmValueHard = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, true), confirmacionRoiPm[pm]);
+  // Un CKU se mide contra su propia meta (ver computeBenefitKpiCku): lo aprobado de sus proyectos y PML
+  // HardSaving; su beneficio es lo aprobado de sus proyectos HardSaving y la Confirmación, lo confirmado ÷ eso.
+  const beneficioCku = ponderarPorFuente
+    ? computeBenefitKpiCku(
+        pmValueHard.aprobacionBenefit,
+        pmValueHard.detail.projects.reduce((s, p) => s + (p.stages.aprobacion?.benefit ?? 0), 0),
+        pmValueHard.confirmacionBenefit,
+        weights,
+        implementacionCku,
+      )
+    : undefined;
   // Beneficio mostrado (scoreboard) = solo Aprobación VPB, igual que la tarjeta de PM.
-  const benefit = pmValueHard.aprobacionBenefit;
+  const benefit = beneficioCku ? beneficioCku.benefitAprobado : pmValueHard.aprobacionBenefit;
 
   const reprocesoArgs = [
     req.filter((r) => r.pm === pm),
@@ -1415,9 +1430,9 @@ export function calcPmMetrics(
   const kpi = computeKpi({
     evm: evmRaw, nps: nps.nps,
     benefitAprobado: pmValueHard.aprobacionBenefit, benefitConfirmado: pmValueHard.confirmacionBenefit,
-    entregasPct: entPct, reprocesoPct, metodologiaPct, weights,
+    entregasPct: entPct, reprocesoPct, metodologiaPct, weights, beneficioCku,
   });
   const health = pmHealthStatus(evmRaw);
 
-  return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, reprocesoPct, metodologiaPct, pmValueAll, pmValueHard, kpi, kpiPct: Math.round(kpi.score), health };
+  return { pm, evmRaw, evmPct, nps, entOn, entLate, entTotal, entPct, benefit, reprocesoPct, metodologiaPct, pmValueAll, pmValueHard, beneficioCku, kpi, kpiPct: Math.round(kpi.score), health };
 }

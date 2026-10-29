@@ -3,7 +3,7 @@ import {
   OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes,
   claveMes, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
   fmtFechaCorta, fmtImporte, fmtPct, indexarMetas, leerDocMetas, metaProfitMensual, nivelCumplimiento, nombreCliente,
-  normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenSemaforo, serieMensual, totalesImplementacion,
+  implementacionDelMes, normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
 
@@ -655,5 +655,32 @@ describe("semáforo por file (Profit vs CM1 del cliente)", () => {
     expect(pasaFiltroSemaforo("cumple", "no-cumplen")).toBe(false);
     expect(pasaFiltroSemaforo("sin-meta", "no-cumplen")).toBe(false);
     expect(pasaFiltroSemaforo("sin-meta", "todos")).toBe(true);
+  });
+});
+
+describe("Implementación en el Beneficio de un CKU (resumen y mes)", () => {
+  const metas: MetaCliente[] = [{ cliente: "A", vol: 10, cm1: 100 }, { cliente: "B", vol: 5, cm1: 200 }];
+  const objetivos: ObjetivoMes[] = [{ mes: "2026-09", objetivo: 70 }];
+  const rows = [
+    fila("A", "2026-09-02T10:00:00", 1000),
+    fila("B", "2026-09-15T00:00:00", 500.5),
+    fila("C", "2026-09-20T00:00:00", 9999),   // cliente sin meta: no entra
+    fila("A", "", -4000),                      // sin fecha: no entra
+    fila("A", "2026-10-01T00:00:00", null),    // Profit vacío cuenta 0
+  ];
+  const r = resumenImplementacionCku(rows, metas, objetivos);
+
+  it("meta mensual = Σ Vol × CM1 y Profit por mes solo de clientes con meta, sin «Sin fecha»", () => {
+    expect(r.metaMensual).toBe(2000);
+    expect(r.profitPorMes).toEqual({ "2026-09": 1500.5, "2026-10": 0 });
+  });
+
+  it("meta del mes = meta mensual × % a alcanzar (100 si no se capturó); mes sin files → Profit 0", () => {
+    expect(implementacionDelMes(r, "2026-09")).toEqual({ mes: "2026-09", meta: 1400, objetivo: 70, profit: 1500.5 });
+    expect(implementacionDelMes(r, "2026-11")).toEqual({ mes: "2026-11", meta: 2000, objetivo: OBJETIVO_DEFECTO, profit: 0 });
+  });
+
+  it("sin metas capturadas no hay Implementación que sumar", () => {
+    expect(implementacionDelMes(resumenImplementacionCku(rows, [], []), "2026-09")).toBeNull();
   });
 });

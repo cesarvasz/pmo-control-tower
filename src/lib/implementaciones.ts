@@ -526,3 +526,46 @@ export function pasaFiltroSemaforo(estado: Semaforo, filtro: FiltroSemaforo): bo
   if (filtro === "no-cumplen") return estado === "no-cumple";
   return true;
 }
+
+// ── Implementación en el Beneficio de un CKU (Players) ──────────────────────
+// El CKU que lleva Implementación (ver CKU_CON_IMPLEMENTACION en players.ts) suma, en la
+// Confirmación de su Beneficio, la meta del mes a lo aprobado y el Profit del mes a lo
+// confirmado. Viaja resumido (no las filas crudas): la suma de Vol × CM1 de los clientes, el
+// % a alcanzar de cada mes y el Profit por mes de los clientes con meta — la misma comparación
+// que el % Meta de la pestaña (Profit de clientes sin meta no entra; «Sin fecha» tampoco).
+
+export interface ResumenImplementacionCku {
+  /** Σ Vol × CM1 de los clientes con meta: la meta de un mes al 100 %. */
+  metaMensual: number;
+  objetivos: ObjetivoMes[];
+  /** «yyyy-MM» → Profit de los clientes con meta en ese mes. */
+  profitPorMes: Record<string, number>;
+}
+
+export function resumenImplementacionCku(rows: ImplementacionRow[], metas: MetaCliente[], objetivos: ObjetivoMes[]): ResumenImplementacionCku {
+  const idx = indexarMetas(metas, objetivos);
+  const profitPorMes: Record<string, number> = {};
+  for (const r of rows) {
+    const mes = claveMes(r.Fecha_cierre);
+    if (mes === SIN_FECHA || !idx.clientes.has(nombreCliente(r))) continue;
+    profitPorMes[mes] = (profitPorMes[mes] ?? 0) + (r.Profit ?? 0);
+  }
+  const metaMensual = [...idx.clientes.values()].reduce((s, m) => s + metaProfitMensual(m), 0);
+  return { metaMensual, objetivos: [...idx.objetivos].map(([mes, objetivo]) => ({ mes, objetivo })), profitPorMes };
+}
+
+export interface ImplementacionMes {
+  mes: string;
+  /** Meta del mes: Σ Vol × CM1 × % a alcanzar del mes (lo requerido). */
+  meta: number;
+  objetivo: number;
+  /** Profit del mes (0 si no hubo files). */
+  profit: number;
+}
+
+/** Meta y Profit de Implementación de UN mes. null si no hay metas capturadas. */
+export function implementacionDelMes(r: ResumenImplementacionCku, mes: string): ImplementacionMes | null {
+  if (!(r.metaMensual > 0)) return null;
+  const objetivo = r.objetivos.find((o) => o.mes === mes)?.objetivo ?? OBJETIVO_DEFECTO;
+  return { mes, meta: Math.round(r.metaMensual * objetivo) / 100, objetivo, profit: r.profitPorMes[mes] ?? 0 };
+}
