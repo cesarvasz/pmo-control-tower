@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { agruparPorProyecto, detalleCalidad, detalleCumplimiento } from "./ckuDetalle";
+import { agruparPorProyecto, contarActividades, detalleCalidad, detalleCumplimiento } from "./ckuDetalle";
 import { calcEntregaStatsCku, calcReprocesoStatsPonderado } from "./dashboard";
 import { swapPmCku } from "./players";
 import type { DelayMap } from "./delay";
@@ -11,54 +11,62 @@ const reqE = (id: string, verdict: "on-time" | "late", extra: Partial<ReqItem> =
 const board = { id: "b1", name: "PM-001 | Demo", pm: "Javier" } as ProjBoard;
 const boards = ["b1", "b2", "b3"].map((id) => ({ id, name: `PM-00${id.slice(1)} | Demo ${id}`, pm: "Javier" }) as ProjBoard);
 const LAUNCH = "Launch | Lanzamiento";
-const fase = (id: string, grupo: string, entrega: "on-time" | "late", boardId = "b1"): ProjItem =>
-  ({ id, boardId, boardName: `PM-00${boardId.slice(1)} | Demo ${boardId}`, pm: "Javier", grupo, entrega, status: "Done", subitems: [] }) as unknown as ProjItem;
 
 const creacion = new Date(2026, 0, 5);
 const iniE = (id: string, aTiempo: boolean): IniItem =>
   ({ id, name: `Ini ${id}`, grupo: "Aprobadas", status: "PM Aprobado", estado: "APROBADA", pm: "Javier",
     creacion, meet1: aTiempo ? "2026-01-12" : "2026-01-13", meet2: "2026-01-26" }) as IniItem;
 
-describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyectos: solo Fase 3)", () => {
-  // Tres proyectos con su Fase 3 (a tiempo / atraso excusado / atraso) y, además, fases
-  // atrasadas de otras etapas que para un CKU NO se miden.
+// Una actividad (subitem) de un item de Fase 3. entrega = su veredicto (solo Done con fechas); null = pendiente.
+const act = (id: string, entrega: "on-time" | "late" | null, extra: Record<string, unknown> = {}) =>
+  ({ id, name: `Act ${id}`, status: entrega ? "Done" : "Working on it", entrega, responsible: "", deadline: null, actualEnd: null, ...extra });
+
+// Un item de la Fase 3 (Launch) de un board, con sus actividades. El item mismo NO es unidad.
+const item3 = (id: string, boardId: string, subs: ReturnType<typeof act>[], extra: Record<string, unknown> = {}, grupo = LAUNCH): ProjItem =>
+  ({ id, boardId, boardName: `PM-00${boardId.slice(1)} | Demo ${boardId}`, pm: "Javier", grupo, name: `Item ${id}`, status: "Working on it",
+    entrega: null, deadline: null, subitems: subs, ...extra }) as unknown as ProjItem;
+
+describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyectos: actividades de la Fase 3)", () => {
+  // Tres proyectos con su Fase 3 (a tiempo / atraso excusado / atraso que penaliza) y, además,
+  // actividades atrasadas de otras fases que para un CKU NO se miden.
   const delays: DelayMap = { r3: { responsible: "Sponsor" }, [`b1::${LAUNCH}`]: { responsible: "Sponsor" } };
   const escenario = () => ({
     req: [reqE("r1", "on-time"), reqE("r2", "late"), reqE("r3", "late")],
     proj: [
-      fase("pC", LAUNCH, "on-time", "b3"),
-      fase("pA", LAUNCH, "late", "b1"),                                   // Fase 3 con atraso, excusada
-      fase("pB", LAUNCH, "late", "b2"),                                   // Fase 3 con atraso, penaliza
-      fase("pX", "Valuación | Formulación del proyecto", "late", "b1"),   // otra fase: NO se mide
-      fase("pY", "Operación | Implementación", "late", "b2"),             // otra fase: NO se mide
+      item3("pC", "b3", [act("c1", "on-time"), act("c2", "on-time")]),
+      item3("pA", "b1", [act("a1", "on-time"), act("a2", "late")]),                              // a2: atraso EXCUSADO (fase de b1)
+      item3("pB", "b2", [act("b1", "on-time"), act("b2", "late"), act("b3", null)]),             // b2: atraso que penaliza · b3: pendiente
+      item3("pX", "b1", [act("x1", "late")], {}, "Valuación | Formulación del proyecto"),       // otra fase: NO se mide
+      item3("pY", "b2", [act("y1", "late")], {}, "Operación | Implementación"),                 // otra fase: NO se mide
     ],
     projBoards: boards, ini: [iniE("i1", true), iniE("i2", false)],
   });
 
-  it("clasifica cada unidad: a tiempo / atraso que penaliza / atraso excusado, y arma el % por fuente", () => {
+  it("cada ACTIVIDAD cerrada es una unidad: a tiempo / atraso que penaliza / atraso excusado; las pendientes no", () => {
     const d = detalleCumplimiento(escenario(), delays);
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
 
     expect(por("r1")).toMatchObject({ estado: "ok", cuenta: true });
     expect(por("r2")).toMatchObject({ estado: "atraso", cuenta: true, valor: 0 });
-    // PML con atraso excusado: SALE de la cuenta (no suma ni resta).
-    expect(por("r3")).toMatchObject({ estado: "excusado", cuenta: false });
-    // Fase 3 de Proyecto con atraso excusado: SÍ cuenta, como a tiempo.
-    expect(por(`b1::${LAUNCH}`)).toMatchObject({ estado: "excusado", cuenta: true, valor: 1 });
-    expect(por(`b2::${LAUNCH}`)).toMatchObject({ estado: "atraso", cuenta: true, extra: "1 de 1 con atraso" });
-    expect(por(`b3::${LAUNCH}`)).toMatchObject({ estado: "ok", cuenta: true });
+    expect(por("r3")).toMatchObject({ estado: "excusado", cuenta: false });        // PML con atraso excusado: sale de la cuenta
+    expect(por("a1")).toMatchObject({ estado: "ok", cuenta: true, valor: 1, fuente: "proj", fase: "Item pA", proyecto: "PM-001 · Demo b1" });
+    // Actividad con atraso en una fase con responsable ≠ CKU: igual que un PML, SALE de la cuenta.
+    expect(por("a2")).toMatchObject({ estado: "excusado", cuenta: false, valor: 0, responsable: "Sponsor" });
+    expect(por("b2")).toMatchObject({ estado: "atraso", cuenta: true, valor: 0, responsable: null });
+    expect(d.unidades.find((u) => u.id === "b3")).toBeUndefined();                  // pendiente: no es unidad
 
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
-    expect(f("req")).toMatchObject({ total: 2, buenas: 1, pct: 50 });   // r1 ok, r2 atraso (r3 excluido)
-    expect(f("proj")).toMatchObject({ total: 3, buenas: 2, pct: 67 });  // b3 ok, b1 excusada, b2 atraso
+    expect(f("req")).toMatchObject({ total: 2, buenas: 1, pct: 50 });               // r1 ok, r2 atraso (r3 excluido)
+    // Proyectos: c1, c2, a1, b1 a tiempo · b2 atraso · a2 excusada y b3 pendiente no cuentan → 4 de 5.
+    expect(f("proj")).toMatchObject({ total: 5, buenas: 4, pct: 80 });
     expect(f("ini")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
   });
 
   it("las demás fases del proyecto (Valuación, Operación…) no entran en la medición del CKU", () => {
     const d = detalleCumplimiento(escenario(), delays);
-    const proj = d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id);
-    expect(proj.sort()).toEqual([`b1::${LAUNCH}`, `b2::${LAUNCH}`, `b3::${LAUNCH}`]);
-    expect(d.unidades.some((u) => u.id.includes("Valuación") || u.id.includes("Operación"))).toBe(false);
+    const ids = d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id).sort();
+    expect(ids).toEqual(["a1", "a2", "b1", "b2", "c1", "c2"]);
+    expect(d.unidades.some((u) => u.id === "x1" || u.id === "y1")).toBe(false);
   });
 
   it("el % del detalle y las unidades que cuentan coinciden con el del scoreboard", () => {
@@ -72,7 +80,7 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
 
   it("los pesos efectivos reparten el de las fuentes sin unidades (sin PML: Iniciativas 12.5% · Proyectos 87.5%)", () => {
     const d = detalleCumplimiento(
-      { req: [], proj: [fase("p1", LAUNCH, "on-time")], projBoards: [board], ini: [iniE("i1", true)] }, {});
+      { req: [], proj: [item3("p1", "b1", [act("a1", "on-time")])], projBoards: [board], ini: [iniE("i1", true)] }, {});
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
     expect(f("req")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
     expect(f("ini").pesoEfectivo).toBeCloseTo(0.125, 5);
@@ -80,121 +88,107 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     expect(d.fuentes.reduce((s, x) => s + (x.pesoEfectivo ?? 0), 0)).toBeCloseTo(1, 5);
   });
 
-  describe("items de la Fase 3", () => {
-    const hito = (entrega: "on-time" | "late" | null) => ({ id: `h${Math.random()}`, name: "Hito", entrega }) as never;
-    const item = (id: string, nombre: string, entrega: "on-time" | "late" | null, subs: ("on-time" | "late" | null)[] = [], boardId = "b1") =>
-      ({ ...fase(id, LAUNCH, entrega ?? "on-time", boardId), name: nombre, status: entrega ? "Done" : "Working on it", entrega, subitems: subs.map(hito) }) as unknown as ProjItem;
+  describe("árbol proyecto → item → actividad", () => {
+    it("arma los proyectos con sus items y actividades por fecha límite (sin fecha al final), con el estado de cada una", () => {
+      const f = (d: string) => new Date(`${d}T00:00:00`);
+      const p = item3("a", "b1", [
+        act("s3", null, { name: "Salida en vivo", deadline: f("2026-07-14") }),
+        act("s1", "late", { name: "Requerimiento", deadline: f("2026-05-29"), actualEnd: f("2026-07-31"), responsible: " Javier Juarez " }),
+        act("s2", "on-time", { name: "Análisis", deadline: f("2026-06-05"), responsible: "Javier Aragon" }),
+        act("s4", null, { name: "Sin fecha" }),
+      ], { name: "Clasificación" });
+      const d = detalleCumplimiento({ req: [], proj: [p], projBoards: boards, ini: [] }, {});
+      expect(d.proyectos).toHaveLength(1);
+      expect(d.proyectos![0].proyecto).toBe("PM-001 · Demo b1");
+      const it0 = d.proyectos![0].items[0];
+      expect(it0.nombre).toBe("Clasificación");
+      expect(it0.actividades.map((a) => [a.nombre, a.estado, a.responsable])).toEqual([
+        ["Requerimiento", "atraso", "Javier Juarez"],
+        ["Análisis", "ok", "Javier Aragon"],
+        ["Salida en vivo", "pendiente", null],
+        ["Sin fecha", "pendiente", null],
+      ]);
+      expect(it0.actividades[0].cierre).toEqual(f("2026-07-31"));
+    });
 
-    it("cada unidad de Proyecto trae los items de su fase, con los atrasados primero", () => {
+    it("los items con atraso que penaliza van primero, luego los de atraso excusado, luego el resto", () => {
       const proj = [
-        item("a", "Bravo", "on-time"),
-        item("b", "Alfa", "late"),
-        item("c", "Charlie", null),                          // sin veredicto todavía
-        item("d", "Delta", "on-time", ["on-time", "late"]),  // el item cerró a tiempo pero un hito salió tarde
+        item3("ok", "b1", [act("o1", "on-time")], { name: "Alfa" }),
+        item3("late", "b1", [act("l1", "late")], { name: "Zulu" }),
+        item3("pend", "b1", [act("p1", null)], { name: "Bravo" }),
       ];
       const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
-      const u = d.unidades.find((x) => x.id === `b1::${LAUNCH}`)!;
-      expect(u.items!.map((i) => [i.nombre, i.estado])).toEqual([
-        ["Alfa", "atraso"], ["Delta", "atraso"], ["Charlie", "pendiente"], ["Bravo", "ok"],
-      ]);
-      expect(u.items!.find((i) => i.nombre === "Delta")).toMatchObject({ hitosEvaluados: 2, hitosAtrasados: 1 });
+      expect(d.proyectos![0].items.map((i) => i.nombre)).toEqual(["Zulu", "Alfa", "Bravo"]);
     });
 
-    it("un item sin cerrar (Stuck, Working on it) no se ve 'a tiempo' aunque sus hitos evaluados no tengan atraso", () => {
-      const abierto = { ...item("a", "Segregación", null, ["on-time", "on-time"]), status: "Stuck" } as ProjItem;
-      const d = detalleCumplimiento({ req: [], proj: [abierto], projBoards: boards, ini: [] }, {});
-      expect(d.unidades.find((x) => x.fuente === "proj")!.items![0]).toMatchObject({ estado: "pendiente", hitosEvaluados: 2, hitosAtrasados: 0 });
+    it("el atraso excusado sale marcado 'excusado' y trae el responsable de la fase con su etiqueta original", () => {
+      const original: DelayMap = { [`b1::${LAUNCH}`]: { responsible: "Desarrollo" } };
+      const proj = [item3("a", "b1", [act("s1", "late"), act("s2", "on-time")])];
+      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, original);   // "Desarrollo" ≠ PM → excusa
+      const p = d.proyectos![0];
+      expect(p.responsableFase).toBe("Desarrollo");
+      expect(p.items[0].actividades.map((a) => a.estado).sort()).toEqual(["excusado", "ok"]);
+      expect(contarActividades(p.items)).toEqual({ ok: 1, atraso: 0, excusado: 1, pendiente: 0 });
     });
 
-    it("la fase sale con atraso exactamente cuando algún item (o hito) lo tiene", () => {
-      const conAtraso = detalleCumplimiento({ req: [], proj: [item("a", "A", "on-time"), item("b", "B", "on-time", ["late"])], projBoards: boards, ini: [] }, {});
-      const sinAtraso = detalleCumplimiento({ req: [], proj: [item("a", "A", "on-time"), item("b", "B", "on-time", ["on-time"])], projBoards: boards, ini: [] }, {});
-      const u = (d: typeof conAtraso) => d.unidades.find((x) => x.fuente === "proj")!;
-      expect(u(conAtraso).estado).toBe("atraso");
-      expect(u(conAtraso).items!.some((i) => i.estado === "atraso")).toBe(true);
-      expect(u(sinAtraso).estado).toBe("ok");
-      expect(u(sinAtraso).items!.some((i) => i.estado === "atraso")).toBe(false);
+    it("si el responsable de la fase es el CKU (mapa intercambiado: aparece como 'PM') o no hay, el atraso penaliza", () => {
+      const original: DelayMap = { [`b1::${LAUNCH}`]: { responsible: "CKU" } };
+      const proj = [item3("a", "b1", [act("s1", "late")])];
+      const conCku = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, swapPmCku(original), original);
+      const sinAsignar = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      expect(conCku.proyectos![0].items[0].actividades[0].estado).toBe("atraso");
+      expect(conCku.proyectos![0].responsableFase).toBe("CKU");
+      expect(sinAsignar.proyectos![0].items[0].actividades[0].estado).toBe("atraso");
+      expect(sinAsignar.proyectos![0].responsableFase).toBeNull();
     });
 
-    it("los boards de plantilla vieja no aparecen: ni su unidad ni sus items", () => {
-      const vieja = { ...fase("v1", "Launch | Desarrollo", "late", "b2"), name: "Desarrollo por iteraciones (Hitos) / Entrega CKU" } as ProjItem;
-      const nueva = item("n1", "POC", "on-time");
-      const d = detalleCumplimiento({ req: [], proj: [vieja, nueva], projBoards: boards, ini: [] }, {});
-      expect(d.unidades.filter((x) => x.fuente === "proj").map((x) => x.id)).toEqual([`b1::${LAUNCH}`]);
-      expect(d.unidades.flatMap((x) => x.items ?? []).map((i) => i.nombre)).toEqual(["POC"]);
+    it("el item no es unidad: uno cerrado a tiempo sin actividades no aporta nada, y uno atrasado tampoco si sus actividades no cerraron", () => {
+      const proj = [
+        item3("a", "b1", [], { name: "Sin actividades", status: "Done", entrega: "on-time" }),
+        item3("b", "b1", [act("s1", null)], { name: "Atrasado sin cerrar", status: "Stuck", entrega: "late" }),
+      ];
+      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      expect(d.unidades.filter((u) => u.fuente === "proj")).toEqual([]);
+      expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
+      expect(d.proyectos![0].items.map((i) => i.nombre).sort()).toEqual(["Atrasado sin cerrar", "Sin actividades"]);
     });
 
     it("cada item trae su responsable de Monday ('Responsible'; 'Resp' si viene vacío; null si ninguno)", () => {
       const proj = [
-        { ...item("a", "A", "on-time"), responsible: " Javier Juarez ", resp: "" },
-        { ...item("b", "B", "on-time"), responsible: "", resp: "Luis Coronado" },
-        { ...item("c", "C", "on-time"), responsible: "", resp: "" },
-      ] as unknown as ProjItem[];
+        item3("a", "b1", [], { name: "A", responsible: " Javier Juarez ", resp: "" }),
+        item3("b", "b1", [], { name: "B", responsible: "", resp: "Luis Coronado" }),
+        item3("c", "b1", [], { name: "C", responsible: "", resp: "" }),
+      ];
       const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
-      const items = d.unidades.find((x) => x.fuente === "proj")!.items!;
-      expect(Object.fromEntries(items.map((i) => [i.nombre, i.responsable]))).toEqual({ A: "Javier Juarez", B: "Luis Coronado", C: null });
+      expect(Object.fromEntries(d.proyectos![0].items.map((i) => [i.nombre, i.responsable]))).toEqual({ A: "Javier Juarez", B: "Luis Coronado", C: null });
     });
 
-    it("cada item trae sus hitos por fecha límite, con su estado y su responsable", () => {
-      const sub = (id: string, name: string, entrega: "on-time" | "late" | null, deadline: string | null, responsible: string, status = "Done") =>
-        ({ id, name, entrega, status, responsible, deadline: deadline ? new Date(`${deadline}T00:00:00`) : null,
-          actualEnd: entrega ? new Date("2026-07-31T00:00:00") : null });
-      const conHitos = {
-        ...item("a", "Clasificación", "late"),
-        subitems: [
-          sub("s3", "Salida en vivo", null, "2026-07-14", "", "Future Steps"),
-          sub("s1", "Requerimiento", "late", "2026-05-29", " Javier Juarez "),
-          sub("s2", "Análisis", "on-time", "2026-06-05", "Javier Aragon"),
-          sub("s4", "Sin fecha", null, null, "Luis Aguilar", "Working on it"),
-        ],
-      } as unknown as ProjItem;
-      const d = detalleCumplimiento({ req: [], proj: [conHitos], projBoards: boards, ini: [] }, {});
-      const hitos = d.unidades.find((x) => x.fuente === "proj")!.items![0].hitos;
-      expect(hitos.map((h) => [h.nombre, h.estado, h.responsable])).toEqual([
-        ["Requerimiento", "atraso", "Javier Juarez"],
-        ["Análisis", "ok", "Javier Aragon"],
-        ["Salida en vivo", "pendiente", null],
-        ["Sin fecha", "pendiente", "Luis Aguilar"],
-      ]);
-      expect(hitos[0].cierre).toEqual(new Date("2026-07-31T00:00:00"));
+    it("los boards de plantilla vieja no aparecen: ni sus actividades ni su proyecto", () => {
+      const vieja = item3("v1", "b2", [act("v-s1", "late")], { name: "Desarrollo por iteraciones (Hitos) / Entrega CKU" }, "Launch | Desarrollo");
+      const nueva = item3("n1", "b1", [act("n-s1", "on-time")], { name: "POC" });
+      const d = detalleCumplimiento({ req: [], proj: [vieja, nueva], projBoards: boards, ini: [] }, {});
+      expect(d.proyectos!.map((p) => p.proyecto)).toEqual(["PM-001 · Demo b1"]);
+      expect(d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id)).toEqual(["n-s1"]);
     });
 
-    it("con un CKU, de los hitos solo quedan los que están a su cargo (sin importar acentos ni mayúsculas)", () => {
-      const sub = (id: string, entrega: "on-time" | "late" | null, responsible: string) =>
-        ({ id, name: id, entrega, status: "Done", responsible, deadline: null, actualEnd: null });
-      const p = {
-        ...item("a", "Clasificación", "late"),
-        subitems: [sub("s1", "late", " JAVIER juárez "), sub("s2", "on-time", "Javier Aragon"), sub("s3", null, ""), sub("s4", "on-time", "Javier Juarez")],
-      } as unknown as ProjItem;
-      const d = detalleCumplimiento({ req: [], proj: [p], projBoards: boards, ini: [], cku: "Javier Juarez" }, {});
-      const it0 = d.unidades.find((x) => x.fuente === "proj")!.items![0];
-      expect(it0.hitos.map((h) => h.nombre)).toEqual(["s1", "s4"]);
-      expect(it0.hitosTotal).toBe(4);
-      // El veredicto de la fase no cambia: sigue contando TODOS los hitos del item.
-      expect(it0).toMatchObject({ estado: "atraso", hitosEvaluados: 3, hitosAtrasados: 1 });
+    it("el proyecto con atraso que penaliza va primero", () => {
+      const proj = [
+        item3("a", "b1", [act("a1", "on-time")]),
+        item3("b", "b2", [act("b1", "late")]),
+      ];
+      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      expect(d.proyectos!.map((p) => p.proyecto)).toEqual(["PM-002 · Demo b2", "PM-001 · Demo b1"]);
     });
 
-    it("un item sin ningún hito a cargo del CKU queda con hitos vacío pero conserva el total", () => {
-      const p = { ...item("a", "A", "on-time"), subitems: [{ id: "s1", name: "x", entrega: "on-time", responsible: "Luis Aguilar" }] } as unknown as ProjItem;
-      const d = detalleCumplimiento({ req: [], proj: [p], projBoards: boards, ini: [], cku: "Victoria Escobar" }, {});
-      expect(d.unidades.find((x) => x.fuente === "proj")!.items![0]).toMatchObject({ hitos: [], hitosTotal: 1 });
-    });
-
-    it("un item sin subitems trae hitos vacío", () => {
-      const sin = { ...item("a", "A", "on-time"), subitems: [] } as unknown as ProjItem;
-      const d = detalleCumplimiento({ req: [], proj: [sin], projBoards: boards, ini: [] }, {});
-      expect(d.unidades.find((x) => x.fuente === "proj")!.items![0].hitos).toEqual([]);
-    });
-
-    it("PML e Iniciativas no traen items", () => {
+    it("PML e Iniciativas no forman proyectos", () => {
       const d = detalleCumplimiento({ req: [reqE("r1", "on-time")], proj: [], projBoards: [], ini: [iniE("i1", true)] }, {});
-      expect(d.unidades.every((x) => x.items === undefined)).toBe(true);
+      expect(d.proyectos).toEqual([]);
     });
   });
 
   it("un proyecto sin Fase 3 todavía no aporta unidades: Proyectos queda sin peso", () => {
     const d = detalleCumplimiento(
-      { req: [], proj: [fase("p1", "Valuación | Formulación del proyecto", "late")], projBoards: [board], ini: [iniE("i1", true)] }, {});
+      { req: [], proj: [item3("p1", "b1", [act("a1", "late")], {}, "Valuación | Formulación del proyecto")], projBoards: [board], ini: [iniE("i1", true)] }, {});
     expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
     expect(d.pct).toBe(100); // solo cuenta la Iniciativa
   });

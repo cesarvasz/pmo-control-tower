@@ -5,14 +5,15 @@
 // (Iniciativas / PML / Proyectos, los mismos pesos del EVM). Todo sale de lib/ckuDetalle,
 // con la misma cuenta que el scoreboard, así que el % de aquí es el de la tabla.
 //
-// Se lee como un acordeón, todo plegado al inicio: en Cumplimiento Proyecto (Fase 3) → items → hitos;
-// en Calidad Proyecto → sus entregables. Solo se listan las unidades que ENTRAN en la nota, así que
-// cada etiqueta cuadra con el % de su fuente.
+// Se lee como un acordeón, todo plegado al inicio: en Cumplimiento Proyecto (Fase 3) → items → actividades;
+// en Calidad Proyecto → sus entregables. Se listan las unidades que ENTRAN en la nota, así que cada
+// etiqueta cuadra con el % de su fuente; en Proyectos también se ven las actividades excusadas (con su
+// etiqueta «no cuenta») y cuántas quedan pendientes.
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Pill, type Tone } from "@/components/ui";
 import { fmtDate } from "@/lib/business";
-import { agruparPorProyecto, detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type DetalleMedicion, type FuenteMedida, type GrupoProyecto, type HitoFase, type ItemFase, type UnidadMedida } from "@/lib/ckuDetalle";
+import { agruparPorProyecto, contarActividades, detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type ActividadCumplimiento, type DetalleMedicion, type FuenteMedida, type GrupoProyecto, type ItemCumplimiento, type ProyectoCumplimiento, type UnidadMedida } from "@/lib/ckuDetalle";
 import type { DelayMap } from "@/lib/delay";
 import type { CkuScope } from "@/lib/players";
 
@@ -32,27 +33,28 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
     <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t p-4 lg:grid-cols-2" style={{ borderColor: "var(--border)" }}>
       <Panel
         titulo="Cumplimiento de Entrega" medida="% a tiempo" detalle={cumplimiento}
-        soloFase3 cku={scope.cku}
-        regla="Un atraso no penaliza al CKU si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Una Iniciativa o un PML con un atraso así no se cuenta; la Fase 3 de un Proyecto con un atraso así cuenta como a tiempo. Aquí solo se listan las unidades que entran en la nota."
+        notaProyectos="En Proyectos la unidad es cada actividad ya cerrada de los items de la Fase 3 (Launch) de los proyectos con plantilla nueva; las pendientes no cuentan."
+        regla="Un atraso no penaliza al CKU si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Una Iniciativa, un PML o una actividad con un atraso así no se cuenta. En Proyectos el responsable se asigna por fase, y las actividades excusadas se listan marcadas «no cuenta»."
       />
       <Panel
-        titulo="Calidad de Entregas" medida="nota promedio" esCalidad detalle={calidad} soloFase3
+        titulo="Calidad de Entregas" medida="nota promedio" esCalidad detalle={calidad}
+        notaProyectos="En Proyectos solo cuenta la Fase 3 (Launch) de los proyectos con plantilla nueva."
         regla="Cada unidad vale 100 si tiene un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tiene (sin asignar penaliza). En Proyectos la unidad es cada entregable (item) de la Fase 3 de los proyectos con plantilla nueva."
       />
     </div>
   );
 }
 
-function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, detalle, regla }: {
+function Panel({ titulo, medida, esCalidad = false, notaProyectos, detalle, regla }: {
   titulo: string; medida: string; esCalidad?: boolean;
-  /** Proyectos cuentan solo con su Fase 3 (Launch) — se avisa en el encabezado del panel. */
-  soloFase3?: boolean;
-  /** CKU dueño del panel (para rotular los hitos a su cargo). */
-  cku?: string;
+  /** Cómo se miden los Proyectos en este panel — se avisa en negritas en el encabezado. */
+  notaProyectos: string;
   detalle: DetalleMedicion; regla: string;
 }) {
-  // Solo lo que entra en la nota: un PML o Iniciativa con atraso sin penalización no suma ni resta.
+  // Solo lo que entra en la nota: un atraso excusado (PML, Iniciativa o actividad) no suma ni resta.
   const unidades = detalle.unidades.filter((u) => u.cuenta);
+  // Cumplimiento de Proyectos: el árbol proyecto → item → actividad (incluye lo que no cuenta).
+  const arbol: ProyectoCumplimiento[] = esCalidad ? [] : detalle.proyectos ?? [];
   return (
     <div className="min-w-0">
       <div className="mb-1 flex items-baseline gap-2">
@@ -64,7 +66,7 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, deta
       <p className="mb-2 text-[0.68rem] leading-snug text-[var(--text-muted)]">
         Medido como el EVM: cada fuente saca su {medida} y se combinan Iniciativas 10% · PML 20% · Proyectos 70%.
         El peso de una fuente sin unidades se reparte entre las demás.
-        {soloFase3 && <strong className="font-semibold text-[var(--text-secondary)]"> En Proyectos solo cuenta la Fase 3 (Launch) de los proyectos con plantilla nueva.</strong>}
+        <strong className="font-semibold text-[var(--text-secondary)]"> {notaProyectos}</strong>
       </p>
 
       {/* Peso real y resultado de cada fuente */}
@@ -91,19 +93,23 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, deta
       </ul>
 
       {/* Unidades que entran, agrupadas por fuente */}
-      {unidades.length === 0 ? (
+      {unidades.length === 0 && arbol.length === 0 ? (
         <div className="text-[0.8rem] text-[var(--text-disabled)]">Sin unidades medidas todavía</div>
       ) : (
         <div className="space-y-3">
           {ORDEN.map((f) => {
             const us = unidades.filter((u) => u.fuente === f);
-            if (us.length === 0) return null;
+            const conArbol = f === "proj" && arbol.length > 0;
+            if (us.length === 0 && !conArbol) return null;
             // Calidad de Proyectos: un acordeón por proyecto, con sus entregables adentro.
             const grupos = esCalidad && f === "proj" ? agruparPorProyecto(us) : null;
+            const encabezado = grupos ? `${grupos.length} ${grupos.length === 1 ? "proyecto" : "proyectos"} · ${us.length} ${us.length === 1 ? "item" : "items"}`
+              : conArbol ? `${arbol.length} ${arbol.length === 1 ? "proyecto" : "proyectos"} · ${us.length} ${us.length === 1 ? "actividad" : "actividades"} que cuentan`
+              : String(us.length);
             return (
               <section key={f}>
                 <div className="mb-1 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  {FUENTE_LABEL[f]} · {grupos ? `${grupos.length} ${grupos.length === 1 ? "proyecto" : "proyectos"} · ${us.length} ${us.length === 1 ? "item" : "items"}` : us.length}
+                  {FUENTE_LABEL[f]} · {encabezado}
                 </div>
                 <ul className="space-y-1">
                   {grupos
@@ -112,9 +118,15 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, deta
                         <ProyectoCalidad g={g} />
                       </li>
                     ))
+                    : conArbol
+                    ? arbol.map((p) => (
+                      <li key={p.proyecto} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
+                        <ProyectoCumplimientoFila p={p} />
+                      </li>
+                    ))
                     : us.map((u) => (
                       <li key={u.id} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
-                        {esCalidad ? <UnidadCalidad u={u} /> : <UnidadCumplimiento u={u} cku={cku} />}
+                        {esCalidad ? <UnidadCalidad u={u} /> : <UnidadCumplimiento u={u} />}
                       </li>
                     ))}
                 </ul>
@@ -131,11 +143,12 @@ function Panel({ titulo, medida, esCalidad = false, soloFase3 = false, cku, deta
 // ── Acordeón ──────────────────────────────────────────────────────────
 
 const resp = (r: string | null) => (r ? `Resp.: ${r}` : "sin responsable");
-const tone = (e: ItemFase["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : "neutral");
-const txt = (e: ItemFase["estado"]) => (e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : "• Pendiente");
+const tone = (e: ActividadCumplimiento["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : "neutral");
+const txt = (e: ActividadCumplimiento["estado"]) =>
+  e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : e === "excusado" ? "Excusado · no cuenta" : "• Pendiente · no cuenta";
 const unidos = (partes: (string | false | null | undefined)[]) => partes.filter(Boolean).join(" · ");
 
-/** Cuánto pesa el texto de una fila según su nivel: 0 = unidad (proyecto…), 1 = item, 2 = hito. */
+/** Cuánto pesa el texto de una fila según su nivel: 0 = unidad (proyecto…), 1 = item, 2 = actividad. */
 const TAMANO = {
   0: { titulo: "text-[0.8rem] font-semibold text-[var(--text-primary)]", detalle: "text-[0.64rem]" },
   1: { titulo: "text-[0.74rem] font-medium text-[var(--text-primary)]", detalle: "text-[0.62rem]" },
@@ -205,70 +218,91 @@ function Fila({ cabecera, hijos }: { cabecera: ReactNode; hijos?: ReactNode }) {
 
 // ── Unidades ──────────────────────────────────────────────────────────
 
-/** Una unidad de Cumplimiento. Proyecto (Fase 3) → se despliega en items → hitos. Lo que se muestra
- *  es lo que cuenta en la nota: una fase con un atraso que no penaliza cuenta como a tiempo. */
-function UnidadCumplimiento({ u, cku }: { u: UnidadMedida; cku?: string }) {
-  const items = u.items ?? [];
-  const atrasados = items.filter((i) => i.estado === "atraso").length;
-  const aTiempo = u.estado !== "atraso";
-  const cabecera = (
-    <Cabecera
-      nivel={0} titulo={u.nombre}
-      detalle={unidos([u.fase, items.length > 0 && `${items.length} ${items.length === 1 ? "item" : "items"}`, atrasados > 0 && `${atrasados} con atraso`])}
-      derecha={<>
-        <Pill tone={aTiempo ? "ok" : "bad"} small>{aTiempo ? "✓ A tiempo" : "✕ Con atraso"}</Pill>
-        {u.estado !== "ok" && <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>}
-      </>}
-    />
-  );
-  return <Fila cabecera={cabecera} hijos={items.length > 0 ? items.map((it) => <ItemFila key={it.id} it={it} cku={cku} />) : undefined} />;
-}
-
-/** Un item (entregable) de la Fase 3. La fase sale con atraso si cualquiera de ellos (o de sus hitos) lo tiene. */
-function ItemFila({ it, cku }: { it: ItemFase; cku?: string }) {
-  const quien = cku ? ` a cargo de ${cku}` : "";
-  const sinHitosDelCku = it.hitosTotal > 0 && it.hitos.length === 0;
-  const cabecera = (
-    <Cabecera
-      nivel={1} titulo={it.nombre}
-      detalle={unidos([it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, it.hitosEvaluados > 0 && `${it.hitosAtrasados} de ${it.hitosEvaluados} hitos con atraso`])}
-      responsable={it.responsable}
-      derecha={<Pill tone={tone(it.estado)} small>{txt(it.estado)}</Pill>}
-    />
-  );
+/** Un PML o una Iniciativa de Cumplimiento (una sola unidad cada uno; los atrasos excusados ya no llegan aquí). */
+function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
+  const aTiempo = u.estado === "ok";
   return (
     <Fila
-      cabecera={<>
-        {cabecera}
-        {sinHitosDelCku && <span className="block text-[0.6rem] text-[var(--text-disabled)]">Ningún hito{quien} ({it.hitosTotal} en total)</span>}
-      </>}
-      hijos={it.hitos.length > 0 ? <HitosDeItem hitos={it.hitos} total={it.hitosTotal} quien={quien} /> : undefined}
+      cabecera={
+        <Cabecera
+          nivel={0} titulo={u.nombre} detalle={u.fase}
+          derecha={<>
+            <Pill tone={aTiempo ? "ok" : "bad"} small>{aTiempo ? "✓ A tiempo" : "✕ Con atraso"}</Pill>
+            {!aTiempo && <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>}
+          </>}
+        />
+      }
     />
   );
 }
 
-/** Los hitos (subitems) de un item que están a cargo del CKU, por fecha límite. */
-function HitosDeItem({ hitos, total, quien }: { hitos: HitoFase[]; total: number; quien: string }) {
-  const atrasados = hitos.filter((h) => h.estado === "atraso").length;
+/** Un proyecto: su % a tiempo (solo con las actividades que cuentan) y, al abrirlo, sus items. */
+function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
+  const c = contarActividades(p.items);
+  const cuentan = c.ok + c.atraso;
+  const pct = cuentan > 0 ? Math.round((c.ok / cuentan) * 100) : null;
+  const t: Tone = pct === null ? "neutral" : pct >= 90 ? "ok" : pct >= 75 ? "warn" : "bad";
   return (
-    <>
-      <div className="px-2 pb-0.5 pt-1 text-[0.58rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-        {unidos([`${hitos.length} ${hitos.length === 1 ? "hito" : "hitos"}${quien}`, atrasados > 0 && `${atrasados} con atraso`, hitos.length < total && `de ${total} en total`])}
-      </div>
-      {hitos.map((h) => (
-        <Fila
-          key={h.id}
-          cabecera={
-            <Cabecera
-              nivel={2} titulo={h.nombre}
-              detalle={unidos([h.status, h.deadline && `límite ${fmtDate(h.deadline)}`, h.cierre && `cerró ${fmtDate(h.cierre)}`])}
-              responsable={h.responsable}
-              derecha={<Pill tone={tone(h.estado)} small>{txt(h.estado)}</Pill>}
-            />
-          }
+    <Fila
+      cabecera={
+        <Cabecera
+          nivel={0} titulo={p.proyecto}
+          detalle={unidos([
+            `${p.items.length} ${p.items.length === 1 ? "item" : "items"}`, `${c.ok} de ${cuentan} a tiempo`,
+            c.excusado > 0 && `${c.excusado} ${c.excusado === 1 ? "excusada" : "excusadas"}`,
+            c.pendiente > 0 && `${c.pendiente} ${c.pendiente === 1 ? "pendiente" : "pendientes"}`,
+          ])}
+          derecha={<>
+            <Pill tone={t} small>{pct === null ? "—" : `${pct}%`}</Pill>
+            {(c.atraso > 0 || c.excusado > 0) && <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(p.responsableFase)}</span>}
+          </>}
         />
-      ))}
-    </>
+      }
+      hijos={p.items.map((it) => <ItemCumplimientoFila key={it.id} it={it} />)}
+    />
+  );
+}
+
+/** Un item (entregable) de la Fase 3: no es unidad, agrupa sus actividades. Las pendientes no se listan, solo se cuentan. */
+function ItemCumplimientoFila({ it }: { it: ItemCumplimiento }) {
+  const c = contarActividades([it]);
+  const cuentan = c.ok + c.atraso;
+  const visibles = it.actividades.filter((a) => a.estado !== "pendiente");
+  const resultado = c.atraso > 0 ? <Pill tone="bad" small>{`✕ ${c.atraso} con atraso`}</Pill>
+    : cuentan > 0 ? <Pill tone="ok" small>✓ A tiempo</Pill>
+    : c.excusado > 0 ? <Pill tone="neutral" small>Excusado</Pill>
+    : <Pill tone="neutral" small>• Sin cerrar</Pill>;
+  return (
+    <Fila
+      cabecera={
+        <Cabecera
+          nivel={1} titulo={it.nombre}
+          detalle={unidos([
+            it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, `${c.ok} de ${cuentan} a tiempo`,
+            c.pendiente > 0 && `${c.pendiente} ${c.pendiente === 1 ? "pendiente" : "pendientes"}`,
+          ])}
+          responsable={it.responsable}
+          derecha={resultado}
+        />
+      }
+      hijos={visibles.length > 0 ? visibles.map((a) => <ActividadFila key={a.id} a={a} />) : undefined}
+    />
+  );
+}
+
+/** Una actividad (subitem): la unidad que se mide. */
+function ActividadFila({ a }: { a: ActividadCumplimiento }) {
+  return (
+    <Fila
+      cabecera={
+        <Cabecera
+          nivel={2} titulo={a.nombre}
+          detalle={unidos([a.status, a.deadline && `límite ${fmtDate(a.deadline)}`, a.cierre && `cerró ${fmtDate(a.cierre)}`])}
+          responsable={a.responsable}
+          derecha={<Pill tone={tone(a.estado)} small>{txt(a.estado)}</Pill>}
+        />
+      }
+    />
   );
 }
 

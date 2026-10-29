@@ -8,7 +8,7 @@
 import { buildEntregaRows, buildReprocesoRows, notaCalidadCku, projPhaseKey, proyectosFase3Nueva } from "@/lib/dashboard";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
-import { sameCku } from "@/lib/players";
+import { splitBoardName } from "@/lib/proj";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 
 export type FuenteMedida = "ini" | "req" | "proj";
@@ -26,8 +26,8 @@ export interface UnidadMedida {
   /** Cumplimiento: ok = a tiempo · excusado = atraso con responsable que no penaliza · atraso = penaliza.
    *  Calidad: ok = nota 100 (responsable distinto del CKU) · atraso = nota 0 (el CKU, o sin asignar). */
   estado: "ok" | "parcial" | "excusado" | "atraso";
-  /** ¿Entra en la nota? Un PML o Iniciativa con atraso excusado se EXCLUYE (no suma ni resta);
-   *  una fase de Proyecto con atraso excusado sí entra, como a tiempo. */
+  /** ¿Entra en la nota? Un atraso excusado (PML, Iniciativa o actividad de un Proyecto) se EXCLUYE:
+   *  no suma ni resta. */
   cuenta: boolean;
   /** 0–1 que aporta a su fuente (Cumplimiento: 1 a tiempo / 0 atraso · Calidad: nota ÷ 100). */
   valor: number;
@@ -37,76 +37,92 @@ export interface UnidadMedida {
   responsable: string | null;
   /** Solo Calidad de Proyectos: el item aún no cierra del todo (todavía no se le puede asignar responsable). */
   enCurso?: boolean;
-  /** Solo Calidad de Proyectos: el proyecto (board) al que pertenece el entregable, p. ej. "PM-013 · TDP ADU". */
+  /** Solo Proyectos: el proyecto (board) al que pertenece la unidad (el entregable en Calidad, la
+   *  actividad en Cumplimiento), p. ej. "PM-013 · TDP ADU". */
   proyecto?: string;
-  /** Dato extra breve para mostrar al lado (p. ej. "2 de 5 con atraso"). */
-  extra?: string;
-  /** Solo Cumplimiento de Proyectos: los items de la Fase 3 que componen esta unidad. */
-  items?: ItemFase[];
 }
 
-/** Un item (entregable) de la Fase 3 de un proyecto con plantilla nueva. */
-export interface ItemFase {
-  id: string;
-  nombre: string;
-  status: string;
-  deadline: Date | null;
-  /** atraso = el item o alguno de sus hitos salió tarde · ok = el item cerró a tiempo y ningún hito
-   *  salió tarde · pendiente = el item todavía no cierra (aunque algún hito ya esté evaluado). */
-  estado: "ok" | "atraso" | "pendiente";
-  hitosEvaluados: number;
-  hitosAtrasados: number;
-  /** Persona responsable del item en Monday (columna "Responsible"; "Resp" si esa viene vacía). */
-  responsable: string | null;
-  /** Los hitos (subitems) del item cuyo responsable es el CKU, por fecha límite. */
-  hitos: HitoFase[];
-  /** Cuántos hitos tiene el item en total (con cualquier responsable). */
-  hitosTotal: number;
-}
+// ── Cumplimiento de Proyectos: proyecto → item → actividad ───────────────────
+// La unidad que se mide es la ACTIVIDAD (subitem) de un item de la Fase 3; el item solo las agrupa.
 
-/** Un hito (subitem) de un item de Fase 3. `estado` sigue el veredicto de entrega del hito
- *  (Actual End vs. Limit Date); sin veredicto (Working on it, Future Steps…) queda "pendiente". */
-export interface HitoFase {
+/** Una actividad (subitem) de un item de Fase 3. ok / atraso = ya cerró con veredicto y cuenta;
+ *  excusado = cerró tarde pero su fase tiene un responsable ≠ CKU, así que no cuenta;
+ *  pendiente = todavía sin veredicto (sin cerrar, o sin fechas): no cuenta. */
+export interface ActividadCumplimiento {
   id: string;
   nombre: string;
   status: string;
   deadline: Date | null;
   /** "Actual End": cuándo cerró en realidad. */
   cierre: Date | null;
-  estado: ItemFase["estado"];
-  /** Persona responsable del hito en Monday (columna "Responsible"). */
+  estado: "ok" | "atraso" | "excusado" | "pendiente";
+  /** Persona responsable de la actividad en Monday (columna "Responsible"). */
   responsable: string | null;
 }
 
-const ORDEN_ITEM: Record<ItemFase["estado"], number> = { atraso: 0, pendiente: 1, ok: 2 };
+/** Un item (entregable) de la Fase 3 con sus actividades, por fecha límite. */
+export interface ItemCumplimiento {
+  id: string;
+  nombre: string;
+  status: string;
+  deadline: Date | null;
+  /** Persona responsable del item en Monday (columna "Responsible"; "Resp" si esa viene vacía). */
+  responsable: string | null;
+  actividades: ActividadCumplimiento[];
+}
 
-const hitoFase = (s: ProjItem["subitems"][number]): HitoFase => ({
-  id: s.id, nombre: s.name, status: s.status, deadline: s.deadline ?? null, cierre: s.actualEnd ?? null,
-  estado: s.entrega === "late" ? "atraso" : s.entrega === "on-time" ? "ok" : "pendiente",
-  responsable: s.responsible?.trim() || null,
-});
+/** Un proyecto (board con plantilla nueva) y los items de su Fase 3. */
+export interface ProyectoCumplimiento {
+  proyecto: string;
+  /** Responsable asignado al atraso de la Fase 3 (etiqueta original); null si no hay. */
+  responsableFase: string | null;
+  items: ItemCumplimiento[];
+}
+
+export interface ConteoActividades { ok: number; atraso: number; excusado: number; pendiente: number }
+
+/** Cuántas actividades hay en cada estado. A tiempo = ok · Cuentan = ok + atraso. */
+export function contarActividades(items: ItemCumplimiento[]): ConteoActividades {
+  const c: ConteoActividades = { ok: 0, atraso: 0, excusado: 0, pendiente: 0 };
+  for (const it of items) for (const a of it.actividades) c[a.estado]++;
+  return c;
+}
 
 /** Cronológico: sin fecha límite al final. */
-const porFechaLimite = (a: HitoFase, b: HitoFase) =>
+const porFechaLimite = (a: ActividadCumplimiento, b: ActividadCumplimiento) =>
   (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.nombre.localeCompare(b.nombre);
 
-/** Resumen de un item de Fase 3 para mostrarlo. Su atraso sigue la misma regla que decide si la
- *  fase salió tarde (groupFaseEntrega): el item mismo o cualquiera de sus hitos con veredicto "late". */
-function itemFase(p: ProjItem, cku?: string): ItemFase {
-  const hitosEvaluados = p.subitems.filter((s) => s.entrega === "on-time" || s.entrega === "late").length;
-  const hitosAtrasados = p.subitems.filter((s) => s.entrega === "late").length;
-  // "ok" solo si el item mismo cerró a tiempo: uno sin cerrar (Working on it, Stuck…) con hitos
-  // ya evaluados y sin atraso sigue "pendiente" — todavía no tiene su propio veredicto.
-  const estado: ItemFase["estado"] = p.entrega === "late" || hitosAtrasados > 0 ? "atraso"
-    : p.entrega === "on-time" ? "ok" : "pendiente";
-  return {
-    id: p.id, nombre: p.name, status: p.status, deadline: p.deadline, estado, hitosEvaluados, hitosAtrasados,
-    responsable: p.responsible?.trim() || p.resp?.trim() || null,
-    // Solo los hitos a cargo del CKU. Los números de arriba (evaluados / atrasados) siguen contando
-    // todos: son los que deciden si la fase salió tarde.
-    hitos: p.subitems.map(hitoFase).filter((h) => !cku || sameCku(h.responsable ?? undefined, cku)).sort(porFechaLimite),
-    hitosTotal: p.subitems.length,
-  };
+/** Los items con atrasos que penalizan primero, luego los de atraso excusado, luego el resto. */
+const rangoItem = (it: ItemCumplimiento) =>
+  it.actividades.some((a) => a.estado === "atraso") ? 0 : it.actividades.some((a) => a.estado === "excusado") ? 1 : 2;
+
+/** Arma el árbol proyecto → item → actividad de la Fase 3 (ya recortada a plantilla nueva). `delays` es
+ *  el mapa con PM ↔ CKU intercambiado (decide la excusa); `delaysOriginal`, solo para la etiqueta. */
+function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: DelayMap): ProyectoCumplimiento[] {
+  const porBoard = new Map<string, ProyectoCumplimiento>();
+  for (const p of fase3) {
+    const llave = projPhaseKey(p.boardId, p.grupo);
+    const excusada = lateExcused(llave, delays);
+    let proy = porBoard.get(p.boardId);
+    if (!proy) {
+      const { code, name } = splitBoardName(p.boardName);
+      proy = { proyecto: code ? `${code} · ${name}` : name, responsableFase: delaysOriginal[llave]?.responsible ?? null, items: [] };
+      porBoard.set(p.boardId, proy);
+    }
+    proy.items.push({
+      id: p.id, nombre: p.name, status: p.status, deadline: p.deadline,
+      responsable: p.responsible?.trim() || p.resp?.trim() || null,
+      actividades: p.subitems.map((s): ActividadCumplimiento => ({
+        id: s.id, nombre: s.name, status: s.status, deadline: s.deadline ?? null, cierre: s.actualEnd ?? null,
+        estado: s.entrega === "on-time" ? "ok" : s.entrega === "late" ? (excusada ? "excusado" : "atraso") : "pendiente",
+        responsable: s.responsible?.trim() || null,
+      })).sort(porFechaLimite),
+    });
+  }
+  const proyectos = [...porBoard.values()];
+  for (const proy of proyectos) proy.items.sort((a, b) => rangoItem(a) - rangoItem(b) || a.nombre.localeCompare(b.nombre));
+  const conAtraso = (proy: ProyectoCumplimiento) => (contarActividades(proy.items).atraso > 0 ? 0 : 1);
+  return proyectos.sort((a, b) => conAtraso(a) - conAtraso(b) || a.proyecto.localeCompare(b.proyecto));
 }
 
 export interface FuenteResumen {
@@ -129,12 +145,13 @@ export interface DetalleMedicion {
   pct: number | null;
   fuentes: FuenteResumen[];
   unidades: UnidadMedida[];
+  /** Solo Cumplimiento: los proyectos (Fase 3) con sus items y actividades, incluidas las que no
+   *  cuentan (excusadas y pendientes) para poder verlas. */
+  proyectos?: ProyectoCumplimiento[];
 }
 
 interface Scope {
   ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[];
-  /** CKU dueño del detalle: de los hitos de cada item solo se listan los que están a su cargo. */
-  cku?: string;
 }
 
 /** Arma el resumen por fuente y el % ponderado a partir de las unidades. */
@@ -162,38 +179,33 @@ function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean):
  *  que decide qué penaliza, igual que el scoreboard); `delaysOriginal`, el de Firestore tal
  *  cual, solo para mostrar el responsable con su etiqueta real. */
 export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: DelayMap = delays): DetalleMedicion {
-  // Proyectos: solo la Fase 3 de los boards con plantilla nueva (mismo recorte que
-  // calcEntregaStatsCku, el número del scoreboard).
-  const proj = proyectosFase3Nueva(s.proj);
-  const itemsPorFase = new Map<string, ItemFase[]>();
-  for (const p of proj) {
-    const k = projPhaseKey(p.boardId, p.grupo);
-    const lista = itemsPorFase.get(k);
-    if (lista) lista.push(itemFase(p, s.cku)); else itemsPorFase.set(k, [itemFase(p, s.cku)]);
-  }
-  for (const lista of itemsPorFase.values()) {
-    lista.sort((a, b) => ORDEN_ITEM[a.estado] - ORDEN_ITEM[b.estado] || a.nombre.localeCompare(b.nombre));
-  }
-  const unidades = buildEntregaRows(s.req, proj, s.projBoards, s.ini).map((r): UnidadMedida => {
-    const fuente = fuenteDe(r.source);
+  // PML e Iniciativas: una unidad cada uno. Un atraso excusado sale de la cuenta (ver calcEntregaStats).
+  const unidades = buildEntregaRows(s.req, [], s.projBoards, s.ini).map((r): UnidadMedida => {
     const tarde = r.verdict === "late";
-    const excusada = tarde && lateExcused(r.id, delays);
-    const responsable = delaysOriginal[r.id]?.responsible ?? null;
     const base = {
-      id: r.id, fuente, nombre: r.name, fase: r.source === "Proyecto" ? "" : r.fase, responsable,
-      extra: r.source === "Proyecto" && tarde ? `${r.totalAtrasados} de ${r.totalEvaluados} con atraso` : undefined,
-      items: r.source === "Proyecto" ? itemsPorFase.get(r.id) ?? [] : undefined,
+      id: r.id, fuente: fuenteDe(r.source), nombre: r.name, fase: r.fase, responsable: delaysOriginal[r.id]?.responsible ?? null,
     };
     if (!tarde) return { ...base, estado: "ok", cuenta: true, valor: 1 };
-    if (excusada) {
-      // Fase de Proyecto: cuenta como a tiempo. PML / Iniciativa: sale de la cuenta (ver calcEntregaStats).
-      return r.source === "Proyecto"
-        ? { ...base, estado: "excusado", cuenta: true, valor: 1 }
-        : { ...base, estado: "excusado", cuenta: false, valor: 0 };
-    }
+    if (lateExcused(r.id, delays)) return { ...base, estado: "excusado", cuenta: false, valor: 0 };
     return { ...base, estado: "atraso", cuenta: true, valor: 0 };
   });
-  return resumir(unidades, (u) => u.estado !== "atraso");
+
+  // Proyectos: cada ACTIVIDAD ya cerrada de un item de la Fase 3 (plantilla nueva) es una unidad, igual
+  // que en calcEntregaStatsCku (el número del scoreboard). Las pendientes no son unidades.
+  const proyectos = armarProyectos(proyectosFase3Nueva(s.proj), delays, delaysOriginal);
+  for (const proy of proyectos) {
+    for (const it of proy.items) {
+      for (const a of it.actividades) {
+        if (a.estado === "pendiente") continue;
+        unidades.push({
+          id: a.id, fuente: "proj", nombre: a.nombre, fase: it.nombre, proyecto: proy.proyecto,
+          estado: a.estado, cuenta: a.estado !== "excusado", valor: a.estado === "ok" ? 1 : 0,
+          responsable: a.estado === "ok" ? null : proy.responsableFase,
+        });
+      }
+    }
+  }
+  return { ...resumir(unidades, (u) => u.estado !== "atraso"), proyectos };
 }
 
 /** Detalle de Calidad de Entregas de un CKU (misma convención de mapas que detalleCumplimiento).

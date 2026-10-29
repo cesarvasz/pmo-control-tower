@@ -473,7 +473,7 @@ export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: Del
   return { total, onTime, late, pct };
 }
 
-interface FuenteEntrega { total: number; onTime: number }
+export interface FuenteEntrega { total: number; onTime: number }
 
 /** Conteo de Cumplimiento de Entrega (con excusa por responsable) POR FUENTE:
  *  PML (REQ cerrados), Proyectos (fases) e Iniciativas aprobadas. Base común de
@@ -525,11 +525,30 @@ export function proyectosFase3Nueva(projs: ProjItem[]): ProjItem[] {
 }
 
 /** Cumplimiento de Entrega de un CKU: lo mismo que calcEntregaStatsPonderado (una nota por
- *  fuente, combinadas 10/20/70) pero en Proyectos SOLO cuenta la Fase 3 (Launch) de los
- *  boards con plantilla nueva (ver proyectosFase3Nueva) — la fase de cada proyecto es una
- *  sola unidad, en vez de las cinco. PML e Iniciativas no cambian. */
+ *  fuente, combinadas 10/20/70) pero en Proyectos la unidad es cada ACTIVIDAD (subitem) de los
+ *  items de la Fase 3 (Launch) de los boards con plantilla nueva — ver entregaActividadesCku.
+ *  PML e Iniciativas no cambian. */
 export function calcEntregaStatsCku(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
-  return calcEntregaStatsPonderado(reqs, proyectosFase3Nueva(projs), delays, ini);
+  const f = entregaPorFuente(reqs, [], delays, ini);
+  return combinarEntregaPonderada({ ...f, proj: entregaActividadesCku(proyectosFase3Nueva(projs), delays) });
+}
+
+/** Proyectos de un CKU: cada ACTIVIDAD (subitem) de los items de su Fase 3 es una unidad. Solo
+ *  entran las que YA cerraron con veredicto (Done con fecha real y límite): a tiempo si cerró en o
+ *  antes de su límite, con atraso si no. Las pendientes (sin cerrar, o sin fechas) no cuentan.
+ *  El item no es unidad: solo sus actividades. La excusa es la de la FASE (un responsable por fase,
+ *  ver projPhaseKey): si es ≠ CKU, el atraso de sus actividades sale de la cuenta, igual que un PML o
+ *  una Iniciativa; si está sin asignar o es el CKU, penaliza. */
+export function entregaActividadesCku(fase3: ProjItem[], delays: DelayMap): FuenteEntrega {
+  const out = { total: 0, onTime: 0 };
+  for (const p of fase3) {
+    const excusada = lateExcused(projPhaseKey(p.boardId, p.grupo), delays);
+    for (const s of p.subitems) {
+      if (s.entrega === "on-time") { out.total++; out.onTime++; }
+      else if (s.entrega === "late" && !excusada) out.total++;
+    }
+  }
+  return out;
 }
 
 /** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
@@ -538,7 +557,12 @@ export function calcEntregaStatsCku(reqs: ReqItem[], projs: ProjItem[], delays: 
  *  peso se reparte entre las demás. Los conteos (`total`/`onTime`/`late`) siguen
  *  siendo la suma de todas las unidades; solo `pct` cambia respecto a calcEntregaStats. */
 export function calcEntregaStatsPonderado(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
-  const f = entregaPorFuente(reqs, projs, delays, ini);
+  return combinarEntregaPonderada(entregaPorFuente(reqs, projs, delays, ini));
+}
+
+/** Combina el conteo por fuente en un EntregaStats: conteos = suma de todas las unidades, `pct` =
+ *  nota por fuente ponderada 10/20/70 (la fuente sin unidades no cuenta). */
+function combinarEntregaPonderada(f: { req: FuenteEntrega; proj: FuenteEntrega; ini: FuenteEntrega }): EntregaStats {
   const total = f.req.total + f.proj.total + f.ini.total;
   const onTime = f.req.onTime + f.proj.onTime + f.ini.onTime;
   const frac = (x: FuenteEntrega) => (x.total ? x.onTime / x.total : null);
