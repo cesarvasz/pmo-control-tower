@@ -151,11 +151,6 @@ function Players({ data }: { data: DashboardData }) {
           <option value="">Todos los meses</option>
           {meses.map((m) => <option key={m} value={m}>{etiquetaMesLargo(m)}</option>)}
         </select>
-        {mesActivo && (
-          <span className="text-[0.72rem] text-[var(--text-muted)]">
-            Cumplimiento y Calidad miden solo las actividades con Limit Date en {etiquetaMesLargo(mesActivo)}; EVM, NPS, PML e Iniciativas no se filtran por mes. En el Beneficio, solo la Implementación ({CKU_CON_IMPLEMENTACION}) es la del mes.
-          </span>
-        )}
       </div>
       <PmScoreboard
         pms={ckus} ini={ini} req={req} proj={proj} projBoards={projBoards}
