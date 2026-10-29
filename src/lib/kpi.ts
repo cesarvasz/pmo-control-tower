@@ -116,51 +116,40 @@ export function computeBenefitKpi(
 }
 
 export interface BenefitKpiCku {
-  meta: number;              // Aprobación VPB de sus proyectos y PML HardSaving
-  benefitAprobado: number;   // Aprobación VPB de sus proyectos HardSaving (sin PML)
-  benefitConfirmado: number; // confirmado (ROI, o Monday mientras ROI no carga)
-  logroAprobacion: number;   // benefitAprobado / meta, tope 100%
-  logroConfirmacion: number; // confirmacionReal / confirmacionMeta, tope 100% — el "% de alcance"
+  meta: number;              // Aprobación VPB de sus proyectos y PML HardSaving (sin Implementación)
+  benefitConfirmado: number; // lo generado: ROI (o Monday mientras ROI no carga), sin Implementación
   /** Implementación del mes, solo para el CKU que la lleva (ver CKU_CON_IMPLEMENTACION). */
   implementacion?: { mes: string; meta: number; profit: number };
-  /** Contra qué se mide la Confirmación: lo aprobado + la meta de Implementación del mes. */
-  confirmacionMeta: number;
-  /** Lo que se mide: lo confirmado + el Profit de Implementación del mes. */
-  confirmacionReal: number;
-  pesoAprobacion: number;
-  pesoConfirmacion: number;
-  ptsAprobacion: number;
-  ptsConfirmacion: number;
+  /** La meta contra la que se mide: `meta` + la meta de Implementación del mes. */
+  metaTotal: number;
+  /** Lo que se lleva cumplido: `benefitConfirmado` + el Profit de Implementación del mes. */
+  real: number;
+  /** Cumplimiento de meta: real ÷ metaTotal, con tope en 100%. */
+  logro: number;
+  peso: number;
+  /** Puntos del KPI: logro × peso. */
   total: number;
 }
 
 /**
- * Componente "Beneficio" del KPI de un CKU (Players, /players): ya no hay meta fija de $84,000
- * prorrateada por mes. La META del CKU es la suma del beneficio aprobado (Aprobación VPB) de
- * los proyectos y PML HardSaving en los que trabaja; mismo reparto 90/10 que los PM (BENEFIT_SPLIT):
- *   · Aprobación: beneficio aprobado de sus proyectos HardSaving ÷ meta.
- *   · Confirmación: "% de alcance" = beneficio confirmado ÷ beneficio aprobado (de lo que se
- *     aprobó, cuánto ya se confirmó). Con `implementacion` (meta y Profit de UN mes, solo el CKU
- *     que la lleva): (confirmado + Profit del mes) ÷ (aprobado + meta del mes).
- * Ambos con tope en 100%. Sin meta (nada aprobado ni meta de Implementación) el componente queda
- * pendiente (ver computeKpi).
+ * Componente "Beneficio" del KPI de un CKU (Players, /players). A diferencia de los PM (meta fija de
+ * $84,000 prorrateada por mes y reparto 90/10 Aprobación/Confirmación), al CKU se le pone una META y
+ * se mide su cumplimiento, en un solo porcentaje que vale todo el peso:
+ *   · Meta = el beneficio aprobado (Aprobación VPB) de los proyectos y PML HardSaving en los que trabaja.
+ *   · Cumplimiento = lo generado, el ROI.
+ *   · Con `implementacion` (meta y Profit de UN mes, solo el CKU que la lleva) se suma la meta de
+ *     Implementación del mes a la meta y su Profit a lo cumplido.
+ * Tope en 100%. Sin meta (nada aprobado ni meta de Implementación) el componente queda pendiente
+ * (ver computeKpi).
  */
 export function computeBenefitKpiCku(
-  meta: number, benefitAprobado: number, benefitConfirmado: number, weights: KpiWeights = KPI_W_CKU,
+  meta: number, benefitConfirmado: number, weights: KpiWeights = KPI_W_CKU,
   implementacion?: { mes: string; meta: number; profit: number },
 ): BenefitKpiCku {
-  const pesoAprobacion = weights.benefit * BENEFIT_SPLIT.aprobacion;
-  const pesoConfirmacion = weights.benefit * BENEFIT_SPLIT.confirmacion;
-  const confirmacionMeta = benefitAprobado + (implementacion?.meta ?? 0);
-  const confirmacionReal = benefitConfirmado + (implementacion?.profit ?? 0);
-  const logroAprobacion = meta > 0 ? clamp01(benefitAprobado / meta) : 0;
-  const logroConfirmacion = confirmacionMeta > 0 ? clamp01(confirmacionReal / confirmacionMeta) : 0;
-  const ptsAprobacion = logroAprobacion * pesoAprobacion;
-  const ptsConfirmacion = logroConfirmacion * pesoConfirmacion;
-  return {
-    meta, benefitAprobado, benefitConfirmado, logroAprobacion, logroConfirmacion, implementacion, confirmacionMeta, confirmacionReal,
-    pesoAprobacion, pesoConfirmacion, ptsAprobacion, ptsConfirmacion, total: ptsAprobacion + ptsConfirmacion,
-  };
+  const metaTotal = meta + (implementacion?.meta ?? 0);
+  const real = benefitConfirmado + (implementacion?.profit ?? 0);
+  const logro = metaTotal > 0 ? clamp01(real / metaTotal) : 0;
+  return { meta, benefitConfirmado, implementacion, metaTotal, real, logro, peso: weights.benefit, total: logro * weights.benefit };
 }
 
 export type KpiInput = {
@@ -198,8 +187,8 @@ export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, benef
   const benefitComp: KpiComponent = beneficioCku
     ? { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
         logro: W.benefit > 0 ? beneficioCku.total / W.benefit : 0,
-        real: fmtMoney(beneficioCku.benefitAprobado), meta: fmtMoney(beneficioCku.meta),
-        pending: beneficioCku.meta <= 0 && beneficioCku.confirmacionMeta <= 0 }
+        real: fmtMoney(beneficioCku.real), meta: fmtMoney(beneficioCku.metaTotal),
+        pending: beneficioCku.metaTotal <= 0 }
     : { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
         logro: W.benefit > 0 ? b.total / W.benefit : 0,
         real: fmtMoney(benefitAprobado + benefitConfirmado), meta: fmtMoney(b.metaAcumulada) };

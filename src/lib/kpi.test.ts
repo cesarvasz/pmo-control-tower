@@ -169,54 +169,58 @@ describe("computeKpi", () => {
   });
 });
 
-// CKU (peso 25 de KPI_W_CKU): Aprobación 22.5 = aprobado de proyectos HardSaving ÷ meta (aprobado de
-// sus proyectos y PML HardSaving); Confirmación 2.5 = confirmado ÷ aprobado ("% de alcance").
-describe("computeBenefitKpiCku (meta = lo aprobado HardSaving del CKU; Confirmación = confirmado ÷ aprobado)", () => {
-  it("Aprobación contra la meta del CKU y Confirmación contra lo aprobado", () => {
-    const b = computeBenefitKpiCku(80_000, 40_000, 10_000);
-    expect(b.logroAprobacion).toBeCloseTo(0.5, 5);
-    expect(b.logroConfirmacion).toBeCloseTo(0.25, 5);
-    expect(b.ptsAprobacion).toBeCloseTo(11.25, 5);   // 0.5 × 22.5
-    expect(b.ptsConfirmacion).toBeCloseTo(0.625, 5); // 0.25 × 2.5
-    expect(b.total).toBeCloseTo(11.875, 5);
+// CKU (peso 25 de KPI_W_CKU): un solo porcentaje que vale todo el peso. Meta = beneficio aprobado
+// HardSaving de sus proyectos y PML; cumplimiento = lo generado (ROI). A diferencia de los PM, sin
+// reparto 90/10 Aprobación/Confirmación.
+describe("computeBenefitKpiCku (meta = lo aprobado HardSaving del CKU; cumplimiento = el ROI generado)", () => {
+  it("cumplimiento de meta = ROI ÷ meta, y vale todo el peso", () => {
+    const b = computeBenefitKpiCku(80_000, 20_000);
+    expect(b.metaTotal).toBe(80_000);
+    expect(b.real).toBe(20_000);
+    expect(b.logro).toBeCloseTo(0.25, 5);
+    expect(b.peso).toBe(25);
+    expect(b.total).toBeCloseTo(6.25, 5);   // 0.25 × 25, no 0.25 × 2.5
   });
 
-  it("tope en 100%: confirmar más de lo aprobado no da puntos extra", () => {
-    const b = computeBenefitKpiCku(22_715, 22_530, 50_376);
-    expect(b.logroConfirmacion).toBe(1);
-    expect(b.ptsConfirmacion).toBeCloseTo(2.5, 5);
+  it("tope en 100%: generar más que la meta no da puntos extra", () => {
+    const b = computeBenefitKpiCku(22_530, 50_376);
+    expect(b.logro).toBe(1);
+    expect(b.total).toBeCloseTo(25, 5);
   });
 
-  it("sin nada aprobado: logros en 0 y en computeKpi el componente queda pendiente", () => {
-    const b = computeBenefitKpiCku(0, 0, 5_000);
+  it("sin meta: logro 0 y en computeKpi el componente queda pendiente", () => {
+    const b = computeBenefitKpiCku(0, 5_000);
     expect(b.total).toBe(0);
     const r = computeKpi({ evm: null, nps: null, benefitAprobado: 0, benefitConfirmado: 0, beneficioCku: b, entregasPct: null, weights: KPI_W_CKU });
     expect(r.components.find((c) => c.key === "benefit")!.pending).toBe(true);
   });
 
-  it("con Implementación: (confirmado + Profit del mes) ÷ (aprobado + meta del mes); la Aprobación no cambia", () => {
-    const b = computeBenefitKpiCku(20_000, 20_000, 5_000, KPI_W_CKU, { mes: "2026-10", meta: 30_000, profit: 20_000 });
-    expect(b.confirmacionMeta).toBe(50_000);
-    expect(b.confirmacionReal).toBe(25_000);
-    expect(b.logroConfirmacion).toBeCloseTo(0.5, 5);
-    expect(b.logroAprobacion).toBe(1);
+  it("con Implementación: (ROI + Profit del mes) ÷ (meta + meta de Implementación del mes)", () => {
+    const b = computeBenefitKpiCku(20_000, 5_000, KPI_W_CKU, { mes: "2026-10", meta: 30_000, profit: 20_000 });
+    expect(b.metaTotal).toBe(50_000);
+    expect(b.real).toBe(25_000);
+    expect(b.logro).toBeCloseTo(0.5, 5);
+    expect(b.total).toBeCloseTo(12.5, 5);
+    // lo que no es Implementación se conserva para mostrarlo aparte
+    expect(b.meta).toBe(20_000);
+    expect(b.benefitConfirmado).toBe(5_000);
   });
 
-  it("con Implementación: un Profit negativo no deja la Confirmación bajo 0", () => {
-    const b = computeBenefitKpiCku(0, 0, 0, KPI_W_CKU, { mes: "2026-10", meta: 30_000, profit: -5_000 });
-    expect(b.logroConfirmacion).toBe(0);
+  it("con Implementación: un Profit negativo no deja el cumplimiento bajo 0", () => {
+    const b = computeBenefitKpiCku(0, 0, KPI_W_CKU, { mes: "2026-10", meta: 30_000, profit: -5_000 });
+    expect(b.logro).toBe(0);
     // Solo con meta de Implementación el componente ya se mide (no queda pendiente).
     const r = computeKpi({ evm: null, nps: null, benefitAprobado: 0, benefitConfirmado: 0, beneficioCku: b, entregasPct: null, weights: KPI_W_CKU });
     expect(r.components.find((c) => c.key === "benefit")!.pending).toBe(false);
   });
 
   it("computeKpi usa el beneficio del CKU en vez de la meta acumulada de los PM", () => {
-    const b = computeBenefitKpiCku(80_000, 40_000, 10_000);
+    const b = computeBenefitKpiCku(80_000, 20_000);
     const r = computeKpi({ evm: null, nps: null, benefitAprobado: 999_999, benefitConfirmado: 999_999, beneficioCku: b, entregasPct: null, weights: KPI_W_CKU });
     const c = r.components.find((x) => x.key === "benefit")!;
-    expect(c.logro).toBeCloseTo(11.875 / 25, 5);
+    expect(c.logro).toBeCloseTo(0.25, 5);
     expect(c.meta).toBe("$80,000");
-    expect(c.real).toBe("$40,000");
+    expect(c.real).toBe("$20,000");
   });
 });
 

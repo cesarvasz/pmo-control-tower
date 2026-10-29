@@ -166,20 +166,18 @@ export default function PMValueModal({ pm, valueAll, valueHard, initialHard, onC
                     <div className="mt-1 text-[0.72rem] leading-relaxed text-[var(--text-muted)]">
                       Meta = beneficio aprobado (Aprobación VPB) de sus proyectos y PML HardSaving:{" "}
                       <b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.meta)}</b>.
-                      Aprobación: lo aprobado de sus proyectos HardSaving contra esa meta.
-                      Confirmación: % de alcance, lo confirmado contra lo aprobado.
+                      Cumplimiento de meta = lo generado (ROI):{" "}
+                      <b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.benefitConfirmado)}</b>.
                       {beneficioCku.implementacion && (
                         <>
-                          {" "}Con Implementación de {etiquetaMesLargo(beneficioCku.implementacion.mes)}: se suman su Profit{" "}
-                          (<b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.implementacion.profit)}</b>) a lo confirmado{" "}
-                          ({fmtMoney(beneficioCku.benefitConfirmado)}) y su meta del mes{" "}
-                          (<b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.implementacion.meta)}</b>) a lo aprobado.
+                          {" "}Con Implementación de {etiquetaMesLargo(beneficioCku.implementacion.mes)}: se suma su meta del mes{" "}
+                          (<b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.implementacion.meta)}</b>) a la meta y el Profit que{" "}
+                          lleva (<b style={{ color: "var(--text-primary)" }}>{fmtMoney(beneficioCku.implementacion.profit)}</b>) al cumplimiento.
                         </>
                       )}
                     </div>
                   </div>
-                  <KpiWeightRow label={`Aprobación VPB (${Math.round(BENEFIT_SPLIT.aprobacion * 100)}% del peso)`} weight={beneficioCku.pesoAprobacion} monto={beneficioCku.benefitAprobado} meta={beneficioCku.meta} logro={beneficioCku.logroAprobacion} />
-                  <KpiWeightRow label={`Confirmación · % de alcance (${Math.round(BENEFIT_SPLIT.confirmacion * 100)}% del peso)`} weight={beneficioCku.pesoConfirmacion} monto={beneficioCku.confirmacionReal} meta={beneficioCku.confirmacionMeta} logro={beneficioCku.logroConfirmacion} />
+                  <KpiWeightRow label="Cumplimiento de meta (todo el peso)" weight={beneficioCku.peso} monto={beneficioCku.real} meta={beneficioCku.metaTotal} logro={beneficioCku.logro} />
                   <div className="h-px" style={{ background: "var(--border)" }} />
                   <div className="flex items-center justify-between text-[0.8rem] font-bold text-[var(--text-primary)]">
                     <span>Total aportado al KPI</span>

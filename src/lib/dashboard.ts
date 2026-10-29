@@ -1381,8 +1381,8 @@ export function calcPmMetrics(
    *  calcEntregaStatsCku); el Beneficio, contra su propia meta (ver computeBenefitKpiCku).
    *  Hoy solo los Players por CKU. */
   ponderarPorFuente = false,
-  /** Meta y Profit de Implementación de un mes, para el CKU que la lleva: se suman a la
-   *  Confirmación de su Beneficio (ver computeBenefitKpiCku). */
+  /** Meta y Profit de Implementación de un mes, para el CKU que la lleva: la meta se suma a la
+   *  meta de su Beneficio y el Profit a su cumplimiento (ver computeBenefitKpiCku). */
   implementacionCku?: { mes: string; meta: number; profit: number },
 ) {
   // Nota EVM del PM (ver calcPmEvm). Sin iniciativas ese 10% se reparte entre REQ y Proyectos.
@@ -1406,18 +1406,12 @@ export function calcPmMetrics(
   const pmValueAll = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, false), confirmacionRoiPm[pm]);
   const pmValueHard = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, true), confirmacionRoiPm[pm]);
   // Un CKU se mide contra su propia meta (ver computeBenefitKpiCku): lo aprobado de sus proyectos y PML
-  // HardSaving; su beneficio es lo aprobado de sus proyectos HardSaving y la Confirmación, lo confirmado ÷ eso.
+  // HardSaving, y su cumplimiento es lo generado (ROI).
   const beneficioCku = ponderarPorFuente
-    ? computeBenefitKpiCku(
-        pmValueHard.aprobacionBenefit,
-        pmValueHard.detail.projects.reduce((s, p) => s + (p.stages.aprobacion?.benefit ?? 0), 0),
-        pmValueHard.confirmacionBenefit,
-        weights,
-        implementacionCku,
-      )
+    ? computeBenefitKpiCku(pmValueHard.aprobacionBenefit, pmValueHard.confirmacionBenefit, weights, implementacionCku)
     : undefined;
   // Beneficio mostrado (scoreboard) = solo Aprobación VPB, igual que la tarjeta de PM.
-  const benefit = beneficioCku ? beneficioCku.benefitAprobado : pmValueHard.aprobacionBenefit;
+  const benefit = pmValueHard.aprobacionBenefit;
 
   const reprocesoArgs = [
     req.filter((r) => r.pm === pm),

@@ -131,13 +131,13 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                   <button
                     onClick={() => setValuePm(r.pm)}
                     title={r.beneficioCku
-                      ? `Aprobado (proyectos HardSaving): ${fmtMoney(r.beneficioCku.benefitAprobado)} de su meta ${fmtMoney(r.beneficioCku.meta)} (aprobado de sus proyectos y PML HardSaving) · Confirmado (${r.pmValueHard.confirmacionRoi ?? "VPC"}): ${fmtMoney(r.beneficioCku.benefitConfirmado)}${r.beneficioCku.implementacion ? ` + Profit de Implementación ${etiquetaMesLargo(r.beneficioCku.implementacion.mes)} ${fmtMoney(r.beneficioCku.implementacion.profit)} = ${fmtMoney(r.beneficioCku.confirmacionReal)}, contra lo aprobado + meta de Implementación ${fmtMoney(r.beneficioCku.implementacion.meta)} = ${fmtMoney(r.beneficioCku.confirmacionMeta)}` : ""} → ${Math.round(r.beneficioCku.logroConfirmacion * 100)}% de alcance · clic para ver el detalle`
+                      ? `Meta (beneficio aprobado de sus proyectos y PML HardSaving): ${fmtMoney(r.beneficioCku.meta)}${r.beneficioCku.implementacion ? ` + meta de Implementación ${etiquetaMesLargo(r.beneficioCku.implementacion.mes)} ${fmtMoney(r.beneficioCku.implementacion.meta)} = ${fmtMoney(r.beneficioCku.metaTotal)}` : ""} · Cumplimiento (${r.pmValueHard.confirmacionRoi ?? "VPC"}): ${fmtMoney(r.beneficioCku.benefitConfirmado)}${r.beneficioCku.implementacion ? ` + Profit de Implementación ${fmtMoney(r.beneficioCku.implementacion.profit)} = ${fmtMoney(r.beneficioCku.real)}` : ""} → ${Math.round(r.beneficioCku.logro * 100)}% de la meta · clic para ver el detalle`
                       : `Validado (Aprobación VPB): ${fmtMoney(r.benefit)} · Confirmado (VPC${r.pmValueHard.confirmacionRoi ? `, ${r.pmValueHard.confirmacionRoi}` : ""}): ${fmtMoney(r.pmValueHard.confirmacionBenefit)} (${Math.round(ratioConfirmacion(r.pmValueHard.confirmacionBenefit) * 100)}% de la meta a ${mesesTerminados()} meses terminados, ${fmtMoney(metaConfirmacionAcumulada())}) · clic para ver el detalle`}
                     className="inline-flex flex-col items-center gap-0.5 text-[0.78rem] leading-none tabular-nums font-bold transition-colors hover:underline"
                   >
-                    {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados; en un CKU, vs. lo aprobado). */}
-                    <span style={{ color: "var(--text-primary)" }}>{fmtMoneyShort(r.benefit)}</span>
-                    <span style={{ color: kpiColorFor(r.beneficioCku ? r.beneficioCku.logroConfirmacion : ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.confirmacionReal : r.pmValueHard.confirmacionBenefit)}</span>
+                    {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados). En un CKU: su meta arriba y lo cumplido abajo (semáforo vs. esa meta). */}
+                    <span style={{ color: "var(--text-primary)" }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.metaTotal : r.benefit)}</span>
+                    <span style={{ color: kpiColorFor(r.beneficioCku ? r.beneficioCku.logro : ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.real : r.pmValueHard.confirmacionBenefit)}</span>
                   </button>
                   <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
                 </td>
