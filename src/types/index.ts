@@ -225,6 +225,14 @@ export interface MetodologiaCalif {
   comentario?: string;
 }
 
+/** Calificación del VPA en un mes ("YYYY-MM"): la nota 0-100 de cada indicador (clave de
+ *  VPA_INDICADORES en lib/vpa.ts). La pone un admin; un indicador sin nota no aparece. */
+export interface VpaCalifMes {
+  notas: Record<string, number>;
+  by?: string;
+  at?: string;
+}
+
 // ── Detalle de un atraso (tabla "Atrasos" del Resumen Ejecutivo) ───────────
 /** Un tramo del reparto de los días de un atraso: cuántos días hábiles del
  *  atraso se atribuyen a un rol. La suma de `dias` de todos los tramos debe

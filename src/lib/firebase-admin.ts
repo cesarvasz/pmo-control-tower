@@ -8,6 +8,8 @@ import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firesto
 import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ObjetivoMes, OnHoldDoc, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
 import { leerDocMetas } from "@/lib/implementaciones";
 import { estaEnOnHold, leerOnHold, type OnHoldTipo } from "@/lib/onHold";
+import { esMesValido } from "@/lib/metodologia";
+import { leerCalifVpa, type VpaCalifs } from "@/lib/vpa";
 
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
@@ -144,6 +146,25 @@ export async function saveMetodologiaCalif(phaseKey: string, score: number, by: 
 export async function deleteMetodologiaCalif(phaseKey: string): Promise<void> {
   const db = getAdminDb();
   await db.collection("metodologia_califs").doc(phaseKey).delete();
+}
+
+// ── Calificación mensual del VPA (pestaña VPA de /calidad-cumplimiento) ──
+// Colección `vpa_califs`: un doc por mes ("YYYY-MM") con el mapa `notas` (indicador → 0-100).
+// Calificar un indicador escribe solo su llave (merge), así dos admins que califiquen
+// indicadores distintos a la vez no se pisan. Ver lib/vpa.ts.
+export async function getVpaCalifs(): Promise<VpaCalifs> {
+  const snap = await getAdminDb().collection("vpa_califs").get();
+  const result: VpaCalifs = {};
+  snap.forEach((doc) => { if (esMesValido(doc.id)) result[doc.id] = leerCalifVpa(doc.data()); });
+  return result;
+}
+
+/** Pone la nota de un indicador en un mes; `null` la quita. */
+export async function saveVpaNota(mes: string, indicador: string, nota: number | null, by: string): Promise<void> {
+  await getAdminDb().collection("vpa_califs").doc(mes).set(
+    { notas: { [indicador]: nota == null ? FieldValue.delete() : nota }, by, at: new Date().toISOString() },
+    { merge: true },
+  );
 }
 
 // ── Metas de Implementación (pestaña Implementación de ROI) ──────────────

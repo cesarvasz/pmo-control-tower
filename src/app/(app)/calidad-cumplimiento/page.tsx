@@ -7,6 +7,7 @@
 //   · Calidad de Entregas (peso 10 PM, "reproceso"): Iniciativas APROBADAS + REQ CERRADOS + steps de
 //     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
 //   · Metodología (peso 15): nota 0-100 por persona y mes, ver MetodologiaTab.
+//   · VPA: los indicadores de «Objetivos de Calidad» del VPA, calificados por un Admin cada mes, ver VpaTab.
 // Objetivo: ver cuántos casos hay de cada tipo y QUIÉN ha sido el responsable
 // asignado, para medir patrones y poder asignar responsables desde aquí mismo
 // (reutiliza ResponsibleSelect — misma atribución que REQ/Proyectos).
@@ -22,6 +23,7 @@ import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES, RESPONSIBLE_COLOR, countByR
 import ResponsibleSelect from "@/components/ResponsibleSelect";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
 import MetodologiaTab from "@/components/MetodologiaTab";
+import VpaTab from "@/components/VpaTab";
 import OnHoldTab from "@/components/OnHoldTab";
 import { listPMs } from "@/lib/players";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard } from "@/components/ui";
@@ -35,7 +37,7 @@ export default function CalidadCumplimientoPage() {
   // medición lo usan. La pestaña «On Hold» necesita verlo todo para poder pausar y reactivar.
   const { data, dataTodo, loading, error } = useData();
   const { me } = useMe();
-  const [tab, setTab] = useState<"entrega" | "reproceso" | "metodologia" | "onhold">("entrega");
+  const [tab, setTab] = useState<"entrega" | "reproceso" | "metodologia" | "vpa" | "onhold">("entrega");
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -59,6 +61,7 @@ export default function CalidadCumplimientoPage() {
           ["entrega", "Cumplimiento de Entrega"],
           ["reproceso", "Calidad de Entregas"],
           ["metodologia", "Metodología"],
+          ["vpa", "VPA"],
           ["onhold", "On Hold"],
         ] as const).map(([v, label]) => (
           <button
@@ -76,6 +79,8 @@ export default function CalidadCumplimientoPage() {
         ? <EntregaTab req={req} proj={proj} projBoards={projBoards} delays={delays} canEditFilters={canEditFilters} ini={ini} />
         : tab === "metodologia"
         ? <MetodologiaTab pms={listPMs(ini, req)} califs={metodologiaCalifs} />
+        : tab === "vpa"
+        ? <VpaTab />
         : tab === "onhold"
         ? <OnHoldTab data={dataTodo ?? data} />
         : <ReprocesoTab ini={ini} req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} canEditFilters={canEditFilters} />}
