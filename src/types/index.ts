@@ -135,8 +135,9 @@ export interface ClonacionPayload {
  *  hoja. Los importes llegan ya como número; null = celda vacía. */
 export interface ImplementacionRow {
   File: string;
-  /** "yyyy-MM-ddTHH:mm:ss" (hora de pared), "" si la hoja no trae fecha. */
-  Fecha_cierre: string;
+  /** Fecha de facturación: "yyyy-MM-ddTHH:mm:ss" (hora de pared), "" si la hoja no trae fecha.
+   *  En la hoja la columna se llamó «Fecha_cierre» y ahora es «fecha_facturacion». */
+  fecha_facturacion: string;
   Cliente: string;
   Usuario: string;
   ingresos_facturados: number | null;
@@ -172,7 +173,7 @@ export interface MetaCliente {
  *  (100 = toda la meta, 90 = basta con el 90 %). Uno por mes, igual para todos los
  *  clientes. Un mes que no está en la lista vale 100. */
 export interface ObjetivoMes {
-  /** Mes de cierre, "yyyy-MM". */
+  /** Mes de facturación, "yyyy-MM". */
   mes: string;
   objetivo: number;
 }

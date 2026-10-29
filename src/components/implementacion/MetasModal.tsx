@@ -16,7 +16,8 @@ import { useState } from "react";
 import Modal from "@/components/Modal";
 import { authedFetch } from "@/lib/api";
 import {
-  OBJETIVO_DEFECTO, etiquetaMes, evaluarFilaMeta, evaluarObjetivo, fmtImporte, metaProfitMensual, type PuntoMes,
+  OBJETIVO_DEFECTO, etiquetaMes, evaluarFilaMeta, evaluarObjetivo, fmtImporte, grupoDeCliente, metaProfitMensual, miembrosDeGrupo,
+  type PuntoMes,
 } from "@/lib/implementaciones";
 import { META_BORDE, META_FONDO, META_FONDO_ENCABEZADO, META_TEXTO } from "@/components/implementacion/estiloMeta";
 import type { MetaCliente, MetasImplementacionDoc, ObjetivoMes } from "@/types";
@@ -41,7 +42,7 @@ const Titulo = ({ children, nota }: { children: React.ReactNode; nota: string })
 );
 
 export default function MetasModal({ clientes, meses, metas, objetivos, puedeEditar, onClose, onGuardado }: {
-  /** Clientes que hay hoy en la hoja. */
+  /** Clientes que hay hoy en la hoja (un grupo de clientes cuenta como uno, con el nombre del grupo). */
   clientes: string[];
   /** Meses con fecha que hay hoy en la hoja (con su volumen de files). */
   meses: PuntoMes[];
@@ -78,7 +79,9 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
   const evaluadas = nombres.map((n) => ({ n, ev: evaluarFilaMeta((campos[n] ?? VACIO).vol, (campos[n] ?? VACIO).cm1) }));
   const evaluadosMes = filasMes.map((f) => ({ ...f, ev: evaluarObjetivo(pcts[f.clave] ?? "") }));
   const hayErrores = evaluadas.some(({ ev }) => ev.errorVol || ev.errorCm1) || evaluadosMes.some(({ ev }) => ev.error);
-  const nMetas = evaluadas.filter(({ ev }) => ev.completa).length;
+  // Una meta guardada con el nombre de un cliente que ahora es de un grupo ya no se usa: no cuenta.
+  const vigentes = evaluadas.filter(({ n }) => grupoDeCliente(n) == null);
+  const nMetas = vigentes.filter(({ ev }) => ev.completa).length;
 
   const guardar = async () => {
     setGuardando(true);
@@ -135,8 +138,8 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
         )}
 
         <section>
-          <Titulo nota="Igual para todos los meses. Deja Vol y CM1 vacíos para no ponerle cumplimiento a un cliente.">
-            Cumplimiento por cliente
+          <Titulo nota="Igual para todos los meses. Deja Vol y CM1 vacíos para no ponerle cumplimiento a un cliente. Los clientes de un grupo comparten el cumplimiento del grupo.">
+            Cumplimiento por cliente o grupo
           </Titulo>
           <table className="w-full border-collapse text-[0.92rem]">
             <thead>
@@ -160,7 +163,18 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
                   <tr key={n} className="align-top">
                     <td className="py-2.5 pr-3 text-[var(--text-primary)]">
                       <div className="max-w-[240px] truncate font-medium" title={n}>{n}</div>
-                      {huerfanos.includes(n) && <div className="text-[0.78rem] text-[var(--text-muted)]">sin registros en la hoja</div>}
+                      {miembrosDeGrupo(n) && (
+                        <div className="max-w-[240px] text-[0.78rem] leading-snug text-[var(--text-muted)]">
+                          Grupo de {miembrosDeGrupo(n)!.length} clientes: el cumplimiento es el total de todo el grupo · {miembrosDeGrupo(n)!.join(" · ")}
+                        </div>
+                      )}
+                      {huerfanos.includes(n) && (
+                        <div className="text-[0.78rem] text-[var(--text-muted)]">
+                          {grupoDeCliente(n)
+                            ? `ahora es parte de ${grupoDeCliente(n)}: su cumplimiento ya no se usa`
+                            : "sin registros en la hoja"}
+                        </div>
+                      )}
                     </td>
                     <td style={celda({ borderLeft: META_BORDE })}>
                       <input
@@ -209,7 +223,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
             % a alcanzar por mes
           </Titulo>
           {filasMes.length === 0 ? (
-            <div className="py-4 text-[var(--text-muted)]">La hoja todavía no tiene meses con fecha de cierre.</div>
+            <div className="py-4 text-[var(--text-muted)]">La hoja todavía no tiene meses con fecha de facturación.</div>
           ) : (
             <table className="w-full border-collapse text-[0.92rem]">
               <tbody>
@@ -248,7 +262,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
 
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-t p-4" style={{ borderColor: "var(--border)" }}>
         <span className="text-[0.85rem]" style={{ color: error || hayErrores ? "var(--bad)" : "var(--text-muted)" }}>
-          {error || (hayErrores ? "Corrige los campos marcados para poder guardar." : `${nMetas} de ${nombres.length} clientes con cumplimiento`)}
+          {error || (hayErrores ? "Corrige los campos marcados para poder guardar." : `${nMetas} de ${vigentes.length} clientes con cumplimiento`)}
         </span>
         <div className="ml-auto flex gap-2">
           <button type="button" onClick={onClose}

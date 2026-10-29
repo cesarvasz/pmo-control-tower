@@ -5,8 +5,9 @@
 // 003 y de Clonación pero con su propio dominio (lib/implementaciones.ts) — no
 // comparte código con ellas a propósito.
 //
-// Vista principal: Clientes en filas y, por mes de cierre, Volumen (cantidad de
-// files) y Profit (suma). Los filtros de cliente y de mes (este último con línea de
+// Vista principal: Clientes en filas y, por mes de facturación, Volumen (cantidad de
+// files) y Profit (suma). Los clientes de un grupo (GRUPOS_CLIENTES) son una sola fila,
+// con su cumplimiento y su filtro de Cliente, que se expande para ver a cada uno. Los filtros de cliente y de mes (este último con línea de
 // tiempo + selector) recortan las filas ANTES de agrupar, así que KPIs, matriz y
 // detalle siempre cuadran; la línea de tiempo muestra solo los meses del cliente elegido.
 // El botón «Metas» abre un popup para capturar, por cliente, Vol y CM1 (iguales todos
@@ -130,7 +131,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
           onToggleAll={() => setClientesElegidos([])}
         />
         <MultiSelect
-          label="Mes de cierre"
+          label="Mes de facturación"
           options={opcionesMes}
           selected={meses}
           onToggle={(v, ch) => setElegidos(ch ? [...meses.filter((m) => m !== v), v] : meses.filter((m) => m !== v))}
@@ -168,7 +169,8 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
       </div>
 
       <section className="mt-7">
-        <SectionHeader title="Por cliente y mes" badge={`${matriz.clientes.length.toLocaleString("es-GT")} clientes`} />
+        <SectionHeader title="Por cliente y mes"
+          badge={`${matriz.clientes.reduce((s, c) => s + (c.miembros?.length ?? 1), 0).toLocaleString("es-GT")} clientes`} />
         <TablaClienteMes matriz={matriz} metas={metasPorCliente} />
       </section>
 

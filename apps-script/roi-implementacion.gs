@@ -268,8 +268,14 @@ function medirDoGet() {
 
 /** Columnas cuyo valor se repite mucho → van por diccionario. */
 var COLS_TEXTO = ["File", "Cliente", "Usuario"];
-/** Columnas de fecha → van como segundos desde EPOCA. */
-var COLS_FECHA = ["Fecha_cierre"];
+/** Columnas de fecha → van como segundos desde EPOCA. La columna se llamó «Fecha_cierre» y ahora es
+ *  «fecha_facturacion»; se aceptan las dos (sin importar mayúsculas) para que el script no se rompa
+ *  si algún día vuelve a haber una hoja con el nombre anterior. */
+var COLS_FECHA = ["fecha_facturacion", "fecha_cierre"];
+
+function esColumnaFecha_(nombre) {
+  return COLS_FECHA.indexOf(String(nombre).toLowerCase()) >= 0;
+}
 // Las columnas numéricas (ingresos_facturados, egresos_liquidados, Profit) no
 // necesitan lista: cualquier columna que no sea de texto ni de fecha va "libre",
 // es decir el valor tal cual — y un número viaja como número.
@@ -321,7 +327,7 @@ function leerHoja() {
   for (var h = 0; h < headers.length; h++) {
     var nombre = String(headers[h]);
     posicion[nombre] = h;
-    if (COLS_FECHA.indexOf(nombre) >= 0) fechas.push(nombre);
+    if (esColumnaFecha_(nombre)) fechas.push(nombre);
     else if (COLS_TEXTO.indexOf(nombre) >= 0) textos.push(nombre);
     else libres.push(nombre);
   }

@@ -27,7 +27,15 @@ export function fechaDesdeSegundos(epoca: number, seg: number | null): string {
 }
 
 /** Columnas de texto de ImplementacionRow (la fecha llega ya como texto ISO). */
-const COLS_TEXTO = ["File", "Fecha_cierre", "Cliente", "Usuario"] as const;
+const COLS_TEXTO = ["File", "fecha_facturacion", "Cliente", "Usuario"] as const;
+
+/** La columna de fecha de la hoja se llamó «Fecha_cierre» y ahora es «fecha_facturacion». Se
+ *  reconocen los dos (sin importar mayúsculas ni tildes) y la fila siempre la expone como
+ *  `fecha_facturacion`: así la app sigue bien mientras el caché del Apps Script (o el propio
+ *  script, que no se actualiza solo) todavía trae el nombre anterior. */
+const NOMBRES_COL_FECHA = ["fecha_facturacion", "fecha_cierre"];
+const esColFecha = (c: string) =>
+  NOMBRES_COL_FECHA.includes(c.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase());
 
 /** Columnas de importe: llegan como número, pero si en la hoja alguna celda es
  *  texto («Q1,234.50», «$1,234.50», «(500)») también se interpreta. */
@@ -42,6 +50,13 @@ export function decodificarImplementacion(p: ImplementacionPayload): Implementac
   return filas.map((f) => {
     const row: Record<string, string | number | null> = {};
     libres.forEach((c, i) => {
+      // Un Apps Script que aún no conoce el nombre nuevo manda la fecha como columna «libre»: una
+      // fecha real viaja como segundos, y un texto ya viene como "yyyy-MM-dd…".
+      if (esColFecha(c)) {
+        const v = f[i];
+        row.fecha_facturacion = typeof v === "number" ? fechaDesdeSegundos(epoca, v) : String(v ?? "");
+        return;
+      }
       row[c] = numericas.includes(c) ? aNumero(f[i]) : String(f[i] ?? "");
     });
     textos.forEach((c, i) => {
@@ -50,7 +65,7 @@ export function decodificarImplementacion(p: ImplementacionPayload): Implementac
     });
     fechas.forEach((c, i) => {
       const v = f[nLibres + nTextos + i];
-      row[c] = fechaDesdeSegundos(epoca, typeof v === "number" ? v : null);
+      row[esColFecha(c) ? "fecha_facturacion" : c] = fechaDesdeSegundos(epoca, typeof v === "number" ? v : null);
     });
     // Si la hoja renombra o pierde una columna, la fila conserva su forma (vacía)
     // en vez de dejar un undefined que reventaría la tabla al ordenar o formatear.

@@ -16,7 +16,7 @@ const payload = (o: Partial<ImplementacionPayload> = {}): ImplementacionPayload 
   epoca: EPOCA,
   libres: ["ingresos_facturados", "egresos_liquidados", "Profit"],
   textos: ["File", "Cliente", "Usuario"],
-  fechas: ["Fecha_cierre"],
+  fechas: ["fecha_facturacion"],
   dicc: { File: ["GT-2025-1", "GT-2025-2"], Cliente: ["CLIENTE A", "CLIENTE B"], Usuario: ["Ana", "Luis"] },
   filas: [[1500.5, 900, 600.5, 0, 0, 0, seg(2026, 1, 5, 14, 30, 45)]],
   ...o,
@@ -35,7 +35,7 @@ describe("fechaDesdeSegundos", () => {
 describe("decodificarImplementacion", () => {
   it("reconstruye la fila con todas sus columnas", () => {
     expect(decodificarImplementacion(payload())).toEqual([{
-      File: "GT-2025-1", Fecha_cierre: "2026-01-05T14:30:45", Cliente: "CLIENTE A", Usuario: "Ana",
+      File: "GT-2025-1", fecha_facturacion: "2026-01-05T14:30:45", Cliente: "CLIENTE A", Usuario: "Ana",
       ingresos_facturados: 1500.5, egresos_liquidados: 900, Profit: 600.5,
     }]);
   });
@@ -54,7 +54,7 @@ describe("decodificarImplementacion", () => {
     expect(r.ingresos_facturados).toBeNull();
     expect(r.egresos_liquidados).toBe(0);
     expect(r.Profit).toBeNull();
-    expect(r.Fecha_cierre).toBe("");
+    expect(r.fecha_facturacion).toBe("");
   });
 
   it("un importe que llega como texto se interpreta", () => {
@@ -79,15 +79,43 @@ describe("decodificarImplementacion", () => {
   });
 
   it("si la hoja no trae una columna, la fila queda con ese campo vacío (no undefined)", () => {
-    // La hoja real llamó a la fecha "Fecha_cierre"; con otro nombre la columna no existe.
+    // La hoja real llama a la fecha "fecha_facturacion"; con otro nombre la columna no existe.
     const [r] = decodificarImplementacion(payload({
       fechas: ["Fecha_de_cierre"],
       libres: ["ingresos_facturados"],
       filas: [[100, 0, 0, 0, seg(2026, 1, 5)]],
     }));
-    expect(r.Fecha_cierre).toBe("");
+    expect(r.fecha_facturacion).toBe("");
     expect(r.egresos_liquidados).toBeNull();
     expect(r.Profit).toBeNull();
+  });
+
+  it("sigue leyendo la fecha si el Apps Script todavía manda el nombre anterior (Fecha_cierre)", () => {
+    const [r] = decodificarImplementacion(payload({ fechas: ["Fecha_cierre"] }));
+    expect(r.fecha_facturacion).toBe("2026-01-05T14:30:45");
+    expect("Fecha_cierre" in r).toBe(false);
+  });
+
+  it("reconoce el nombre sin importar mayúsculas ni tildes", () => {
+    expect(decodificarImplementacion(payload({ fechas: ["Fecha_Facturación"] }))[0].fecha_facturacion).toBe("2026-01-05T14:30:45");
+    expect(decodificarImplementacion(payload({ fechas: ["FECHA_FACTURACION"] }))[0].fecha_facturacion).toBe("2026-01-05T14:30:45");
+  });
+
+  it("columna renombrada con un Apps Script viejo: la fecha llega como columna libre (segundos o texto) y se recupera", () => {
+    // El script viejo no la conoce, así que va entre las libres: una fecha real como segundos, un texto tal cual.
+    const base = { libres: ["ingresos_facturados", "egresos_liquidados", "Profit", "fecha_facturacion"], fechas: [] as string[] };
+    const [a, b, c] = decodificarImplementacion(payload({
+      ...base,
+      filas: [
+        [1, 2, -1, seg(2026, 3, 9, 8, 15, 0), 0, 0, 0],
+        [1, 2, -1, "2026-04-02 10:00:00", 0, 0, 0],
+        [1, 2, -1, "", 0, 0, 0],
+      ],
+    }));
+    expect(a.fecha_facturacion).toBe("2026-03-09T08:15:00");
+    expect(b.fecha_facturacion).toBe("2026-04-02 10:00:00");   // claveMes solo lee el año y el mes
+    expect(c.fecha_facturacion).toBe("");
+    expect(a.Profit).toBe(-1);
   });
 
   it("una hoja vacía devuelve lista vacía", () => {
@@ -98,9 +126,9 @@ describe("decodificarImplementacion", () => {
     const tz = process.env.TZ;
     try {
       process.env.TZ = "Pacific/Kiritimati"; // UTC+14
-      expect(decodificarImplementacion(payload())[0].Fecha_cierre).toBe("2026-01-05T14:30:45");
+      expect(decodificarImplementacion(payload())[0].fecha_facturacion).toBe("2026-01-05T14:30:45");
       process.env.TZ = "Pacific/Midway"; // UTC-11
-      expect(decodificarImplementacion(payload())[0].Fecha_cierre).toBe("2026-01-05T14:30:45");
+      expect(decodificarImplementacion(payload())[0].fecha_facturacion).toBe("2026-01-05T14:30:45");
     } finally {
       process.env.TZ = tz;
     }

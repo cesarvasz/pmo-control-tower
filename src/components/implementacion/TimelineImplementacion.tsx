@@ -1,9 +1,9 @@
 "use client";
 
-// Línea de tiempo de Implementación: una columna por mes de cierre con su
+// Línea de tiempo de Implementación: una columna por mes de facturación con su
 // volumen (barra y conteo) y su Profit total. Cada mes es un botón: un clic lo
 // agrega o lo quita del filtro, y se pueden elegir varios. Sin ningún mes elegido
-// se ve todo. El mes «Sin fecha» (filas sin Fecha_cierre) va al final, en gris.
+// se ve todo. El mes «Sin fecha» (filas sin fecha_facturacion) va al final, en gris.
 
 import { SIN_FECHA, fmtImporte, type PuntoMes } from "@/lib/implementaciones";
 
@@ -32,7 +32,7 @@ export default function TimelineImplementacion({
   return (
     <div className="rounded-xl border p-4" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
       <div className="mb-3 text-[0.92rem] text-[var(--text-muted)]">
-        Volumen (files) y Profit por mes de cierre · clic en un mes para filtrarlo, se pueden elegir varios
+        Volumen (files) y Profit por mes de facturación · clic en un mes para filtrarlo, se pueden elegir varios
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1">

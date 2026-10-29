@@ -1,5 +1,5 @@
 // src/lib/implementaciones.ts
-// Dominio del reporte de Implementación: agrupar por Cliente y por mes de cierre,
+// Dominio del reporte de Implementación: agrupar por Cliente y por mes de facturación,
 // sumar volumen y Profit, y filtrar por mes. Funciones puras, seguras para el
 // cliente — la parte que habla con el Apps Script (y trae node:zlib) vive en
 // implementacion.ts y NO se importa desde los componentes. Misma separación que
@@ -9,12 +9,12 @@
 //  · Volumen = número de filas (un registro de la hoja = un file).
 //  · Profit  = suma de la columna Profit tal como viene en la hoja; una celda
 //    vacía cuenta como 0 en la suma.
-//  · El mes sale de Fecha_cierre. Una fila sin Fecha_cierre no cae en ningún mes:
+//  · El mes sale de fecha_facturacion. Una fila sin fecha_facturacion no cae en ningún mes:
 //    va a un cubo propio, «Sin fecha», para que los totales cuadren siempre.
 
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
 
-/** Clave del cubo de filas sin Fecha_cierre. No choca con ninguna «yyyy-MM». */
+/** Clave del cubo de filas sin fecha_facturacion. No choca con ninguna «yyyy-MM». */
 export const SIN_FECHA = "sin-fecha";
 export const SIN_CLIENTE = "(Sin cliente)";
 
@@ -77,8 +77,8 @@ export function fmtFechaCorta(iso: string): string {
 const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 /** "2026-03-02T10:00:00" → "2026-03". Sin fecha (o ilegible) → SIN_FECHA. */
-export function claveMes(fechaCierre: string): string {
-  const m = fechaCierre.match(/^(\d{4})-(\d{2})/);
+export function claveMes(fechaFacturacion: string): string {
+  const m = fechaFacturacion.match(/^(\d{4})-(\d{2})/);
   return m ? `${m[1]}-${m[2]}` : SIN_FECHA;
 }
 
@@ -104,11 +104,11 @@ export interface PuntoMes extends Celda {
 }
 
 /** Un punto por cada mes presente en las filas, del más viejo al más nuevo. Es la
- *  línea de tiempo: incluye «Sin fecha» al final cuando hay filas sin Fecha_cierre. */
+ *  línea de tiempo: incluye «Sin fecha» al final cuando hay filas sin fecha_facturacion. */
 export function serieMensual(rows: ImplementacionRow[]): PuntoMes[] {
   const cubos = new Map<string, Celda>();
   for (const r of rows) {
-    const k = claveMes(r.Fecha_cierre);
+    const k = claveMes(r.fecha_facturacion);
     const c = cubos.get(k) ?? { volumen: 0, profit: 0 };
     c.volumen += 1;
     c.profit += r.Profit ?? 0;
@@ -123,13 +123,68 @@ export function serieMensual(rows: ImplementacionRow[]): PuntoMes[] {
 export function filtrarPorMeses(rows: ImplementacionRow[], meses: string[]): ImplementacionRow[] {
   if (meses.length === 0) return rows;
   const sel = new Set(meses);
-  return rows.filter((r) => sel.has(claveMes(r.Fecha_cierre)));
+  return rows.filter((r) => sel.has(claveMes(r.fecha_facturacion)));
 }
 
-/** Nombre con el que un cliente se agrupa, se filtra y se busca su cumplimiento: sin
- *  espacios sobrantes, y un Cliente vacío es «(Sin cliente)». */
-export function nombreCliente(r: ImplementacionRow): string {
+// ── Grupos de clientes ────────────────────────────────────────────────────
+// Algunos clientes de la hoja son del mismo grupo empresarial y se miden juntos: el grupo
+// es UN cliente más para el cumplimiento (Vol × CM1 se captura por grupo: es el total de todo
+// lo que hay en él), el filtro de Cliente, el semáforo por file y el Beneficio del CKU. Cada
+// fila de la matriz Cliente × mes del grupo trae además `miembros`, para expandirla y ver a
+// cada cliente con sus datos. Para agregar un grupo: una entrada en GRUPOS_CLIENTES con
+// los nombres de la columna Cliente de la hoja (se comparan con claveCliente: sin importar
+// mayúsculas, tildes, puntuación ni «S.A.» contra «SOCIEDAD ANONIMA»).
+
+export interface GrupoClientes {
+  nombre: string;
+  clientes: string[];
+}
+
+export const GRUPOS_CLIENTES: GrupoClientes[] = [
+  {
+    nombre: "Grupo Tecun",
+    clientes: ["TECNICA UNIVERSAL, SOCIEDAD ANONIMA", "QUIMICOS AGRICOLAS INSECTROL SOCIEDAD ANONIMA"],
+  },
+  {
+    nombre: "Grupo Cerveceria C.A.",
+    clientes: [
+      "CERVECERIA CENTRO AMERICANA SOCIEDAD ANONIMA",
+      "FABRICA DE BEBIDAS GASEOSAS SALVAVIDAS SOCIEDAD ANONIMA",
+      "ALIMENTOS MARAVILLA SOCIEDAD ANONIMA",
+      "CERVECERIA NACIONAL, S.A.",
+      "DISTRIBUIDORA JALAPEÑA, S.A.",
+      "DISTRIBUIDORA LA NUEVA, S.A",
+    ],
+  },
+];
+
+/** Para comparar nombres de cliente: sin tildes, mayúsculas, puntuación ni espacios de más, y con
+ *  «SOCIEDAD ANONIMA» igual a «S.A.» (la hoja los escribe de las dos formas: «ALIMENTOS MARAVILLA S.A.»
+ *  y «DISTRIBUIDORA LA NUEVA SOCIEDAD ANONIMA»). Solo se usa para ubicar a un cliente en su grupo. */
+export const claveCliente = (s: string) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/[.,;]/g, " ").replace(/\s+/g, " ").trim()
+    .replace(/\bsociedad anonima\b/g, "sa").replace(/\bs a\b/g, "sa");
+
+const GRUPO_DE_CLIENTE = new Map(GRUPOS_CLIENTES.flatMap((g) => g.clientes.map((c): [string, string] => [claveCliente(c), g.nombre])));
+
+/** Grupo al que pertenece un cliente (por su nombre en la hoja), o null si no es de ninguno. */
+export const grupoDeCliente = (cliente: string): string | null => GRUPO_DE_CLIENTE.get(claveCliente(cliente)) ?? null;
+
+/** Los clientes de un grupo, o null si `nombre` no es un grupo. */
+export const miembrosDeGrupo = (nombre: string): string[] | null => GRUPOS_CLIENTES.find((g) => g.nombre === nombre)?.clientes ?? null;
+
+/** El cliente tal como viene en la hoja, sin espacios sobrantes; un Cliente vacío es «(Sin cliente)». */
+export function clienteReal(r: ImplementacionRow): string {
   return r.Cliente.trim() || SIN_CLIENTE;
+}
+
+/** Nombre con el que un cliente se agrupa, se filtra y se busca su cumplimiento: el de su
+ *  grupo si es de uno (ver GRUPOS_CLIENTES) o, si no, el suyo, sin espacios sobrantes y con
+ *  «(Sin cliente)» para un Cliente vacío. */
+export function nombreCliente(r: ImplementacionRow): string {
+  const real = clienteReal(r);
+  return grupoDeCliente(real) ?? real;
 }
 
 /** Filas de los clientes elegidos. Sin selección (`[]`) = todas. */
@@ -156,6 +211,8 @@ export interface FilaCliente {
   /** Solo trae los meses en los que el cliente tiene filas. */
   porMes: Record<string, Celda>;
   total: Celda;
+  /** Solo en la fila de un GRUPO: cada cliente suyo que tiene filas, con sus propios datos. */
+  miembros?: FilaCliente[];
 }
 
 export interface MatrizClienteMes {
@@ -167,34 +224,55 @@ export interface MatrizClienteMes {
   total: Celda;
 }
 
-/** Agrupa por Cliente y, dentro de cada uno, por mes de cierre: volumen (conteo
- *  de filas) y Profit (suma). Los totales por mes y el total general suman
+/** Agrupa por Cliente y, dentro de cada uno, por mes de facturación: volumen (conteo
+ *  de filas) y Profit (suma). Los clientes de un grupo (ver GRUPOS_CLIENTES) forman UNA fila,
+ *  con `miembros` para ver a cada uno. Los totales por mes y el total general suman
  *  exactamente las mismas filas que la tabla. */
 export function agruparPorClienteYMes(rows: ImplementacionRow[]): MatrizClienteMes {
   const porCliente = new Map<string, FilaCliente>();
+  const porMiembro = new Map<string, FilaCliente>();   // «grupo\0cliente» → su fila dentro del grupo
   const totalesPorMes: Record<string, Celda> = {};
   const total: Celda = { volumen: 0, profit: 0 };
 
   const sumar = (c: Celda, profit: number) => { c.volumen += 1; c.profit += profit; };
+  const sumarFila = (fila: FilaCliente, mes: string, profit: number) => {
+    sumar(fila.porMes[mes] ??= { volumen: 0, profit: 0 }, profit);
+    sumar(fila.total, profit);
+  };
+  const nueva = (cliente: string): FilaCliente => ({ cliente, porMes: {}, total: { volumen: 0, profit: 0 } });
+  const orden = (a: FilaCliente, b: FilaCliente) =>
+    b.total.volumen - a.total.volumen || b.total.profit - a.total.profit || a.cliente.localeCompare(b.cliente, "es");
 
   for (const r of rows) {
     const nombre = nombreCliente(r);
-    const mes = claveMes(r.Fecha_cierre);
+    const real = clienteReal(r);
+    const mes = claveMes(r.fecha_facturacion);
     const profit = r.Profit ?? 0;
 
     let fila = porCliente.get(nombre);
     if (!fila) {
-      fila = { cliente: nombre, porMes: {}, total: { volumen: 0, profit: 0 } };
+      fila = nueva(nombre);
       porCliente.set(nombre, fila);
     }
-    sumar(fila.porMes[mes] ??= { volumen: 0, profit: 0 }, profit);
-    sumar(fila.total, profit);
+    sumarFila(fila, mes, profit);
+
+    if (nombre !== real) {
+      const clave = `${nombre}\0${real}`;
+      let miembro = porMiembro.get(clave);
+      if (!miembro) {
+        miembro = nueva(real);
+        porMiembro.set(clave, miembro);
+        (fila.miembros ??= []).push(miembro);
+      }
+      sumarFila(miembro, mes, profit);
+    }
+
     sumar(totalesPorMes[mes] ??= { volumen: 0, profit: 0 }, profit);
     sumar(total, profit);
   }
 
-  const clientes = [...porCliente.values()].sort((a, b) =>
-    b.total.volumen - a.total.volumen || b.total.profit - a.total.profit || a.cliente.localeCompare(b.cliente, "es"));
+  const clientes = [...porCliente.values()].sort(orden);
+  for (const c of clientes) c.miembros?.sort(orden);
 
   return { meses: Object.keys(totalesPorMes).sort(porMes), clientes, totalesPorMes, total };
 }
@@ -249,7 +327,7 @@ const esObjetivoValido = (n: unknown): n is number =>
 
 /** Lo que usan las tablas: la meta de cada cliente y el % a alcanzar de cada mes. */
 export interface IndiceMetas {
-  /** Cliente → su meta, solo las útiles (Vol × CM1 > 0). */
+  /** Cliente (o grupo) → su meta, solo las útiles (Vol × CM1 > 0). */
   clientes: Map<string, MetaCliente>;
   /** «yyyy-MM» → % a alcanzar capturado. Un mes que falte vale OBJETIVO_DEFECTO. */
   objetivos: Map<string, number>;
@@ -257,7 +335,8 @@ export interface IndiceMetas {
 
 export function indexarMetas(metas: MetaCliente[], objetivos: ObjetivoMes[] = []): IndiceMetas {
   const clientes = new Map<string, MetaCliente>();
-  for (const m of metas) if (metaProfitMensual(m) > 0) clientes.set(m.cliente, m);
+  // Una meta guardada con el nombre de un cliente que ahora es de un grupo ya no aplica: manda la del grupo.
+  for (const m of metas) if (metaProfitMensual(m) > 0 && grupoDeCliente(m.cliente) == null) clientes.set(m.cliente, m);
   return {
     clientes,
     objetivos: new Map(objetivos.filter((o) => esObjetivoValido(o.objetivo)).map((o): [string, number] => [o.mes, o.objetivo])),
@@ -483,7 +562,8 @@ export function avanceTotalMes(matriz: MatrizClienteMes, mes: string, idx: Indic
 // El CM1 de la meta de un cliente es lo que CADA file suyo debe dejar de Profit (es el
 // mismo en todos los meses). Cumple si su Profit es igual o mayor que ese CM1; el % a
 // alcanzar del mes NO se aplica aquí: es la regla del total del mes. Sin meta para su
-// cliente (o sin Profit en la hoja) no se puede juzgar: queda «sin-meta», en gris.
+// cliente (o sin Profit en la hoja) no se puede juzgar: queda «sin-meta», en gris. A un
+// cliente de un grupo se le juzga con el CM1 del grupo.
 
 export type Semaforo = "cumple" | "no-cumple" | "sin-meta";
 export type FiltroSemaforo = "todos" | "cumplen" | "no-cumplen";
@@ -546,7 +626,7 @@ export function resumenImplementacionCku(rows: ImplementacionRow[], metas: MetaC
   const idx = indexarMetas(metas, objetivos);
   const profitPorMes: Record<string, number> = {};
   for (const r of rows) {
-    const mes = claveMes(r.Fecha_cierre);
+    const mes = claveMes(r.fecha_facturacion);
     if (mes === SIN_FECHA || !idx.clientes.has(nombreCliente(r))) continue;
     profitPorMes[mes] = (profitPorMes[mes] ?? 0) + (r.Profit ?? 0);
   }

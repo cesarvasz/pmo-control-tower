@@ -42,16 +42,20 @@ propia variable de entorno y su propio endpoint. No comparte código con
 | Columna | Tipo |
 |---|---|
 | `File` | texto |
-| `Fecha_cierre` | fecha (o fecha-hora) |
+| `fecha_facturacion` | fecha (o fecha-hora) |
 | `Cliente` | texto |
 | `Usuario` | texto |
 | `ingresos_facturados` | número |
 | `egresos_liquidados` | número |
 | `Profit` | número |
 
-- `Fecha_cierre` debe ser una fecha real de Google Sheets, o texto `yyyy-MM-dd` /
+- `fecha_facturacion` debe ser una fecha real de Google Sheets, o texto `yyyy-MM-dd` /
   `yyyy-MM-dd HH:mm:ss`. Un texto en otro formato (p. ej. `05/01/2026`) no se
-  reconoce y la fecha llega vacía — `medirTiempo()` lo delata con `⚠ Fecha_cierre: 0 (0.0%)`.
+  reconoce y la fecha llega vacía — `medirTiempo()` lo delata con `⚠ fecha_facturacion: 0 (0.0%)`.
+- Esa columna se llamó antes `Fecha_cierre`. El script acepta los dos nombres (sin importar
+  mayúsculas) y la app también, pero **el script desplegado en Google no se actualiza solo**: al
+  renombrar la columna hay que pegar la versión nueva de `roi-implementacion.gs`, ejecutar
+  `regenerarCache()` y crear una **Nueva versión** de la implementación (ver arriba).
 - Los números pueden venir con formato de moneda en la hoja; lo que importa es
   que la celda sea numérica. Si alguna viene como texto (`"Q1,234.50"`, `"$1,234.50"`,
   `"(500)"`), la app también la interpreta.
@@ -70,7 +74,7 @@ Mismo esquema que `roi-clonacion.gs`:
 { epoca, libres, textos, fechas, dicc: {columna: [valores únicos]}, filas: [[...]] }
 ```
 
-`File`, `Cliente` y `Usuario` van por diccionario (se repiten). `Fecha_cierre` va como
+`File`, `Cliente` y `Usuario` van por diccionario (se repiten). `fecha_facturacion` va como
 segundos desde una época, igual que las fechas de Clonación y 003. Las columnas
 numéricas viajan tal cual, como número.
 

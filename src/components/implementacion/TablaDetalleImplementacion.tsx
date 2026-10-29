@@ -11,12 +11,12 @@
 
 import { useMemo, useState } from "react";
 import {
-  evaluarFile, fmtFechaCorta, fmtImporte, pasaFiltroSemaforo, resumenSemaforo,
+  clienteReal, evaluarFile, fmtFechaCorta, fmtImporte, grupoDeCliente, pasaFiltroSemaforo, resumenSemaforo,
   type EvaluacionFile, type FiltroSemaforo, type IndiceMetas,
 } from "@/lib/implementaciones";
 import type { ImplementacionRow } from "@/types";
 
-type Campo = "File" | "Fecha_cierre" | "Cliente" | "Usuario" | "ingresos_facturados" | "egresos_liquidados" | "Profit" | "Semaforo";
+type Campo = "File" | "fecha_facturacion" | "Cliente" | "Usuario" | "ingresos_facturados" | "egresos_liquidados" | "Profit" | "Semaforo";
 type Dir = "asc" | "desc";
 const TAMANOS = [25, 50, 100, 250] as const;
 
@@ -47,13 +47,17 @@ function Punto({ color }: { color: string }) {
 
 /** Explicación de un semáforo, para el tooltip y el lector de pantalla. */
 function explicar(r: ImplementacionRow, e: EvaluacionFile): string {
-  if (e.estado === "cumple") return `Cumple: Profit ${fmtImporte(r.Profit)} ≥ CM1 ${fmtImporte(e.cm1)} por file`;
-  if (e.estado === "no-cumple") return `No cumple: Profit ${fmtImporte(r.Profit)} < CM1 ${fmtImporte(e.cm1)} por file`;
-  return r.Profit == null ? "Sin Profit en la hoja" : "Su cliente no tiene cumplimiento de CM1";
+  // El cumplimiento de un cliente de un grupo es el del grupo.
+  const grupo = grupoDeCliente(clienteReal(r));
+  const deQuien = grupo ? ` (cumplimiento de ${grupo})` : "";
+  if (e.estado === "cumple") return `Cumple: Profit ${fmtImporte(r.Profit)} ≥ CM1 ${fmtImporte(e.cm1)} por file${deQuien}`;
+  if (e.estado === "no-cumple") return `No cumple: Profit ${fmtImporte(r.Profit)} < CM1 ${fmtImporte(e.cm1)} por file${deQuien}`;
+  if (r.Profit == null) return "Sin Profit en la hoja";
+  return grupo ? `Su grupo (${grupo}) no tiene cumplimiento de CM1` : "Su cliente no tiene cumplimiento de CM1";
 }
 
 export default function TablaDetalleImplementacion({ rows, metas }: { rows: ImplementacionRow[]; metas: IndiceMetas }) {
-  const [orden, setOrden] = useState<{ campo: Campo; dir: Dir }>({ campo: "Fecha_cierre", dir: "desc" });
+  const [orden, setOrden] = useState<{ campo: Campo; dir: Dir }>({ campo: "fecha_facturacion", dir: "desc" });
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(25);
   const [filtro, setFiltro] = useState<FiltroSemaforo>("todos");
@@ -148,7 +152,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
               <thead>
                 <tr>
                   <Th campo="File" actual={orden} alternar={alternar}>File</Th>
-                  <Th campo="Fecha_cierre" actual={orden} alternar={alternar} align="center">Fecha de cierre</Th>
+                  <Th campo="fecha_facturacion" actual={orden} alternar={alternar} align="center">Fecha de facturación</Th>
                   <Th campo="Cliente" actual={orden} alternar={alternar}>Cliente</Th>
                   <Th campo="Usuario" actual={orden} alternar={alternar}>Usuario</Th>
                   <Th campo="ingresos_facturados" actual={orden} alternar={alternar} align="right">Ingresos facturados</Th>
@@ -166,7 +170,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                 {visibles.map(({ r, e }, i) => (
                   <tr key={`${r.File}-${i}`}>
                     <td className="ini-id">{r.File}</td>
-                    <td className="whitespace-nowrap tabular-nums text-center text-[var(--text-secondary)]">{fmtFechaCorta(r.Fecha_cierre)}</td>
+                    <td className="whitespace-nowrap tabular-nums text-center text-[var(--text-secondary)]">{fmtFechaCorta(r.fecha_facturacion)}</td>
                     <td className="max-w-[240px] truncate text-[var(--text-secondary)]" title={r.Cliente}>{r.Cliente}</td>
                     <td className="max-w-[180px] truncate text-[var(--text-secondary)]" title={r.Usuario}>{r.Usuario}</td>
                     <td className="whitespace-nowrap tabular-nums text-right">{fmtImporte(r.ingresos_facturados)}</td>

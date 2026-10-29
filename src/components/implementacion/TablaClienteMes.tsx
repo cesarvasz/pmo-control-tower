@@ -8,11 +8,14 @@
 //  · Cada mes agrega "% Meta": Profit real ÷ Total de la meta. Su color es un semáforo
 //    del cumplimiento del % a alcanzar de ese mes (que se muestra en el encabezado):
 //    rojo < 80 %, amarillo 80–89 %, verde ≥ 90 %.
+// Un GRUPO de clientes (ver GRUPOS_CLIENTES) es una sola fila, con su cumplimiento; el ▶ de
+// su nombre la expande para ver a cada cliente del grupo con su Vol y Profit por mes.
 // El grupo Total (por cliente, columna) solo trae Vol y Profit. Cierra con el total por
 // mes (fila). Las columnas son los meses presentes en las filas que recibe, así que al
 // filtrar por mes solo quedan esos. La primera columna y los encabezados se quedan fijos
 // al hacer scroll.
 
+import { Fragment, useState } from "react";
 import {
   SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, avanceMesCliente, avanceTotalMes, etiquetaMes, fmtImporte, fmtPct,
   metaProfitMensual, objetivoDe, type Avance, type Celda, type IndiceMetas, type MatrizClienteMes, type Nivel,
@@ -98,6 +101,12 @@ function Celdas({ c, pct, fuerte }: { c: Celda | undefined; pct?: React.ReactNod
 
 export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClienteMes; metas: IndiceMetas }) {
   const { meses, clientes, totalesPorMes, total } = matriz;
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  const alternarGrupo = (nombre: string) => setAbiertos((s) => {
+    const n = new Set(s);
+    if (n.has(nombre)) n.delete(nombre); else n.add(nombre);
+    return n;
+  });
 
   if (clientes.length === 0) {
     return (
@@ -173,23 +182,53 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
         <tbody>
           {clientes.map((c) => {
             const meta = metas.clientes.get(c.cliente);
+            const miembros = c.miembros;
+            const abierto = !!miembros && abiertos.has(c.cliente);
             return (
-              <tr key={c.cliente}>
-                <td className="max-w-[260px] truncate font-medium text-[var(--text-primary)]" style={fijaIzq} title={c.cliente}>
-                  {c.cliente}
-                </td>
-                {hayMetas && (
-                  <CeldasMeta vol={meta?.vol ?? null} cm1={meta?.cm1 ?? null} total={meta ? metaProfitMensual(meta) : null} />
-                )}
-                {meses.map((k) => {
-                  const a = avanceMesCliente(c, k, metas);
-                  return (
-                    <Celdas key={k} c={c.porMes[k]}
-                      pct={hayMetas && <CeldaPct a={a} titulo={a ? detalle(a, meta) : undefined} />} />
-                  );
-                })}
-                <Celdas c={c.total} fuerte />
-              </tr>
+              <Fragment key={c.cliente}>
+                <tr>
+                  <td className="max-w-[260px] overflow-hidden whitespace-nowrap font-medium text-[var(--text-primary)]" style={fijaIzq}
+                    title={miembros ? `${c.cliente}: ${miembros.map((m) => m.cliente).join(" · ")}` : c.cliente}>
+                    {miembros ? (
+                      <button type="button" onClick={() => alternarGrupo(c.cliente)} aria-expanded={abierto}
+                        aria-label={`${abierto ? "Contraer" : "Expandir"} ${c.cliente}`}
+                        className="flex w-full items-center gap-2 text-left font-medium">
+                        <span aria-hidden className="inline-block shrink-0 text-[0.6rem] text-[var(--accent)]"
+                          style={{ transition: "transform 0.15s", transform: abierto ? "rotate(90deg)" : undefined }}>▶</span>
+                        <span className="min-w-0 truncate">{c.cliente}</span>
+                        <span className="shrink-0 text-[0.72rem] font-normal text-[var(--text-muted)]">{miembros.length} {miembros.length === 1 ? "cliente" : "clientes"}</span>
+                      </button>
+                    ) : (
+                      <span className="block truncate">{c.cliente}</span>
+                    )}
+                  </td>
+                  {hayMetas && (
+                    <CeldasMeta vol={meta?.vol ?? null} cm1={meta?.cm1 ?? null} total={meta ? metaProfitMensual(meta) : null} />
+                  )}
+                  {meses.map((k) => {
+                    const a = avanceMesCliente(c, k, metas);
+                    return (
+                      <Celdas key={k} c={c.porMes[k]}
+                        pct={hayMetas && <CeldaPct a={a} titulo={a ? detalle(a, meta) : undefined} />} />
+                    );
+                  })}
+                  <Celdas c={c.total} fuerte />
+                </tr>
+
+                {/* Los clientes del grupo: solo Vol y Profit (el cumplimiento es del grupo). */}
+                {abierto && miembros.map((m) => (
+                  <tr key={`${c.cliente}|${m.cliente}`}>
+                    <td className="max-w-[260px] truncate text-[var(--text-secondary)]" style={{ ...fijaIzq, paddingLeft: 36 }} title={m.cliente}>
+                      {m.cliente}
+                    </td>
+                    {hayMetas && <CeldasMeta vol={null} cm1={null} total={null} />}
+                    {meses.map((k) => (
+                      <Celdas key={k} c={m.porMes[k]} pct={hayMetas && <CeldaPct a={null} />} />
+                    ))}
+                    <Celdas c={m.total} />
+                  </tr>
+                ))}
+              </Fragment>
             );
           })}
         </tbody>

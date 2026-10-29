@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes,
-  claveMes, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
-  fmtFechaCorta, fmtImporte, fmtPct, indexarMetas, leerDocMetas, metaProfitMensual, nivelCumplimiento, nombreCliente,
+  GRUPOS_CLIENTES, OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes,
+  claveCliente, claveMes, clienteReal, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
+  fmtFechaCorta, fmtImporte, fmtPct, grupoDeCliente, indexarMetas, leerDocMetas, metaProfitMensual, miembrosDeGrupo, nivelCumplimiento, nombreCliente,
   implementacionDelMes, normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
@@ -11,7 +11,7 @@ const fila = (
   cliente: string, fecha: string, profit: number | null,
   extra: Partial<ImplementacionRow> = {},
 ): ImplementacionRow => ({
-  File: "F", Fecha_cierre: fecha, Cliente: cliente, Usuario: "U",
+  File: "F", fecha_facturacion: fecha, Cliente: cliente, Usuario: "U",
   ingresos_facturados: null, egresos_liquidados: null, Profit: profit, ...extra,
 });
 
@@ -25,7 +25,7 @@ const DATOS: ImplementacionRow[] = [
 ];
 
 describe("claveMes / etiquetaMes", () => {
-  it("toma el año y el mes de Fecha_cierre", () => {
+  it("toma el año y el mes de fecha_facturacion", () => {
     expect(claveMes("2026-03-02T10:00:00")).toBe("2026-03");
     expect(claveMes("2025-12-31T23:59:59")).toBe("2025-12");
   });
@@ -682,5 +682,172 @@ describe("Implementación en el Beneficio de un CKU (resumen y mes)", () => {
 
   it("sin metas capturadas no hay Implementación que sumar", () => {
     expect(implementacionDelMes(resumenImplementacionCku(rows, [], []), "2026-09")).toBeNull();
+  });
+});
+
+describe("grupos de clientes (GRUPOS_CLIENTES)", () => {
+  const G = GRUPOS_CLIENTES[0];
+  const [M1, M2] = G.clientes;
+  const metaGrupo: MetaCliente[] = [{ cliente: G.nombre, vol: 10, cm1: 100 }];
+  const datos = [
+    fila(M1, "2026-09-01T00:00:00", 150),
+    fila(M1, "2026-09-02T00:00:00", 50),
+    fila(M2, "2026-09-03T00:00:00", 300),
+    fila(M2, "2026-10-01T00:00:00", 10),
+    fila("Otro", "2026-09-04T00:00:00", 7),
+  ];
+
+  it("la configuración es coherente: nombres de grupo y de clientes sin repetir, y un grupo no se llama como un cliente suyo", () => {
+    const miembros = GRUPOS_CLIENTES.flatMap((g) => g.clientes.map(claveCliente));
+    expect(new Set(miembros).size).toBe(miembros.length);
+    const nombres = GRUPOS_CLIENTES.map((g) => g.nombre);
+    expect(new Set(nombres).size).toBe(nombres.length);
+    for (const g of GRUPOS_CLIENTES) {
+      expect(g.clientes.length).toBeGreaterThan(1);
+      expect(miembros).not.toContain(claveCliente(g.nombre));
+    }
+  });
+
+  it("nombreCliente da el nombre del grupo (sin importar mayúsculas, tildes o espacios) y clienteReal conserva el de la hoja", () => {
+    expect(nombreCliente(fila(M1, "", 0))).toBe(G.nombre);
+    expect(nombreCliente(fila(`  ${M2.toLowerCase().replace("quimicos", "químicos")}  `, "", 0))).toBe(G.nombre);
+    expect(clienteReal(fila(` ${M1} `, "", 0))).toBe(M1);
+    expect(nombreCliente(fila("Otro", "", 0))).toBe("Otro");
+    expect(grupoDeCliente(M1)).toBe(G.nombre);
+    expect(grupoDeCliente("Otro")).toBeNull();
+    expect(miembrosDeGrupo(G.nombre)).toEqual(G.clientes);
+    expect(miembrosDeGrupo("Otro")).toBeNull();
+  });
+
+  it("la matriz junta al grupo en una fila y deja a cada cliente en `miembros`; los totales no cambian", () => {
+    const m = agruparPorClienteYMes(datos);
+    expect(m.clientes.map((c) => c.cliente)).toEqual([G.nombre, "Otro"]);
+    const g = m.clientes[0];
+    expect(g.total).toEqual({ volumen: 4, profit: 510 });
+    expect(g.porMes["2026-09"]).toEqual({ volumen: 3, profit: 500 });
+    expect(g.porMes["2026-10"]).toEqual({ volumen: 1, profit: 10 });
+    expect(g.miembros!.map((x) => x.cliente)).toEqual([M2, M1]); // 2 files cada uno: desempata por Profit (M2: 310 > M1: 200)
+    expect(g.miembros![0].total).toEqual({ volumen: 2, profit: 310 });
+    expect(g.miembros![1].total).toEqual({ volumen: 2, profit: 200 });
+    expect(g.miembros![1].porMes["2026-09"]).toEqual({ volumen: 2, profit: 200 });
+    expect(m.clientes[1].miembros).toBeUndefined();
+    expect(m.total).toEqual({ volumen: 5, profit: 517 });
+    expect(g.miembros!.reduce((s, x) => s + x.total.profit, 0)).toBe(g.total.profit);
+  });
+
+  it("si solo un cliente del grupo tiene files, la fila del grupo trae solo a ese", () => {
+    const g = agruparPorClienteYMes([fila(M1, "2026-09-01T00:00:00", 5)]).clientes[0];
+    expect(g.cliente).toBe(G.nombre);
+    expect(g.miembros!.map((x) => x.cliente)).toEqual([M1]);
+  });
+
+  it("filtrar y contar por el nombre del grupo incluye a todos sus clientes", () => {
+    expect(filtrarPorClientes(datos, [G.nombre])).toHaveLength(4);
+    expect(contarPorCliente(datos).get(G.nombre)).toBe(4);
+    expect(contarPorCliente(datos).has(M1)).toBe(false);
+  });
+
+  it("el cumplimiento del grupo (Vol × CM1) se compara con el Profit de todos sus clientes juntos", () => {
+    const idx = indexarMetas(metaGrupo, []);
+    const fg = agruparPorClienteYMes(datos).clientes[0];
+    const a = avanceMesCliente(fg, "2026-09", idx)!;
+    expect(a.meta).toBe(1000);
+    expect(a.profit).toBe(500);
+    expect(a.pct).toBeCloseTo(0.5, 5);
+  });
+
+  it("el semáforo por file de un cliente del grupo usa el CM1 del grupo", () => {
+    const idx = indexarMetas(metaGrupo, []);
+    expect(evaluarFile(fila(M1, "2026-09-01T00:00:00", 150), idx)).toEqual({ estado: "cumple", cm1: 100 });
+    expect(evaluarFile(fila(M2, "2026-09-01T00:00:00", 60), idx)).toEqual({ estado: "no-cumple", cm1: 100 });
+    // Una meta guardada con el nombre de un solo cliente del grupo ya no aplica.
+    expect(evaluarFile(fila(M1, "", 150), indexarMetas([{ cliente: M1, vol: 10, cm1: 100 }], [])).estado).toBe("sin-meta");
+  });
+
+  it("el resumen de Implementación del CKU cuenta a los clientes del grupo con su cumplimiento", () => {
+    const r = resumenImplementacionCku(datos, metaGrupo, []);
+    expect(r.metaMensual).toBe(1000);
+    expect(r.profitPorMes).toEqual({ "2026-09": 500, "2026-10": 10 });   // «Otro» no tiene cumplimiento
+  });
+});
+
+describe("Grupo Cerveceria C.A. (cumplimiento Vol × CM1 del grupo completo)", () => {
+  const G = GRUPOS_CLIENTES[1];
+  // Nombres como vienen en la hoja de verdad (no como se escribieron en la configuración).
+  const EN_HOJA = [
+    "CERVECERIA CENTRO AMERICANA SOCIEDAD ANONIMA",
+    "FABRICA DE BEBIDAS GASEOSAS SALVAVIDAS .S.A",
+    "ALIMENTOS MARAVILLA S.A.",
+    "CERVECERIA NACIONAL S.A.",
+    "DISTRIBUIDORA LA NUEVA SOCIEDAD ANONIMA",
+  ];
+  // Vol 50 × CM1 $180 = $9,000 al mes para TODO el grupo.
+  const metaGrupo: MetaCliente[] = [{ cliente: G.nombre, vol: 50, cm1: 180 }];
+
+  it("es el grupo que se esperaba", () => {
+    expect(G.nombre).toBe("Grupo Cerveceria C.A.");
+    expect(G.clientes).toHaveLength(6);
+  });
+
+  it("claveCliente iguala «S.A.» con «SOCIEDAD ANONIMA», sin importar puntuación, tildes ni espacios", () => {
+    expect(claveCliente("ALIMENTOS MARAVILLA S.A.")).toBe(claveCliente("ALIMENTOS MARAVILLA SOCIEDAD ANONIMA"));
+    expect(claveCliente("FABRICA DE BEBIDAS GASEOSAS SALVAVIDAS .S.A")).toBe(claveCliente("Fábrica de bebidas gaseosas salvavidas  sociedad anonima"));
+    expect(claveCliente("CERVECERIA NACIONAL, S.A.")).toBe(claveCliente("CERVECERIA NACIONAL S.A."));
+    expect(claveCliente("DISTRIBUIDORA JALAPEÑA, S.A.")).toBe(claveCliente("distribuidora jalapena sociedad anonima"));
+    expect(claveCliente("CERVECERIA NACIONAL S.A.")).not.toBe(claveCliente("CERVECERIA CENTRO AMERICANA S.A."));
+  });
+
+  it("los clientes tal como vienen en la hoja caen en el grupo; otros clientes parecidos no", () => {
+    for (const c of EN_HOJA) expect(nombreCliente(fila(c, "", 0))).toBe(G.nombre);
+    expect(grupoDeCliente("DISTRIBUIDORA JALAPEÑA SOCIEDAD ANONIMA")).toBe(G.nombre);
+    expect(grupoDeCliente("MULTIPERFILES SOCIEDAD ANONIMA")).toBeNull();
+    expect(grupoDeCliente("ALIMENTOS CORPORATIVOS CORALSA, SOCIEDAD ANONIMA")).toBeNull();
+  });
+
+  it("la matriz del grupo trae a cada cliente con el nombre de la hoja", () => {
+    const datos = EN_HOJA.map((c, i) => fila(c, "2026-09-0" + (i + 1) + "T00:00:00", 100 * (i + 1)));
+    const g = agruparPorClienteYMes(datos).clientes[0];
+    expect(g.cliente).toBe(G.nombre);
+    expect(g.total).toEqual({ volumen: 5, profit: 1500 });
+    expect(g.miembros!.map((m) => m.cliente).sort()).toEqual([...EN_HOJA].sort());
+  });
+
+  it("su cumplimiento (Vol × CM1) se compara con el Profit de TODOS sus clientes juntos", () => {
+    const idx = indexarMetas(metaGrupo, []);
+    const datos = EN_HOJA.map((c) => fila(c, "2026-09-02T00:00:00", 900));
+    const a = avanceMesCliente(agruparPorClienteYMes(datos).clientes[0], "2026-09", idx)!;
+    expect(a.meta).toBe(9000);
+    expect(a.profit).toBe(4500);
+    expect(a.pct).toBeCloseTo(0.5, 5);
+  });
+
+  it("el % a alcanzar del mes aplica al cumplimiento del grupo", () => {
+    const idx = indexarMetas(metaGrupo, [{ mes: "2026-09", objetivo: 70 }]);
+    const a = avanceMesCliente(agruparPorClienteYMes([fila(EN_HOJA[0], "2026-09-02T00:00:00", 6300)]).clientes[0], "2026-09", idx)!;
+    expect(a.requerido).toBe(6300);
+    expect(a.cumplimiento).toBeCloseTo(1, 5);
+    expect(a.nivel).toBe("verde");
+  });
+
+  it("cada file de un cliente del grupo se juzga contra el CM1 del grupo", () => {
+    const idx = indexarMetas(metaGrupo, []);
+    expect(evaluarFile(fila(EN_HOJA[2], "2026-09-01T00:00:00", 200), idx)).toEqual({ estado: "cumple", cm1: 180 });
+    expect(evaluarFile(fila(EN_HOJA[3], "2026-09-01T00:00:00", 100), idx)).toEqual({ estado: "no-cumple", cm1: 180 });
+  });
+
+  it("una meta guardada con el nombre de un cliente que ahora es del grupo ya no aplica", () => {
+    const vieja: MetaCliente = { cliente: "ALIMENTOS MARAVILLA S.A.", vol: 80, cm1: 110 };
+    const idx = indexarMetas([vieja, ...metaGrupo], []);
+    expect(idx.clientes.has("ALIMENTOS MARAVILLA S.A.")).toBe(false);
+    expect(idx.clientes.size).toBe(1);
+    const r = resumenImplementacionCku([fila(EN_HOJA[2], "2026-09-01T00:00:00", 500)], [vieja, ...metaGrupo], []);
+    expect(r.metaMensual).toBe(9000);                       // la de Maravilla (8,800) ya no suma
+    expect(r.profitPorMes).toEqual({ "2026-09": 500 });     // y su Profit cuenta para el grupo
+  });
+
+  it("sin cumplimiento capturado, el Profit del grupo no cuenta para nadie", () => {
+    const r = resumenImplementacionCku([fila(EN_HOJA[2], "2026-09-01T00:00:00", 500)], [], []);
+    expect(r.metaMensual).toBe(0);
+    expect(r.profitPorMes).toEqual({});
   });
 });
