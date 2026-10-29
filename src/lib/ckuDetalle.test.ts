@@ -17,25 +17,34 @@ const iniE = (id: string, aTiempo: boolean): IniItem =>
   ({ id, name: `Ini ${id}`, grupo: "Aprobadas", status: "PM Aprobado", estado: "APROBADA", pm: "Javier",
     creacion, meet1: aTiempo ? "2026-01-12" : "2026-01-13", meet2: "2026-01-26" }) as IniItem;
 
-// Una actividad (subitem) de un item de Fase 3. entrega = su veredicto (solo Done con fechas); null = pendiente.
-const act = (id: string, entrega: "on-time" | "late" | null, extra: Record<string, unknown> = {}) =>
-  ({ id, name: `Act ${id}`, status: entrega ? "Done" : "Working on it", entrega, responsible: "", deadline: null, actualEnd: null, ...extra });
+// El CKU medido en estos tests. Solo cuentan los entregables y actividades cuyo Responsible es él.
+const CKU = "Javier Juarez";
+const cumpl = (s: Omit<Parameters<typeof detalleCumplimiento>[0], "cku">, delays: DelayMap, original?: DelayMap) =>
+  detalleCumplimiento({ ...s, cku: CKU }, delays, original);
 
-// Un item de la Fase 3 (Launch) de un board, con sus actividades. El item mismo NO es unidad.
+// Una actividad (subitem) de un item de Fase 3, a cargo del CKU salvo que se diga otra cosa.
+// entrega = su veredicto (solo Done con fechas); null = pendiente.
+const act = (id: string, entrega: "on-time" | "late" | null, extra: Record<string, unknown> = {}) =>
+  ({ id, name: `Act ${id}`, status: entrega ? "Done" : "Working on it", entrega, responsible: CKU, deadline: null, actualEnd: null, ...extra });
+
+// Un item (entregable) de la Fase 3 (Launch) de un board, a cargo del CKU salvo que se diga otra cosa, con sus
+// actividades. El item mismo NO es unidad.
 const item3 = (id: string, boardId: string, subs: ReturnType<typeof act>[], extra: Record<string, unknown> = {}, grupo = LAUNCH): ProjItem =>
   ({ id, boardId, boardName: `PM-00${boardId.slice(1)} | Demo ${boardId}`, pm: "Javier", grupo, name: `Item ${id}`, status: "Working on it",
-    entrega: null, deadline: null, subitems: subs, ...extra }) as unknown as ProjItem;
+    entrega: null, deadline: null, responsible: CKU, resp: "", subitems: subs, ...extra }) as unknown as ProjItem;
 
-describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyectos: actividades de la Fase 3)", () => {
+describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyectos: actividades de la Fase 3 a cargo del CKU)", () => {
   // Tres proyectos con su Fase 3 (a tiempo / atraso excusado / atraso que penaliza) y, además,
   // actividades atrasadas de otras fases que para un CKU NO se miden.
   const delays: DelayMap = { r3: { responsible: "Sponsor" }, [`b1::${LAUNCH}`]: { responsible: "Sponsor" } };
   const escenario = () => ({
     req: [reqE("r1", "on-time"), reqE("r2", "late"), reqE("r3", "late")],
     proj: [
-      item3("pC", "b3", [act("c1", "on-time"), act("c2", "on-time")]),
+      // c3: actividad de OTRA persona dentro de un entregable del CKU → no se mide ni se muestra
+      item3("pC", "b3", [act("c1", "on-time"), act("c2", "on-time"), act("c3", "late", { responsible: "Javier Aragon" })]),
       item3("pA", "b1", [act("a1", "on-time"), act("a2", "late")]),                              // a2: atraso EXCUSADO (fase de b1)
       item3("pB", "b2", [act("b1", "on-time"), act("b2", "late"), act("b3", null)]),             // b2: atraso que penaliza · b3: pendiente
+      item3("pZ", "b3", [act("z1", "late"), act("z2", "late")], { responsible: "Luis Aguilar" }), // entregable de OTRA persona: NO se mide
       item3("pX", "b1", [act("x1", "late")], {}, "Valuación | Formulación del proyecto"),       // otra fase: NO se mide
       item3("pY", "b2", [act("y1", "late")], {}, "Operación | Implementación"),                 // otra fase: NO se mide
     ],
@@ -43,7 +52,7 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
   });
 
   it("cada ACTIVIDAD cerrada es una unidad: a tiempo / atraso que penaliza / atraso excusado; las pendientes no", () => {
-    const d = detalleCumplimiento(escenario(), delays);
+    const d = cumpl(escenario(), delays);
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
 
     expect(por("r1")).toMatchObject({ estado: "ok", cuenta: true });
@@ -63,23 +72,34 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
   });
 
   it("las demás fases del proyecto (Valuación, Operación…) no entran en la medición del CKU", () => {
-    const d = detalleCumplimiento(escenario(), delays);
+    const d = cumpl(escenario(), delays);
     const ids = d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id).sort();
     expect(ids).toEqual(["a1", "a2", "b1", "b2", "c1", "c2"]);
     expect(d.unidades.some((u) => u.id === "x1" || u.id === "y1")).toBe(false);
   });
 
+  it("solo entregables a cargo del CKU y, dentro de ellos, solo actividades a cargo del CKU", () => {
+    const d = cumpl(escenario(), delays);
+    const ids = d.unidades.map((u) => u.id);
+    expect(ids).not.toContain("c3");   // actividad de otra persona, dentro de un entregable del CKU
+    expect(ids).not.toContain("z1");   // entregable de otra persona…
+    expect(ids).not.toContain("z2");   // …y todas sus actividades, aunque estén atrasadas
+    const nombres = d.proyectos!.flatMap((p) => p.items.map((i) => i.nombre));
+    expect(nombres).not.toContain("Item pZ");
+    expect(d.proyectos!.flatMap((p) => p.items.flatMap((i) => i.actividades.map((a) => a.id)))).not.toContain("c3");
+  });
+
   it("el % del detalle y las unidades que cuentan coinciden con el del scoreboard", () => {
     const s = escenario();
-    const d = detalleCumplimiento(s, delays);
-    const stats = calcEntregaStatsCku(s.req, s.proj, delays, s.ini);
+    const d = cumpl(s, delays);
+    const stats = calcEntregaStatsCku(CKU, s.req, s.proj, delays, s.ini);
     expect(d.pct).toBe(stats.pct);
     expect(d.fuentes.reduce((n, f) => n + f.total, 0)).toBe(stats.total);
     expect(d.fuentes.reduce((n, f) => n + f.buenas, 0)).toBe(stats.onTime);
   });
 
   it("los pesos efectivos reparten el de las fuentes sin unidades (sin PML: Iniciativas 12.5% · Proyectos 87.5%)", () => {
-    const d = detalleCumplimiento(
+    const d = cumpl(
       { req: [], proj: [item3("p1", "b1", [act("a1", "on-time")])], projBoards: [board], ini: [iniE("i1", true)] }, {});
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
     expect(f("req")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
@@ -94,19 +114,19 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       const p = item3("a", "b1", [
         act("s3", null, { name: "Salida en vivo", deadline: f("2026-07-14") }),
         act("s1", "late", { name: "Requerimiento", deadline: f("2026-05-29"), actualEnd: f("2026-07-31"), responsible: " Javier Juarez " }),
-        act("s2", "on-time", { name: "Análisis", deadline: f("2026-06-05"), responsible: "Javier Aragon" }),
+        act("s2", "on-time", { name: "Análisis", deadline: f("2026-06-05"), responsible: "JAVIER juárez" }),   // acentos y mayúsculas no importan
         act("s4", null, { name: "Sin fecha" }),
       ], { name: "Clasificación" });
-      const d = detalleCumplimiento({ req: [], proj: [p], projBoards: boards, ini: [] }, {});
+      const d = cumpl({ req: [], proj: [p], projBoards: boards, ini: [] }, {});
       expect(d.proyectos).toHaveLength(1);
       expect(d.proyectos![0].proyecto).toBe("PM-001 · Demo b1");
       const it0 = d.proyectos![0].items[0];
       expect(it0.nombre).toBe("Clasificación");
       expect(it0.actividades.map((a) => [a.nombre, a.estado, a.responsable])).toEqual([
         ["Requerimiento", "atraso", "Javier Juarez"],
-        ["Análisis", "ok", "Javier Aragon"],
-        ["Salida en vivo", "pendiente", null],
-        ["Sin fecha", "pendiente", null],
+        ["Análisis", "ok", "JAVIER juárez"],
+        ["Salida en vivo", "pendiente", CKU],
+        ["Sin fecha", "pendiente", CKU],
       ]);
       expect(it0.actividades[0].cierre).toEqual(f("2026-07-31"));
     });
@@ -117,14 +137,14 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
         item3("late", "b1", [act("l1", "late")], { name: "Zulu" }),
         item3("pend", "b1", [act("p1", null)], { name: "Bravo" }),
       ];
-      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
       expect(d.proyectos![0].items.map((i) => i.nombre)).toEqual(["Zulu", "Alfa", "Bravo"]);
     });
 
     it("el atraso excusado sale marcado 'excusado' y trae el responsable de la fase con su etiqueta original", () => {
       const original: DelayMap = { [`b1::${LAUNCH}`]: { responsible: "Desarrollo" } };
       const proj = [item3("a", "b1", [act("s1", "late"), act("s2", "on-time")])];
-      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, original);   // "Desarrollo" ≠ PM → excusa
+      const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, original);   // "Desarrollo" ≠ PM → excusa
       const p = d.proyectos![0];
       expect(p.responsableFase).toBe("Desarrollo");
       expect(p.items[0].actividades.map((a) => a.estado).sort()).toEqual(["excusado", "ok"]);
@@ -134,8 +154,8 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     it("si el responsable de la fase es el CKU (mapa intercambiado: aparece como 'PM') o no hay, el atraso penaliza", () => {
       const original: DelayMap = { [`b1::${LAUNCH}`]: { responsible: "CKU" } };
       const proj = [item3("a", "b1", [act("s1", "late")])];
-      const conCku = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, swapPmCku(original), original);
-      const sinAsignar = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      const conCku = cumpl({ req: [], proj, projBoards: boards, ini: [] }, swapPmCku(original), original);
+      const sinAsignar = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
       expect(conCku.proyectos![0].items[0].actividades[0].estado).toBe("atraso");
       expect(conCku.proyectos![0].responsableFase).toBe("CKU");
       expect(sinAsignar.proyectos![0].items[0].actividades[0].estado).toBe("atraso");
@@ -147,26 +167,40 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
         item3("a", "b1", [], { name: "Sin actividades", status: "Done", entrega: "on-time" }),
         item3("b", "b1", [act("s1", null)], { name: "Atrasado sin cerrar", status: "Stuck", entrega: "late" }),
       ];
-      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
       expect(d.unidades.filter((u) => u.fuente === "proj")).toEqual([]);
       expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
       expect(d.proyectos![0].items.map((i) => i.nombre).sort()).toEqual(["Atrasado sin cerrar", "Sin actividades"]);
     });
 
-    it("cada item trae su responsable de Monday ('Responsible'; 'Resp' si viene vacío; null si ninguno)", () => {
+    it("un entregable es del CKU si su 'Responsible' lo es ('Resp' solo si 'Responsible' viene vacío); sin acentos ni mayúsculas", () => {
       const proj = [
         item3("a", "b1", [], { name: "A", responsible: " Javier Juarez ", resp: "" }),
-        item3("b", "b1", [], { name: "B", responsible: "", resp: "Luis Coronado" }),
-        item3("c", "b1", [], { name: "C", responsible: "", resp: "" }),
+        item3("b", "b1", [], { name: "B", responsible: "", resp: "JAVIER juárez" }),     // cae a "Resp"
+        item3("c", "b1", [], { name: "C", responsible: "Luis Coronado", resp: CKU }),    // "Responsible" manda sobre "Resp"
+        item3("d", "b1", [], { name: "D", responsible: "", resp: "" }),                  // nadie
+        item3("e", "b1", [], { name: "E", responsible: "Javier Juarez Jr." }),           // otro nombre
       ];
-      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
-      expect(Object.fromEntries(d.proyectos![0].items.map((i) => [i.nombre, i.responsable]))).toEqual({ A: "Javier Juarez", B: "Luis Coronado", C: null });
+      const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
+      expect(d.proyectos![0].items.map((i) => [i.nombre, i.responsable])).toEqual([["A", "Javier Juarez"], ["B", "JAVIER juárez"]]);
+    });
+
+    it("las pendientes que se cuentan son solo las del CKU", () => {
+      const proj = [item3("a", "b1", [act("s1", "on-time"), act("s2", null), act("s3", null, { responsible: "Javier Aragon" })])];
+      const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
+      expect(contarActividades(d.proyectos![0].items)).toEqual({ ok: 1, atraso: 0, excusado: 0, pendiente: 1 });
+    });
+
+    it("un proyecto sin ningún entregable a cargo del CKU no aparece", () => {
+      const proj = [item3("a", "b1", [act("s1", "late")], { responsible: "Luis Aguilar" }), item3("b", "b2", [act("s2", "on-time")])];
+      const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
+      expect(d.proyectos!.map((p) => p.proyecto)).toEqual(["PM-002 · Demo b2"]);
     });
 
     it("los boards de plantilla vieja no aparecen: ni sus actividades ni su proyecto", () => {
       const vieja = item3("v1", "b2", [act("v-s1", "late")], { name: "Desarrollo por iteraciones (Hitos) / Entrega CKU" }, "Launch | Desarrollo");
       const nueva = item3("n1", "b1", [act("n-s1", "on-time")], { name: "POC" });
-      const d = detalleCumplimiento({ req: [], proj: [vieja, nueva], projBoards: boards, ini: [] }, {});
+      const d = cumpl({ req: [], proj: [vieja, nueva], projBoards: boards, ini: [] }, {});
       expect(d.proyectos!.map((p) => p.proyecto)).toEqual(["PM-001 · Demo b1"]);
       expect(d.unidades.filter((u) => u.fuente === "proj").map((u) => u.id)).toEqual(["n-s1"]);
     });
@@ -176,18 +210,18 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
         item3("a", "b1", [act("a1", "on-time")]),
         item3("b", "b2", [act("b1", "late")]),
       ];
-      const d = detalleCumplimiento({ req: [], proj, projBoards: boards, ini: [] }, {});
+      const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
       expect(d.proyectos!.map((p) => p.proyecto)).toEqual(["PM-002 · Demo b2", "PM-001 · Demo b1"]);
     });
 
     it("PML e Iniciativas no forman proyectos", () => {
-      const d = detalleCumplimiento({ req: [reqE("r1", "on-time")], proj: [], projBoards: [], ini: [iniE("i1", true)] }, {});
+      const d = cumpl({ req: [reqE("r1", "on-time")], proj: [], projBoards: [], ini: [iniE("i1", true)] }, {});
       expect(d.proyectos).toEqual([]);
     });
   });
 
   it("un proyecto sin Fase 3 todavía no aporta unidades: Proyectos queda sin peso", () => {
-    const d = detalleCumplimiento(
+    const d = cumpl(
       { req: [], proj: [item3("p1", "b1", [act("a1", "late")], {}, "Valuación | Formulación del proyecto")], projBoards: [board], ini: [iniE("i1", true)] }, {});
     expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
     expect(d.pct).toBe(100); // solo cuenta la Iniciativa
@@ -196,14 +230,14 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
   it("para un CKU penaliza 'CKU' (no 'PM'): el mapa intercambiado decide, la etiqueta es la original", () => {
     const original: DelayMap = { r1: { responsible: "CKU" }, r2: { responsible: "PM" } };
     const s = { req: [reqE("r1", "late"), reqE("r2", "late")], proj: [], projBoards: [], ini: [] };
-    const d = detalleCumplimiento(s, swapPmCku(original), original);
+    const d = cumpl(s, swapPmCku(original), original);
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
     expect(por("r1")).toMatchObject({ estado: "atraso", responsable: "CKU" });     // atribuido al CKU → penaliza
     expect(por("r2")).toMatchObject({ estado: "excusado", responsable: "PM" });    // atribuido al PM → excusa
   });
 
   it("sin unidades: pct null y todas las fuentes vacías", () => {
-    const d = detalleCumplimiento({ req: [], proj: [], projBoards: [], ini: [] }, {});
+    const d = cumpl({ req: [], proj: [], projBoards: [], ini: [] }, {});
     expect(d.pct).toBeNull();
     expect(d.fuentes.every((f) => f.total === 0 && f.pct === null)).toBe(true);
   });

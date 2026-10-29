@@ -15,6 +15,7 @@ import {
   calcPmMetrics,
   calcEntregaStats,
   calcEntregaStatsCku,
+  entregablesDelCku,
   proyectosFase3Nueva,
   calcEntregaStatsPonderado,
   calcEntregaStatsRaw,
@@ -655,7 +656,8 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     const reqs = [req({ id: "r1", pm: "Luis", onTime: onTime("on-time"), estado: "CERRADO" })];
     // 3 proyectos, cada uno con su Fase 3 atrasada (y una actividad cerrada con atraso, que es lo que mide el CKU).
     const projBoards = ["b0", "b1", "b2"].map((id) => board({ id, pm: "Luis" }));
-    const projs = projBoards.map((b, i) => proj({ id: `p${i}`, boardId: b.id, grupo: "Launch | Lanzamiento", entrega: "late", subitems: [sub({ id: `s${i}`, entrega: "late" })] }));
+    // (el nombre del CKU viene en `pm`: solo se miden los entregables y actividades a su cargo)
+    const projs = projBoards.map((b, i) => proj({ id: `p${i}`, boardId: b.id, grupo: "Launch | Lanzamiento", entrega: "late", responsible: "Luis", subitems: [sub({ id: `s${i}`, entrega: "late", responsible: "Luis" })] }));
     const bhm = buildBoardHealthMap(projs, projBoards, {});
     const run = (ponderar: boolean) =>
       calcPmMetrics("Luis", [], reqs, projs, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, ponderar);
@@ -668,7 +670,7 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     const projBoards = [board({ id: "b1", pm: "Luis" })];
     const projs = [
       proj({ id: "p1", name: "Kick Off", boardId: "b1", grupo: "Valuación | Formulación del proyecto", entrega: "late" }),
-      proj({ id: "p2", name: "Entregable", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "on-time", subitems: [sub({ id: "s2", entrega: "on-time" })] }),
+      proj({ id: "p2", name: "Entregable", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "on-time", responsible: "Luis", subitems: [sub({ id: "s2", entrega: "on-time", responsible: "Luis" })] }),
     ];
     const bhm = buildBoardHealthMap(projs, projBoards, {});
     const run = (cku: boolean) =>
@@ -678,18 +680,49 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
   });
 });
 
-describe("calcEntregaStatsCku (Cumplimiento de un CKU: cada actividad cerrada de la Fase 3 es una unidad)", () => {
+describe("calcEntregaStatsCku (Cumplimiento de un CKU: cada actividad cerrada, a su cargo, de sus entregables de la Fase 3)", () => {
   const LAUNCH = "Launch | Lanzamiento";
-  const act = (id: string, entrega: "on-time" | "late" | null) => sub({ id, entrega });
-  /** Un item de un board con sus actividades; el veredicto del item mismo no importa. */
-  const item = (id: string, boardId: string, grupo: string, subs: ProjSubitem[], entrega: "on-time" | "late" | null = null) =>
-    proj({ id, boardId, grupo, entrega, subitems: subs });
+  const CKU = "Javier Juarez";
+  /** Una actividad a cargo del CKU (salvo que se diga otra cosa). */
+  const act = (id: string, entrega: "on-time" | "late" | null, responsible = CKU) => sub({ id, entrega, responsible });
+  /** Un entregable (item) de un board a cargo del CKU (salvo que se diga otra cosa), con sus actividades; el veredicto del item mismo no importa. */
+  const item = (id: string, boardId: string, grupo: string, subs: ProjSubitem[], entrega: "on-time" | "late" | null = null, responsible = CKU) =>
+    proj({ id, boardId, grupo, entrega, responsible, subitems: subs });
+
+  it("solo cuentan los entregables a cargo del CKU y, dentro de ellos, sus actividades", () => {
+    const projs = [
+      item("i1", "b1", LAUNCH, [act("a", "on-time"), act("b", "late", "Javier Aragon"), act("c", "on-time", "javier JUÁREZ")]),
+      item("i2", "b1", LAUNCH, [act("d", "late"), act("e", "late")], null, "Luis Aguilar"),   // entregable de otra persona
+    ];
+    // Solo a (CKU) y c (CKU, sin importar acentos ni mayúsculas): 2 de 2. Ni la de Javier Aragon ni todo i2 entran.
+    expect(calcEntregaStatsCku(CKU, [], projs, {})).toEqual({ total: 2, onTime: 2, late: 0, pct: 100 });
+    // Si el entregable es de otra persona no se mide nada, aunque el CKU figure en sus actividades.
+    const ajeno = [item("i3", "b1", LAUNCH, [act("f", "late")], null, "Luis Aguilar")];
+    expect(calcEntregaStatsCku(CKU, [], ajeno, {}).pct).toBeNull();
+    // Y para otro CKU el mismo entregable sí cuenta.
+    expect(calcEntregaStatsCku("Luis Aguilar", [], [item("i3", "b1", LAUNCH, [act("f", "late", "Luis Aguilar")], null, "Luis Aguilar")], {}).pct).toBe(0);
+  });
+
+  it("un entregable sin 'Responsible' cae a 'Resp'; 'Responsible' manda sobre 'Resp'", () => {
+    const conResp = proj({ id: "i1", boardId: "b1", grupo: LAUNCH, responsible: "", resp: CKU, subitems: [act("a", "on-time")] });
+    expect(calcEntregaStatsCku(CKU, [], [conResp], {}).total).toBe(1);
+    const otroResponsible = proj({ id: "i2", boardId: "b1", grupo: LAUNCH, responsible: "Luis Aguilar", resp: CKU, subitems: [act("b", "on-time")] });
+    expect(calcEntregaStatsCku(CKU, [], [otroResponsible], {}).total).toBe(0);
+  });
+
+  it("entregablesDelCku recorta los items y sus actividades, sin tocar los originales", () => {
+    const original = item("i1", "b1", LAUNCH, [act("a", "on-time"), act("b", "late", "Javier Aragon")]);
+    const [recortado] = entregablesDelCku([original], CKU);
+    expect(recortado.subitems.map((s) => s.id)).toEqual(["a"]);
+    expect(original.subitems).toHaveLength(2);
+    expect(entregablesDelCku([item("i2", "b1", "Valuación | A", [act("c", "late")])], CKU)).toEqual([]);   // otra fase
+  });
 
   it("una actividad atrasada que no es de la Fase 3 no penaliza; la de la Fase 3 sí", () => {
     const projs = [item("p1", "b1", "Valuación | Formulación del proyecto", [act("s1", "late")]), item("p2", "b1", LAUNCH, [act("s2", "on-time")])];
-    expect(calcEntregaStatsCku([], projs, {}).pct).toBe(100);
+    expect(calcEntregaStatsCku(CKU, [], projs, {}).pct).toBe(100);
     const tarde = [item("p1", "b1", "Valuación | Formulación del proyecto", [act("s1", "on-time")]), item("p2", "b1", LAUNCH, [act("s2", "late")])];
-    expect(calcEntregaStatsCku([], tarde, {}).pct).toBe(0);
+    expect(calcEntregaStatsCku(CKU, [], tarde, {}).pct).toBe(0);
   });
 
   it("cada actividad cerrada es una unidad: ni el item ni la fase cuentan por sí mismos", () => {
@@ -698,47 +731,47 @@ describe("calcEntregaStatsCku (Cumplimiento de un CKU: cada actividad cerrada de
       item("i2", "b1", LAUNCH, [act("d", "on-time")]),
     ];
     // 4 actividades, 3 a tiempo → 75%. Antes (una unidad por fase) la fase entera habría salido con atraso.
-    expect(calcEntregaStatsCku([], projs, {})).toEqual({ total: 4, onTime: 3, late: 1, pct: 75 });
+    expect(calcEntregaStatsCku(CKU, [], projs, {})).toEqual({ total: 4, onTime: 3, late: 1, pct: 75 });
   });
 
   it("las actividades pendientes (sin veredicto) no cuentan", () => {
     const projs = [item("i1", "b1", LAUNCH, [act("a", "on-time"), act("b", null), act("c", null)])];
-    expect(calcEntregaStatsCku([], projs, {})).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+    expect(calcEntregaStatsCku(CKU, [], projs, {})).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
   });
 
   it("el veredicto del item no entra: solo el de sus actividades", () => {
     const atrasadoPeroConActividadATiempo = item("i1", "b1", LAUNCH, [act("a", "on-time")], "late");
-    expect(calcEntregaStatsCku([], [atrasadoPeroConActividadATiempo], {}).pct).toBe(100);
+    expect(calcEntregaStatsCku(CKU, [], [atrasadoPeroConActividadATiempo], {}).pct).toBe(100);
     const aTiempoSinActividades = item("i2", "b2", LAUNCH, [], "on-time");
-    expect(calcEntregaStatsCku([], [aTiempoSinActividades], {}).pct).toBeNull();
+    expect(calcEntregaStatsCku(CKU, [], [aTiempoSinActividades], {}).pct).toBeNull();
   });
 
   it("PML e Iniciativas no cambian: se ponderan igual que antes", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50%
     const projs = [item("p1", "b1", LAUNCH, [act("s1", "late")])];                                         // 0%
     // PML 50·0.20 + Proyectos 0·0.70 = 10 / 0.90 = 11
-    expect(calcEntregaStatsCku(reqs, projs, {}).pct).toBe(11);
+    expect(calcEntregaStatsCku(CKU, reqs, projs, {}).pct).toBe(11);
   });
 
   it("el atraso en una fase con responsable ≠ CKU sale de la cuenta (no cuenta como a tiempo)", () => {
     const projs = [item("p1", "b1", LAUNCH, [act("s1", "late"), act("s2", "late"), act("s3", "on-time")])];
     const excusa = { "b1::Launch | Lanzamiento": { responsible: "Sponsor" } } as const;
     // Las 2 actividades atrasadas se excluyen: queda 1 de 1 (si contaran como a tiempo serían 3 de 3: el conteo lo distingue).
-    expect(calcEntregaStatsCku([], projs, excusa)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+    expect(calcEntregaStatsCku(CKU, [], projs, excusa)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
     // Sin responsable (o con "PM", que en un CKU es lo que penaliza) las 2 penalizan: 1 de 3.
-    expect(calcEntregaStatsCku([], projs, {})).toMatchObject({ total: 3, onTime: 1, pct: 33 });
-    expect(calcEntregaStatsCku([], projs, { "b1::Launch | Lanzamiento": { responsible: "PM" } }).pct).toBe(33);
+    expect(calcEntregaStatsCku(CKU, [], projs, {})).toMatchObject({ total: 3, onTime: 1, pct: 33 });
+    expect(calcEntregaStatsCku(CKU, [], projs, { "b1::Launch | Lanzamiento": { responsible: "PM" } }).pct).toBe(33);
   });
 
   it("sin actividades cerradas en la Fase 3 ni otras fuentes: sin dato (null)", () => {
-    expect(calcEntregaStatsCku([], [item("p1", "b1", "Valuación | A", [act("s1", "late")])], {}).pct).toBeNull();
-    expect(calcEntregaStatsCku([], [item("p1", "b1", LAUNCH, [act("s1", null)])], {}).pct).toBeNull();
+    expect(calcEntregaStatsCku(CKU, [], [item("p1", "b1", "Valuación | A", [act("s1", "late")])], {}).pct).toBeNull();
+    expect(calcEntregaStatsCku(CKU, [], [item("p1", "b1", LAUNCH, [act("s1", null)])], {}).pct).toBeNull();
   });
 
   it("una actividad Done sin fechas no tiene veredicto: no cuenta", () => {
     // entrega=null es lo que deja calcProjEntrega cuando falta la fecha real o el límite.
-    const projs = [item("p1", "b1", LAUNCH, [sub({ id: "s1", status: "Done", entrega: null }), act("s2", "on-time")])];
-    expect(calcEntregaStatsCku([], projs, {}).total).toBe(1);
+    const projs = [item("p1", "b1", LAUNCH, [sub({ id: "s1", status: "Done", entrega: null, responsible: CKU }), act("s2", "on-time")])];
+    expect(calcEntregaStatsCku(CKU, [], projs, {}).total).toBe(1);
   });
 });
 
@@ -767,10 +800,10 @@ describe("proyectosFase3Nueva (solo Fase 3 y solo boards con plantilla nueva)", 
   });
 
   it("calcEntregaStatsCku ignora los boards de plantilla vieja aunque su Fase 3 esté atrasada", () => {
-    const vieja = [proj({ id: "v1", boardId: "bV", grupo: "Launch | Desarrollo", name: DEV_STEP, entrega: "late", subitems: [sub({ id: "vs1", entrega: "late" })] })];
-    const nueva = [proj({ id: "n1", boardId: "bN", grupo: "Launch | Lanzamiento", name: "POC", entrega: "on-time", subitems: [sub({ id: "ns1", entrega: "on-time" })] })];
-    expect(calcEntregaStatsCku([], [...vieja, ...nueva], {}).pct).toBe(100);
-    expect(calcEntregaStatsCku([], vieja, {}).pct).toBeNull();
+    const vieja = [proj({ id: "v1", boardId: "bV", grupo: "Launch | Desarrollo", name: DEV_STEP, entrega: "late", responsible: "Javier Juarez", subitems: [sub({ id: "vs1", entrega: "late", responsible: "Javier Juarez" })] })];
+    const nueva = [proj({ id: "n1", boardId: "bN", grupo: "Launch | Lanzamiento", name: "POC", entrega: "on-time", responsible: "Javier Juarez", subitems: [sub({ id: "ns1", entrega: "on-time", responsible: "Javier Juarez" })] })];
+    expect(calcEntregaStatsCku("Javier Juarez", [], [...vieja, ...nueva], {}).pct).toBe(100);
+    expect(calcEntregaStatsCku("Javier Juarez", [], vieja, {}).pct).toBeNull();
   });
 });
 

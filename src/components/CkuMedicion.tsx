@@ -33,7 +33,7 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
     <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t p-4 lg:grid-cols-2" style={{ borderColor: "var(--border)" }}>
       <Panel
         titulo="Cumplimiento de Entrega" medida="% a tiempo" detalle={cumplimiento}
-        notaProyectos="En Proyectos la unidad es cada actividad ya cerrada de los items de la Fase 3 (Launch) de los proyectos con plantilla nueva; las pendientes no cuentan."
+        notaProyectos="En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad ya cerrada y las pendientes no cuentan."
         regla="Un atraso no penaliza al CKU si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Una Iniciativa, un PML o una actividad con un atraso así no se cuenta. En Proyectos el responsable se asigna por fase, y las actividades excusadas se listan marcadas «no cuenta»."
       />
       <Panel

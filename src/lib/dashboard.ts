@@ -524,16 +524,31 @@ export function proyectosFase3Nueva(projs: ProjItem[]): ProjItem[] {
   return out;
 }
 
-/** Cumplimiento de Entrega de un CKU: lo mismo que calcEntregaStatsPonderado (una nota por
- *  fuente, combinadas 10/20/70) pero en Proyectos la unidad es cada ACTIVIDAD (subitem) de los
- *  items de la Fase 3 (Launch) de los boards con plantilla nueva — ver entregaActividadesCku.
- *  PML e Iniciativas no cambian. */
-export function calcEntregaStatsCku(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
-  const f = entregaPorFuente(reqs, [], delays, ini);
-  return combinarEntregaPonderada({ ...f, proj: entregaActividadesCku(proyectosFase3Nueva(projs), delays) });
+const normNombre = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+const esPersona = (nombre: string | undefined, quien: string) => normNombre(nombre ?? "") === normNombre(quien);
+
+/** Los entregables y actividades con los que se mide a un CKU en Proyectos: de la Fase 3 (Launch) de
+ *  los boards con plantilla nueva, SOLO los items (entregables) cuyo Responsible es el CKU y, dentro de
+ *  ellos, SOLO las actividades (subitems) cuyo Responsible es también el CKU. Lo que está a cargo de
+ *  otra persona no se mide ni se muestra. El Responsible del item es el de su columna "Responsible"
+ *  ("Resp" si esa viene vacía); el nombre se compara sin importar acentos ni mayúsculas. */
+export function entregablesDelCku(projs: ProjItem[], cku: string): ProjItem[] {
+  return proyectosFase3Nueva(projs)
+    .filter((p) => esPersona(p.responsible?.trim() || p.resp, cku))
+    .map((p) => ({ ...p, subitems: p.subitems.filter((s) => esPersona(s.responsible, cku)) }));
 }
 
-/** Proyectos de un CKU: cada ACTIVIDAD (subitem) de los items de su Fase 3 es una unidad. Solo
+/** Cumplimiento de Entrega de un CKU: lo mismo que calcEntregaStatsPonderado (una nota por
+ *  fuente, combinadas 10/20/70) pero en Proyectos la unidad es cada ACTIVIDAD (subitem) a cargo del
+ *  CKU, de sus entregables de la Fase 3 (Launch) de los boards con plantilla nueva — ver
+ *  entregablesDelCku y entregaActividadesCku. PML e Iniciativas no cambian. */
+export function calcEntregaStatsCku(cku: string, reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
+  const f = entregaPorFuente(reqs, [], delays, ini);
+  return combinarEntregaPonderada({ ...f, proj: entregaActividadesCku(entregablesDelCku(projs, cku), delays) });
+}
+
+/** Proyectos de un CKU: cada ACTIVIDAD (subitem) de los items que recibe (ya recortados a lo suyo, ver
+ *  entregablesDelCku) es una unidad. Solo
  *  entran las que YA cerraron con veredicto (Done con fecha real y límite): a tiempo si cerró en o
  *  antes de su límite, con atraso si no. Las pendientes (sin cerrar, o sin fechas) no cuentan.
  *  El item no es unidad: solo sus actividades. La excusa es la de la FASE (un responsable por fase,
@@ -1348,12 +1363,16 @@ export function calcPmMetrics(
   const nps = calcNpsFromRecords(npsRecords, pm);
 
   const pmBoardIdSet = new Set(projBoards.filter((b) => b.pm === pm).map((b) => b.id));
-  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = (ponderarPorFuente ? calcEntregaStatsCku : calcEntregaStats)(
+  const entregaArgs = [
     req.filter((r) => r.pm === pm),
     proj.filter((p) => pmBoardIdSet.has(p.boardId)),
     delays,
     ini.filter((i) => i.pm === pm),
-  );
+  ] as const;
+  // Un CKU se mide solo con sus entregables y actividades (en `pm` viene su nombre) — ver entregablesDelCku.
+  const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = ponderarPorFuente
+    ? calcEntregaStatsCku(pm, ...entregaArgs)
+    : calcEntregaStats(...entregaArgs);
 
   const pmValueAll = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, false), confirmacionRoiPm[pm]);
   const pmValueHard = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, true), confirmacionRoiPm[pm]);

@@ -5,7 +5,7 @@
 // constructores de filas que la página de auditoría, y su `pct` coincide con el del
 // scoreboard (calcEntregaStatsPonderado / calcReprocesoStatsPonderado). Módulo PURO.
 
-import { buildEntregaRows, buildReprocesoRows, notaCalidadCku, projPhaseKey, proyectosFase3Nueva } from "@/lib/dashboard";
+import { buildEntregaRows, buildReprocesoRows, entregablesDelCku, notaCalidadCku, projPhaseKey, proyectosFase3Nueva } from "@/lib/dashboard";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
 import { splitBoardName } from "@/lib/proj";
@@ -43,7 +43,7 @@ export interface UnidadMedida {
 }
 
 // ── Cumplimiento de Proyectos: proyecto → item → actividad ───────────────────
-// La unidad que se mide es la ACTIVIDAD (subitem) de un item de la Fase 3; el item solo las agrupa.
+// La unidad que se mide es la ACTIVIDAD (subitem) de un item de la Fase 3, ambos a cargo del CKU; el item solo las agrupa.
 
 /** Una actividad (subitem) de un item de Fase 3. ok / atraso = ya cerró con veredicto y cuenta;
  *  excusado = cerró tarde pero su fase tiene un responsable ≠ CKU, así que no cuenta;
@@ -175,10 +175,11 @@ function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean):
   return { pct: ponderado === null ? null : Math.round(ponderado * 100), fuentes, unidades };
 }
 
-/** Detalle de Cumplimiento de Entrega. `delays` es el mapa con PM ↔ CKU ya intercambiado (el
- *  que decide qué penaliza, igual que el scoreboard); `delaysOriginal`, el de Firestore tal
- *  cual, solo para mostrar el responsable con su etiqueta real. */
-export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: DelayMap = delays): DetalleMedicion {
+/** Detalle de Cumplimiento de Entrega. `s.cku` es el CKU medido: en Proyectos solo cuentan (y se
+ *  listan) los entregables a su cargo y, dentro de ellos, las actividades a su cargo. `delays` es el
+ *  mapa con PM ↔ CKU ya intercambiado (el que decide qué penaliza, igual que el scoreboard);
+ *  `delaysOriginal`, el de Firestore tal cual, solo para mostrar el responsable con su etiqueta real. */
+export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap, delaysOriginal: DelayMap = delays): DetalleMedicion {
   // PML e Iniciativas: una unidad cada uno. Un atraso excusado sale de la cuenta (ver calcEntregaStats).
   const unidades = buildEntregaRows(s.req, [], s.projBoards, s.ini).map((r): UnidadMedida => {
     const tarde = r.verdict === "late";
@@ -190,9 +191,9 @@ export function detalleCumplimiento(s: Scope, delays: DelayMap, delaysOriginal: 
     return { ...base, estado: "atraso", cuenta: true, valor: 0 };
   });
 
-  // Proyectos: cada ACTIVIDAD ya cerrada de un item de la Fase 3 (plantilla nueva) es una unidad, igual
-  // que en calcEntregaStatsCku (el número del scoreboard). Las pendientes no son unidades.
-  const proyectos = armarProyectos(proyectosFase3Nueva(s.proj), delays, delaysOriginal);
+  // Proyectos: cada ACTIVIDAD ya cerrada, a cargo del CKU, de un entregable suyo de la Fase 3 (plantilla
+  // nueva) es una unidad, igual que en calcEntregaStatsCku (el número del scoreboard). Las pendientes no.
+  const proyectos = armarProyectos(entregablesDelCku(s.proj, s.cku), delays, delaysOriginal);
   for (const proy of proyectos) {
     for (const it of proy.items) {
       for (const a of it.actividades) {
