@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmtMoney, fmtMoneyShort, fmtDateWithWeekday, today, parseYMD, businessDays } from "@/lib/business";
 import { authedFetch } from "@/lib/api";
@@ -86,15 +86,23 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
   // Su reparto por PM (Luis: T0 + T4→T5 · David: T1→T3) — reemplaza la
   // Confirmación de Monday en sus Players; vacío mientras carga.
   const [confirmacionRoiPm, setConfirmacionRoiPm] = useState<Record<string, ConfirmacionRoiPm>>({});
-  useEffect(() => {
+  // La carga puede tardar (~10-15 s) o fallar (Apps Script da 404 intermitentes): mientras
+  // tanto NO se muestra $0, que parecería un resultado real: "…" al cargar, "reintentar" si falló.
+  const [confirmacionRoiFallo, setConfirmacionRoiFallo] = useState(false);
+  const cargarConfirmacionRoi = useCallback(() => {
     authedFetch("/api/dashboard/confirmacion-roi")
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((d: { confirmacionBenefit: number; porPm?: Record<string, ConfirmacionRoiPm> }) => {
         setConfirmacionRoi(d.confirmacionBenefit);
         setConfirmacionRoiPm(d.porPm ?? {});
       })
-      .catch((err) => console.warn("Confirmación ROI: no se pudo cargar:", err));
+      .catch((err) => {
+        console.warn("Confirmación ROI: no se pudo cargar:", err);
+        setConfirmacionRoiFallo(true);
+      });
   }, []);
+  useEffect(() => { cargarConfirmacionRoi(); }, [cargarConfirmacionRoi]);
+  const reintentarConfirmacionRoi = () => { setConfirmacionRoiFallo(false); cargarConfirmacionRoi(); };
 
   // Fechas de restauración de Pre-producción, administradas a mano en el popup
   // (ver PreprodRestoreDatesModal) — null mientras carga. El banner solo
@@ -429,7 +437,14 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
               <span>Validación <span style={{ color: "var(--info)" }}>{fmtMoney(colValidacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colValidacionBenefit)}</span></span>
               <span>Aprobación <span style={{ color: "var(--info)" }}>{fmtMoney(colAprobacionCost)}</span> / <span style={{ color: "var(--ok)" }}>{fmtMoney(colAprobacionBenefit)}</span></span>
               <span title="Ahorro real con Ducafast (ROI 003) + Ahorro $ de Clonación de Files — ya no sale de Monday, no tiene costo asociado (es puro ahorro) ni cambia con el toggle Solo HardSaving">
-                Confirmación (ROI) <span style={{ color: "var(--ok)" }}>{confirmacionRoi != null ? fmtMoney(confirmacionRoi) : "…"}</span>
+                Confirmación (ROI){" "}
+                {confirmacionRoi != null ? (
+                  <span style={{ color: "var(--ok)" }}>{fmtMoney(confirmacionRoi)}</span>
+                ) : confirmacionRoiFallo ? (
+                  <button onClick={reintentarConfirmacionRoi} className="font-semibold underline" style={{ color: "var(--bad)" }}>no disponible · reintentar</button>
+                ) : (
+                  <span style={{ color: "var(--ok)" }}>…</span>
+                )}
               </span>
               <button
                 onClick={() => setHardOnly((v) => !v)}
@@ -590,9 +605,12 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
               // calculan sobre ESE resultado, no sobre los $250k completos.
               const mesesCompletos = today().getMonth(); // Enero=0 ⇒ en Octubre (9) ya pasaron 9 meses (Ene–Sep)
               const metaAFecha = (META_CONFIRMACION_ROI_ANUAL / 12) * mesesCompletos;
+              // Sin dato todavía (cargando o fallo): ni monto, ni %, ni semáforo — un $0 en rojo
+              // se leería como «no hemos confirmado nada».
+              const confirmacionListo = confirmacionRoi != null;
               const confirmacionValue = confirmacionRoi ?? 0;
               const confirmacionPct = metaAFecha > 0 ? confirmacionValue / metaAFecha : (confirmacionValue > 0 ? 2 : 0);
-              const confirmacionColor = semaforoPct(confirmacionPct);
+              const confirmacionColor = confirmacionListo ? semaforoPct(confirmacionPct) : "var(--text-muted)";
 
               return (
                 <>
@@ -611,13 +629,24 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
                   <div className="flex flex-col gap-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-[0.78rem] font-semibold text-[var(--text-secondary)]">Confirmación (ROI)</span>
-                      <span className="text-[1.05rem] font-extrabold" style={{ color: confirmacionColor }}>
-                        {fmtMoney(confirmacionValue)}
-                        <span className="ml-1 text-[0.78rem] font-bold">({Math.round(confirmacionPct * 100)}%)</span>
-                      </span>
+                      {confirmacionListo ? (
+                        <span className="text-[1.05rem] font-extrabold" style={{ color: confirmacionColor }}>
+                          {fmtMoney(confirmacionValue)}
+                          <span className="ml-1 text-[0.78rem] font-bold">({Math.round(confirmacionPct * 100)}%)</span>
+                        </span>
+                      ) : confirmacionRoiFallo ? (
+                        <button onClick={reintentarConfirmacionRoi} className="text-[0.78rem] font-bold underline" style={{ color: "var(--bad)" }}
+                          title="No se pudo leer ROI (Apps Script falla de forma intermitente). Clic para volver a intentar.">
+                          No disponible · reintentar
+                        </button>
+                      ) : (
+                        <span className="text-[1.05rem] font-extrabold" style={{ color: confirmacionColor }} title="Leyendo ROI…">…</span>
+                      )}
                     </div>
                     <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--bg-hover)" }}>
-                      <div className="h-2 rounded-full" style={{ width: `${Math.min(Math.round(confirmacionPct * 100), 100)}%`, background: confirmacionColor }} />
+                      {confirmacionListo && (
+                        <div className="h-2 rounded-full" style={{ width: `${Math.min(Math.round(confirmacionPct * 100), 100)}%`, background: confirmacionColor }} />
+                      )}
                     </div>
                     <div
                       className="text-right text-[0.66rem] font-semibold text-[var(--text-muted)]"
