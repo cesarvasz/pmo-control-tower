@@ -53,13 +53,15 @@ function Players({ data }: { data: DashboardData }) {
   // Filtro por mes: Cumplimiento y Calidad (y con ellos el Player) miden solo las actividades de Proyectos
   // cuyo Limit Date cae en el mes elegido. EVM, NPS, PML e Iniciativas no se filtran; del Beneficio, solo la
   // Implementación (ver implementacionMes abajo). Los meses
-  // que se ofrecen son los que tienen algo que medir en lo que miden los CKUs visibles.
-  const [mes, setMes] = useState<string | null>(null);
+  // que se ofrecen son los que tienen algo que medir en lo que miden los CKUs visibles. Al entrar viene
+  // seleccionado el mes en curso (undefined = aún sin elegir; null = «Todos los meses», elegido a mano).
+  const [mes, setMes] = useState<string | null | undefined>(undefined);
   const meses = useMemo(
     () => mesesConActividades([...scopes].flatMap(([cku, s]) => entregablesDelCku(s.proj, cku).flatMap((p) => p.subitems))),
     [scopes],
   );
-  const mesActivo = mes && meses.includes(mes) ? mes : null;   // si el mes ya no existe tras un refresh, vuelve a «todos»
+  const elegido = mes === undefined ? claveMesDe(today()) : mes;
+  const mesActivo = elegido && meses.includes(elegido) ? elegido : null;   // si el mes no está entre los que se ofrecen (sin actividades que medir, o ya no existe tras un refresh), vuelve a «todos»
   const scopesMes = useMemo(
     () => new Map<string, CkuScope>([...scopes].map(([cku, s]) => [cku, { ...s, proj: proyectosDelMes(s.proj, mesActivo) }])),
     [scopes, mesActivo],
