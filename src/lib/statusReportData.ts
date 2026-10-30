@@ -100,6 +100,10 @@ export interface StatusReportData {
 }
 
 const STAGE_LETTER: StatusBand[] = ["V", "A", "L", "O", "R"];
+
+/** Proyectos (por código) cuyo Status Card no muestra Valor generado ni ROI: salen «—», como un SoftSaving. Sin
+ *  Beneficio declarado, la cuenta daría un valor negativo y un ROI de -100 % que no dicen nada. */
+const SIN_VALOR_EN_STATUS_CARD: ReadonlySet<string> = new Set(["PM-015"]);
 const toYMD = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const bandOf = (grupo: string): StatusBand | undefined => {
@@ -455,13 +459,14 @@ export function buildStatusReportDataForBoard(input: BuildStatusReportForBoardIn
   const costoProyecto = items.reduce((s, it) => s + it.cost, 0);
   const beneficioParaRoi = stageAmounts?.confirmacion?.benefit ?? stageAmounts?.aprobacion?.benefit ?? stageAmounts?.validacion?.benefit;
   // Benefit Type "SoftSaving" = beneficio no cuantificable de forma rigurosa → Valor/ROI/Payback quedan null ("—").
-  const isSoftSaving = board.benefitType === "SoftSaving";
+  // Lo mismo para los proyectos de SIN_VALOR_EN_STATUS_CARD (decisión del usuario).
+  const { code, name } = splitBoardName(board.name);
+  const isSoftSaving = board.benefitType === "SoftSaving" || SIN_VALOR_EN_STATUS_CARD.has(code);
   const valorProyecto = !isSoftSaving && costoProyecto != null && beneficioParaRoi != null ? beneficioParaRoi - costoProyecto : null;
   const roi = !isSoftSaving && costoProyecto && costoProyecto > 0 ? ((beneficioParaRoi ?? 0) - costoProyecto) / costoProyecto * 100 : null;
   const payback = !isSoftSaving && costoProyecto && beneficioParaRoi && beneficioParaRoi > 0 ? costoProyecto / (beneficioParaRoi / 12) : null;
 
   const avancePlanificado = calcPlannedProgress(summary.units, summary.phases);
-  const { code, name } = splitBoardName(board.name);
 
   // Atrasos de Fase 3 (Launch): plantilla vieja → una fila por HITO atrasado del
   // step "Desarrollo por iteraciones..."; plantilla nueva → una fila por STEP.

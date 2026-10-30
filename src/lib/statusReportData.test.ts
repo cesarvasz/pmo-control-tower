@@ -355,6 +355,37 @@ describe("buildStatusReportData — Fase 3: los entregables salen en el orden de
   });
 });
 
+// Valor generado y ROI: salen de Costo $ y del Beneficio $ declarado. PM-015 no los muestra (decisión del usuario).
+describe("buildStatusReportDataForBoard — Valor generado y ROI", () => {
+  // Business Case validado por el VPA con Beneficio $1,000 y Costo $100, más $200 de costo en Launch: Costo total $300.
+  const items = [
+    item({ id: "bc", name: "Kick Off Project Meeting (Entregable Business Case redactado)", grupo: "Valuación | Formulación del proyecto", status: "Done", cost: 100, benefit: 1000, deadline: daysFromToday(-30), endDate: daysFromToday(-30) }),
+    item({ id: "val", name: "VPA VALIDADO (Entregable Business Case validado por VPA)", grupo: "Valuación | Formulación del proyecto", status: "Done", cost: 0, benefit: 0, deadline: daysFromToday(-25), endDate: daysFromToday(-25) }),
+    item({ id: "x1", name: "Alcance", grupo: "Launch | Lanzamiento", status: "Working on it", cost: 200, deadline: daysFromToday(10) }),
+  ];
+  const construir = (nombre: string, extra: Partial<ProjBoard> = {}) =>
+    buildStatusReportDataForBoard({ board: board({ name: nombre, ...extra }), items, now: today().getTime() });
+
+  it("un proyecto normal muestra Valor generado (Beneficio − Costo) y ROI", () => {
+    const d = construir("PM-099 | Otro");
+    expect(d.valor_generado).toBe("$700");
+    expect(d.roi).toBe("233%");
+  });
+
+  it("PM-015 deja Valor generado y ROI en «—» aunque tenga Beneficio y Costo", () => {
+    const d = construir("PM-015 | Gacela 100% SV");
+    expect(d.valor_generado).toBe("—");
+    expect(d.roi).toBe("—");
+    expect(d.roi_sub).toBe("");
+    expect(d.payback).toBe("—");
+  });
+
+  it("un SoftSaving también los deja en «—»", () => {
+    const d = construir("PM-098 | Soft", { benefitType: "SoftSaving" });
+    expect([d.valor_generado, d.roi]).toEqual(["—", "—"]);
+  });
+});
+
 // Solo Fase 3 (Launch) recibe responsable/reparto en "Causas de atraso" —
 // Operación (Fase 4), Revisión (Fase 5), Valuación y Aprobación quedan fuera
 // del todo, aunque tengan items atrasados/Stuck: no se les asigna responsable.
