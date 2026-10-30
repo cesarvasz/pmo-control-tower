@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  VPA_INDICADORES, VPA_INICIO, VPA_PESO_TOTAL, conNotaVpa, esIndicadorVpa, leerCalifVpa, normalizarNotaVpa, puntosVpa, vpaMeses,
+  VPA_INDICADORES, VPA_INICIO, VPA_PESO_TOTAL, conNotaVpa, esIndicadorVpa, leerCalifVpa, normalizarNotaVpa, playerVpa, puntosIndicadorVpa, puntosVpa, vpaMeses,
 } from "./vpa";
 
 const TODOS = (n: number) => Object.fromEntries(VPA_INDICADORES.map((i) => [i.key, n]));
@@ -108,5 +108,37 @@ describe("leerCalifVpa / conNotaVpa", () => {
 
   it("conNotaVpa crea el mes si no existía", () => {
     expect(conNotaVpa({}, "2026-11", "control-portafolio", 100)).toEqual({ "2026-11": { notas: { "control-portafolio": 100 } } });
+  });
+});
+
+describe("Player del VPA (tarjeta del Control Tower)", () => {
+  it("cada indicador tiene un nombre corto para la celda angosta", () => {
+    expect(VPA_INDICADORES.every((i) => i.corto.trim().length > 0 && i.corto.length < i.indicador.length + 1)).toBe(true);
+    expect(new Set(VPA_INDICADORES.map((i) => i.corto)).size).toBe(VPA_INDICADORES.length);
+  });
+
+  it("lo que aporta un indicador es (nota ÷ meta, tope 100 %) × peso, y 0 sin nota", () => {
+    const [reportes, , , control] = VPA_INDICADORES;
+    expect(puntosIndicadorVpa(reportes, 100)).toBe(20);
+    expect(puntosIndicadorVpa(reportes, 50)).toBe(10);
+    expect(puntosIndicadorVpa(control, 80)).toBeCloseTo(20, 6);   // 0.8 × 25
+    expect(puntosIndicadorVpa(reportes, undefined)).toBe(0);
+    expect(puntosIndicadorVpa(reportes, 0)).toBe(0);
+  });
+
+  it("el Player es el total ponderado del mes redondeado a entero", () => {
+    expect(playerVpa(TODOS(100))).toEqual({ player: 100, completo: true, calificados: 5, total: 5 });
+    expect(playerVpa(TODOS(89.5))).toMatchObject({ player: 90, completo: true });
+    expect(playerVpa(TODOS(0))).toMatchObject({ player: 0, completo: true });     // calificado en 0 no es «sin calificar»
+  });
+
+  it("con indicadores sin calificar suma solo los calificados y avisa que no está completo", () => {
+    const p = playerVpa({ "reportes-claves": 100, "control-portafolio": 80 });     // 20 + 20 de 45 calificados
+    expect(p).toEqual({ player: 40, completo: false, calificados: 2, total: 5 });
+  });
+
+  it("un mes sin ninguna nota no tiene Player", () => {
+    expect(playerVpa({})).toBeNull();
+    expect(playerVpa(undefined)).toBeNull();
   });
 });

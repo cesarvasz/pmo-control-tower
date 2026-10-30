@@ -37,6 +37,8 @@ import WeeklyProgressChart from "@/components/WeeklyProgressChart";
 import NotificationsBell from "@/components/NotificationsBell";
 import PreprodRestoreDatesModal from "@/components/PreprodRestoreDatesModal";
 import PmScoreboard, { playerPalette } from "@/components/PmScoreboard";
+import MetricCell from "@/components/MetricCell";
+import VpaPlayerCard from "@/components/VpaPlayerCard";
 import { buildBoardMaps, listPMs, pmLabel } from "@/lib/players";
 import { metodologiaActual, metodologiaPromedioActual, type MetodologiaMap } from "@/lib/metodologia";
 
@@ -694,6 +696,9 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
         </div>
       )}
 
+      {/* Player del VPA: debajo de los portafolios, con el mes en curso y selector de mes. */}
+      <VpaPlayerCard />
+
       <WeeklyProgressChart />
 
       {showNps && <NpsModal nps={nps} onClose={() => setShowNps(false)} />}
@@ -726,43 +731,6 @@ function Stat({ n, color, label, showZero }: { n: number; color: string; label: 
       <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: color }} />
       {n} {label}
     </div>
-  );
-}
-
-// Celda de la fila de métricas del PM (EVM · Beneficio · Calidad · Cumplimiento · NPS).
-// La etiqueta tiene altura mínima fija para que los valores queden alineados aunque
-// el texto ocupe una o dos líneas.
-function MetricCell({ label, value, color, onClick, title, divider, sub, badge }: {
-  label: string; value: React.ReactNode; color: string; onClick?: () => void; title?: string; divider?: boolean; sub?: string;
-  /** Etiqueta de salud (con su fondo) debajo del valor — la del EVM del PM. */
-  badge?: { text: string; color: string; bg: string };
-}) {
-  const style = divider ? { borderLeft: "1px solid var(--border)" } : undefined;
-  const cls = `flex flex-col items-center px-1.5 py-2.5 text-center ${onClick ? "cursor-pointer transition-colors hover:bg-[var(--bg-hover)]" : ""}`;
-  const inner = (
-    <>
-      <span className="flex min-h-[2rem] items-center text-[0.56rem] font-bold uppercase leading-tight tracking-wide text-[var(--text-muted)]">
-        {label}
-      </span>
-      <span className="mt-0.5 text-[0.95rem] font-extrabold leading-none tabular-nums" style={{ color }}>
-        {value}
-      </span>
-      {sub && (
-        <span className="mt-0.5 text-[0.56rem] font-bold uppercase leading-tight tracking-wide" style={{ color }}>
-          {sub}
-        </span>
-      )}
-      {badge && (
-        <span className="mt-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[0.56rem] font-bold uppercase leading-none tracking-wide" style={{ color: badge.color, background: badge.bg }}>
-          {badge.text}
-        </span>
-      )}
-    </>
-  );
-  return onClick ? (
-    <button onClick={onClick} title={title} className={cls} style={style}>{inner}</button>
-  ) : (
-    <div title={title} className={cls} style={style}>{inner}</div>
   );
 }
 

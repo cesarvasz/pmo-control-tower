@@ -18,6 +18,8 @@ export interface IndicadorVpa {
   key: string;
   objetivo: string;
   indicador: string;
+  /** Nombre corto, para las celdas angostas de la tarjeta del Player. */
+  corto: string;
   /** Meta en % (la nota que rinde el 100% del peso). */
   meta: number;
   peso: number;
@@ -25,11 +27,11 @@ export interface IndicadorVpa {
 
 /** La tabla «Objetivos de Calidad» del VPA, en el orden en que se muestra. */
 export const VPA_INDICADORES: IndicadorVpa[] = [
-  { key: "reportes-claves", objetivo: "Requisitos del Cliente", indicador: "Entrega de reportes Claves", meta: 100, peso: 20 },
-  { key: "optimizacion-negocio", objetivo: "Requisitos del Cliente", indicador: "Optimización de Negocio", meta: 100, peso: 20 },
-  { key: "calidad-datos", objetivo: "Productividad", indicador: "Calidad & Consistencia de los Datos", meta: 100, peso: 20 },
-  { key: "control-portafolio", objetivo: "Productividad", indicador: "Control del Portafolio", meta: 100, peso: 25 },
-  { key: "metodologia-valor", objetivo: "Productividad", indicador: "Cumplimiento Metodología VALOR", meta: 100, peso: 15 },
+  { key: "reportes-claves", objetivo: "Requisitos del Cliente", indicador: "Entrega de reportes Claves", corto: "Reportes claves", meta: 100, peso: 20 },
+  { key: "optimizacion-negocio", objetivo: "Requisitos del Cliente", indicador: "Optimización de Negocio", corto: "Optimización de negocio", meta: 100, peso: 20 },
+  { key: "calidad-datos", objetivo: "Productividad", indicador: "Calidad & Consistencia de los Datos", corto: "Calidad de los datos", meta: 100, peso: 20 },
+  { key: "control-portafolio", objetivo: "Productividad", indicador: "Control del Portafolio", corto: "Control del portafolio", meta: 100, peso: 25 },
+  { key: "metodologia-valor", objetivo: "Productividad", indicador: "Cumplimiento Metodología VALOR", corto: "Metodología VALOR", meta: 100, peso: 15 },
 ];
 
 export const VPA_PESO_TOTAL = VPA_INDICADORES.reduce((s, i) => s + i.peso, 0);
@@ -103,4 +105,18 @@ export function puntosVpa(notas: VpaNotas | undefined): PuntosVpa {
     completo: calificados === VPA_INDICADORES.length,
     logro: pesoCalificado > 0 ? puntos / pesoCalificado : null,
   };
+}
+
+/** Lo que aporta un indicador al total del mes: (nota ÷ meta, tope 100 %) × peso. 0 sin nota. */
+export const puntosIndicadorVpa = (ind: IndicadorVpa, nota: number | undefined): number =>
+  nota == null ? 0 : Math.min(nota / ind.meta, 1) * ind.peso;
+
+/** El «Player» del VPA en un mes: su total ponderado (de 0 a 100) redondeado a entero, igual que el Player de un PM.
+ *  null si el mes no tiene ninguna nota. Con indicadores sin calificar es lo que llevan los calificados (los demás
+ *  aún no suman), así que `completo` dice si ya es el total del mes. El epsilon evita que un empate exacto (89.5)
+ *  salga 89 por el punto flotante. */
+export function playerVpa(notas: VpaNotas | undefined): { player: number; completo: boolean; calificados: number; total: number } | null {
+  const p = puntosVpa(notas);
+  if (p.logro == null) return null;
+  return { player: Math.round(p.puntos + 1e-9), completo: p.completo, calificados: p.calificados, total: p.total };
 }
