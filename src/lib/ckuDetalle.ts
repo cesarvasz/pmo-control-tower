@@ -5,7 +5,7 @@
 // constructores de filas que la página de auditoría, y su `pct` coincide con el del
 // scoreboard (calcEntregaStatsPonderado / calcReprocesoStatsPonderado). Módulo PURO.
 
-import { buildEntregaRows, buildReprocesoRows, calidadActividadCku, entregablesDelCku, notaCalidadCku, projPhaseKey, redondearPct, type MotivoCalidadActividad } from "@/lib/dashboard";
+import { buildEntregaRows, buildReprocesoRows, calidadActividadCku, entregaActividadCku, entregablesDelCku, notaCalidadCku, projPhaseKey, redondearPct, type MotivoCalidadActividad } from "@/lib/dashboard";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
 import { splitBoardName } from "@/lib/proj";
@@ -54,6 +54,8 @@ export interface ActividadCumplimiento {
   /** "Actual End": cuándo cerró en realidad. */
   cierre: Date | null;
   estado: "ok" | "atraso" | "excusado" | "pendiente";
+  /** El PMO la dejó «a tiempo» a mano aunque en Monday figure con atraso (ver ckuAjustes). */
+  ajustada: boolean;
   /** Persona responsable de la actividad en Monday (columna "Responsible"). */
   responsable: string | null;
 }
@@ -112,11 +114,15 @@ function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: Del
     proy.items.push({
       id: p.id, nombre: p.name, status: p.status, deadline: p.deadline,
       responsable: p.responsible?.trim() || p.resp?.trim() || null,
-      actividades: p.subitems.map((s): ActividadCumplimiento => ({
-        id: s.id, nombre: s.name, status: s.status, deadline: s.deadline ?? null, cierre: s.actualEnd ?? null,
-        estado: s.entrega === "on-time" ? "ok" : s.entrega === "late" ? (excusada ? "excusado" : "atraso") : "pendiente",
-        responsable: s.responsible?.trim() || null,
-      })).sort(porFechaLimite),
+      actividades: p.subitems.map((s): ActividadCumplimiento => {
+        const entrega = entregaActividadCku(s);
+        return {
+          id: s.id, nombre: s.name, status: s.status, deadline: s.deadline ?? null, cierre: s.actualEnd ?? null,
+          estado: entrega === "on-time" ? "ok" : entrega === "late" ? (excusada ? "excusado" : "atraso") : "pendiente",
+          ajustada: entrega !== s.entrega,
+          responsable: s.responsible?.trim() || null,
+        };
+      }).sort(porFechaLimite),
     });
   }
   const proyectos = [...porBoard.values()];

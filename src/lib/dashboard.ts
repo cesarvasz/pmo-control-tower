@@ -12,6 +12,7 @@ import { calcNpsFromRecords } from "@/lib/nps";
 import { computeBenefitKpiCku, computeKpi, type KpiWeights } from "@/lib/kpi";
 import { metodologiaActual, type MetodologiaMap } from "@/lib/metodologia";
 import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
+import { esActividadATiempo } from "@/lib/ckuAjustes";
 import { construirExpedientes, ahorroDucafast, ahorroPorTiempos, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "@/lib/tramites";
 import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "@/lib/clonaciones";
 import type {
@@ -559,12 +560,19 @@ export function entregaActividadesCku(fase3: ProjItem[], delays: DelayMap): Fuen
   for (const p of fase3) {
     const excusada = lateExcused(projPhaseKey(p.boardId, p.grupo), delays);
     for (const s of p.subitems) {
-      if (s.entrega === "on-time") { out.total++; out.onTime++; }
-      else if (s.entrega === "late" && !excusada) out.total++;
+      const entrega = entregaActividadCku(s);
+      if (entrega === "on-time") { out.total++; out.onTime++; }
+      else if (entrega === "late" && !excusada) out.total++;
     }
   }
   return out;
 }
+
+/** Veredicto de entrega de una actividad en la medición de un CKU: el de Monday (`entrega`), salvo que el
+ *  PMO haya pedido dejarla a tiempo (ver ckuAjustes): una con atraso pasa a a tiempo; una sin veredicto
+ *  (pendiente) sigue sin él. */
+export const entregaActividadCku = (s: ProjSubitem): ProjSubitem["entrega"] =>
+  s.entrega === "late" && esActividadATiempo(s.id) ? "on-time" : s.entrega;
 
 /** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
  *  lib/health.ts): el % a tiempo de cada fuente por separado (Iniciativas, PML,
@@ -935,20 +943,21 @@ export function calcItemNota(id: string, recuperado: boolean, reproceso: DelayMa
 export const notaCalidadCku = (id: string, reproceso: DelayMap): number => (lateExcused(id, reproceso) ? 100 : 0);
 
 /** Por qué una actividad de Proyecto vale lo que vale en la Calidad de un CKU. */
-export type MotivoCalidadActividad = "nueva-fecha" | "a-tiempo" | "tarde" | "en-curso";
+export type MotivoCalidadActividad = "nueva-fecha" | "a-tiempo" | "tarde" | "ajuste";
 
 /** Calidad de una ACTIVIDAD (subitem) de un CKU en Proyectos, por sus fechas — no por un responsable
  *  asignado a mano. Vale 100 (calidad 1) o 0, en este orden:
+ *   · si el PMO pidió dejarla a tiempo (ver ckuAjustes) → 100, sin importar sus fechas;
  *   · con «New Limit Date» llena (se le movió la fecha límite) → 0, sin importar su estado;
  *   · con «Actual End» y «Limit Date»: cerró en o antes del límite → 100, después → 0;
- *   · sigue en «Working on it» → 100;
- *   · cualquier otra (Future Steps, Stuck, cerrada sin fechas…) → null: todavía no se mide. */
+ *   · cualquier otra (en «Working on it», Future Steps, Stuck, cerrada sin fechas…) → null: todavía no
+ *     se mide. Solo cuenta lo ya completado: una actividad en curso no suma ni resta. */
 export function calidadActividadCku(s: ProjSubitem): { nota: 0 | 100; motivo: MotivoCalidadActividad } | null {
+  if (esActividadATiempo(s.id)) return { nota: 100, motivo: "ajuste" };
   if (s.newLimitDate) return { nota: 0, motivo: "nueva-fecha" };
   if (s.actualEnd && s.deadline) {
     return s.actualEnd.getTime() <= s.deadline.getTime() ? { nota: 100, motivo: "a-tiempo" } : { nota: 0, motivo: "tarde" };
   }
-  if ((s.status ?? "").trim().toLowerCase() === "working on it") return { nota: 100, motivo: "en-curso" };
   return null;
 }
 

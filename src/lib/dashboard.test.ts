@@ -24,6 +24,7 @@ import {
   calcReprocesoStats,
   calcReprocesoStatsPonderado,
   calidadActividadCku,
+  entregaActividadCku,
   calcReprocesoStatsRaw,
   iniUnidadesCalidad,
   calcReprocesoCascade,
@@ -44,6 +45,7 @@ import {
   type ConfirmacionRoiPm,
 } from "./dashboard";
 import { KPI_W_CKU } from "./kpi";
+import { ACTIVIDADES_A_TIEMPO } from "./ckuAjustes";
 import { pmHealthStatus } from "./health";
 import { today } from "./business";
 import { metodologiaKey, mesDe } from "./metodologia";
@@ -632,9 +634,27 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
       expect(calidadActividadCku(actC("a", { actualEnd: fecha("2026-06-11") }))).toEqual({ nota: 0, motivo: "tarde" });
     });
 
-    it("sigue en Working on it → 1 (aunque no tenga fechas o ya pasó su límite)", () => {
-      expect(calidadActividadCku(actC("a", { status: "Working on it", actualEnd: null }))).toEqual({ nota: 100, motivo: "en-curso" });
-      expect(calidadActividadCku(actC("b", { status: " working on IT ", actualEnd: null, deadline: null }))).toEqual({ nota: 100, motivo: "en-curso" });
+    it("sigue en Working on it → null: solo cuenta lo completado (aunque ya pasó su límite o no tenga fechas)", () => {
+      expect(calidadActividadCku(actC("a", { status: "Working on it", actualEnd: null }))).toBeNull();
+      expect(calidadActividadCku(actC("b", { status: " working on IT ", actualEnd: null, deadline: null }))).toBeNull();
+      expect(calidadActividadCku(actC("c", { status: "Working on it", actualEnd: null, deadline: fecha("2026-01-01") }))).toBeNull();   // vencida y aún en curso
+    });
+
+    it("una actividad que el PMO dejó «a tiempo» (ckuAjustes) → 1, sin importar fechas, estado ni New Limit Date", () => {
+      const [id] = [...ACTIVIDADES_A_TIEMPO.keys()];
+      const ok = { nota: 100, motivo: "ajuste" };
+      expect(calidadActividadCku(actC(id, { actualEnd: fecha("2026-06-20") }))).toEqual(ok);                         // cerró tarde
+      expect(calidadActividadCku(actC(id, { newLimitDate: fecha("2026-12-01") }))).toEqual(ok);                      // con nueva fecha
+      expect(calidadActividadCku(actC(id, { status: "Working on it", actualEnd: null }))).toEqual(ok);               // en curso
+      expect(calidadActividadCku(actC("otra", { actualEnd: fecha("2026-06-20") }))).toEqual({ nota: 0, motivo: "tarde" });   // otra: sin ajuste
+    });
+
+    it("el veredicto de entrega: una con atraso del ajuste pasa a a tiempo; las demás y las pendientes no cambian", () => {
+      const [id] = [...ACTIVIDADES_A_TIEMPO.keys()];
+      expect(entregaActividadCku(sub({ id, entrega: "late" }))).toBe("on-time");
+      expect(entregaActividadCku(sub({ id, entrega: "on-time" }))).toBe("on-time");
+      expect(entregaActividadCku(sub({ id, entrega: null }))).toBeNull();
+      expect(entregaActividadCku(sub({ id: "otra", entrega: "late" }))).toBe("late");
     });
 
     it("con New Limit Date llena → 0, gane lo que gane el resto: cerró a tiempo, está en curso o ni empezó", () => {
@@ -644,7 +664,7 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
       expect(calidadActividadCku(actC("c", { newLimitDate: nueva, status: "Future Steps", actualEnd: null }))).toEqual({ nota: 0, motivo: "nueva-fecha" }); // sin empezar
     });
 
-    it("lo que todavía no se puede medir da null: Future Steps, Stuck, cerrada sin fechas…", () => {
+    it("lo que todavía no se puede medir da null: Working on it, Future Steps, Stuck, cerrada sin fechas…", () => {
       expect(calidadActividadCku(actC("a", { status: "Future Steps", actualEnd: null }))).toBeNull();
       expect(calidadActividadCku(actC("b", { status: "Stuck", actualEnd: null }))).toBeNull();
       expect(calidadActividadCku(actC("c", { actualEnd: null }))).toBeNull();     // Done sin Actual End
@@ -656,12 +676,22 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     const projs = [itemC("i1", [
       actC("a"),                                                         // a tiempo → 100
       actC("b", { actualEnd: fecha("2026-06-20") }),                     // tarde → 0
-      actC("c", { status: "Working on it", actualEnd: null }),           // en curso → 100
+      actC("c", { status: "Working on it", actualEnd: null }),           // en curso → aún no se mide
       actC("d", { newLimitDate: fecha("2026-12-01") }),                  // nueva fecha → 0
       actC("e", { status: "Future Steps", actualEnd: null }),            // aún no se mide
       actC("f", { responsible: "Javier Aragon", actualEnd: fecha("2026-06-30") }),   // de otra persona: no entra
     ])];
-    expect(calcReprocesoStatsPonderado(CKU, [], projs, {})).toEqual({ total: 4, limpias: 2, conReproceso: 2, pct: 50 });
+    expect(calcReprocesoStatsPonderado(CKU, [], projs, {})).toEqual({ total: 3, limpias: 1, conReproceso: 2, pct: 33 });
+  });
+
+  it("Calidad y Cumplimiento (CKU): el ajuste del PMO (ckuAjustes) sube la nota de esa actividad", () => {
+    const [id] = [...ACTIVIDADES_A_TIEMPO.keys()];
+    const projs = [itemC("i1", [
+      actC(id, { actualEnd: fecha("2026-06-20"), entrega: "late" }),     // tarde, pero ajustada → 100 y a tiempo
+      actC("b", { actualEnd: fecha("2026-06-20"), entrega: "late" }),    // tarde → 0 y con atraso
+    ])];
+    expect(calcReprocesoStatsPonderado(CKU, [], projs, {})).toMatchObject({ total: 2, limpias: 1, pct: 50 });
+    expect(calcEntregaStatsCku(CKU, [], projs, {})).toMatchObject({ total: 2, onTime: 1, pct: 50 });
   });
 
   it("Calidad (CKU): solo los entregables a cargo del CKU; los de otra persona no cuentan aunque el CKU figure en sus actividades", () => {

@@ -157,8 +157,8 @@ describe("filtro por mes de los Players (por el Limit Date de cada actividad)", 
   describe("mesesConActividades", () => {
     it("solo los meses con algo que medir, en orden cronológico", () => {
       const pendiente = act("f1", "2026-12-01", { status: "Future Steps", actualEnd: null, entrega: null });   // aún no se mide
-      const enCurso = act("w1", "2026-11-10", { status: "Working on it", actualEnd: null, entrega: null });    // calidad 1 → se mide
-      expect(mesesConActividades([oct1, pendiente, sep1, enCurso])).toEqual(["2026-09", "2026-10", "2026-11"]);
+      const enCurso = act("w1", "2026-11-10", { status: "Working on it", actualEnd: null, entrega: null });    // en curso: solo cuenta lo completado → no se mide
+      expect(mesesConActividades([oct1, pendiente, sep1, enCurso])).toEqual(["2026-09", "2026-10"]);
     });
 
     it("una actividad sin Limit Date no pertenece a ningún mes", () => {

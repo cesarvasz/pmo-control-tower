@@ -44,7 +44,7 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
       <Panel
         titulo={`Calidad de Entregas${sufijo}`} medida="nota promedio" esCalidad detalle={calidad}
         notaProyectos={`En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad y se mide por sus fechas.${notaMes}`}
-        regla="PML e Iniciativas valen 100 si tienen un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tienen (sin asignar penaliza). Una actividad de Proyecto vale 1 si cerró en o antes de su Limit Date o sigue en Working on it, y 0 si tiene New Limit Date o cerró después de su Limit Date. Las demás (Future Steps, Stuck…) todavía no se miden."
+        regla="PML e Iniciativas valen 100 si tienen un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tienen (sin asignar penaliza). Una actividad de Proyecto vale 1 si cerró en o antes de su Limit Date, y 0 si tiene New Limit Date o cerró después de su Limit Date. Solo cuenta lo completado: las demás (Working on it, Future Steps, Stuck…) todavía no se miden."
       />
     </div>
   );
@@ -301,7 +301,7 @@ function ActividadFila({ a }: { a: ActividadCumplimiento }) {
       cabecera={
         <Cabecera
           nivel={2} titulo={a.nombre}
-          detalle={unidos([a.status, a.deadline && `límite ${fmtDate(a.deadline)}`, a.cierre && `cerró ${fmtDate(a.cierre)}`])}
+          detalle={unidos([a.status, a.deadline && `límite ${fmtDate(a.deadline)}`, a.cierre && `cerró ${fmtDate(a.cierre)}`, a.ajustada && "ajustada a mano a «a tiempo»"])}
           responsable={a.responsable}
           derecha={<Pill tone={tone(a.estado)} small>{txt(a.estado)}</Pill>}
         />
@@ -363,7 +363,7 @@ function ItemCalidadFila({ it }: { it: ItemCalidad }) {
 }
 
 const MOTIVO_CALIDAD: Record<MotivoCalidadActividad, string> = {
-  "a-tiempo": "1 · cerró a tiempo", "en-curso": "1 · en curso", "nueva-fecha": "0 · nueva fecha límite", "tarde": "0 · cerró tarde",
+  "a-tiempo": "1 · cerró a tiempo", "ajuste": "1 · ajustada a mano", "nueva-fecha": "0 · nueva fecha límite", "tarde": "0 · cerró tarde",
 };
 
 /** Una actividad (subitem) con su calidad (1 o 0) y por qué: la unidad que se mide. */

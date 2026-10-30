@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { contarActividades, contarCalidad, detalleCalidad, detalleCumplimiento } from "./ckuDetalle";
 import { calcEntregaStatsCku, calcReprocesoStatsPonderado } from "./dashboard";
+import { ACTIVIDADES_A_TIEMPO } from "./ckuAjustes";
 import { swapPmCku } from "./players";
 import type { DelayMap } from "./delay";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -96,6 +97,27 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     expect(d.pct).toBe(stats.pct);
     expect(d.fuentes.reduce((n, f) => n + f.total, 0)).toBe(stats.total);
     expect(d.fuentes.reduce((n, f) => n + f.buenas, 0)).toBe(stats.onTime);
+  });
+
+  it("una actividad con atraso que el PMO dejó «a tiempo» (ckuAjustes) cuenta a tiempo y queda marcada como ajustada", () => {
+    const [id] = [...ACTIVIDADES_A_TIEMPO.keys()];
+    const s = { req: [], proj: [item3("p1", "b2", [act(id, "late"), act("x", "late")])], projBoards: [board], ini: [] };
+    const d = cumpl(s, {});
+    expect(d.unidades.find((u) => u.id === id)).toMatchObject({ estado: "ok", cuenta: true, valor: 1 });
+    expect(d.unidades.find((u) => u.id === "x")).toMatchObject({ estado: "atraso", valor: 0 });
+    const acts = d.proyectos![0].items[0].actividades;
+    expect(acts.find((a) => a.id === id)).toMatchObject({ estado: "ok", ajustada: true });
+    expect(acts.find((a) => a.id === "x")).toMatchObject({ estado: "atraso", ajustada: false });
+    // el % del detalle sigue coincidiendo con el del scoreboard
+    expect(d.pct).toBe(calcEntregaStatsCku(CKU, s.req, s.proj, {}, s.ini).pct);
+    expect(d.pct).toBe(50);
+  });
+
+  it("una actividad ajustada que está pendiente (sin veredicto) sigue sin contar", () => {
+    const [id] = [...ACTIVIDADES_A_TIEMPO.keys()];
+    const d = cumpl({ req: [], proj: [item3("p1", "b2", [act(id, null)])], projBoards: [board], ini: [] }, {});
+    expect(d.unidades.find((u) => u.id === id)).toBeUndefined();
+    expect(d.proyectos![0].items[0].actividades[0]).toMatchObject({ estado: "pendiente", ajustada: false });
   });
 
   it("los pesos efectivos reparten el de las fuentes sin unidades (sin PML: Iniciativas 12.5% · Proyectos 87.5%)", () => {
@@ -265,7 +287,7 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
     const proj = [item3("i1", "b1", [
       actK("a"),                                                                      // cerró a tiempo → 100
       actK("b", { actualEnd: f("2026-06-20") }),                                      // cerró tarde → 0
-      actK("c", { status: "Working on it", actualEnd: null }),                        // en curso → 100
+      actK("c", { status: "Working on it", actualEnd: null }),                        // en curso → aún no se mide (solo cuenta lo completado)
       actK("d", { newLimitDate: f("2026-12-01") }),                                   // nueva fecha límite → 0
       actK("e", { status: "Future Steps", actualEnd: null }),                         // aún no se mide
       actK("f", { responsible: "Javier Aragon", actualEnd: f("2026-06-30") }),        // de otra persona
@@ -274,11 +296,20 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
     expect(por("a")).toMatchObject({ fuente: "proj", nota: 100, estado: "ok", valor: 1, fase: "Item i1", proyecto: "PM-001 · Demo b1" });
     expect(por("b")).toMatchObject({ nota: 0, estado: "atraso", valor: 0 });
-    expect(por("c")).toMatchObject({ nota: 100 });
     expect(por("d")).toMatchObject({ nota: 0 });
-    expect(d.unidades.some((u) => u.id === "e" || u.id === "f")).toBe(false);
-    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 4, buenas: 2, pct: 50 });
-    expect(d.pct).toBe(50);
+    expect(d.unidades.some((u) => u.id === "c" || u.id === "e" || u.id === "f")).toBe(false);
+    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 3, buenas: 1, pct: 33 });
+    expect(d.pct).toBe(33);
+  });
+
+  it("una actividad que el PMO dejó «a tiempo» (ckuAjustes) vale 100 aunque cerró tarde o tenga nueva fecha", () => {
+    const [id] = [...ACTIVIDADES_A_TIEMPO.keys()];
+    const proj = [item3("i1", "b1", [actK(id, { actualEnd: f("2026-06-20"), newLimitDate: f("2026-12-01") }), actK("b", { actualEnd: f("2026-06-20") })])];
+    const d = cal({ req: [], proj, projBoards: boards, ini: [] }, {});
+    expect(d.unidades.find((u) => u.id === id)).toMatchObject({ nota: 100, estado: "ok", valor: 1 });
+    expect(d.unidades.find((u) => u.id === "b")).toMatchObject({ nota: 0 });
+    expect(d.proyectosCalidad![0].items[0].actividades.find((a) => a.id === id)).toMatchObject({ nota: 100, motivo: "ajuste" });
+    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
   });
 
   it("en Proyectos ya no decide el responsable asignado a mano: una actividad tarde vale 0 aunque se excuse", () => {
@@ -334,11 +365,11 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
         ["Requerimiento", 0, "tarde"],
         ["Análisis", 0, "nueva-fecha"],
         ["Salida", null, null],
-        ["Sin fecha", 100, "en-curso"],
+        ["Sin fecha", null, null],   // en curso: todavía no se mide
       ]);
       expect(it0.actividades[1].nuevaFecha).toEqual(f("2026-12-01"));
       expect(it0.actividades[0].cierre).toEqual(f("2026-07-31"));
-      expect(contarCalidad(d.proyectosCalidad![0].items)).toEqual({ buenas: 1, malas: 2, sinMedir: 1 });
+      expect(contarCalidad(d.proyectosCalidad![0].items)).toEqual({ buenas: 0, malas: 2, sinMedir: 2 });
     });
 
     it("los items con calidad 0 van primero y el proyecto con peor calidad va primero", () => {
