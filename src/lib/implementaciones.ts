@@ -607,6 +607,95 @@ export function pasaFiltroSemaforo(estado: Semaforo, filtro: FiltroSemaforo): bo
   return true;
 }
 
+// ── Avance de Vol y de CM1 (cuánto se lleva completado por mes) ───────────────
+// Para cada cliente con cumplimiento y cada mes, dos conteos de files contra el Vol de su cumplimiento
+// (es el mismo en todos los meses):
+//  · Vol: los files del mes ÷ Vol.
+//  · CM1: los files del mes que cumplen su CM1 (Profit ≥ CM1, ver evaluarFile) ÷ Vol.
+// Se leen «59/70 · 84 %». Igual que el % Cumplimiento, el color es un semáforo del cumplimiento del %
+// a alcanzar del mes: files ÷ (Vol × %). Un grupo de clientes es UN cliente (ver nombreCliente) y «Sin
+// fecha» no se compara con ningún mes.
+
+/** Files de un cliente en un mes, y cuántos de ellos cumplen el CM1. */
+export interface ConteoFiles {
+  files: number;
+  cumplenCm1: number;
+}
+
+/** cliente (el grupo, si lo tiene) → mes → sus files y los que cumplen su CM1. Solo clientes con
+ *  cumplimiento (ver indexarMetas); lo demás no tiene contra qué compararse. */
+export function conteoFilesPorClienteMes(rows: ImplementacionRow[], metas: IndiceMetas): Map<string, Record<string, ConteoFiles>> {
+  const out = new Map<string, Record<string, ConteoFiles>>();
+  for (const r of rows) {
+    const cliente = nombreCliente(r);
+    const mes = claveMes(r.fecha_facturacion);
+    if (mes === SIN_FECHA || !metas.clientes.has(cliente)) continue;
+    const porMes = out.get(cliente) ?? {};
+    out.set(cliente, porMes);
+    const c = (porMes[mes] ??= { files: 0, cumplenCm1: 0 });
+    c.files += 1;
+    if (evaluarFile(r, metas).estado === "cumple") c.cumplenCm1 += 1;
+  }
+  return out;
+}
+
+/** Cuál de los dos conteos se mide contra el Vol. */
+export type MedidaFiles = "vol" | "cm1";
+
+/** Files logrados contra el Vol del cumplimiento. */
+export interface AvanceFiles {
+  /** Files logrados (todos los del mes, o solo los que cumplen el CM1). */
+  hecho: number;
+  /** Vol del cumplimiento (sumado si junta varios clientes). */
+  vol: number;
+  /** hecho ÷ vol, como fracción (0.84 = 84 %). */
+  pct: number;
+  /** Files que hay que juntar para dar el mes por cumplido: Vol × % a alcanzar del mes. */
+  requerido: number;
+  /** hecho ÷ requerido (1 = justo lo requerido). Con un % a alcanzar de 100 es igual a `pct`. */
+  cumplimiento: number;
+  /** Color según el cumplimiento (ver nivelCumplimiento). */
+  nivel: Nivel;
+  /** Cuántos clientes se juntaron en este avance. */
+  n: number;
+}
+
+interface ParteFiles { hecho: number; vol: number; objetivo: number }
+
+function avanceFiles(partes: ParteFiles[]): AvanceFiles | null {
+  const vol = partes.reduce((s, p) => s + p.vol, 0);
+  if (!(vol > 0)) return null;
+  const hecho = partes.reduce((s, p) => s + p.hecho, 0);
+  const requerido = partes.reduce((s, p) => s + (p.vol * p.objetivo) / 100, 0);
+  const cumplimiento = requerido > 0 ? hecho / requerido : hecho > 0 ? 1 : 0;
+  return { hecho, vol, pct: hecho / vol, requerido, cumplimiento, nivel: nivelCumplimiento(cumplimiento), n: partes.length };
+}
+
+function parteFiles(cliente: string, mes: string, conteos: Map<string, Record<string, ConteoFiles>>, idx: IndiceMetas, medida: MedidaFiles): ParteFiles | null {
+  const m = idx.clientes.get(cliente);
+  if (!m || mes === SIN_FECHA) return null;
+  const c = conteos.get(cliente)?.[mes];
+  // Un mes en que el cliente no tuvo files cuenta con 0, igual que el Profit en el % Cumplimiento.
+  return { hecho: (medida === "vol" ? c?.files : c?.cumplenCm1) ?? 0, vol: m.vol, objetivo: objetivoDe(idx, mes) };
+}
+
+/** Avance de Vol o de CM1 de UN cliente en UN mes. null si el cliente no tiene cumplimiento o el mes
+ *  es «Sin fecha». */
+export function avanceFilesMesCliente(
+  cliente: string, mes: string, conteos: Map<string, Record<string, ConteoFiles>>, idx: IndiceMetas, medida: MedidaFiles,
+): AvanceFiles | null {
+  const p = parteFiles(cliente, mes, conteos, idx, medida);
+  return p ? avanceFiles([p]) : null;
+}
+
+/** Avance de Vol o de CM1 de TODOS los clientes con cumplimiento en un mes. Compara lo mismo con lo
+ *  mismo: los files de los clientes sin cumplimiento no entran al numerador. */
+export function avanceFilesTotalMes(
+  clientes: string[], mes: string, conteos: Map<string, Record<string, ConteoFiles>>, idx: IndiceMetas, medida: MedidaFiles,
+): AvanceFiles | null {
+  return avanceFiles(clientes.flatMap((c) => parteFiles(c, mes, conteos, idx, medida) ?? []));
+}
+
 // ── Implementación en el Beneficio de un CKU (Players) ──────────────────────
 // El CKU que lleva Implementación (ver CKU_CON_IMPLEMENTACION en players.ts) suma, en la
 // Confirmación de su Beneficio, la meta del mes a lo aprobado y el Profit del mes a lo

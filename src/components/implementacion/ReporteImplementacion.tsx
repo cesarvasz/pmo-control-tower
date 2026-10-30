@@ -26,8 +26,8 @@ import TablaClienteMes from "@/components/implementacion/TablaClienteMes";
 import TablaDetalleImplementacion from "@/components/implementacion/TablaDetalleImplementacion";
 import MetasModal from "@/components/implementacion/MetasModal";
 import {
-  SIN_FECHA, agruparPorClienteYMes, contarPorCliente, filtrarPorClientes, filtrarPorMeses, fmtImporte, indexarMetas,
-  serieMensual, totalesImplementacion,
+  SIN_FECHA, agruparPorClienteYMes, conteoFilesPorClienteMes, contarPorCliente, filtrarPorClientes, filtrarPorMeses, fmtImporte,
+  indexarMetas, serieMensual, totalesImplementacion,
 } from "@/lib/implementaciones";
 import type { ImplementacionRow, MetaCliente, MetasImplementacionDoc, ObjetivoMes } from "@/types";
 
@@ -100,6 +100,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
   const meses = useMemo(() => elegidos.filter((m) => serie.some((p) => p.clave === m)), [elegidos, serie]);
   const filtradas = useMemo(() => filtrarPorMeses(porCliente, meses), [porCliente, meses]);
   const matriz = useMemo(() => agruparPorClienteYMes(filtradas), [filtradas]);
+  const conteos = useMemo(() => conteoFilesPorClienteMes(filtradas, metasPorCliente), [filtradas, metasPorCliente]);
   const totales = useMemo(() => totalesImplementacion(filtradas), [filtradas]);
   const opcionesMes = useMemo<MSOption[]>(
     () => serie.map((p) => ({ value: p.clave, label: p.label, count: p.volumen })), [serie]);
@@ -171,7 +172,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
       <section className="mt-7">
         <SectionHeader title="Por cliente y mes"
           badge={`${matriz.clientes.reduce((s, c) => s + (c.miembros?.length ?? 1), 0).toLocaleString("es-GT")} clientes`} />
-        <TablaClienteMes matriz={matriz} metas={metasPorCliente} />
+        <TablaClienteMes matriz={matriz} metas={metasPorCliente} conteos={conteos} />
       </section>
 
       <section className="mt-7">

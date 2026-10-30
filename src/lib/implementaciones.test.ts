@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  GRUPOS_CLIENTES, OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes,
+  GRUPOS_CLIENTES, OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceFilesMesCliente, avanceFilesTotalMes, avanceMesCliente, avanceTotalMes, conteoFilesPorClienteMes,
   claveCliente, claveMes, clienteReal, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
   fmtFechaCorta, fmtImporte, fmtPct, grupoDeCliente, indexarMetas, leerDocMetas, metaProfitMensual, miembrosDeGrupo, nivelCumplimiento, nombreCliente,
   implementacionDelMes, normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
@@ -849,5 +849,83 @@ describe("Grupo Cerveceria C.A. (cumplimiento Vol × CM1 del grupo completo)", (
     const r = resumenImplementacionCku([fila(EN_HOJA[2], "2026-09-01T00:00:00", 500)], [], []);
     expect(r.metaMensual).toBe(0);
     expect(r.profitPorMes).toEqual({});
+  });
+});
+
+describe("avance de Vol y de CM1 (cuánto se lleva completado por mes)", () => {
+  // A: Vol 3 con CM1 $50; B: Vol 10 con CM1 $20; Z no tiene cumplimiento.
+  const idx = indexarMetas([meta("A", 3, 50), meta("B", 10, 20)], [obj("2026-03", 70), obj("2026-04", 100)]);
+  const f = (cliente: string, profit: number | null, fecha = "2026-03-10T00:00:00") => fila(cliente, fecha, profit);
+  // Marzo: A trae 3 files (2 cumplen el CM1) y B trae 5 (4 cumplen); abril: A trae 1 file que cumple.
+  const rows = [
+    f("A", 80), f("A", 50), f("A", 10),
+    f("B", 25), f("B", 20), f("B", 30), f("B", 99), f("B", 5),
+    f("A", 60, "2026-04-02T00:00:00"),
+    f("Z", 999),                                   // sin cumplimiento: no cuenta
+    f("A", 100, ""),                               // sin fecha: no se compara con ningún mes
+    f("A", null),                                  // sin Profit: cuenta como file del mes pero no se puede juzgar
+  ];
+  const conteos = conteoFilesPorClienteMes(rows, idx);
+
+  it("cuenta los files de cada cliente con cumplimiento por mes y cuántos cumplen su CM1", () => {
+    expect(conteos.get("A")!["2026-03"]).toEqual({ files: 4, cumplenCm1: 2 });   // 80 y 50 cumplen; 10 no; el null no se puede juzgar
+    expect(conteos.get("B")!["2026-03"]).toEqual({ files: 5, cumplenCm1: 4 });
+    expect(conteos.get("A")!["2026-04"]).toEqual({ files: 1, cumplenCm1: 1 });
+    expect(conteos.has("Z")).toBe(false);                                          // sin cumplimiento
+    expect(Object.keys(conteos.get("A")!)).not.toContain(SIN_FECHA);              // «Sin fecha» no es un mes
+  });
+
+  it("Vol: files del mes ÷ Vol, y se lee «hecho/Vol» con su %", () => {
+    const a = avanceFilesMesCliente("A", "2026-04", conteos, idx, "vol")!;
+    expect(a).toMatchObject({ hecho: 1, vol: 3, n: 1 });
+    expect(a.pct).toBeCloseTo(1 / 3, 6);
+  });
+
+  it("CM1: files que cumplen el CM1 ÷ Vol (no ÷ los files del mes)", () => {
+    const a = avanceFilesMesCliente("B", "2026-03", conteos, idx, "cm1")!;
+    expect(a).toMatchObject({ hecho: 4, vol: 10 });            // 4 de los 10 que pide el cumplimiento, aunque hubo 5 files
+    expect(a.pct).toBeCloseTo(0.4, 6);
+  });
+
+  it("el color es el semáforo del cumplimiento del % a alcanzar del mes: files ÷ (Vol × %)", () => {
+    // Marzo pide el 70 % del Vol: A requiere 3 × 0.7 = 2.1 files; con 4 files lleva 190 % → verde.
+    const a = avanceFilesMesCliente("A", "2026-03", conteos, idx, "vol")!;
+    expect(a.requerido).toBeCloseTo(2.1, 6);
+    expect(a.cumplimiento).toBeCloseTo(4 / 2.1, 6);
+    expect(a.nivel).toBe("verde");
+    // Con el mismo CM1 de A: 2 files cumplen → 2 ÷ 2.1 = 95 % → verde; B pide 7 y lleva 4 → 57 % → rojo.
+    expect(avanceFilesMesCliente("A", "2026-03", conteos, idx, "cm1")!.nivel).toBe("verde");
+    expect(avanceFilesMesCliente("B", "2026-03", conteos, idx, "cm1")).toMatchObject({ requerido: 7, nivel: "rojo" });
+    // Abril pide el 100 %: A lleva 1 de 3 → rojo.
+    expect(avanceFilesMesCliente("A", "2026-04", conteos, idx, "vol")!.nivel).toBe("rojo");
+  });
+
+  it("un mes en que el cliente no tuvo files cuenta con 0 (igual que el Profit en el % de cumplimiento)", () => {
+    expect(avanceFilesMesCliente("B", "2026-04", conteos, idx, "vol")).toMatchObject({ hecho: 0, vol: 10, pct: 0, nivel: "rojo" });
+    expect(avanceFilesMesCliente("B", "2026-04", conteos, idx, "cm1")).toMatchObject({ hecho: 0 });
+  });
+
+  it("sin cumplimiento para el cliente, o en «Sin fecha», no hay avance", () => {
+    expect(avanceFilesMesCliente("Z", "2026-03", conteos, idx, "vol")).toBeNull();
+    expect(avanceFilesMesCliente("A", SIN_FECHA, conteos, idx, "vol")).toBeNull();
+  });
+
+  it("el total del mes suma solo a los clientes con cumplimiento (lo mismo con lo mismo)", () => {
+    const t = avanceFilesTotalMes(["A", "B", "Z"], "2026-03", conteos, idx, "vol")!;
+    expect(t).toMatchObject({ hecho: 9, vol: 13, n: 2 });       // 4 + 5 files de A y B; los de Z no entran; Vol 3 + 10
+    expect(t.requerido).toBeCloseTo(13 * 0.7, 6);
+    expect(avanceFilesTotalMes(["A", "B"], "2026-03", conteos, idx, "cm1")).toMatchObject({ hecho: 6, vol: 13 });
+    expect(avanceFilesTotalMes(["Z"], "2026-03", conteos, idx, "vol")).toBeNull();
+    expect(avanceFilesTotalMes([], "2026-03", conteos, idx, "vol")).toBeNull();
+  });
+
+  it("un GRUPO de clientes es un solo cliente: sus files suman y se miden con el Vol y el CM1 del grupo", () => {
+    const [g] = GRUPOS_CLIENTES;
+    const miembros = g.clientes.slice(0, 2);
+    const idxG = indexarMetas([meta(g.nombre, 4, 30)]);
+    const r = [f(miembros[0], 40, "2026-05-02T00:00:00"), f(miembros[1], 10, "2026-05-03T00:00:00"), f(miembros[1], 30, "2026-05-04T00:00:00")];
+    const c = conteoFilesPorClienteMes(r, idxG);
+    expect(c.get(g.nombre)!["2026-05"]).toEqual({ files: 3, cumplenCm1: 2 });
+    expect(avanceFilesMesCliente(g.nombre, "2026-05", c, idxG, "vol")).toMatchObject({ hecho: 3, vol: 4 });
   });
 });
