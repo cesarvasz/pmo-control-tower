@@ -118,22 +118,14 @@ const HEALTH_TONE: Record<string, Tone> = { "on-track": "good", "in-risk": "warn
 // ── Gantt: filas de nivel 0 (fases) + Fase 3 expandida en sus steps/hitos ──
 interface GRow { grupo: string; total: number; done: number; offTrack: boolean; started: boolean; isCurrent: boolean; indent: 0 | 1; units: WorkUnit[] }
 
-const cmpStart = (a: Date | null, b: Date | null) => {
-  if (a == null && b == null) return 0;
-  if (a == null) return 1;
-  if (b == null) return -1;
-  return a.getTime() - b.getTime();
-};
-const startOfGroup = (g: { units: WorkUnit[] }) =>
-  isDesarrolloPorIteracionesStep(g.units[0].stepName) ? g.units[0].startDate : g.units[0].stepStartDate;
-
 function buildGanttRows(phases: PhaseSummary[], units: WorkUnit[]): GRow[] {
   const curPhaseIdx = currentPhaseIndex(phases);
   const rows: GRow[] = [];
   phases.forEach((p, i) => {
     rows.push({ grupo: p.grupo || "Sin grupo", total: p.total, done: p.done, offTrack: p.offTrack, started: p.started, isCurrent: i === curPhaseIdx, indent: 0, units: units.filter((u) => u.grupo === p.grupo) });
     if (!isFase3(p.grupo)) return;
-    const groups = groupFase3Units(units, p.grupo).sort((a, b) => cmpStart(startOfGroup(a), startOfGroup(b)));
+    // Los entregables salen en el orden en que están en Monday (el del board), no por fecha de inicio.
+    const groups = groupFase3Units(units, p.grupo);
     if (groups.length <= 1) return;
     const stepPhases = groups.map((g) => ({
       grupo: g.name,

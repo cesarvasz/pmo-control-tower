@@ -316,6 +316,45 @@ describe("buildStatusReportData — Fase 3 plantilla nueva: varios entregables '
   });
 });
 
+// El Gantt abre la Fase 3 en sus entregables y los lista en el orden en que están en Monday (el del board),
+// no ordenados por fecha de inicio.
+describe("buildStatusReportData — Fase 3: los entregables salen en el orden de Monday", () => {
+  const build = (items: ProjItem[]) => {
+    const summary = buildProjectSummary(items);
+    const health = deriveBoardHealth(calcBoardMetrics(items, {}));
+    return buildStatusReportData({
+      board: board({}), code: "PM-Y", name: "Y proyecto",
+      summary, health, atrasos: [], atrasoDetalles: {}, responsabilidadAtraso: [],
+      avancePlanificado: 50, valorProyecto: null, roi: null, payback: null,
+      now: today().getTime(),
+    }).phases.filter((p) => p.indent === 1).map((p) => p.name);
+  };
+
+  it("plantilla nueva: un entregable que arranca antes pero está más abajo en Monday sigue más abajo", () => {
+    const items = [
+      item({ id: "z", name: "Zeta", grupo: "Launch | Lanzamiento", status: "Working on it", startDate: daysFromToday(20), deadline: daysFromToday(40) }),
+      item({ id: "a", name: "Alfa", grupo: "Launch | Lanzamiento", status: "Working on it", startDate: daysFromToday(-10), deadline: daysFromToday(10) }),
+      item({ id: "m", name: "Medio", grupo: "Launch | Lanzamiento", status: "Future Steps", startDate: daysFromToday(5), deadline: daysFromToday(30) }),
+      item({ id: "s", name: "Sin fecha", grupo: "Launch | Lanzamiento", status: "Future Steps" }),
+    ];
+    expect(build(items)).toEqual(["Zeta", "Alfa", "Medio", "Sin fecha"]);
+  });
+
+  it("plantilla vieja: los hitos de «Desarrollo por iteraciones» salen en el orden de sus subitems en Monday", () => {
+    const items = [
+      item({
+        id: "dev", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", grupo: "Launch | Desarrollo", status: "Working on it",
+        subitems: [
+          sub({ id: "h2", name: "Hito 2", status: "Future Steps", startDate: daysFromToday(30), deadline: daysFromToday(40) }),
+          sub({ id: "h1", name: "Hito 1", status: "Working on it", startDate: daysFromToday(-5), deadline: daysFromToday(10) }),
+          sub({ id: "h3", name: "Hito 3", status: "Future Steps", startDate: daysFromToday(10), deadline: daysFromToday(20) }),
+        ],
+      }),
+    ];
+    expect(build(items)).toEqual(["Hito 2", "Hito 1", "Hito 3"]);
+  });
+});
+
 // Solo Fase 3 (Launch) recibe responsable/reparto en "Causas de atraso" —
 // Operación (Fase 4), Revisión (Fase 5), Valuación y Aprobación quedan fuera
 // del todo, aunque tengan items atrasados/Stuck: no se les asigna responsable.

@@ -120,7 +120,7 @@ export interface WorkUnit {
   deadline: Date | null;
   actualEnd: Date | null; // fecha real de cierre (Actual End del hito / End Date del item)
   /** Fecha de inicio del CPM de ESTA unidad (Start Date del hito, o del item si no
-   *  tiene subitems). Para ordenar cronológicamente (ver el Gantt del Status Ejecutivo). */
+   *  tiene subitems). Alimenta el dominio temporal del Gantt del Status Ejecutivo. */
   startDate: Date | null;
   entrega: "on-time" | "late" | null;
   /** Quién está a cargo de la tarea (columna "Responsible" de Monday). NO es la
