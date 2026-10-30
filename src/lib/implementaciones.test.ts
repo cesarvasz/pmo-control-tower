@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  GRUPOS_CLIENTES, OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceFilesMesCliente, avanceFilesTotalMes, avanceMesCliente, avanceTotalMes, conteoFilesPorClienteMes,
+  GRUPOS_CLIENTES, OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes, avanceVolMesCliente, avanceVolTotalMes,
   claveCliente, claveMes, clienteReal, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
   fmtFechaCorta, fmtImporte, fmtPct, grupoDeCliente, indexarMetas, leerDocMetas, metaProfitMensual, miembrosDeGrupo, nivelCumplimiento, nombreCliente,
   implementacionDelMes, normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
@@ -30,7 +30,7 @@ describe("claveMes / etiquetaMes", () => {
     expect(claveMes("2025-12-31T23:59:59")).toBe("2025-12");
   });
 
-  it("sin fecha, o con una que no se entiende, va al cubo «Sin fecha»", () => {
+  it("sin fecha, o con una que no se entiende, va al cubo «Sin facturar»", () => {
     expect(claveMes("")).toBe(SIN_FECHA);
     expect(claveMes("05/03/2026")).toBe(SIN_FECHA);
   });
@@ -38,7 +38,7 @@ describe("claveMes / etiquetaMes", () => {
   it("etiqueta en español", () => {
     expect(etiquetaMes("2026-03")).toBe("Mar 2026");
     expect(etiquetaMes("2026-12")).toBe("Dic 2026");
-    expect(etiquetaMes(SIN_FECHA)).toBe("Sin fecha");
+    expect(etiquetaMes(SIN_FECHA)).toBe("Sin facturar");
   });
 });
 
@@ -48,7 +48,7 @@ describe("serieMensual", () => {
       { clave: "2026-03", label: "Mar 2026", volumen: 3, profit: 160.5 },
       { clave: "2026-04", label: "Abr 2026", volumen: 1, profit: 0 },
       { clave: "2026-05", label: "May 2026", volumen: 1, profit: -20 },
-      { clave: SIN_FECHA, label: "Sin fecha", volumen: 1, profit: 5 },
+      { clave: SIN_FECHA, label: "Sin facturar", volumen: 1, profit: 5 },
     ]);
   });
 
@@ -59,7 +59,7 @@ describe("serieMensual", () => {
     expect(s.map((p) => p.clave)).toEqual(["2025-11", "2025-12", "2026-01"]);
   });
 
-  it("sin filas sin fecha no inventa el cubo «Sin fecha»", () => {
+  it("sin filas sin fecha no inventa el cubo «Sin facturar»", () => {
     expect(serieMensual([fila("A", "2026-03-02T00:00:00", 1)]).map((p) => p.clave)).toEqual(["2026-03"]);
     expect(serieMensual([])).toEqual([]);
   });
@@ -75,7 +75,7 @@ describe("filtrarPorMeses", () => {
     expect(filtrarPorMeses(DATOS, ["2026-03", "2026-05"])).toHaveLength(4);
   });
 
-  it("«Sin fecha» también se puede elegir", () => {
+  it("«Sin facturar» también se puede elegir", () => {
     const r = filtrarPorMeses(DATOS, [SIN_FECHA]);
     expect(r).toHaveLength(1);
     expect(r[0].Cliente).toBe("B");
@@ -139,7 +139,7 @@ describe("filtrarPorClientes / contarPorCliente / nombreCliente", () => {
 describe("agruparPorClienteYMes", () => {
   const m = agruparPorClienteYMes(DATOS);
 
-  it("las columnas son los meses presentes, con «Sin fecha» al final", () => {
+  it("las columnas son los meses presentes, con «Sin facturar» al final", () => {
     expect(m.meses).toEqual(["2026-03", "2026-04", "2026-05", SIN_FECHA]);
   });
 
@@ -400,7 +400,7 @@ describe("metas por cliente y % a alcanzar por mes", () => {
       expect(r.nivel).toBe("rojo");
     });
 
-    it("sin meta para el cliente, o en «Sin fecha», no hay %", () => {
+    it("sin meta para el cliente, o en «Sin facturar», no hay %", () => {
       expect(avanceMesCliente(a, "2026-03", indexarMetas([meta("B", 5, 4)]))).toBeNull();
       expect(avanceMesCliente(a, "2026-03", indexarMetas([]))).toBeNull();
       expect(avanceMesCliente(a, SIN_FECHA, idx)).toBeNull();
@@ -521,7 +521,7 @@ describe("metas por cliente y % a alcanzar por mes", () => {
       expect(normalizarObjetivos(Array.from({ length: 501 }, (_, i) => obj(`2026-${String((i % 12) + 1).padStart(2, "0")}`, 50))).ok).toBe(false);
     });
 
-    it("rechaza un mes que no sea «yyyy-MM» (incluido «Sin fecha») o repetido", () => {
+    it("rechaza un mes que no sea «yyyy-MM» (incluido «Sin facturar») o repetido", () => {
       expect(normalizarObjetivos([{ objetivo: 70 }]).ok).toBe(false);
       expect(normalizarObjetivos([obj(SIN_FECHA, 70)]).ok).toBe(false);
       expect(normalizarObjetivos([obj("2026-13", 70)]).ok).toBe(false);
@@ -670,7 +670,7 @@ describe("Implementación en el Beneficio de un CKU (resumen y mes)", () => {
   ];
   const r = resumenImplementacionCku(rows, metas, objetivos);
 
-  it("meta mensual = Σ Vol × CM1 y Profit por mes solo de clientes con meta, sin «Sin fecha»", () => {
+  it("meta mensual = Σ Vol × CM1 y Profit por mes solo de clientes con meta, sin «Sin facturar»", () => {
     expect(r.metaMensual).toBe(2000);
     expect(r.profitPorMes).toEqual({ "2026-09": 1500.5, "2026-10": 0 });
   });
@@ -852,80 +852,62 @@ describe("Grupo Cerveceria C.A. (cumplimiento Vol × CM1 del grupo completo)", (
   });
 });
 
-describe("avance de Vol y de CM1 (cuánto se lleva completado por mes)", () => {
-  // A: Vol 3 con CM1 $50; B: Vol 10 con CM1 $20; Z no tiene cumplimiento.
+describe("avance de Vol (cuánto se lleva completado por mes)", () => {
+  // A: Vol 3 · B: Vol 10 · Z no tiene cumplimiento. Marzo pide el 70 % y abril el 100 %.
   const idx = indexarMetas([meta("A", 3, 50), meta("B", 10, 20)], [obj("2026-03", 70), obj("2026-04", 100)]);
   const f = (cliente: string, profit: number | null, fecha = "2026-03-10T00:00:00") => fila(cliente, fecha, profit);
-  // Marzo: A trae 3 files (2 cumplen el CM1) y B trae 5 (4 cumplen); abril: A trae 1 file que cumple.
+  // Marzo: A trae 4 files y B trae 5; abril: A trae 1; Z trae 1 en marzo; A trae 1 sin facturar.
   const rows = [
-    f("A", 80), f("A", 50), f("A", 10),
+    f("A", 80), f("A", 50), f("A", 10), f("A", null),
     f("B", 25), f("B", 20), f("B", 30), f("B", 99), f("B", 5),
     f("A", 60, "2026-04-02T00:00:00"),
-    f("Z", 999),                                   // sin cumplimiento: no cuenta
-    f("A", 100, ""),                               // sin fecha: no se compara con ningún mes
-    f("A", null),                                  // sin Profit: cuenta como file del mes pero no se puede juzgar
+    f("Z", 999),
+    f("A", 100, ""),
   ];
-  const conteos = conteoFilesPorClienteMes(rows, idx);
+  const matriz = agruparPorClienteYMes(rows);
+  const deCliente = (c: string) => matriz.clientes.find((x) => x.cliente === c)!;
 
-  it("cuenta los files de cada cliente con cumplimiento por mes y cuántos cumplen su CM1", () => {
-    expect(conteos.get("A")!["2026-03"]).toEqual({ files: 4, cumplenCm1: 2 });   // 80 y 50 cumplen; 10 no; el null no se puede juzgar
-    expect(conteos.get("B")!["2026-03"]).toEqual({ files: 5, cumplenCm1: 4 });
-    expect(conteos.get("A")!["2026-04"]).toEqual({ files: 1, cumplenCm1: 1 });
-    expect(conteos.has("Z")).toBe(false);                                          // sin cumplimiento
-    expect(Object.keys(conteos.get("A")!)).not.toContain(SIN_FECHA);              // «Sin fecha» no es un mes
-  });
-
-  it("Vol: files del mes ÷ Vol, y se lee «hecho/Vol» con su %", () => {
-    const a = avanceFilesMesCliente("A", "2026-04", conteos, idx, "vol")!;
+  it("files del mes ÷ Vol del cumplimiento, y se lee «hecho/Vol» con su %", () => {
+    const a = avanceVolMesCliente(deCliente("A"), "2026-04", idx)!;
     expect(a).toMatchObject({ hecho: 1, vol: 3, n: 1 });
     expect(a.pct).toBeCloseTo(1 / 3, 6);
-  });
-
-  it("CM1: files que cumplen el CM1 ÷ Vol (no ÷ los files del mes)", () => {
-    const a = avanceFilesMesCliente("B", "2026-03", conteos, idx, "cm1")!;
-    expect(a).toMatchObject({ hecho: 4, vol: 10 });            // 4 de los 10 que pide el cumplimiento, aunque hubo 5 files
-    expect(a.pct).toBeCloseTo(0.4, 6);
+    expect(avanceVolMesCliente(deCliente("B"), "2026-03", idx)).toMatchObject({ hecho: 5, vol: 10, pct: 0.5 });
   });
 
   it("el color es el semáforo del cumplimiento del % a alcanzar del mes: files ÷ (Vol × %)", () => {
-    // Marzo pide el 70 % del Vol: A requiere 3 × 0.7 = 2.1 files; con 4 files lleva 190 % → verde.
-    const a = avanceFilesMesCliente("A", "2026-03", conteos, idx, "vol")!;
+    // Marzo pide el 70 % del Vol: A requiere 3 × 0.7 = 2.1 files; con 4 lleva 190 % → verde.
+    const a = avanceVolMesCliente(deCliente("A"), "2026-03", idx)!;
     expect(a.requerido).toBeCloseTo(2.1, 6);
     expect(a.cumplimiento).toBeCloseTo(4 / 2.1, 6);
     expect(a.nivel).toBe("verde");
-    // Con el mismo CM1 de A: 2 files cumplen → 2 ÷ 2.1 = 95 % → verde; B pide 7 y lleva 4 → 57 % → rojo.
-    expect(avanceFilesMesCliente("A", "2026-03", conteos, idx, "cm1")!.nivel).toBe("verde");
-    expect(avanceFilesMesCliente("B", "2026-03", conteos, idx, "cm1")).toMatchObject({ requerido: 7, nivel: "rojo" });
-    // Abril pide el 100 %: A lleva 1 de 3 → rojo.
-    expect(avanceFilesMesCliente("A", "2026-04", conteos, idx, "vol")!.nivel).toBe("rojo");
+    // B requiere 7 y lleva 5 → 71 % → rojo. Abril pide el 100 %: A lleva 1 de 3 → rojo.
+    expect(avanceVolMesCliente(deCliente("B"), "2026-03", idx)).toMatchObject({ requerido: 7, nivel: "rojo" });
+    expect(avanceVolMesCliente(deCliente("A"), "2026-04", idx)!.nivel).toBe("rojo");
   });
 
   it("un mes en que el cliente no tuvo files cuenta con 0 (igual que el Profit en el % de cumplimiento)", () => {
-    expect(avanceFilesMesCliente("B", "2026-04", conteos, idx, "vol")).toMatchObject({ hecho: 0, vol: 10, pct: 0, nivel: "rojo" });
-    expect(avanceFilesMesCliente("B", "2026-04", conteos, idx, "cm1")).toMatchObject({ hecho: 0 });
+    expect(avanceVolMesCliente(deCliente("B"), "2026-04", idx)).toMatchObject({ hecho: 0, vol: 10, pct: 0, nivel: "rojo" });
   });
 
-  it("sin cumplimiento para el cliente, o en «Sin fecha», no hay avance", () => {
-    expect(avanceFilesMesCliente("Z", "2026-03", conteos, idx, "vol")).toBeNull();
-    expect(avanceFilesMesCliente("A", SIN_FECHA, conteos, idx, "vol")).toBeNull();
+  it("sin cumplimiento para el cliente, o en «Sin facturar», no hay avance", () => {
+    expect(avanceVolMesCliente(deCliente("Z"), "2026-03", idx)).toBeNull();
+    expect(avanceVolMesCliente(deCliente("A"), SIN_FECHA, idx)).toBeNull();
   });
 
   it("el total del mes suma solo a los clientes con cumplimiento (lo mismo con lo mismo)", () => {
-    const t = avanceFilesTotalMes(["A", "B", "Z"], "2026-03", conteos, idx, "vol")!;
-    expect(t).toMatchObject({ hecho: 9, vol: 13, n: 2 });       // 4 + 5 files de A y B; los de Z no entran; Vol 3 + 10
+    const t = avanceVolTotalMes(matriz, "2026-03", idx)!;
+    expect(t).toMatchObject({ hecho: 9, vol: 13, n: 2 });       // 4 + 5 files de A y B; el de Z no entra; Vol 3 + 10
     expect(t.requerido).toBeCloseTo(13 * 0.7, 6);
-    expect(avanceFilesTotalMes(["A", "B"], "2026-03", conteos, idx, "cm1")).toMatchObject({ hecho: 6, vol: 13 });
-    expect(avanceFilesTotalMes(["Z"], "2026-03", conteos, idx, "vol")).toBeNull();
-    expect(avanceFilesTotalMes([], "2026-03", conteos, idx, "vol")).toBeNull();
+    expect(avanceVolTotalMes(matriz, SIN_FECHA, idx)).toBeNull();
+    expect(avanceVolTotalMes(agruparPorClienteYMes([f("Z", 5)]), "2026-03", idx)).toBeNull();   // nadie con cumplimiento
   });
 
-  it("un GRUPO de clientes es un solo cliente: sus files suman y se miden con el Vol y el CM1 del grupo", () => {
+  it("un GRUPO de clientes es un solo cliente: sus files suman y se miden con el Vol del grupo", () => {
     const [g] = GRUPOS_CLIENTES;
-    const miembros = g.clientes.slice(0, 2);
     const idxG = indexarMetas([meta(g.nombre, 4, 30)]);
-    const r = [f(miembros[0], 40, "2026-05-02T00:00:00"), f(miembros[1], 10, "2026-05-03T00:00:00"), f(miembros[1], 30, "2026-05-04T00:00:00")];
-    const c = conteoFilesPorClienteMes(r, idxG);
-    expect(c.get(g.nombre)!["2026-05"]).toEqual({ files: 3, cumplenCm1: 2 });
-    expect(avanceFilesMesCliente(g.nombre, "2026-05", c, idxG, "vol")).toMatchObject({ hecho: 3, vol: 4 });
+    const m = agruparPorClienteYMes([
+      f(g.clientes[0], 40, "2026-05-02T00:00:00"), f(g.clientes[1], 10, "2026-05-03T00:00:00"), f(g.clientes[1], 30, "2026-05-04T00:00:00"),
+    ]);
+    expect(avanceVolMesCliente(m.clientes.find((x) => x.cliente === g.nombre)!, "2026-05", idxG)).toMatchObject({ hecho: 3, vol: 4 });
   });
 });

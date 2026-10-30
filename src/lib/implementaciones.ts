@@ -10,7 +10,7 @@
 //  · Profit  = suma de la columna Profit tal como viene en la hoja; una celda
 //    vacía cuenta como 0 en la suma.
 //  · El mes sale de fecha_facturacion. Una fila sin fecha_facturacion no cae en ningún mes:
-//    va a un cubo propio, «Sin fecha», para que los totales cuadren siempre.
+//    va a un cubo propio, «Sin facturar», para que los totales cuadren siempre.
 
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
 
@@ -84,13 +84,13 @@ export function claveMes(fechaFacturacion: string): string {
 
 /** "2026-03" → "Mar 2026". */
 export function etiquetaMes(clave: string): string {
-  if (clave === SIN_FECHA) return "Sin fecha";
+  if (clave === SIN_FECHA) return "Sin facturar";
   const [a, m] = clave.split("-");
   const i = Number(m) - 1;
   return i >= 0 && i < 12 ? `${MESES_CORTO[i]} ${a}` : clave;
 }
 
-/** Orden cronológico; «Sin fecha» siempre al final. */
+/** Orden cronológico; «Sin facturar» siempre al final. */
 function porMes(a: string, b: string): number {
   if (a === b) return 0;
   if (a === SIN_FECHA) return 1;
@@ -104,7 +104,7 @@ export interface PuntoMes extends Celda {
 }
 
 /** Un punto por cada mes presente en las filas, del más viejo al más nuevo. Es la
- *  línea de tiempo: incluye «Sin fecha» al final cuando hay filas sin fecha_facturacion. */
+ *  línea de tiempo: incluye «Sin facturar» al final cuando hay filas sin fecha_facturacion. */
 export function serieMensual(rows: ImplementacionRow[]): PuntoMes[] {
   const cubos = new Map<string, Celda>();
   for (const r of rows) {
@@ -216,7 +216,7 @@ export interface FilaCliente {
 }
 
 export interface MatrizClienteMes {
-  /** Columnas: meses presentes en las filas, cronológicos, «Sin fecha» al final. */
+  /** Columnas: meses presentes en las filas, cronológicos, «Sin facturar» al final. */
   meses: string[];
   /** Ordenados por volumen total (mayor primero), luego Profit y nombre. */
   clientes: FilaCliente[];
@@ -302,7 +302,7 @@ export function totalesImplementacion(rows: ImplementacionRow[]): TotalesImpleme
 // Vol × CM1. Lo que cambia de un mes a otro es el % de esa meta que hay que
 // alcanzar (no siempre 100 %): uno por mes, igual para todos los clientes. El % que
 // se muestra es Profit real ÷ meta; la meta se da por cumplida cuando el Profit llega
-// a meta × % a alcanzar. «Sin fecha» no tiene mes, así que no se compara con ninguna
+// a meta × % a alcanzar. «Sin facturar» no tiene mes, así que no se compara con ninguna
 // meta. Una meta de 0 (o sin Vol/CM1) no es meta: no hay con qué dividir.
 
 export const METAS_MAX = 500;
@@ -319,7 +319,7 @@ const centavos = (n: number) => Math.round(n * 100);
 /** Meta de Profit de UN mes: Vol × CM1. */
 export const metaProfitMensual = (m: Pick<MetaCliente, "vol" | "cm1">) => m.vol * m.cm1;
 
-/** «yyyy-MM» válido (mes 01–12). «Sin fecha» no es un mes con % a alcanzar. */
+/** «yyyy-MM» válido (mes 01–12). «Sin facturar» no es un mes con % a alcanzar. */
 const esMesValido = (mes: unknown): mes is string => typeof mes === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mes);
 
 const esObjetivoValido = (n: unknown): n is number =>
@@ -537,7 +537,7 @@ function avance(partes: Parte[]): Avance | null {
 }
 
 /** La parte de un cliente en un mes, o null si el cliente no tiene meta o el mes es
- *  «Sin fecha». Un mes en que el cliente no tuvo files cuenta con Profit 0. */
+ *  «Sin facturar». Un mes en que el cliente no tuvo files cuenta con Profit 0. */
 function parte(fila: FilaCliente, mes: string, idx: IndiceMetas): Parte | null {
   const m = idx.clientes.get(fila.cliente);
   if (!m || mes === SIN_FECHA) return null;
@@ -547,7 +547,7 @@ function parte(fila: FilaCliente, mes: string, idx: IndiceMetas): Parte | null {
 const soloPartes = (ps: (Parte | null)[]) => ps.filter((p): p is Parte => p != null);
 
 /** % de la meta de UN cliente en UN mes. null si el cliente no tiene meta, o si el mes
- *  es «Sin fecha». */
+ *  es «Sin facturar». */
 export function avanceMesCliente(fila: FilaCliente, mes: string, idx: IndiceMetas): Avance | null {
   return avance(soloPartes([parte(fila, mes, idx)]));
 }
@@ -556,6 +556,61 @@ export function avanceMesCliente(fila: FilaCliente, mes: string, idx: IndiceMeta
  *  con lo mismo: el Profit de los clientes sin meta no entra al numerador. */
 export function avanceTotalMes(matriz: MatrizClienteMes, mes: string, idx: IndiceMetas): Avance | null {
   return avance(soloPartes(matriz.clientes.map((c) => parte(c, mes, idx))));
+}
+
+// ── Avance de Vol (cuánto se lleva completado por mes) ───────────────────────
+// Para cada cliente con cumplimiento y cada mes: los files del mes contra el Vol de su cumplimiento (el
+// mismo en todos los meses), que se lee «59/70 · 84 %». Igual que el % de cumplimiento del Profit, el
+// color es un semáforo del cumplimiento del % a alcanzar del mes: files ÷ (Vol × %). Un grupo de
+// clientes es UN cliente (ver nombreCliente) y «Sin facturar» no se compara con ningún mes.
+
+/** Files logrados contra el Vol del cumplimiento. */
+export interface AvanceVol {
+  /** Files del mes. */
+  hecho: number;
+  /** Vol del cumplimiento (sumado si junta varios clientes). */
+  vol: number;
+  /** hecho ÷ vol, como fracción (0.84 = 84 %). */
+  pct: number;
+  /** Files que hay que juntar para dar el mes por cumplido: Vol × % a alcanzar del mes. */
+  requerido: number;
+  /** hecho ÷ requerido (1 = justo lo requerido). Con un % a alcanzar de 100 es igual a `pct`. */
+  cumplimiento: number;
+  /** Color según el cumplimiento (ver nivelCumplimiento). */
+  nivel: Nivel;
+  /** Cuántos clientes se juntaron en este avance. */
+  n: number;
+}
+
+interface ParteVol { hecho: number; vol: number; objetivo: number }
+
+function avanceVol(partes: ParteVol[]): AvanceVol | null {
+  const vol = partes.reduce((s, p) => s + p.vol, 0);
+  if (!(vol > 0)) return null;
+  const hecho = partes.reduce((s, p) => s + p.hecho, 0);
+  const requerido = partes.reduce((s, p) => s + (p.vol * p.objetivo) / 100, 0);
+  const cumplimiento = requerido > 0 ? hecho / requerido : hecho > 0 ? 1 : 0;
+  return { hecho, vol, pct: hecho / vol, requerido, cumplimiento, nivel: nivelCumplimiento(cumplimiento), n: partes.length };
+}
+
+/** La parte de un cliente en un mes, o null si no tiene cumplimiento o el mes es «Sin facturar». Un mes
+ *  en que el cliente no tuvo files cuenta con 0, igual que el Profit en el % de cumplimiento. */
+function parteVol(fila: FilaCliente, mes: string, idx: IndiceMetas): ParteVol | null {
+  const m = idx.clientes.get(fila.cliente);
+  if (!m || mes === SIN_FECHA) return null;
+  return { hecho: fila.porMes[mes]?.volumen ?? 0, vol: m.vol, objetivo: objetivoDe(idx, mes) };
+}
+
+/** Avance de Vol de UN cliente en UN mes. null si el cliente no tiene cumplimiento o el mes es «Sin facturar». */
+export function avanceVolMesCliente(fila: FilaCliente, mes: string, idx: IndiceMetas): AvanceVol | null {
+  const p = parteVol(fila, mes, idx);
+  return p ? avanceVol([p]) : null;
+}
+
+/** Avance de Vol de TODOS los clientes con cumplimiento en un mes. Compara lo mismo con lo mismo: los
+ *  files de los clientes sin cumplimiento no entran al numerador. */
+export function avanceVolTotalMes(matriz: MatrizClienteMes, mes: string, idx: IndiceMetas): AvanceVol | null {
+  return avanceVol(matriz.clientes.flatMap((c) => parteVol(c, mes, idx) ?? []));
 }
 
 // ── Semáforo por file ─────────────────────────────────────────────────────
@@ -607,101 +662,12 @@ export function pasaFiltroSemaforo(estado: Semaforo, filtro: FiltroSemaforo): bo
   return true;
 }
 
-// ── Avance de Vol y de CM1 (cuánto se lleva completado por mes) ───────────────
-// Para cada cliente con cumplimiento y cada mes, dos conteos de files contra el Vol de su cumplimiento
-// (es el mismo en todos los meses):
-//  · Vol: los files del mes ÷ Vol.
-//  · CM1: los files del mes que cumplen su CM1 (Profit ≥ CM1, ver evaluarFile) ÷ Vol.
-// Se leen «59/70 · 84 %». Igual que el % Cumplimiento, el color es un semáforo del cumplimiento del %
-// a alcanzar del mes: files ÷ (Vol × %). Un grupo de clientes es UN cliente (ver nombreCliente) y «Sin
-// fecha» no se compara con ningún mes.
-
-/** Files de un cliente en un mes, y cuántos de ellos cumplen el CM1. */
-export interface ConteoFiles {
-  files: number;
-  cumplenCm1: number;
-}
-
-/** cliente (el grupo, si lo tiene) → mes → sus files y los que cumplen su CM1. Solo clientes con
- *  cumplimiento (ver indexarMetas); lo demás no tiene contra qué compararse. */
-export function conteoFilesPorClienteMes(rows: ImplementacionRow[], metas: IndiceMetas): Map<string, Record<string, ConteoFiles>> {
-  const out = new Map<string, Record<string, ConteoFiles>>();
-  for (const r of rows) {
-    const cliente = nombreCliente(r);
-    const mes = claveMes(r.fecha_facturacion);
-    if (mes === SIN_FECHA || !metas.clientes.has(cliente)) continue;
-    const porMes = out.get(cliente) ?? {};
-    out.set(cliente, porMes);
-    const c = (porMes[mes] ??= { files: 0, cumplenCm1: 0 });
-    c.files += 1;
-    if (evaluarFile(r, metas).estado === "cumple") c.cumplenCm1 += 1;
-  }
-  return out;
-}
-
-/** Cuál de los dos conteos se mide contra el Vol. */
-export type MedidaFiles = "vol" | "cm1";
-
-/** Files logrados contra el Vol del cumplimiento. */
-export interface AvanceFiles {
-  /** Files logrados (todos los del mes, o solo los que cumplen el CM1). */
-  hecho: number;
-  /** Vol del cumplimiento (sumado si junta varios clientes). */
-  vol: number;
-  /** hecho ÷ vol, como fracción (0.84 = 84 %). */
-  pct: number;
-  /** Files que hay que juntar para dar el mes por cumplido: Vol × % a alcanzar del mes. */
-  requerido: number;
-  /** hecho ÷ requerido (1 = justo lo requerido). Con un % a alcanzar de 100 es igual a `pct`. */
-  cumplimiento: number;
-  /** Color según el cumplimiento (ver nivelCumplimiento). */
-  nivel: Nivel;
-  /** Cuántos clientes se juntaron en este avance. */
-  n: number;
-}
-
-interface ParteFiles { hecho: number; vol: number; objetivo: number }
-
-function avanceFiles(partes: ParteFiles[]): AvanceFiles | null {
-  const vol = partes.reduce((s, p) => s + p.vol, 0);
-  if (!(vol > 0)) return null;
-  const hecho = partes.reduce((s, p) => s + p.hecho, 0);
-  const requerido = partes.reduce((s, p) => s + (p.vol * p.objetivo) / 100, 0);
-  const cumplimiento = requerido > 0 ? hecho / requerido : hecho > 0 ? 1 : 0;
-  return { hecho, vol, pct: hecho / vol, requerido, cumplimiento, nivel: nivelCumplimiento(cumplimiento), n: partes.length };
-}
-
-function parteFiles(cliente: string, mes: string, conteos: Map<string, Record<string, ConteoFiles>>, idx: IndiceMetas, medida: MedidaFiles): ParteFiles | null {
-  const m = idx.clientes.get(cliente);
-  if (!m || mes === SIN_FECHA) return null;
-  const c = conteos.get(cliente)?.[mes];
-  // Un mes en que el cliente no tuvo files cuenta con 0, igual que el Profit en el % Cumplimiento.
-  return { hecho: (medida === "vol" ? c?.files : c?.cumplenCm1) ?? 0, vol: m.vol, objetivo: objetivoDe(idx, mes) };
-}
-
-/** Avance de Vol o de CM1 de UN cliente en UN mes. null si el cliente no tiene cumplimiento o el mes
- *  es «Sin fecha». */
-export function avanceFilesMesCliente(
-  cliente: string, mes: string, conteos: Map<string, Record<string, ConteoFiles>>, idx: IndiceMetas, medida: MedidaFiles,
-): AvanceFiles | null {
-  const p = parteFiles(cliente, mes, conteos, idx, medida);
-  return p ? avanceFiles([p]) : null;
-}
-
-/** Avance de Vol o de CM1 de TODOS los clientes con cumplimiento en un mes. Compara lo mismo con lo
- *  mismo: los files de los clientes sin cumplimiento no entran al numerador. */
-export function avanceFilesTotalMes(
-  clientes: string[], mes: string, conteos: Map<string, Record<string, ConteoFiles>>, idx: IndiceMetas, medida: MedidaFiles,
-): AvanceFiles | null {
-  return avanceFiles(clientes.flatMap((c) => parteFiles(c, mes, conteos, idx, medida) ?? []));
-}
-
 // ── Implementación en el Beneficio de un CKU (Players) ──────────────────────
 // El CKU que lleva Implementación (ver CKU_CON_IMPLEMENTACION en players.ts) suma, en la
 // Confirmación de su Beneficio, la meta del mes a lo aprobado y el Profit del mes a lo
 // confirmado. Viaja resumido (no las filas crudas): la suma de Vol × CM1 de los clientes, el
 // % a alcanzar de cada mes y el Profit por mes de los clientes con meta — la misma comparación
-// que el % Meta de la pestaña (Profit de clientes sin meta no entra; «Sin fecha» tampoco).
+// que el % Meta de la pestaña (Profit de clientes sin meta no entra; «Sin facturar» tampoco).
 
 export interface ResumenImplementacionCku {
   /** Σ Vol × CM1 de los clientes con meta: la meta de un mes al 100 %. */

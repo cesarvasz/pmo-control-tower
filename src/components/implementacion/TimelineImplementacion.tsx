@@ -3,7 +3,7 @@
 // Línea de tiempo de Implementación: una columna por mes de facturación con su
 // volumen (barra y conteo) y su Profit total. Cada mes es un botón: un clic lo
 // agrega o lo quita del filtro, y se pueden elegir varios. Sin ningún mes elegido
-// se ve todo. El mes «Sin fecha» (filas sin fecha_facturacion) va al final, en gris.
+// se ve todo. El mes «Sin facturar» (filas sin fecha_facturacion) va al final, en gris.
 
 import { SIN_FECHA, fmtImporte, type PuntoMes } from "@/lib/implementaciones";
 
