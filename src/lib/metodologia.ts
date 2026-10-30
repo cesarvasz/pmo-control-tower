@@ -1,8 +1,7 @@
 // src/lib/metodologia.ts
 // Cumplimiento Metodología VALOR (componente del KPI del PM, peso 15).
 //
-// Cada PM (y Cesar Vasquez, que aún no tiene tarjeta de KPI) tiene una nota
-// 0-100 por MES. Cada mes nuevo arranca solo en 100% y el Admin la va bajando a
+// Cada PM tiene una nota 0-100 por MES. Cada mes nuevo arranca solo en 100% y el Admin la va bajando a
 // mano durante el mes en /calidad-cumplimiento → Metodología. El KPI del PM usa
 // la nota MÁS RECIENTE: la del mes en curso (guardada, o el 100% por defecto).
 //
@@ -19,9 +18,6 @@ export const METODOLOGIA_NOTA_DEFECTO = 100;
 
 /** Primer mes con columna ("YYYY-MM"). De ahí en adelante aparece uno nuevo cada mes. */
 export const METODOLOGIA_INICIO = "2026-10";
-
-/** Personas que se califican aunque no sean PM de un portafolio (sin tarjeta de KPI todavía). */
-export const METODOLOGIA_EXTRA = ["Cesar Vasquez"];
 
 export const metodologiaKey = (mes: string, persona: string) => `${mes}::${persona}`;
 
@@ -62,13 +58,6 @@ export function metodologiaActual(califs: MetodologiaMap, persona: string, ahora
 export function metodologiaPromedioActual(califs: MetodologiaMap, personas: string[], ahora: Date = today()): number | null {
   const notas = personas.map((p) => metodologiaActual(califs, p, ahora)).filter((n): n is number => n != null);
   return notas.length ? Math.round(notas.reduce((a, b) => a + b, 0) / notas.length) : null;
-}
-
-/** Filas de la tabla: los PMs en su orden, más las personas extra que falten (sin duplicar). */
-export function metodologiaPersonas(pms: string[]): string[] {
-  const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-  const vistos = new Set(pms.map(norm));
-  return [...pms, ...METODOLOGIA_EXTRA.filter((p) => !vistos.has(norm(p)))];
 }
 
 /** "oct 26" */

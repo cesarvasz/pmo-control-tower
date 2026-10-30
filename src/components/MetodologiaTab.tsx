@@ -1,8 +1,7 @@
 "use client";
 
-// Pestaña "Metodología" de /calidad-cumplimiento. Una fila por PM (más Cesar
-// Vasquez, que aún no tiene tarjeta de KPI) y una columna por mes. Cada mes nuevo
-// aparece solo, con la nota en 100% y su propia burbuja 💬; el Admin va bajando la
+// Pestaña "Metodología" de /calidad-cumplimiento. Una fila por PM y una columna por mes.
+// Cada mes nuevo aparece solo, con la nota en 100% y su propia burbuja 💬; el Admin va bajando la
 // nota a mano durante el mes y, con la burbuja, abre un pop up para escribir por
 // qué (la explicación queda ligada a esa persona y a ese mes). La nota VIGENTE
 // (última columna, la del mes en curso) es la que alimenta el componente
@@ -15,7 +14,7 @@ import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
 import {
-  etiquetaMesCorta, metodologiaKey, metodologiaMeses, metodologiaNota, metodologiaPersonas,
+  etiquetaMesCorta, metodologiaKey, metodologiaMeses, metodologiaNota,
   METODOLOGIA_NOTA_DEFECTO, type MetodologiaMap,
 } from "@/lib/metodologia";
 import { pmLabel } from "@/lib/players";
@@ -194,7 +193,6 @@ function ComentarioBurbuja({ persona, mes, califs, canEdit }: { persona: string;
 export default function MetodologiaTab({ pms, califs }: { pms: string[]; califs: MetodologiaMap }) {
   const { me } = useMe();
   const canRate = !!me && hasAction(me.permissions, "manage_users");
-  const personas = useMemo(() => metodologiaPersonas(pms), [pms]);
   const meses = useMemo(() => metodologiaMeses(), []);
   const vigente = meses[meses.length - 1];
 
@@ -226,7 +224,7 @@ export default function MetodologiaTab({ pms, califs }: { pms: string[]; califs:
               </tr>
             </thead>
             <tbody>
-              {personas.map((p) => (
+              {pms.map((p) => (
                 <tr key={p}>
                   <td className="pm-name">
                     {pmLabel(p) !== p ? (

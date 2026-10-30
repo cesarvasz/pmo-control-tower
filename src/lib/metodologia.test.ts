@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   mesesDesde, metodologiaMeses, metodologiaKey, metodologiaNota, metodologiaActual, metodologiaPromedioActual,
-  metodologiaPersonas, esMesValido, METODOLOGIA_INICIO,
+  esMesValido, METODOLOGIA_INICIO,
 } from "./metodologia";
 
 const d = (y: number, m: number, dia = 15) => new Date(y, m - 1, dia);
@@ -46,13 +46,6 @@ describe("notas", () => {
 
   it("el promedio del equipo usa la nota vigente de cada persona", () => {
     expect(metodologiaPromedioActual(califs, ["Luis Aguilar", "David Guzmán"], d(2026, 10))).toBe(93); // (85 + 100) / 2 = 92.5
-  });
-});
-
-describe("metodologiaPersonas", () => {
-  it("agrega a Cesar Vasquez al final y no lo duplica si ya es PM (sin importar tildes ni mayúsculas)", () => {
-    expect(metodologiaPersonas(["Luis Aguilar", "David Guzmán"])).toEqual(["Luis Aguilar", "David Guzmán", "Cesar Vasquez"]);
-    expect(metodologiaPersonas(["César Vásquez", "Luis Aguilar"])).toEqual(["César Vásquez", "Luis Aguilar"]);
   });
 });
 

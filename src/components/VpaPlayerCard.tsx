@@ -1,6 +1,6 @@
 "use client";
 
-// Tarjeta del «Player» del VPA en el Control Tower, debajo de los Portafolios por PM. Mismo formato que la
+// Tarjeta del «Player» del VPA (Cesar Vasquez) en el Control Tower, debajo de los Portafolios por PM. Mismo formato que la
 // tarjeta de un PM: arriba el Player (el total ponderado del mes, de 0 a 100) y debajo, en una fila, la nota
 // de cada uno de los 5 indicadores de «Objetivos de Calidad» con lo que aporta. Muestra el mes en curso y un
 // selector para ver otro mes. Las notas las califica un Admin en la pestaña VPA de /calidad-cumplimiento
@@ -60,8 +60,7 @@ export function VpaPlayerVista({ califs, meses, mes, onMes }: { califs: VpaCalif
       <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: borde }}>
         <div className="flex items-center justify-between gap-3 border-b px-[18px] py-3.5" style={{ borderColor: "var(--border)" }}>
           <div>
-            <span className="text-[0.95rem] font-bold text-[var(--text-primary)]">VPA</span>
-            <div className="mt-0.5 text-[0.75rem] text-[var(--text-muted)]">Objetivos de Calidad</div>
+            <span className="text-[0.95rem] font-bold text-[var(--text-primary)]">Cesar Vasquez</span>
           </div>
           <div className="flex items-center justify-end gap-2">
             <select

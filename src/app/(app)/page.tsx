@@ -313,7 +313,7 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
   // ── Calidad de Entregas (Reproceso) ──
   // % de unidades "limpias" (REQ cerrados + fases de proyecto completadas) sin
   // reproceso imputable al PM. Misma regla de excusa que Cumplimiento de Entrega.
-  // Equipo: promedio de la nota vigente de cada PM (Cesar Vasquez no es PM de portafolio, no entra).
+  // Equipo: promedio de la nota vigente de cada PM.
   const teamMetodologiaPct = metodologiaPromedioActual(metodologiaCalifs, listPMs(ini, req));
   const reprocesoStats = calcReprocesoStats(req, proj, reproceso, ini);
   const teamReprocesoPct = reprocesoStats.pct;
