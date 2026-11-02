@@ -7,7 +7,7 @@ import {
   mediana, promedio, percentil90,
   mismaPersona, etapasAtribuidas, tiempoAtribuido, agruparPorPersona, costoTiempo,
   unirIntervalos, costoPorPersona, ventanaDe, contarLicencias, costoUnitario, proyectarAnio,
-  ahorroDucafast, ahorroPorTiempos, serieAhorroDucafast,
+  ahorroDucafast, ahorroPorTiempos, serieAhorroDucafast, horasAsignadasPorFile, repartoPorTramos,
   etiquetaAlcance, recorridoAlcance, hitosDelAlcance,
   rangoEtapas, interseccionAlcance, totalEnAlcance,
   SIN_MESA, SIN_DATO, FILTROS_VACIOS, ETAPA_KEYS, ALCANCE_UNITARIO,
@@ -981,6 +981,88 @@ describe("ahorroDucafast", () => {
     expect(a.costoPorFileConDucafast).toBeCloseTo(6 + 1.10, 8);
     expect(a.costoPorFileSinDucafast).toBeCloseTo(6 + 5.00, 8);
   });
+
+  it("Files idénticos no generan ahorro, sin importar cuántos haya en cada grupo", () => {
+    // ANA lleva TODOS los Files a la vez (mismo reloj, mismas licencias): ninguno es distinto,
+    // así que Ducafast no ahorra nada. Antes, cuanto menos Files "sin Ducafast" había, menos se
+    // traslapaban entre sí y más caro salía cada uno — con 1 solo File sin Ducafast el ahorro
+    // salía enorme aunque fueran iguales.
+    const mismo = (id: string, duca: boolean) =>
+      fila({ c807_file: id, Docalpha: duca ? "Ducafast" : "No Ducafast", Usuario: "ANA", Analista: "ANA", Licencias: "1", Costo: "1.10" });
+    for (const nSin of [1, 2, 4, 8]) {
+      const filas = [mismo("C1", true), mismo("C2", true), ...Array.from({ length: nSin }, (_, i) => mismo(`S${i}`, false))];
+      const a = ahorroDucafast(construirExpedientes(filas), 6);
+      expect(a.filesSinDucafast).toBe(nSin);
+      // 5 h × $6 = $30 de reloj repartido entre todos los Files abiertos, más $1.10 de licencias.
+      const porFile = 30 / (2 + nSin) + 1.10;
+      expect(a.costoPorFileConDucafast).toBeCloseTo(porFile, 8);
+      expect(a.costoPorFileSinDucafast).toBeCloseTo(porFile, 8);
+      expect(a.ahorro).toBeCloseTo(0, 8);
+    }
+  });
+
+  it("repartir el reloj sobre TODO el origen evita que un filtro encarezca el costo por File", () => {
+    // ANA lleva a la vez 4 Files: 2 del cliente A (uno con y uno sin Ducafast) y 2 del cliente B.
+    // Filtrando al cliente A quedan 2 Files; repartido solo entre ellos, cada uno se llevaría la mitad del
+    // reloj (15) en vez de la cuarta parte (7.5) — el filtro los encarecería sin que ANA trabajara distinto.
+    const f = (id: string, cliente: string, duca: boolean) =>
+      fila({ c807_file: id, Cliente: cliente, Docalpha: duca ? "Ducafast" : "No Ducafast", Usuario: "ANA", Analista: "ANA", Licencias: "1", Costo: "1.10" });
+    const todos = construirExpedientes([f("C1", "CLIENTE A", true), f("S1", "CLIENTE A", false), f("X1", "CLIENTE B", false), f("X2", "CLIENTE B", false)]);
+    const filtrado = filtrarExpedientes(todos, { ...FILTROS_VACIOS, clientes: ["CLIENTE A"] });
+
+    const a = ahorroDucafast(filtrado, 6, ETAPA_KEYS, horasAsignadasPorFile(todos));
+    expect(a.costoPorFileConDucafast).toBeCloseTo(30 / 4 + 1.10, 8);
+    expect(a.costoPorFileSinDucafast).toBeCloseTo(30 / 4 + 1.10, 8);
+    expect(a.ahorro).toBeCloseTo(0, 8);
+
+    // Sin pasar el reparto del origen, se reparte solo entre los Files del filtro.
+    expect(ahorroDucafast(filtrado, 6).costoPorFileConDucafast).toBeCloseTo(30 / 2 + 1.10, 8);
+  });
+});
+
+describe("horasAsignadasPorFile", () => {
+  const f = (id: string, o: Partial<RoiRow> = {}) =>
+    fila({ c807_file: id, Usuario: "ANA", Analista: "ANA", ...o });
+
+  it("un File solo se queda con todo su reloj (5 h)", () => {
+    const [e] = construirExpedientes([f("A")]);
+    expect(horasAsignadasPorFile([e]).get(e)).toBeCloseTo(5, 8);
+  });
+
+  it("dos Files a la vez de la misma persona se reparten su reloj a partes iguales", () => {
+    const exps = construirExpedientes([f("A"), f("B")]);
+    const h = horasAsignadasPorFile(exps);
+    for (const e of exps) expect(h.get(e)).toBeCloseTo(2.5, 8);
+  });
+
+  it("la suma de todos los Files es el reloj real de las personas, sin doble conteo", () => {
+    // ANA: A de 08 a 13 y B de 11 a 16 (11–13 en común, 14–16 sin almuerzo) → reloj real 08–16 = 7 h.
+    const b = f("B", {
+      Creado: "2026-01-05T11:00:00", DPR: "2026-01-05T12:00:00", Clasificacion_exacta: "2026-01-05T14:00:00",
+      Creacion_Pre_DUCA: "2026-01-05T15:00:00", Revision_Analista: "2026-01-05T15:30:00", Solicitar_firma_def: "2026-01-05T16:00:00",
+    });
+    const exps = construirExpedientes([f("A"), b]);
+    const h = horasAsignadasPorFile(exps);
+    const suma = exps.reduce((s, e) => s + (h.get(e) ?? 0), 0);
+    expect(suma).toBeCloseTo(7, 8);
+    // A: 08–11 solo (3 h) + 11–13 compartido (1 h) = 4 h. B: 1 h compartida + 14–16 solas (2 h) = 3 h.
+    expect(h.get(exps.find((e) => e.file === "A")!)).toBeCloseTo(4, 8);
+    expect(h.get(exps.find((e) => e.file === "B")!)).toBeCloseTo(3, 8);
+  });
+
+  it("cada persona reparte su propio reloj, y los bots no cuentan", () => {
+    // El Usuario (ANA) lleva de 08 a 12 (hasta la Revisión) en los dos Files, a la vez: 2 h para cada uno.
+    // El Analista lleva la última hora (12–13): BETO en A, un robot en B.
+    const exps = construirExpedientes([f("A", { Analista: "BETO" }), f("B", { Analista: "ROBOT" })]);
+    const A = exps.find((e) => e.file === "A")!, B = exps.find((e) => e.file === "B")!;
+
+    const sinBots = horasAsignadasPorFile(exps);
+    expect(sinBots.get(A)).toBeCloseTo(2 + 1, 8);
+    expect(sinBots.get(B)).toBeCloseTo(2, 8); // la hora del robot no se le carga
+
+    const conBots = horasAsignadasPorFile(exps, ETAPA_KEYS, true);
+    expect(conBots.get(B)).toBeCloseTo(2 + 1, 8);
+  });
 });
 
 describe("ahorroPorTiempos (reparto del total T1–T5)", () => {
@@ -1041,6 +1123,20 @@ describe("ahorroPorTiempos (reparto del total T1–T5)", () => {
     expect(r.t13.costoPorFileSinDucafast).toBeCloseTo(18 / 2 + 5.00, 8); // 3 h × $6 entre 2 Files + licencias
     expect(r.t45.costoPorFileSinDucafast).toBeCloseTo(24 / 2, 8);        // 4 h × $6 entre 2 Files
     expect(r.t13.ahorro + r.t45.ahorro).toBeCloseTo(r.total.ahorro, 8);
+  });
+
+  it("acepta el reparto del origen entero: un filtro solo elige qué Files se suman, y los tramos siguen sumando el total", () => {
+    const g = (id: string, cliente: string, duca: boolean) =>
+      fila({ c807_file: id, Cliente: cliente, Docalpha: duca ? "Ducafast" : "No Ducafast", Usuario: "ANA", Analista: "ANA", Licencias: "1", Costo: "1.10" });
+    const todos = construirExpedientes([g("C1", "CLIENTE A", true), g("S1", "CLIENTE A", false), g("X1", "CLIENTE B", false)]);
+    const filtrado = filtrarExpedientes(todos, { ...FILTROS_VACIOS, clientes: ["CLIENTE A"] });
+
+    const r = ahorroPorTiempos(filtrado, 6, repartoPorTramos(todos));
+    // Los 3 Files comparten el reloj de ANA: 30 / 3 = 10 de reloj por File, 3/5 a T1→T3 y 2/5 a T4→T5.
+    expect(r.t13.costoPorFileConDucafast).toBeCloseTo(6 + 1.10, 8);
+    expect(r.t45.costoPorFileConDucafast).toBeCloseTo(4, 8);
+    expect(r.t13.ahorro + r.t45.ahorro).toBeCloseTo(r.total.ahorro, 8);
+    expect(r.total.ahorro).toBeCloseTo(0, 8); // el único File sin Ducafast del filtro cuesta igual
   });
 
   it("sin ambos grupos no hay con qué comparar en ningún tramo", () => {

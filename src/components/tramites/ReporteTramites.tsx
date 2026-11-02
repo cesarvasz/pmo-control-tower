@@ -25,6 +25,7 @@ import {
   construirExpedientes, opcionesDeFiltro, filtrarExpedientes, hayFiltros,
   calcularIndicadores, composicionCiclo,
   costoTiempo, costoUnitario, costoPorPersona, ventanaDe, ahorroDucafast, ahorroPorTiempos, serieAhorroDucafast,
+  horasAsignadasPorFile, repartoPorTramos, ETAPA_KEYS,
   proyectarAnio, TARIFA_HORA_DEFECTO,
   exportarCSV,
   rangoEtapas, etiquetaAlcance, recorridoAlcance,
@@ -147,13 +148,22 @@ export default function ReporteTramites({ rows, clonacion }: {
   const costoUnit = useMemo(
     () => costoTiempo(exps, tarifa, porDia, false, alcance), [exps, tarifa, porDia, alcance]);
   const unitario = useMemo(() => costoUnitario(costoUnit), [costoUnit]);
+  // Reloj de cada persona repartido entre TODOS los Files del origen (no solo los del filtro): el
+  // costo de un File no debe depender de los filtros ni de cuántos Files tenga su grupo. Los
+  // filtros solo eligen qué Files se suman — ver horasAsignadasPorFile en lib/tramites.ts. Solo
+  // se recalcula al cambiar los datos (o el tramo de "Tiempo"), no con cada filtro.
+  const repartoTodos = useMemo(() => repartoPorTramos(todos), [todos]);
+  const relojTodos = useMemo(
+    () => (alcance.length === ETAPA_KEYS.length ? repartoTodos.total : horasAsignadasPorFile(todos, alcance)),
+    [todos, alcance, repartoTodos],
+  );
   // Ahorro real de Ducafast: parte el MISMO recorte `exps` por e.ducafast, con
   // la misma tarifa y el mismo alcance — ver ahorroDucafast en lib/tramites.ts.
-  const ahorro = useMemo(() => ahorroDucafast(expsBeneficio, tarifa, alcance), [expsBeneficio, tarifa, alcance]);
+  const ahorro = useMemo(() => ahorroDucafast(expsBeneficio, tarifa, alcance, relojTodos), [expsBeneficio, tarifa, alcance, relojTodos]);
   // Ahorro por tiempos, fijo e independiente del filtro de "Tiempo": T1–T3 y
   // T4–T5 son un REPARTO del total T1–T5 (suman exacto, sin horas ni
   // licencias duplicadas) — ver ahorroPorTiempos en lib/tramites.ts.
-  const ahorroTiempos = useMemo(() => ahorroPorTiempos(expsBeneficio, tarifa), [expsBeneficio, tarifa]);
+  const ahorroTiempos = useMemo(() => ahorroPorTiempos(expsBeneficio, tarifa, repartoTodos), [expsBeneficio, tarifa, repartoTodos]);
   // Beneficio T0: el "Ahorro $" de Clonación de Files — mismo cálculo que esa
   // pestaña (todos los registros, sin filtros), con la tarifa de aquí.
   const registrosClon = useMemo(() => (clonacion.rows ? construirRegistros(clonacion.rows) : null), [clonacion.rows]);
@@ -166,7 +176,7 @@ export default function ReporteTramites({ rows, clonacion }: {
   // Mismo ahorro, mes a mes (o día a día con un solo mes elegido) — la línea
   // de tiempo bajo "Costo por File".
   const serieAhorro = useMemo(
-    () => serieAhorroDucafast(expsBeneficio, tarifa, porDia, alcance), [expsBeneficio, tarifa, porDia, alcance]);
+    () => serieAhorroDucafast(expsBeneficio, tarifa, porDia, alcance, relojTodos), [expsBeneficio, tarifa, porDia, alcance, relojTodos]);
   // La proyección arranca de la última actividad medida, no de la fecha del
   // navegador: si los datos van atrasados, proyectar desde "hoy" mentiría.
   const proyeccion = useMemo(

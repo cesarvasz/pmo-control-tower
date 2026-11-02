@@ -1006,8 +1006,9 @@ export function cargaYCapacidad(
 // Esto sustituye al divisor de «expedientes simultáneos», que era una suposición
 // a ojo: el traslape ahora se mide.
 
-/** Tramo de reloj en milisegundos. */
-export interface Intervalo { inicio: number; fin: number }
+/** Tramo de reloj en milisegundos. `exp` es el File al que pertenece, cuando hace falta
+ *  repartir el reloj entre Files (ver horasAsignadasPorFile). */
+export interface Intervalo { inicio: number; fin: number; exp?: Expediente }
 
 /**
  * Ventana de reloj de la que responde una persona en un expediente, según la
@@ -1128,15 +1129,16 @@ function intervalosPorPersona(
     const rs = roles.get(p);
     if (rs) rs.add(rol); else roles.set(p, new Set([rol]));
   };
-  const add = (p: string, rol: Rol, iv: Intervalo | null) => {
+  const add = (p: string, rol: Rol, iv: Intervalo | null, exp: Expediente) => {
     if (!iv || p === SIN_DATO) return;
+    const propio = { ...iv, exp };
     const l = intervalos.get(p);
-    if (l) l.push(iv); else intervalos.set(p, [iv]);
+    if (l) l.push(propio); else intervalos.set(p, [propio]);
     marcarRol(p, rol);
   };
   for (const e of exps) {
     const mismo = mismaPersona(e);
-    for (const u of e.usuarios) add(u, "usuario", intervaloAtribuido(e, "usuario", alcance));
+    for (const u of e.usuarios) add(u, "usuario", intervaloAtribuido(e, "usuario", alcance), e);
     for (const a of e.analistas) {
       if (mismo && e.usuarios.includes(a)) {
         // No se duplica el intervalo, pero si hubo algo medido en el alcance
@@ -1144,7 +1146,7 @@ function intervalosPorPersona(
         if (a !== SIN_DATO && intervaloAtribuido(e, "usuario", alcance)) marcarRol(a, "analista");
         continue;
       }
-      add(a, "analista", intervaloAtribuido(e, "analista", alcance));
+      add(a, "analista", intervaloAtribuido(e, "analista", alcance), e);
     }
   }
   return { intervalos, roles };
@@ -1419,6 +1421,64 @@ export function costoTiempo(
   };
 }
 
+// ── Reloj repartido por File ──────────────────────────────────────────────
+
+/**
+ * Horas hábiles de reloj que le tocan a cada File.
+ *
+ * Cada persona ocupa su reloj UNA vez (la unión de sus intervalos, ver costoPorPersona), pero lleva
+ * varios Files abiertos a la vez. Aquí cada instante hábil de una persona se reparte en partes
+ * iguales entre los Files que tiene abiertos en ese instante: si lleva 4 a la vez, a cada uno le
+ * toca la cuarta parte. Lo que cuesta cada File sale así de la carga real de quien lo trabajó,
+ * no del tamaño del grupo en el que se le ponga. La suma de todos los Files es el reloj real
+ * de las personas, sin doble conteo.
+ *
+ * Por qué: antes el costo por File de "con Ducafast" y de "sin Ducafast" salía de unir los
+ * intervalos de cada grupo POR SEPARADO. Una persona que trabaja Files de los dos grupos a la vez
+ * tenía esa hora contada en los dos, y cuanto MENOS Files tenía un grupo, menos se traslapaban y más
+ * caro le salía cada uno: con la mitad de los Files "sin Ducafast" el costo por File subía de $18.62
+ * a $28.90 y el ahorro casi se duplicaba, sin que ningún File fuera distinto. Repartir primero sobre
+ * TODO el recorte y recién después separar los grupos evita ese efecto.
+ *
+ * `exps` es el universo sobre el que se reparte, y debe traer los dos grupos juntos. Si el reporte
+ * tiene filtros (un cliente, una mesa, un mes), el reparto debe calcularse igual sobre TODOS los Files
+ * del origen y luego sumar solo los del filtro: calculado solo sobre el filtro, ignoraría que esas
+ * personas llevaban a la vez otros Files, y cuanto más chico el filtro, más caro saldría cada File.
+ * Los Files sin reloj atribuido en el alcance no aparecen en el mapa (valen 0).
+ */
+export function horasAsignadasPorFile(
+  exps: Expediente[],
+  alcance: EtapaKey[] = ETAPA_KEYS,
+  incluirBots = false,
+): Map<Expediente, number> {
+  const horas = new Map<Expediente, number>();
+
+  for (const lista of intervalosPorPersonaFiltrado(exps, incluirBots, alcance).values()) {
+    // Barrido de los extremos en orden: entre dos instantes consecutivos el conjunto de Files
+    // abiertos no cambia, y ese tramo hábil se reparte entre ellos.
+    const extremos: { t: number; abre: boolean; i: number }[] = [];
+    lista.forEach((iv, i) => { extremos.push({ t: iv.inicio, abre: true, i }, { t: iv.fin, abre: false, i }); });
+    extremos.sort((a, b) => a.t - b.t || Number(a.abre) - Number(b.abre)); // al empatar, primero cierran
+
+    const abiertos = new Set<number>();
+    let previo = 0;
+    for (const x of extremos) {
+      if (abiertos.size > 0 && x.t > previo) {
+        const parte = segundosHabiles(new Date(previo), new Date(x.t)) / 3600 / abiertos.size;
+        if (parte > 0) {
+          for (const i of abiertos) {
+            const e = lista[i].exp;
+            if (e) horas.set(e, (horas.get(e) ?? 0) + parte);
+          }
+        }
+      }
+      previo = x.t;
+      if (x.abre) abiertos.add(x.i); else abiertos.delete(x.i);
+    }
+  }
+  return horas;
+}
+
 // ── Ahorro de Ducafast ────────────────────────────────────────────────────
 
 export interface AhorroDucafast {
@@ -1440,33 +1500,46 @@ export interface AhorroDucafast {
  * Ahorro real de Ducafast dentro del recorte filtrado.
  *
  * Parte los MISMOS `exps` que ya trae el reporte (con todos los filtros
- * activos, incluido el tramo de "Tiempo") en dos grupos por `e.ducafast`, y
- * calcula el costo por File de cada uno con el mismo `costoTiempo` /
- * `costoUnitario` que arma el resto de esta sección — así usa la misma
- * tarifa, el mismo alcance y la misma regla de base (n = Files con tiempo
- * medido) que el tile "Por File".
+ * activos, incluido el tramo de "Tiempo") en dos grupos por `e.ducafast`. El
+ * costo por File de cada grupo = (horas repartidas × tarifa + licencias) ÷
+ * Files con tiempo medido (la misma base que el tile "Por File"). Las horas
+ * de cada File salen de `horasAsignadasPorFile` calculado sobre el recorte
+ * ENTERO, no por grupo: así el costo de un File no depende de cuántos Files
+ * tenga su grupo (ver el porqué ahí).
  *
  * El ahorro NO es la diferencia de costo total entre grupos (que depende del
  * volumen de cada uno): es cuánto costarían los Files que SÍ pasaron por
  * Ducafast si hubieran costado lo que cuesta un File sin Ducafast, menos lo
  * que de verdad costaron. Si el filtro "Ducafast" deja un solo grupo en el
  * recorte, no hay con qué comparar y `disponible` sale en false.
+ *
+ * `horas` es el reparto del reloj (ver horasAsignadasPorFile). Sin él se calcula sobre `exps`; el
+ * reporte lo pasa calculado sobre TODOS los Files del origen, para que un filtro no encarezca
+ * el costo por File de un grupo chico, y la serie mensual lo comparte para que los meses sumen
+ * lo mismo que el total.
  */
 export function ahorroDucafast(
   exps: Expediente[],
   tarifa = TARIFA_HORA_DEFECTO,
   alcance: EtapaKey[] = ETAPA_KEYS,
+  horas: Map<Expediente, number> = horasAsignadasPorFile(exps, alcance),
 ): AhorroDucafast {
-  const con = costoUnitario(costoTiempo(exps.filter((e) => e.ducafast), tarifa, false, false, alcance));
-  const sin = costoUnitario(costoTiempo(exps.filter((e) => !e.ducafast), tarifa, false, false, alcance));
-  const disponible = con.expedientes > 0 && sin.expedientes > 0;
+  const grupo = (lista: Expediente[]) => {
+    const base = lista.filter((e) => segundosMedidos(e, alcance) > 0);
+    let h = 0, licencias = 0;
+    for (const e of base) { h += horas.get(e) ?? 0; licencias += e.costoLicencias; }
+    return { n: base.length, porFile: base.length > 0 ? (h * tarifa + licencias) / base.length : 0 };
+  };
+  const con = grupo(exps.filter((e) => e.ducafast));
+  const sin = grupo(exps.filter((e) => !e.ducafast));
+  const disponible = con.n > 0 && sin.n > 0;
 
   return {
-    filesConDucafast: con.expedientes,
-    filesSinDucafast: sin.expedientes,
-    costoPorFileConDucafast: con.porExpediente,
-    costoPorFileSinDucafast: sin.porExpediente,
-    ahorro: disponible ? con.expedientes * (sin.porExpediente - con.porExpediente) : 0,
+    filesConDucafast: con.n,
+    filesSinDucafast: sin.n,
+    costoPorFileConDucafast: con.porFile,
+    costoPorFileSinDucafast: sin.porFile,
+    ahorro: disponible ? con.n * (sin.porFile - con.porFile) : 0,
     disponible,
   };
 }
@@ -1474,6 +1547,22 @@ export function ahorroDucafast(
 /** Tramos fijos del "Beneficio por tiempos". */
 export const TRAMO_T13: EtapaKey[] = ["t1", "t2", "t3"];
 export const TRAMO_T45: EtapaKey[] = ["t4", "t5"];
+
+/** El reloj repartido por File en el total (T1–T5) y en cada tramo. */
+export interface RepartoReloj {
+  total: Map<Expediente, number>;
+  t13: Map<Expediente, number>;
+  t45: Map<Expediente, number>;
+}
+
+/** Los tres repartos que necesita `ahorroPorTiempos`, sobre un universo de Files. */
+export function repartoPorTramos(universo: Expediente[]): RepartoReloj {
+  return {
+    total: horasAsignadasPorFile(universo, ETAPA_KEYS),
+    t13: horasAsignadasPorFile(universo, TRAMO_T13),
+    t45: horasAsignadasPorFile(universo, TRAMO_T45),
+  };
+}
 
 export interface AhorroPorTiempos {
   t13: AhorroDucafast;
@@ -1491,10 +1580,11 @@ export interface AhorroPorTiempos {
  * licencias se restaban completas en ambos.
  *
  * Ahora todo sale del MISMO cálculo T1–T5 por grupo (con / sin Ducafast):
- *   · Horas: el costo de horas reales del total (unión de intervalos, sin doble
- *     conteo) se reparte entre tramos según las horas OCUPADAS de cada tramo
- *     (su propia unión de intervalos), escaladas al total para no duplicar.
- *     T4→T5 se queda con el remanente, para que la suma cuadre al centavo.
+ *   · Horas: el costo de horas reales del total (el reloj de cada persona repartido
+ *     entre sus Files, sin doble conteo — ver horasAsignadasPorFile) se reparte
+ *     entre tramos según las horas OCUPADAS de cada tramo (su propio reparto),
+ *     escaladas al total para no duplicar. T4→T5 se queda con el remanente,
+ *     para que la suma cuadre al centavo.
  *     No se reparte por tiempo transcurrido (`porEtapa`): sin Ducafast, T1–T3
  *     es sobre todo espera en cola con muchos Files en paralelo por persona, y
  *     ese peso le cargaba a T1–T3 casi todo el costo — dejaba T4→T5 sin
@@ -1503,26 +1593,35 @@ export interface AhorroPorTiempos {
  *     Ducafast ocurre ahí). T4→T5 no lleva licencias.
  *   · Base: los tres usan los mismos Files (n del total), así que el costo por
  *     File de T1→T3 + T4→T5 = el del total en cada grupo.
+ *   · Los tres repartos (total, T1→T3 y T4→T5) se calculan sobre el universo ENTERO y luego se
+ *     separan los grupos, igual que en ahorroDucafast. Sin `reparto` se calculan sobre `exps`.
  */
 export function ahorroPorTiempos(
   exps: Expediente[],
   tarifa = TARIFA_HORA_DEFECTO,
+  reparto: RepartoReloj = repartoPorTramos(exps),
 ): AhorroPorTiempos {
+  const repartoTotal = reparto.total;
+  // Peso de cada tramo = sus horas ocupadas por separado. Sumadas pasan del
+  // total (el reparto de un tramo no se deduce del de otro), por eso solo se
+  // usan como proporción.
+  const reparto13 = reparto.t13;
+  const reparto45 = reparto.t45;
+
   const grupo = (lista: Expediente[]) => {
-    const c = costoTiempo(lista, tarifa, false, false, ETAPA_KEYS);
-    const u = costoUnitario(c);
-    // Peso de cada tramo = sus horas ocupadas por separado. Sumadas pasan del
-    // total (la unión no es aditiva), por eso solo se usan como proporción.
-    const h13 = costoTiempo(lista, tarifa, false, false, TRAMO_T13).horas;
-    const h45 = costoTiempo(lista, tarifa, false, false, TRAMO_T45).horas;
-    const horasT13 = h13 + h45 > 0 ? c.costo * (h13 / (h13 + h45)) : 0;
-    const n = u.expedientes;
+    const base = lista.filter((e) => segundosMedidos(e, ETAPA_KEYS) > 0);
+    const suma = (m: Map<Expediente, number>) => base.reduce((s, e) => s + (m.get(e) ?? 0), 0);
+    const costoHoras = suma(repartoTotal) * tarifa;
+    const h13 = suma(reparto13), h45 = suma(reparto45);
+    const horasT13 = h13 + h45 > 0 ? costoHoras * (h13 / (h13 + h45)) : 0;
+    const licencias = base.reduce((s, e) => s + e.costoLicencias, 0);
+    const n = base.length;
     const porFile = (monto: number) => (n > 0 ? monto / n : 0);
     return {
       n,
-      t13: porFile(horasT13 + u.costoLicencias),
-      t45: porFile(c.costo - horasT13),
-      total: u.porExpediente,
+      t13: porFile(horasT13 + licencias),
+      t45: porFile(costoHoras - horasT13),
+      total: porFile(costoHoras + licencias),
     };
   };
   const con = grupo(exps.filter((e) => e.ducafast));
@@ -1551,15 +1650,18 @@ export interface PuntoAhorro extends AhorroDucafast {
  * Agrupa por el mes de CREACIÓN del expediente (mismo criterio que el resto
  * de las series del reporte: serieTemporal, cargaYCapacidad, el timeline de
  * "Costo por mes") y le aplica `ahorroDucafast` a cada bloque — así cada
- * punto es exactamente el mismo cálculo que el número grande, solo que sobre
- * el recorte de ese periodo en vez de todo el rango filtrado. Un mes sin
- * ambos grupos (con y sin Ducafast) sale con `disponible: false`, no en cero.
+ * punto es el mismo cálculo que el número grande, solo que con los Files de
+ * ese periodo. El reloj se reparte UNA vez sobre todo el rango (no mes por
+ * mes), para que cada File cueste lo mismo en su mes que en el total y los
+ * meses sumen casi lo que el total. Un mes sin ambos grupos (con y sin
+ * Ducafast) sale con `disponible: false`, no en cero.
  */
 export function serieAhorroDucafast(
   exps: Expediente[],
   tarifa = TARIFA_HORA_DEFECTO,
   porDia = false,
   alcance: EtapaKey[] = ETAPA_KEYS,
+  horas: Map<Expediente, number> = horasAsignadasPorFile(exps, alcance),
 ): PuntoAhorro[] {
   const grupos = new Map<string, Expediente[]>();
   for (const e of exps) {
@@ -1573,7 +1675,7 @@ export function serieAhorroDucafast(
     .map(([clave, lista]) => ({
       clave,
       label: porDia ? etiquetaDia(clave) : etiquetaMes(clave),
-      ...ahorroDucafast(lista, tarifa, alcance),
+      ...ahorroDucafast(lista, tarifa, alcance, horas),
     }));
 }
 
