@@ -5,7 +5,7 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
-import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ObjetivoMes, OnHoldDoc, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
+import type { AtrasoDetalle, AtrasoReparto, AttributionKind, BoardAlcance, ClaseEntry, DelayAttribution, MetaCliente, MetasImplementacionDoc, MetodologiaCalif, DelayResponsible, ObjetivoMes, OnHoldDoc, ProjItemBaseline, ReqBaseline, WeeklySnapshotDoc } from "@/types";
 import { leerDocMetas } from "@/lib/implementaciones";
 import { estaEnOnHold, leerOnHold, type OnHoldTipo } from "@/lib/onHold";
 import { esMesValido } from "@/lib/metodologia";
@@ -270,6 +270,19 @@ export async function saveBoardAlcance(boardId: string, alcance: string, by: str
 export async function deleteBoardAlcance(boardId: string): Promise<void> {
   const db = getAdminDb();
   await db.collection("board_alcance").doc(boardId).delete();
+}
+
+// ── Clase A/B/C de Proyectos y PML (pestaña Clasificación) ─────────────────
+// Un solo documento `clasificacion/actual` con un mapa por id (board o PML): se lee con UNA lectura
+// en cada carga del dashboard, y dos personas clasificando cosas distintas a la vez no se pisan.
+export async function getClases(): Promise<Record<string, ClaseEntry>> {
+  const snap = await getAdminDb().collection("clasificacion").doc("actual").get();
+  return snap.exists ? (snap.data() as Record<string, ClaseEntry>) : {};
+}
+
+export async function saveClase(id: string, clase: ClaseEntry["clase"], by: string): Promise<void> {
+  const entrada: ClaseEntry = { clase, by, at: new Date().toISOString() };
+  await getAdminDb().collection("clasificacion").doc("actual").set({ [id]: entrada }, { merge: true });
 }
 
 // ── Histórico semanal del portafolio (Control Tower) ───────────────────────

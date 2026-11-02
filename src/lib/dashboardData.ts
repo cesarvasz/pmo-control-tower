@@ -12,6 +12,7 @@ import { buildBenefitTypeMap, buildEstrategiaMap, buildIniLookup, buildNameResol
 import { reqProcess } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
 import { leerOnHold } from "@/lib/onHold";
+import { leerClases } from "@/lib/claseProyecto";
 import type { DashboardData, DashboardRaw, DirectorioEntry, ProjItem, ProjItemBaseline } from "@/types";
 
 // Columna Email del board Directorio RH (el nombre del item es el nombre del recurso).
@@ -53,6 +54,7 @@ export function buildDashboardData(raw: DashboardRaw): DashboardData {
     atrasoDetalles: raw.atrasoDetalles ?? {},
     boardAlcance: raw.boardAlcance ?? {},
     onHold: leerOnHold(raw.onHold),
+    clases: leerClases(raw.clases),
     directorio, devTeamRoster, estrategiaMap, reminderMap,
     fetchedAt: new Date(raw.fetchedAt),
   };

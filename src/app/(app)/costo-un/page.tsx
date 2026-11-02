@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { lookupEstrategia, splitBoardName } from "@/lib/proj";
-import { CLASES, PAISES_TODOS, PROYECTO_SIN_ID, claseDeCodigo, type Clase } from "@/lib/claseProyecto";
+import { CLASES, PAISES_TODOS, PROYECTO_SIN_ID, claseDeCodigo, claseDePml, claseDeProyecto, type Clase } from "@/lib/claseProyecto";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
 // El step (ítem) que contiene los Hitos como subelementos, en la fase "Launch | Desarrollo".
@@ -198,7 +198,7 @@ const CLASE_COLOR: Record<Clase, string> = {
   "Sin clasificar": "var(--text-disabled)",
 };
 
-type ClaseItem = { nombre: string; clase: Clase; paises: readonly string[] };
+type ClaseItem = { nombre: string; clase: Clase; paises: readonly string[]; esProyecto: boolean };
 type FilaClase = { label: string } & Record<Clase, number> & { total: number; nombres: Record<Clase, string[]> };
 const nombresVacios = (): Record<Clase, string[]> => ({ A: [], B: [], C: [], "Sin clasificar": [] });
 
@@ -382,19 +382,21 @@ export default function CostoUnidadNegocioPage() {
     return [...m.entries()].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
   }, [proyFiltrados]);
 
-  // Clasificación A/B/C. Proyectos: cada board según su código PM-XXX + el proyecto
-  // sin ID. Clase C: todos los PML (su país sale de la Estrategia). Un proyecto
-  // fuera de la tabla queda "Sin clasificar" y no se sabe a qué países aplica.
+  // Clasificación A/B/C. La clase es la que se asignó en Calidad & Cumplimiento → Clasificación; la
+  // que nadie ha asignado es la de siempre: Proyectos según su código PM-XXX (+ el proyecto sin ID,
+  // Clase A) y Clase C para todos los PML (su país sale de la Estrategia). Los países de un proyecto
+  // salen de la tabla de claseProyecto.ts: uno fuera de la tabla queda "Sin clasificar" (si nadie
+  // le asignó clase) y no se sabe a qué países aplica.
   const clasificados = useMemo<ClaseItem[]>(() => {
     const out: ClaseItem[] = [];
+    const clases = data?.clases ?? {};
     for (const b of data?.projBoards ?? []) {
       const { code } = splitBoardName(b.name);
-      const info = claseDeCodigo(code);
-      out.push({ nombre: b.name, clase: info?.clase ?? "Sin clasificar", paises: info?.paises ?? [] });
+      out.push({ nombre: b.name, clase: claseDeProyecto(code, b.id, clases), paises: claseDeCodigo(code)?.paises ?? [], esProyecto: true });
     }
-    out.push({ nombre: PROYECTO_SIN_ID.nombre, clase: PROYECTO_SIN_ID.info.clase, paises: PROYECTO_SIN_ID.info.paises });
+    out.push({ nombre: PROYECTO_SIN_ID.nombre, clase: PROYECTO_SIN_ID.info.clase, paises: PROYECTO_SIN_ID.info.paises, esProyecto: true });
     for (const r of rows) {
-      if (r.kind === "REQ") out.push({ nombre: r.id ? `${r.id} — ${r.name}` : r.name, clase: "C", paises: [r.pais.trim() || "(sin dato)"] });
+      if (r.kind === "REQ") out.push({ nombre: r.id ? `${r.id} — ${r.name}` : r.name, clase: claseDePml(r.id, clases), paises: [r.pais.trim() || "(sin dato)"], esProyecto: false });
     }
     return out;
   }, [data, rows]);
@@ -423,7 +425,7 @@ export default function CostoUnidadNegocioPage() {
   // Proyectos (no PML) que abarcan algún país distinto de GT, con esos países.
   const fueraDeGT = useMemo(
     () => clasificados
-      .filter((x) => x.clase !== "C")
+      .filter((x) => x.esProyecto)
       .map((x) => ({ ...x, otros: x.paises.filter((p) => p !== "GT"), conGT: x.paises.includes("GT") }))
       .filter((x) => x.otros.length > 0)
       .sort((a, b) => b.otros.length - a.otros.length || a.nombre.localeCompare(b.nombre, undefined, { numeric: true })),
@@ -700,11 +702,11 @@ export default function CostoUnidadNegocioPage() {
           </div>
           <Breakdown title="Por Sponsor" data={bySponsor} />
 
-          {/* Clasificación A / B / C (Clase C = todos los PML) */}
+          {/* Clasificación A / B / C (sin asignar, Clase C = todos los PML) */}
           <div className="grid gap-4 lg:grid-cols-2">
             <ClaseBars
               title="Cantidad por Clase"
-              nota={`Clase A y B = proyectos; Clase C = PML. El proyecto "${PROYECTO_SIN_ID.nombre}" no tiene PM ID y cuenta en Clase A.${sinClasificar.length ? ` Sin clasificar: ${sinClasificar.map((x) => splitBoardName(x.nombre).code || x.nombre).join(", ")}.` : ""}`}
+              nota={`Clase asignada en Calidad & Cumplimiento → Clasificación; sin asignar, A y B = proyectos y C = PML. El proyecto "${PROYECTO_SIN_ID.nombre}" no tiene PM ID y cuenta en Clase A.${sinClasificar.length ? ` Sin clasificar: ${sinClasificar.map((x) => splitBoardName(x.nombre).code || x.nombre).join(", ")}.` : ""}`}
               data={porClase}
             />
             <ClaseBars
@@ -750,7 +752,7 @@ export default function CostoUnidadNegocioPage() {
               ))}
             </div>
             <p className="mt-3 text-[0.7rem] leading-relaxed text-[var(--text-muted)]">
-              Solo proyectos clasificados (A y B) con países asignados. &quot;y GT&quot; indica que además aplican a Guatemala.
+              Solo proyectos con países asignados. &quot;y GT&quot; indica que además aplican a Guatemala.
               PM-006 no aparece hasta que se definan sus países.
             </p>
           </div>

@@ -8,6 +8,7 @@
 //     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
 //   · Metodología (peso 15): nota 0-100 por persona y mes, ver MetodologiaTab.
 //   · VPA: los indicadores de «Objetivos de Calidad» del VPA, calificados por un Admin cada mes, ver VpaTab.
+//   · Clasificación: todos los Proyectos y PML con su ID, nombre, PM, CKU y Sponsor, ver ClasificacionTab.
 // Objetivo: ver cuántos casos hay de cada tipo y QUIÉN ha sido el responsable
 // asignado, para medir patrones y poder asignar responsables desde aquí mismo
 // (reutiliza ResponsibleSelect — misma atribución que REQ/Proyectos).
@@ -25,6 +26,7 @@ import MultiSelect, { type MSOption } from "@/components/MultiSelect";
 import MetodologiaTab from "@/components/MetodologiaTab";
 import VpaTab from "@/components/VpaTab";
 import OnHoldTab from "@/components/OnHoldTab";
+import ClasificacionTab from "@/components/ClasificacionTab";
 import { listPMs } from "@/lib/players";
 import { EmptyRow, ErrorBox, FilterReset, Loader, Pill, StatCard } from "@/components/ui";
 import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
@@ -37,7 +39,7 @@ export default function CalidadCumplimientoPage() {
   // medición lo usan. La pestaña «On Hold» necesita verlo todo para poder pausar y reactivar.
   const { data, dataTodo, loading, error } = useData();
   const { me } = useMe();
-  const [tab, setTab] = useState<"entrega" | "reproceso" | "metodologia" | "vpa" | "onhold">("entrega");
+  const [tab, setTab] = useState<"entrega" | "reproceso" | "metodologia" | "vpa" | "onhold" | "clasificacion">("entrega");
 
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
@@ -63,6 +65,7 @@ export default function CalidadCumplimientoPage() {
           ["metodologia", "Metodología"],
           ["vpa", "VPA"],
           ["onhold", "On Hold"],
+          ["clasificacion", "Clasificación"],
         ] as const).map(([v, label]) => (
           <button
             key={v}
@@ -83,6 +86,8 @@ export default function CalidadCumplimientoPage() {
         ? <VpaTab />
         : tab === "onhold"
         ? <OnHoldTab data={dataTodo ?? data} />
+        : tab === "clasificacion"
+        ? <ClasificacionTab data={dataTodo ?? data} />
         : <ReprocesoTab ini={ini} req={req} proj={proj} projBoards={projBoards} reproceso={reproceso} canEditFilters={canEditFilters} />}
     </div>
   );

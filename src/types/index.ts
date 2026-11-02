@@ -272,6 +272,15 @@ export interface BoardAlcance {
   at?: string;     // ISO timestamp
 }
 
+/** Clase (A, B o C) que se le asignó a un Proyecto o PML en la pestaña Clasificación de
+ *  Calidad & Cumplimiento (ver lib/claseProyecto.ts). Vive en Firestore (`clasificacion/actual`),
+ *  un mapa por id (de board para un Proyecto, de item para un PML). */
+export interface ClaseEntry {
+  clase: "A" | "B" | "C";
+  by: string; // correo de quien la asignó
+  at: string; // ISO timestamp
+}
+
 /** Quién, cuándo y por qué se puso un Proyecto o PML en On Hold. */
 export interface OnHoldEntry {
   by: string; // correo de quien lo puso en On Hold
@@ -317,6 +326,7 @@ export interface DashboardRaw {
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Firestore) — tabla Atrasos
   boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto (Firestore) — Status Card
   onHold: OnHoldDoc; // Proyectos y PML en On Hold (Firestore) — fuera de toda métrica
+  clases: Record<string, ClaseEntry>; // id (board o PML) → Clase A/B/C asignada a mano (Firestore) — pestaña Clasificación
   reminderLog: ReminderEnvio[]; // registro de correos "Sin Valor Def" enviados por Apps Script
   fetchedAt: string;
 }
@@ -582,6 +592,9 @@ export interface DashboardData {
   /** Proyectos y PML en On Hold. En el `data` que ven las métricas ya vienen EXCLUIDOS (ver
    *  aplicarOnHold); este mapa se conserva para saber cuáles son. */
   onHold: OnHoldDoc;
+  /** Clase A/B/C asignada a mano a un Proyecto o PML, por id. Lo que no está aquí usa la clase
+   *  por defecto (ver lib/claseProyecto.ts). */
+  clases: Record<string, ClaseEntry>;
   directorio: DirectorioEntry[];
   /** nombres normalizados del Equipo de Desarrollo Interno + Externo (Directorio RH) —
    *  filtra los hitos de plantilla nueva en "Desarrollo Timelines" (ver devTimeline.ts). */

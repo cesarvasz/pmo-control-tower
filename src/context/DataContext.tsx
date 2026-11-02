@@ -17,6 +17,7 @@ import { authedFetch } from "@/lib/api";
 import { esRolSponsor } from "@/lib/permissions";
 import { calcProjEntrega, projProcess } from "@/lib/proj";
 import { buildDashboardData } from "@/lib/dashboardData";
+import type { ClaseAsignable } from "@/lib/claseProyecto";
 import { aplicarOnHold, conMotivoOnHold, conOnHold, enOnHold, type EnOnHold, type OnHoldTipo } from "@/lib/onHold";
 import { nombreDeEmail, scopeToSponsor } from "@/lib/sponsorScope";
 import type { BoardRefreshResponse } from "@/app/api/dashboard/board/[boardId]/route";
@@ -68,6 +69,9 @@ interface DataContextValue {
   /** Cambia (optimista) el motivo de algo que ya está en On Hold. La persistencia la hace el
    *  caller vía PATCH /api/on-hold. */
   setMotivoOnHold: (tipo: OnHoldTipo, id: string, motivo: string) => void;
+  /** Asigna (optimista) la Clase A/B/C de un Proyecto (id de board) o PML (id del item). La
+   *  persistencia la hace el caller vía POST /api/clasificacion (ver ClasificacionTab). */
+  setClase: (id: string, clase: ClaseAsignable, by?: string) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -242,6 +246,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setData((prev) => (prev ? { ...prev, onHold: conMotivoOnHold(prev.onHold, tipo, id, motivo) } : prev));
   }, []);
 
+  // Actualización optimista de la Clase de un Proyecto o PML; evita un refetch completo.
+  const setClase = useCallback((id: string, clase: ClaseAsignable, by = "") => {
+    setData((prev) => (prev ? { ...prev, clases: { ...prev.clases, [id]: { clase, by, at: new Date().toISOString() } } } : prev));
+  }, []);
+
   // Carga inicial una sola vez, cuando hay sesión. Los datos NO se refrescan solos:
   // solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
   useEffect(() => {
@@ -258,7 +267,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, dataTodo, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold }}>
+    <DataContext.Provider value={{ data, dataTodo, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold, setClase }}>
       {children}
     </DataContext.Provider>
   );
