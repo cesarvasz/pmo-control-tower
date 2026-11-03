@@ -1,7 +1,8 @@
 // src/lib/onHoldLista.ts
-// La lista de la pestaña «On Hold» de Calidad & Cumplimiento: todos los Proyectos y PML que
-// todavía no se completan, con o sin On Hold, para poder pausarlos o reactivarlos desde ahí.
-// Módulo PURO. Recibe el dashboard COMPLETO (`dataTodo`, con lo pausado incluido).
+// Los Proyectos y PML que todavía no se completan, con o sin On Hold, para poder pausarlos o
+// reactivarlos desde la pestaña «Clasificación» de Calidad & Cumplimiento (ver lib/clasificacion.ts,
+// que arma la tabla completa con esto). Módulo PURO. Recibe el dashboard COMPLETO (`dataTodo`, con
+// lo pausado incluido).
 
 import { enOnHold as estaPausado, type OnHoldTipo } from "@/lib/onHold";
 import { itemsMedibles, splitBoardName } from "@/lib/proj";

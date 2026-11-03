@@ -233,7 +233,7 @@ export function OnHoldBadge({ motivo }: { motivo?: string }) {
 /** Un Proyecto o PML en On Hold como chip clicable (franja «On Hold» de la tarjeta del PM): al
  *  hacer clic abre, solo para leer, el motivo y quién y cuándo lo puso en On Hold, con un botón
  *  para ir a la lista (lo que hacía el chip antes). Editar el motivo sigue siendo desde la
- *  pestaña On Hold. */
+ *  pestaña Clasificación de Calidad & Cumplimiento. */
 export function OnHoldChip({ tipo, codigo, nombre, entry, onIr }: {
   tipo: OnHoldTipo;
   /** Lo que se ve en el chip: el PML ID o el código del proyecto. */

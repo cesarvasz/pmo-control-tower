@@ -1,12 +1,17 @@
 "use client";
 
 // Pestaña «Clasificación» de Calidad & Cumplimiento: todos los Proyectos y PML con su ID, nombre,
-// PM, CKU y Sponsor (ver lib/clasificacion.ts), y un dropdown para clasificar cada uno como Clase
-// A, B o C. Lee el dashboard COMPLETO (`dataTodo`): aquí va todo, también lo completo, cerrado o en
-// On Hold. Primero los Proyectos y luego los PML; cada tipo lleva su color (los mismos de la
-// pestaña On Hold). La clase se guarda con POST /api/clasificacion y solo la cambia quien tiene la
-// acción "edit_clasificacion"; el resto la ve de solo lectura. Lo que nadie ha clasificado muestra
-// su clase de siempre (ver lib/claseProyecto.ts) y la nueva la reemplaza.
+// PM, CKU y Sponsor (ver lib/clasificacion.ts), un dropdown para clasificar cada uno como Clase A,
+// B o C y todo lo de On Hold (fase, situación, motivo y el botón para pausarlo o reactivarlo): es la
+// unión de lo que antes eran dos pestañas. Lee el dashboard COMPLETO (`dataTodo`): aquí va todo,
+// también lo completo, cerrado o en On Hold. Primero los Proyectos y luego los PML; cada tipo lleva
+// su color (los mismos de la campanita de notificaciones).
+// · La clase se guarda con POST /api/clasificacion y solo la cambia quien tiene la acción
+//   "edit_clasificacion". Lo que nadie ha clasificado muestra su clase de siempre (ver
+//   lib/claseProyecto.ts) y la nueva la reemplaza.
+// · Lo que está en On Hold no cuenta en ninguna métrica (ver lib/onHold.ts). Solo se puede pausar
+//   lo que aún no termina (un proyecto sin completar o un PML no CERRADO) y solo con la acción
+//   "edit_on_hold". Sin ella la información se ve igual, sin botones.
 
 import { useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
@@ -16,6 +21,7 @@ import { CLASES_ASIGNABLES, type ClaseAsignable } from "@/lib/claseProyecto";
 import { filasClasificacion, type FilaClasificacion, type TipoClasificacion } from "@/lib/clasificacion";
 import { hasAction } from "@/lib/permissions";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
+import OnHoldButton, { OnHoldBadge, OnHoldMotivo } from "@/components/OnHoldButton";
 import { EmptyRow, FilterReset, StatCard } from "@/components/ui";
 import type { DashboardData } from "@/types";
 
@@ -35,13 +41,15 @@ const etiquetaClase = (c: string) => (c === "Sin clasificar" ? c : `Clase ${c}`)
 
 const sinDato = <span className="text-[var(--text-disabled)]">—</span>;
 
-export default function ClasificacionTab({ data }: { data: Pick<DashboardData, "projBoards" | "req" | "estrategiaMap" | "clases"> }) {
+export default function ClasificacionTab({ data }: { data: DashboardData }) {
   const { me } = useMe();
   const { setClase, refresh } = useData();
-  const puede = hasAction(me?.permissions, "edit_clasificacion");
+  const puedeClase = hasAction(me?.permissions, "edit_clasificacion");
+  const puedePausar = hasAction(me?.permissions, "edit_on_hold");
 
   const [sel, setSel] = useState<Record<Dimension, string[]>>(SIN_FILTROS);
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
+  const [soloOnHold, setSoloOnHold] = useState(false);
 
   // La lista ya viene ordenada: Proyectos por ID y luego PML por PML ID.
   const filas = useMemo(() => filasClasificacion(data), [data]);
@@ -49,6 +57,7 @@ export default function ClasificacionTab({ data }: { data: Pick<DashboardData, "
   // Los números de cada filtro cuentan lo que quedaría con los OTROS filtros puestos.
   const pasa = (f: FilaClasificacion, ignorar?: Dimension | "tipo") =>
     (ignorar === "tipo" || tipo === "todos" || f.tipo === tipo) &&
+    (!soloOnHold || f.enOnHold) &&
     (["pm", "cku", "sponsor", "clase"] as const).every((d) => ignorar === d || !sel[d].length || sel[d].includes(f[d]));
 
   const opciones = (d: Dimension): MSOption[] => {
@@ -65,7 +74,8 @@ export default function ClasificacionTab({ data }: { data: Pick<DashboardData, "
   const cuenta = (t: FiltroTipo) => (t === "todos" ? baseTipo.length : baseTipo.filter((f) => f.tipo === t).length);
 
   const visibles = filas.filter((f) => pasa(f));
-  const hayFiltro = tipo !== "todos" || Object.values(sel).some((v) => v.length > 0);
+  const nOnHold = filas.filter((f) => f.enOnHold).length;
+  const hayFiltro = tipo !== "todos" || soloOnHold || Object.values(sel).some((v) => v.length > 0);
 
   // Optimista: la clase cambia al instante; si el servidor la rechaza, se vuelve a cargar lo real.
   const clasificar = async (f: FilaClasificacion, clase: ClaseAsignable) => {
@@ -83,16 +93,21 @@ export default function ClasificacionTab({ data }: { data: Pick<DashboardData, "
     }
   };
 
+  const sinPermiso = [!puedeClase && "la clase", !puedePausar && "el On Hold"].filter(Boolean).join(" ni ");
+
   return (
     <div>
       <p className="mb-4 text-[0.82rem] text-[var(--text-muted)]">
-        Todos los Proyectos y PML con su PM, CKU y Sponsor.
-        {puede ? " Clasifica cada uno como Clase A, B o C." : " Solo quien tiene el permiso puede cambiar la clase."}
+        Todos los Proyectos y PML con su PM, CKU y Sponsor, su Clase (A, B o C) y su situación de On Hold. Lo que pongas en
+        On Hold deja de contar en todas las métricas hasta que lo reactives.
+        {sinPermiso && ` No tienes permiso para cambiar ${sinPermiso}.`}
       </p>
 
-      <div className="mb-5 grid grid-cols-3 gap-4 sm:max-w-xl">
+      <div className="mb-5 grid grid-cols-2 gap-4 sm:max-w-2xl sm:grid-cols-4">
         <StatCard value={filas.filter((f) => f.tipo === "proyecto").length} label="Proyectos" color={COLOR_TIPO.proyecto} borderColor={COLOR_TIPO.proyecto} />
         <StatCard value={filas.filter((f) => f.tipo === "pml").length} label="PML" color={COLOR_TIPO.pml} borderColor={COLOR_TIPO.pml} />
+        <StatCard value={nOnHold} label="En On Hold" color="var(--warn)" borderColor="var(--warn)"
+          active={soloOnHold} onClick={() => setSoloOnHold((v) => !v)} />
         <StatCard value={filas.length} label="Total" />
       </div>
 
@@ -120,20 +135,24 @@ export default function ClasificacionTab({ data }: { data: Pick<DashboardData, "
         <MultiSelect label="CKU" options={opciones("cku")} selected={sel.cku} onToggle={toggle("cku")} onToggleAll={limpiar("cku")} />
         <MultiSelect label="Sponsor" options={opciones("sponsor")} selected={sel.sponsor} onToggle={toggle("sponsor")} onToggleAll={limpiar("sponsor")} />
 
-        {hayFiltro && <FilterReset onClick={() => { setSel(SIN_FILTROS); setTipo("todos"); }} />}
+        {hayFiltro && <FilterReset onClick={() => { setSel(SIN_FILTROS); setTipo("todos"); setSoloOnHold(false); }} />}
       </div>
 
       {visibles.length === 0 ? <EmptyRow /> : (
         <div className="table-wrap">
           <table className="pmo">
             <thead>
-              <tr><th>Tipo</th><th>ID</th><th>Nombre</th><th>PM</th><th>CKU</th><th>Sponsor</th><th>Clase</th></tr>
+              <tr>
+                <th>Tipo</th><th>ID</th><th>Nombre</th><th>PM</th><th>CKU</th><th>Sponsor</th><th>Clase</th>
+                <th>Fase</th><th>Situación</th><th>Motivo</th>
+                {puedePausar && <th />}
+              </tr>
             </thead>
             <tbody>
               {visibles.map((f) => {
                 const color = COLOR_TIPO[f.tipo];
                 return (
-                  <tr key={`${f.tipo}-${f.id}`}>
+                  <tr key={`${f.tipo}-${f.id}`} style={f.enOnHold ? { opacity: 0.75 } : undefined}>
                     <td style={{ borderLeft: `3px solid ${color}` }}>
                       <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-[0.7rem] font-semibold"
                         style={{ background: tinte(color), color }}>
@@ -146,7 +165,7 @@ export default function ClasificacionTab({ data }: { data: Pick<DashboardData, "
                     <td style={{ color: "var(--text-secondary)" }}>{f.cku || sinDato}</td>
                     <td style={{ color: "var(--text-secondary)" }}>{f.sponsor || sinDato}</td>
                     <td>
-                      {puede ? (
+                      {puedeClase ? (
                         <select
                           value={f.clase} onChange={(e) => clasificar(f, e.target.value as ClaseAsignable)}
                           aria-label={`Clase de ${f.codigo}`}
@@ -160,6 +179,24 @@ export default function ClasificacionTab({ data }: { data: Pick<DashboardData, "
                         <span className="whitespace-nowrap text-[0.8rem] font-semibold text-[var(--text-secondary)]">{etiquetaClase(f.clase)}</span>
                       )}
                     </td>
+                    <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{f.fase}</td>
+                    <td>
+                      {f.enOnHold
+                        ? <OnHoldBadge motivo={f.motivo} />
+                        : f.pausable
+                          ? <span className="text-[0.78rem] text-[var(--text-muted)]">Activo</span>
+                          : sinDato}
+                    </td>
+                    <td>
+                      {f.enOnHold
+                        ? <OnHoldMotivo tipo={f.tipo} id={f.id} nombre={f.codigo} motivo={f.motivo} />
+                        : <span className="text-[var(--text-muted)]">—</span>}
+                    </td>
+                    {puedePausar && (
+                      <td style={{ textAlign: "right" }}>
+                        {f.pausable && <OnHoldButton tipo={f.tipo} id={f.id} nombre={f.codigo} activo={f.enOnHold} />}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
