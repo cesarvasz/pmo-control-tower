@@ -18,7 +18,7 @@ import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
 import { CLASES_ASIGNABLES, type ClaseAsignable } from "@/lib/claseProyecto";
-import { filasClasificacion, type FilaClasificacion, type TipoClasificacion } from "@/lib/clasificacion";
+import { enSituacion, filasClasificacion, type FiltroSituacion, type FilaClasificacion, type TipoClasificacion } from "@/lib/clasificacion";
 import { hasAction } from "@/lib/permissions";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
 import OnHoldButton, { OnHoldBadge, OnHoldMotivo } from "@/components/OnHoldButton";
@@ -30,6 +30,10 @@ const ETIQUETA_TIPO: Record<TipoClasificacion, string> = { proyecto: "Proyecto",
 
 type FiltroTipo = "todos" | TipoClasificacion;
 const FILTROS_TIPO: [FiltroTipo, string][] = [["todos", "Todos"], ["proyecto", "Proyectos"], ["pml", "PML"]];
+
+/** Por defecto la tabla muestra solo los Activos (ver enSituacion en lib/clasificacion.ts). */
+const SITUACION_INICIAL: FiltroSituacion = "activos";
+const FILTROS_SITUACION: [FiltroSituacion, string][] = [["activos", "Activos"], ["onhold", "En On Hold"], ["terminados", "Terminados"], ["todos", "Todos"]];
 
 type Dimension = "pm" | "cku" | "sponsor" | "clase";
 const SIN_FILTROS: Record<Dimension, string[]> = { pm: [], cku: [], sponsor: [], clase: [] };
@@ -49,15 +53,15 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
 
   const [sel, setSel] = useState<Record<Dimension, string[]>>(SIN_FILTROS);
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
-  const [soloOnHold, setSoloOnHold] = useState(false);
+  const [situacion, setSituacion] = useState<FiltroSituacion>(SITUACION_INICIAL);
 
   // La lista ya viene ordenada: Proyectos por ID y luego PML por PML ID.
   const filas = useMemo(() => filasClasificacion(data), [data]);
 
   // Los números de cada filtro cuentan lo que quedaría con los OTROS filtros puestos.
-  const pasa = (f: FilaClasificacion, ignorar?: Dimension | "tipo") =>
+  const pasa = (f: FilaClasificacion, ignorar?: Dimension | "tipo" | "situacion") =>
     (ignorar === "tipo" || tipo === "todos" || f.tipo === tipo) &&
-    (!soloOnHold || f.enOnHold) &&
+    (ignorar === "situacion" || enSituacion(f, situacion)) &&
     (["pm", "cku", "sponsor", "clase"] as const).every((d) => ignorar === d || !sel[d].length || sel[d].includes(f[d]));
 
   const opciones = (d: Dimension): MSOption[] => {
@@ -73,9 +77,12 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
   const baseTipo = filas.filter((f) => pasa(f, "tipo"));
   const cuenta = (t: FiltroTipo) => (t === "todos" ? baseTipo.length : baseTipo.filter((f) => f.tipo === t).length);
 
+  const baseSituacion = filas.filter((f) => pasa(f, "situacion"));
+  const cuentaSituacion = (s: FiltroSituacion) => baseSituacion.filter((f) => enSituacion(f, s)).length;
+
   const visibles = filas.filter((f) => pasa(f));
   const nOnHold = filas.filter((f) => f.enOnHold).length;
-  const hayFiltro = tipo !== "todos" || soloOnHold || Object.values(sel).some((v) => v.length > 0);
+  const hayFiltro = tipo !== "todos" || situacion !== SITUACION_INICIAL || Object.values(sel).some((v) => v.length > 0);
 
   // Optimista: la clase cambia al instante; si el servidor la rechaza, se vuelve a cargar lo real.
   const clasificar = async (f: FilaClasificacion, clase: ClaseAsignable) => {
@@ -98,8 +105,8 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
   return (
     <div>
       <p className="mb-4 text-[0.82rem] text-[var(--text-muted)]">
-        Todos los Proyectos y PML con su PM, CKU y Sponsor, su Clase (A, B o C) y su situación de On Hold. Lo que pongas en
-        On Hold deja de contar en todas las métricas hasta que lo reactives.
+        Proyectos y PML con su PM, CKU y Sponsor, su Clase (A, B o C) y su situación de On Hold; por defecto se ven los
+        activos (en curso y sin pausar). Lo que pongas en On Hold deja de contar en todas las métricas hasta que lo reactives.
         {sinPermiso && ` No tienes permiso para cambiar ${sinPermiso}.`}
       </p>
 
@@ -107,7 +114,7 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
         <StatCard value={filas.filter((f) => f.tipo === "proyecto").length} label="Proyectos" color={COLOR_TIPO.proyecto} borderColor={COLOR_TIPO.proyecto} />
         <StatCard value={filas.filter((f) => f.tipo === "pml").length} label="PML" color={COLOR_TIPO.pml} borderColor={COLOR_TIPO.pml} />
         <StatCard value={nOnHold} label="En On Hold" color="var(--warn)" borderColor="var(--warn)"
-          active={soloOnHold} onClick={() => setSoloOnHold((v) => !v)} />
+          active={situacion === "onhold"} onClick={() => setSituacion((s) => (s === "onhold" ? SITUACION_INICIAL : "onhold"))} />
         <StatCard value={filas.length} label="Total" />
       </div>
 
@@ -130,12 +137,27 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
           </div>
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Situación</span>
+          <div role="group" aria-label="Filtrar por situación" className="inline-flex rounded-lg border p-0.5"
+            style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}>
+            {FILTROS_SITUACION.map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setSituacion(v)} aria-pressed={situacion === v}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                style={situacion === v ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-secondary)" }}>
+                {label}
+                <span className="text-xs tabular-nums opacity-70">({cuentaSituacion(v)})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <MultiSelect label="Clase" options={opciones("clase")} selected={sel.clase} onToggle={toggle("clase")} onToggleAll={limpiar("clase")} />
         <MultiSelect label="PM" options={opciones("pm")} selected={sel.pm} onToggle={toggle("pm")} onToggleAll={limpiar("pm")} />
         <MultiSelect label="CKU" options={opciones("cku")} selected={sel.cku} onToggle={toggle("cku")} onToggleAll={limpiar("cku")} />
         <MultiSelect label="Sponsor" options={opciones("sponsor")} selected={sel.sponsor} onToggle={toggle("sponsor")} onToggleAll={limpiar("sponsor")} />
 
-        {hayFiltro && <FilterReset onClick={() => { setSel(SIN_FILTROS); setTipo("todos"); setSoloOnHold(false); }} />}
+        {hayFiltro && <FilterReset onClick={() => { setSel(SIN_FILTROS); setTipo("todos"); setSituacion(SITUACION_INICIAL); }} />}
       </div>
 
       {visibles.length === 0 ? <EmptyRow /> : (

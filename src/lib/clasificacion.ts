@@ -35,6 +35,13 @@ export interface FilaClasificacion {
   motivo: string;
 }
 
+/** Situación de una fila, para filtrar la tabla: Activos = en curso y sin pausar · En On Hold = pausados ·
+ *  Terminados = proyectos completos y PML cerrados (ya no hay nada que pausar) · Todos = sin filtro. */
+export type FiltroSituacion = "activos" | "onhold" | "terminados" | "todos";
+
+export const enSituacion = (f: Pick<FilaClasificacion, "pausable" | "enOnHold">, s: FiltroSituacion): boolean =>
+  s === "todos" || (s === "activos" ? f.pausable && !f.enOnHold : s === "onhold" ? f.enOnHold : !f.pausable);
+
 /** ID y nombre de un board. Si Monday lo nombró sin la barra («PM-017 Impala 2.0»), igual se separa
  *  el ID del nombre; un board sin ningún ID («Sin barra») se queda entero como ID, sin nombre. */
 export function codigoYNombre(boardName: string): { code: string; name: string } {

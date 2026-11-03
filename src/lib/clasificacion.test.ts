@@ -11,7 +11,7 @@ vi.mock("@/lib/projSummary", () => ({
   currentPhaseIndex: (phases: unknown[]) => (phases.length ? 0 : -1),
 }));
 
-import { filasClasificacion } from "./clasificacion";
+import { enSituacion, filasClasificacion } from "./clasificacion";
 
 const ent = (clase: "A" | "B" | "C") => ({ clase, by: "admin@c807.com", at: "2026-11-02T10:00:00.000Z" });
 const pausa = { by: "admin@c807.com", at: "2026-11-02T10:00:00.000Z", motivo: "Esperando al cliente" };
@@ -140,6 +140,17 @@ describe("filasClasificacion", () => {
     it("un proyecto completo guardado en On Hold no figura como pausado (ya no hay nada que pausar)", () => {
       const f = filasClasificacion(data({}, { proyectos: { b3: pausa }, pml: {} }));
       expect(fila(f, "b3")).toMatchObject({ pausable: false, enOnHold: false });
+    });
+
+    it("enSituacion: activos = en curso y sin pausar; en On Hold; terminados = ya no hay nada que pausar", () => {
+      const f = filasClasificacion(data({}, { proyectos: { b1: pausa }, pml: {} }));
+      const ids = (s: Parameters<typeof enSituacion>[1]) => f.filter((x) => enSituacion(x, s)).map((x) => x.id).sort();
+      expect(ids("activos")).toEqual(["PML-10", "PML-2", "b2", "b4"]);        // en curso y sin pausar
+      expect(ids("onhold")).toEqual(["b1"]);                                    // pausado
+      expect(ids("terminados")).toEqual(["PML-3", "b3"]);                       // proyecto completo y PML cerrado
+      expect(ids("todos")).toHaveLength(7);
+      // Las tres situaciones reparten todas las filas, sin repetir ninguna.
+      expect(ids("activos").length + ids("onhold").length + ids("terminados").length).toBe(7);
     });
 
     it("pausar no cambia la clase", () => {
