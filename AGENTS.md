@@ -52,7 +52,7 @@ apps-script/      código .gs de los WebApps de Google (se pega a mano en script
 
 **Separación servidor / cliente — no la rompas:**
 
-- Solo servidor: [src/lib/monday.ts](src/lib/monday.ts), [src/lib/firebase-admin.ts](src/lib/firebase-admin.ts), `users.ts`, `roles.ts`, `groups.ts`, `surveys.ts`, `gcp-usage.ts`. Nunca los importes desde un componente `"use client"`.
+- Solo servidor: [src/lib/monday.ts](src/lib/monday.ts), [src/lib/firebase-admin.ts](src/lib/firebase-admin.ts), `users.ts`, `roles.ts`, `groups.ts`, `surveys.ts`. Nunca los importes desde un componente `"use client"`.
 - Los secretos (`MONDAY_API_KEY`, `FIREBASE_ADMIN_*`, URLs de WebApps, `CRON_SECRET`) **no** llevan prefijo `NEXT_PUBLIC_`. Solo la config web de Firebase y `NEXT_PUBLIC_ALLOWED_DOMAIN` son públicas.
 - La mayoría de los módulos de `lib/` son **puros** (sin I/O) y se usan en cliente y servidor; ahí va la lógica de negocio y ahí van los tests.
 

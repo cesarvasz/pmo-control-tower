@@ -56,8 +56,6 @@ export const PAGES: PageDef[] = [
   { key: "roles",       label: "Roles",         href: "/roles",     icon: "🛡", requiredAction: "manage_roles" },
   { key: "grupos",      label: "Grupos",        href: "/grupos",    icon: "🗂", requiredAction: "manage_roles" },
   { key: "calidad-cumplimiento", label: "Calidad & Cumplimiento", href: "/calidad-cumplimiento", icon: "🎯" },
-  // Solo Admin: consumo diario de Firestore (Cloud Monitoring), no es contenido de negocio.
-  { key: "uso-firebase", label: "Uso de Firebase", href: "/uso-firebase", icon: "🔥", requiredAction: "manage_roles" },
 ];
 
 // ── Acciones (lo que un rol puede HACER) ───────────────────────────────
