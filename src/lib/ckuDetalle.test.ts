@@ -4,7 +4,11 @@ import { calcEntregaStatsCku, calcReprocesoStatsPonderado } from "./dashboard";
 import { ACTIVIDADES_A_TIEMPO } from "./ckuAjustes";
 import { swapPmCku } from "./players";
 import type { DelayMap } from "./delay";
-import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { ClaseEntry, IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
+
+// La clase (A/B/C) asignada a mano en Calidad & Cumplimiento → Clasificación, por id de board o de PML.
+const cl = (m: Record<string, "A" | "B" | "C">): Record<string, ClaseEntry> =>
+  Object.fromEntries(Object.entries(m).map(([id, clase]) => [id, { clase, by: "", at: "" }]));
 
 const reqE = (id: string, verdict: "on-time" | "late", extra: Partial<ReqItem> = {}): ReqItem =>
   ({ id, name: `PML ${id}`, grupo: "Desarrollo", pm: "Javier", estado: "CERRADO", onTime: { verdict, phases: [] }, ...extra }) as unknown as ReqItem;
@@ -20,8 +24,8 @@ const iniE = (id: string, aTiempo: boolean): IniItem =>
 
 // El CKU medido en estos tests. Solo cuentan los entregables y actividades cuyo Responsible es él.
 const CKU = "Javier Juarez";
-const cumpl = (s: Omit<Parameters<typeof detalleCumplimiento>[0], "cku">, delays: DelayMap, original?: DelayMap) =>
-  detalleCumplimiento({ ...s, cku: CKU }, delays, original);
+const cumpl = (s: Omit<Parameters<typeof detalleCumplimiento>[0], "cku">, delays: DelayMap, original?: DelayMap, clases?: Record<string, ClaseEntry>) =>
+  detalleCumplimiento({ ...s, cku: CKU }, delays, original, clases);
 
 // Una actividad (subitem) de un item de Fase 3, a cargo del CKU salvo que se diga otra cosa.
 // entrega = su veredicto (solo Done con fechas); null = pendiente.
@@ -65,11 +69,43 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     expect(por("b2")).toMatchObject({ estado: "atraso", cuenta: true, valor: 0, responsable: null });
     expect(d.unidades.find((u) => u.id === "b3")).toBeUndefined();                  // pendiente: no es unidad
 
+    // Las fuentes del peso: Iniciativas y las Clases. Los PML valen Clase C (nadie les asignó otra) y los
+    // tres proyectos (PM-001/002/003) son Clase A en la tabla de claseProyecto.ts.
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
-    expect(f("req")).toMatchObject({ total: 2, buenas: 1, pct: 50 });               // r1 ok, r2 atraso (r3 excluido)
-    // Proyectos: c1, c2, a1, b1 a tiempo · b2 atraso · a2 excusada y b3 pendiente no cuentan → 4 de 5.
-    expect(f("proj")).toMatchObject({ total: 5, buenas: 4, pct: 80 });
+    expect(f("C")).toMatchObject({ total: 2, buenas: 1, pct: 50 });                 // PML: r1 ok, r2 atraso (r3 excluido)
+    // Proyectos (Clase A): c1, c2, a1, b1 a tiempo · b2 atraso · a2 excusada y b3 pendiente no cuentan → 4 de 5.
+    expect(f("A")).toMatchObject({ total: 5, buenas: 4, pct: 80 });
+    expect(f("B")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
     expect(f("ini")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
+    expect(d.sinClase).toBe(0);
+    // Cada unidad sabe de qué fuente cuenta: sus actividades, de la Clase A; sus PML, de la C.
+    expect(por("a1").fuenteEvm).toBe("A");
+    expect(por("r1").fuenteEvm).toBe("C");
+    expect(d.proyectos!.every((p) => p.clase === "A")).toBe(true);
+  });
+
+  it("la clase asignada manda: un PML en la Clase B pesa 30, y un proyecto sin clase no pesa pero se avisa", () => {
+    const s = {
+      req: [reqE("r1", "on-time"), reqE("r2", "late")],
+      proj: [item3("p1", "b1", [act("a1", "on-time")]), item3("p2", "b2", [act("b1", "late")])],
+      projBoards: boards, ini: [],
+    };
+    // r1 → Clase B; el proyecto b2 pasa a Clase C; b1 sigue en la A (tabla).
+    const d = cumpl(s, {}, undefined, cl({ r1: "B", b2: "C" }));
+    const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
+    expect(f("A")).toMatchObject({ total: 1, pct: 100 });                       // a1
+    expect(f("B")).toMatchObject({ total: 1, pct: 100 });                       // r1
+    expect(f("C")).toMatchObject({ total: 2, buenas: 0, pct: 0 });              // r2 (por defecto) y la actividad b1 (tarde)
+    expect(d.proyectos!.map((p) => [p.proyecto, p.clase])).toEqual([["PM-002 · Demo b2", "C"], ["PM-001 · Demo b1", "A"]]);
+
+    // Un proyecto sin clase (el nombre no está en la tabla) no entra en la nota, pero la unidad se cuenta aparte.
+    const sinClase = { req: [], proj: [{ ...item3("p3", "b9", [act("z1", "late")]), boardName: "Sin ID" } as ProjItem], projBoards: [], ini: [iniE("i1", true)] };
+    const dn = cumpl(sinClase, {});
+    expect(dn.sinClase).toBe(1);
+    expect(dn.pct).toBe(100);                                                   // solo pesa la Iniciativa
+    expect(dn.unidades.find((u) => u.id === "z1")).toMatchObject({ fuenteEvm: null });
+    // Asignándole una clase, el atraso empieza a pesar.
+    expect(cumpl(sinClase, {}, undefined, cl({ b9: "A" })).pct).toBe(Math.round((1 * 0.1 + 0 * 0.35) / 0.45 * 100));
   });
 
   it("las demás fases del proyecto (Valuación, Operación…) no entran en la medición del CKU", () => {
@@ -120,13 +156,14 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     expect(d.proyectos![0].items[0].actividades[0]).toMatchObject({ estado: "pendiente", ajustada: false });
   });
 
-  it("los pesos efectivos reparten el de las fuentes sin unidades (sin PML: Iniciativas 12.5% · Proyectos 87.5%)", () => {
+  it("los pesos efectivos reparten el de las fuentes sin unidades (solo Iniciativas y Clase A: 10/45 y 35/45)", () => {
     const d = cumpl(
       { req: [], proj: [item3("p1", "b1", [act("a1", "on-time")])], projBoards: [board], ini: [iniE("i1", true)] }, {});
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
-    expect(f("req")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
-    expect(f("ini").pesoEfectivo).toBeCloseTo(0.125, 5);
-    expect(f("proj").pesoEfectivo).toBeCloseTo(0.875, 5);
+    expect(f("C")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
+    expect(f("B")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
+    expect(f("ini").pesoEfectivo).toBeCloseTo(0.10 / 0.45, 5);
+    expect(f("A").pesoEfectivo).toBeCloseTo(0.35 / 0.45, 5);
     expect(d.fuentes.reduce((s, x) => s + (x.pesoEfectivo ?? 0), 0)).toBeCloseTo(1, 5);
   });
 
@@ -191,7 +228,7 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       ];
       const d = cumpl({ req: [], proj, projBoards: boards, ini: [] }, {});
       expect(d.unidades.filter((u) => u.fuente === "proj")).toEqual([]);
-      expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
+      expect(d.fuentes.find((x) => x.fuente === "A")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
       expect(d.proyectos![0].items.map((i) => i.nombre)).toEqual(["Atrasado sin cerrar"]);   // el que no tiene actividades no sale
     });
 
@@ -242,10 +279,10 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     });
   });
 
-  it("un proyecto sin Fase 3 todavía no aporta unidades: Proyectos queda sin peso", () => {
+  it("un proyecto sin Fase 3 todavía no aporta unidades: su clase queda sin peso", () => {
     const d = cumpl(
       { req: [], proj: [item3("p1", "b1", [act("a1", "late")], {}, "Valuación | Formulación del proyecto")], projBoards: [board], ini: [iniE("i1", true)] }, {});
-    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
+    expect(d.fuentes.find((x) => x.fuente === "A")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
     expect(d.pct).toBe(100); // solo cuenta la Iniciativa
   });
 
@@ -298,7 +335,7 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
     expect(por("b")).toMatchObject({ nota: 0, estado: "atraso", valor: 0 });
     expect(por("d")).toMatchObject({ nota: 0 });
     expect(d.unidades.some((u) => u.id === "c" || u.id === "e" || u.id === "f")).toBe(false);
-    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 3, buenas: 1, pct: 33 });
+    expect(d.fuentes.find((x) => x.fuente === "A")).toMatchObject({ total: 3, buenas: 1, pct: 33 });
     expect(d.pct).toBe(33);
   });
 
@@ -309,7 +346,7 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
     expect(d.unidades.find((u) => u.id === id)).toMatchObject({ nota: 100, estado: "ok", valor: 1 });
     expect(d.unidades.find((u) => u.id === "b")).toMatchObject({ nota: 0 });
     expect(d.proyectosCalidad![0].items[0].actividades.find((a) => a.id === id)).toMatchObject({ nota: 100, motivo: "ajuste" });
-    expect(d.fuentes.find((x) => x.fuente === "proj")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
+    expect(d.fuentes.find((x) => x.fuente === "A")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
   });
 
   it("en Proyectos ya no decide el responsable asignado a mano: una actividad tarde vale 0 aunque se excuse", () => {
@@ -398,10 +435,10 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
   });
 
   it("un empate exacto en .5 (52.5) redondea igual hacia arriba en el detalle y en el scoreboard", () => {
-    // Iniciativas 100 (peso 10) · PML 0 (peso 20) · Proyectos 17 de 28 = 60.71 (peso 70) → 52.5 exacto.
-    const rep: DelayMap = { i1: { responsible: "Sponsor" } };
-    const buenas = Array.from({ length: 17 }, (_, i) => actK(`ok${i}`));
-    const malas = Array.from({ length: 11 }, (_, i) => actK(`mal${i}`, { actualEnd: f("2026-06-20") }));
+    // Iniciativas 100 (peso 10) · PML 100 (Clase C, peso 25) · Proyectos 1 de 20 = 5 (Clase A, peso 35) → 52.5 exacto.
+    const rep: DelayMap = { i1: { responsible: "Sponsor" }, r1: { responsible: "Sponsor" } };
+    const buenas = [actK("ok0")];
+    const malas = Array.from({ length: 19 }, (_, i) => actK(`mal${i}`, { actualEnd: f("2026-06-20") }));
     const s = { req: [reqE("r1", "on-time")], proj: [item3("i1", "b1", [...buenas, ...malas])], projBoards: [board], ini: [iniE("i1", true)] };
     const stats = calcReprocesoStatsPonderado(CKU, s.req, s.proj, rep, s.ini);
     expect(stats.pct).toBe(53);

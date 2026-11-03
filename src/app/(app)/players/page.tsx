@@ -33,7 +33,7 @@ export default function PlayersPage() {
 }
 
 function Players({ data }: { data: DashboardData }) {
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, estrategiaMap, directorio, delayAttributions: delays, reprocesoAttributions: reproceso } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, estrategiaMap, directorio, delayAttributions: delays, reprocesoAttributions: reproceso, clases } = data;
 
   // Un usuario con rol CKU ve SOLO su propia información: su CKU se saca de su correo
   // (Directorio RH). Si el correo no corresponde a ningún player, no ve a nadie (no se
@@ -116,8 +116,8 @@ function Players({ data }: { data: DashboardData }) {
   const getRow = useCallback((cku: string) => {
     const s = scopesMes.get(cku)!;
     const impl = sameCku(cku, CKU_CON_IMPLEMENTACION) ? implementacionMes ?? undefined : undefined;
-    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku ?? SIN_ROI, true, impl);
-  }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku, implementacionMes]);
+    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku ?? SIN_ROI, true, impl, clases);
+  }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku, implementacionMes, clases]);
 
   const subtitle = (cku: string) => {
     const s = scopes.get(cku)!;
@@ -175,6 +175,7 @@ function Players({ data }: { data: DashboardData }) {
               mesLabel={mesActivo ? etiquetaMesLargo(mesActivo) : undefined}
               delays={ckuDelays} delaysOriginal={delays}
               reproceso={ckuReproceso} reprocesoOriginal={reproceso}
+              clases={clases}
             />
           </CkuPortfolio>
         ))}

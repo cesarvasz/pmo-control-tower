@@ -74,6 +74,28 @@ export function claseDePml(id: string, clases: Record<string, ClaseEntry>): Clas
   return clases[id]?.clase ?? "C";
 }
 
+/** El ID de un board de Proyectos: «PM-017» de «PM-017 | Impala» y también de «PM-017 Impala 2.0» (Monday lo
+ *  nombró sin la barra); "" si el nombre no trae ningún ID. */
+export function codigoDeBoard(boardName: string | undefined): string {
+  const nombre = boardName ?? "";
+  const i = nombre.indexOf("|");
+  if (i >= 0) return nombre.slice(0, i).trim();
+  return nombre.trim().match(/^(PM[- ]?\d{3})\s+\S/i)?.[1] ?? "";
+}
+
+/** Clase de un board de Proyectos (la asignada a mano o la de siempre), con el mismo ID que muestra la tabla. */
+export function claseDeBoard(b: { id: string; name: string | undefined }, clases: Record<string, ClaseEntry>): Clase {
+  return claseDeProyecto(codigoDeBoard(b.name), b.id, clases);
+}
+
+/** La clase de un ProjItem (un item del board de su proyecto). */
+export const claseDeItemProyecto = (p: { boardId: string; boardName: string }, clases: Record<string, ClaseEntry>): Clase =>
+  claseDeBoard({ id: p.boardId, name: p.boardName }, clases);
+
+/** La fuente de la nota EVM a la que cuenta una clase: A, B y C, la suya; «Sin clasificar» no cuenta en ninguna
+ *  (hasta que se le asigne una clase) y devuelve null. */
+export const fuenteDeClase = (c: Clase): "A" | "B" | "C" | null => (c === "A" || c === "B" || c === "C" ? c : null);
+
 /** Clase y países de un código de board ("PM-003", "PM 003"…); undefined si no está clasificado. */
 export function claseDeCodigo(code: string): ClaseInfo | undefined {
   const n = code.match(/(\d{3})/);

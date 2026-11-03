@@ -1,25 +1,35 @@
 // src/lib/ckuDetalle.ts
 // Detalle de QUÉ se mide en Cumplimiento de Entrega y en Calidad de Entregas de un CKU
 // (Players): las unidades que entran, el resultado de cada una y cómo pesa cada fuente
-// (Iniciativas / PML / Proyectos, con los mismos pesos del EVM). Sale de los mismos
+// (Iniciativas y las Clases A, B y C de Proyectos y PML, con los pesos del EVM). Sale de los mismos
 // constructores de filas que la página de auditoría, y su `pct` coincide con el del
 // scoreboard (calcEntregaStatsPonderado / calcReprocesoStatsPonderado). Módulo PURO.
 
 import { buildEntregaRows, buildReprocesoRows, calidadActividadCku, entregaActividadCku, entregablesDelCku, notaCalidadCku, projPhaseKey, redondearPct, type MotivoCalidadActividad } from "@/lib/dashboard";
+import { claseDeItemProyecto, claseDePml, fuenteDeClase, type Clase } from "@/lib/claseProyecto";
 import { lateExcused, type DelayMap } from "@/lib/delay";
-import { EVM_WEIGHTS, weightedEvm } from "@/lib/health";
+import { EVM_WEIGHTS, FUENTES_EVM, FUENTE_EVM_LABEL, weightedEvm, type FuenteEvm } from "@/lib/health";
 import { splitBoardName } from "@/lib/proj";
-import type { IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { ClaseEntry, IniItem, ProjBoard, ProjItem, ReqItem } from "@/types";
 
+/** Qué es la unidad (para listarla): una Iniciativa, un PML o la actividad de un Proyecto. NO es la fuente del peso
+ *  (ver `fuenteEvm` de la unidad: Iniciativas o la Clase en la que cuenta). */
 export type FuenteMedida = "ini" | "req" | "proj";
 export const FUENTE_LABEL: Record<FuenteMedida, string> = { ini: "Iniciativas", req: "PML", proj: "Proyectos" };
-const FUENTES: FuenteMedida[] = ["ini", "req", "proj"];
 const fuenteDe = (source: "REQ" | "Proyecto" | "Iniciativa"): FuenteMedida =>
   source === "REQ" ? "req" : source === "Proyecto" ? "proj" : "ini";
+/** La fuente del peso de un PML o Iniciativa: Iniciativas, o la Clase del PML (C si nadie le asignó otra). */
+const fuenteEvmDe = (source: "REQ" | "Proyecto" | "Iniciativa", id: string, clases: Record<string, ClaseEntry>): FuenteEvm | null =>
+  source === "Iniciativa" ? "ini" : fuenteDeClase(claseDePml(id, clases));
+/** Cómo se llama la fuente del peso de una unidad; null = sin clase. */
+export const fuenteEvmLabel = (f: FuenteEvm | null): string => (f ? FUENTE_EVM_LABEL[f] : "Sin clasificar");
 
 export interface UnidadMedida {
   id: string;
   fuente: FuenteMedida;
+  /** De qué fuente de la nota EVM cuenta: Iniciativas o la Clase (A/B/C) de su PML o proyecto; null si no
+   *  tiene clase (no pesa en la nota hasta que se le asigne una). */
+  fuenteEvm: FuenteEvm | null;
   nombre: string;
   /** Fase / grupo (vacío si ya va dentro del nombre). */
   fase: string;
@@ -74,6 +84,8 @@ export interface ItemCumplimiento {
 /** Un proyecto (board con plantilla nueva) y los items de su Fase 3. */
 export interface ProyectoCumplimiento {
   proyecto: string;
+  /** Su Clase (A/B/C, o «Sin clasificar»): la fuente del peso de sus actividades. */
+  clase: Clase;
   /** Responsable asignado al atraso de la Fase 3 (etiqueta original); null si no hay. */
   responsableFase: string | null;
   items: ItemCumplimiento[];
@@ -99,7 +111,7 @@ const rangoItem = (it: ItemCumplimiento) =>
 /** Arma el árbol proyecto → item → actividad de la Fase 3 (ya recortada a plantilla nueva). Un item sin
  *  actividades (p. ej. ninguna cae en el mes filtrado) no se lista, ni el proyecto que se quede sin items.
  *  `delays` es el mapa con PM ↔ CKU intercambiado (decide la excusa); `delaysOriginal`, solo para la etiqueta. */
-function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: DelayMap): ProyectoCumplimiento[] {
+function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: DelayMap, clases: Record<string, ClaseEntry>): ProyectoCumplimiento[] {
   const porBoard = new Map<string, ProyectoCumplimiento>();
   for (const p of fase3) {
     if (p.subitems.length === 0) continue;
@@ -108,7 +120,7 @@ function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: Del
     let proy = porBoard.get(p.boardId);
     if (!proy) {
       const { code, name } = splitBoardName(p.boardName);
-      proy = { proyecto: code ? `${code} · ${name}` : name, responsableFase: delaysOriginal[llave]?.responsible ?? null, items: [] };
+      proy = { proyecto: code ? `${code} · ${name}` : name, clase: claseDeItemProyecto(p, clases), responsableFase: delaysOriginal[llave]?.responsible ?? null, items: [] };
       porBoard.set(p.boardId, proy);
     }
     proy.items.push({
@@ -160,7 +172,12 @@ export interface ItemCalidad {
   actividades: ActividadCalidad[];
 }
 
-export interface ProyectoCalidadCku { proyecto: string; items: ItemCalidad[] }
+export interface ProyectoCalidadCku {
+  proyecto: string;
+  /** Su Clase (A/B/C, o «Sin clasificar»): la fuente del peso de sus actividades. */
+  clase: Clase;
+  items: ItemCalidad[];
+}
 
 export interface ConteoCalidad { buenas: number; malas: number; sinMedir: number }
 
@@ -176,14 +193,14 @@ export function contarCalidad(items: ItemCalidad[]): ConteoCalidad {
 /** Arma el árbol proyecto → item → actividad con la Calidad de cada actividad (la Fase 3 ya recortada a
  *  lo del CKU). Los items con calidad 0 primero, y el proyecto con peor calidad primero. Un item sin
  *  actividades no se lista, ni el proyecto que se quede sin items. */
-function armarProyectosCalidad(fase3: ProjItem[]): ProyectoCalidadCku[] {
+function armarProyectosCalidad(fase3: ProjItem[], clases: Record<string, ClaseEntry>): ProyectoCalidadCku[] {
   const porBoard = new Map<string, ProyectoCalidadCku>();
   for (const p of fase3) {
     if (p.subitems.length === 0) continue;
     let proy = porBoard.get(p.boardId);
     if (!proy) {
       const { code, name } = splitBoardName(p.boardName);
-      proy = { proyecto: code ? `${code} · ${name}` : name, items: [] };
+      proy = { proyecto: code ? `${code} · ${name}` : name, clase: claseDeItemProyecto(p, clases), items: [] };
       porBoard.set(p.boardId, proy);
     }
     proy.items.push({
@@ -210,7 +227,8 @@ function armarProyectosCalidad(fase3: ProjItem[]): ProyectoCalidadCku[] {
 }
 
 export interface FuenteResumen {
-  fuente: FuenteMedida;
+  /** Fuente de la nota EVM: Iniciativas o una Clase (A/B/C). */
+  fuente: FuenteEvm;
   label: string;
   /** Unidades que entran en la nota de esta fuente. */
   total: number;
@@ -218,7 +236,7 @@ export interface FuenteResumen {
   buenas: number;
   /** 0–100 de la fuente (Cumplimiento: % a tiempo · Calidad: nota promedio); null sin unidades. */
   pct: number | null;
-  /** Peso base del EVM (0.10 / 0.20 / 0.70). */
+  /** Peso base del EVM (ver EVM_WEIGHTS en lib/health.ts). */
   peso: number;
   /** Peso real tras repartir el de las fuentes sin unidades; null si esta fuente no tiene unidades. */
   pesoEfectivo: number | null;
@@ -227,7 +245,10 @@ export interface FuenteResumen {
 export interface DetalleMedicion {
   /** La misma cifra del scoreboard. */
   pct: number | null;
+  /** Una por fuente de la nota EVM, en el orden de FUENTES_EVM (Iniciativas, Clase A, B, C). */
   fuentes: FuenteResumen[];
+  /** Unidades que cuentan pero no tienen Clase («Sin clasificar»): no pesan en la nota hasta que se les asigne una. */
+  sinClase: number;
   unidades: UnidadMedida[];
   /** Solo Cumplimiento: los proyectos (Fase 3) con sus items y actividades, incluidas las que no
    *  cuentan (excusadas y pendientes) para poder verlas. */
@@ -243,34 +264,35 @@ interface Scope {
 /** Arma el resumen por fuente y el % ponderado a partir de las unidades. */
 function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean): DetalleMedicion {
   const cuentan = unidades.filter((u) => u.cuenta);
-  const frac = Object.fromEntries(FUENTES.map((f) => {
-    const us = cuentan.filter((u) => u.fuente === f);
+  const frac = Object.fromEntries(FUENTES_EVM.map((f) => {
+    const us = cuentan.filter((u) => u.fuenteEvm === f);
     return [f, us.length ? us.reduce((s, u) => s + u.valor, 0) / us.length : null];
-  })) as Record<FuenteMedida, number | null>;
-  const wSum = FUENTES.reduce((s, f) => s + (frac[f] !== null ? EVM_WEIGHTS[f] : 0), 0);
+  })) as Record<FuenteEvm, number | null>;
+  const wSum = FUENTES_EVM.reduce((s, f) => s + (frac[f] !== null ? EVM_WEIGHTS[f] : 0), 0);
 
-  const fuentes = FUENTES.map((f): FuenteResumen => {
-    const us = cuentan.filter((u) => u.fuente === f);
+  const fuentes = FUENTES_EVM.map((f): FuenteResumen => {
+    const us = cuentan.filter((u) => u.fuenteEvm === f);
     return {
-      fuente: f, label: FUENTE_LABEL[f], total: us.length, buenas: us.filter(buena).length,
+      fuente: f, label: FUENTE_EVM_LABEL[f], total: us.length, buenas: us.filter(buena).length,
       pct: frac[f] === null ? null : redondearPct(frac[f] as number),
       peso: EVM_WEIGHTS[f], pesoEfectivo: frac[f] === null || wSum === 0 ? null : EVM_WEIGHTS[f] / wSum,
     };
   });
   const ponderado = weightedEvm(frac);
-  return { pct: ponderado === null ? null : redondearPct(ponderado), fuentes, unidades };
+  return { pct: ponderado === null ? null : redondearPct(ponderado), fuentes, sinClase: cuentan.filter((u) => u.fuenteEvm === null).length, unidades };
 }
 
 /** Detalle de Cumplimiento de Entrega. `s.cku` es el CKU medido: en Proyectos solo cuentan (y se
  *  listan) los entregables a su cargo y, dentro de ellos, las actividades a su cargo. `delays` es el
  *  mapa con PM ↔ CKU ya intercambiado (el que decide qué penaliza, igual que el scoreboard);
  *  `delaysOriginal`, el de Firestore tal cual, solo para mostrar el responsable con su etiqueta real. */
-export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap, delaysOriginal: DelayMap = delays): DetalleMedicion {
+export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap, delaysOriginal: DelayMap = delays, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
   // PML e Iniciativas: una unidad cada uno. Un atraso excusado sale de la cuenta (ver calcEntregaStats).
   const unidades = buildEntregaRows(s.req, [], s.projBoards, s.ini).map((r): UnidadMedida => {
     const tarde = r.verdict === "late";
     const base = {
-      id: r.id, fuente: fuenteDe(r.source), nombre: r.name, fase: r.fase, responsable: delaysOriginal[r.id]?.responsible ?? null,
+      id: r.id, fuente: fuenteDe(r.source), fuenteEvm: fuenteEvmDe(r.source, r.id, clases),
+      nombre: r.name, fase: r.fase, responsable: delaysOriginal[r.id]?.responsible ?? null,
     };
     if (!tarde) return { ...base, estado: "ok", cuenta: true, valor: 1 };
     if (lateExcused(r.id, delays)) return { ...base, estado: "excusado", cuenta: false, valor: 0 };
@@ -279,13 +301,13 @@ export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap
 
   // Proyectos: cada ACTIVIDAD ya cerrada, a cargo del CKU, de un entregable suyo de la Fase 3 (plantilla
   // nueva) es una unidad, igual que en calcEntregaStatsCku (el número del scoreboard). Las pendientes no.
-  const proyectos = armarProyectos(entregablesDelCku(s.proj, s.cku), delays, delaysOriginal);
+  const proyectos = armarProyectos(entregablesDelCku(s.proj, s.cku), delays, delaysOriginal, clases);
   for (const proy of proyectos) {
     for (const it of proy.items) {
       for (const a of it.actividades) {
         if (a.estado === "pendiente") continue;
         unidades.push({
-          id: a.id, fuente: "proj", nombre: a.nombre, fase: it.nombre, proyecto: proy.proyecto,
+          id: a.id, fuente: "proj", fuenteEvm: fuenteDeClase(proy.clase), nombre: a.nombre, fase: it.nombre, proyecto: proy.proyecto,
           estado: a.estado, cuenta: a.estado !== "excusado", valor: a.estado === "ok" ? 1 : 0,
           responsable: a.estado === "ok" ? null : proy.responsableFase,
         });
@@ -299,24 +321,24 @@ export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap
  *  PML e Iniciativas valen 100 si su responsable no es el CKU y 0 si lo es (o no hay nadie asignado).
  *  Proyectos: cada actividad a cargo del CKU, de sus entregables de la Fase 3, vale 100 o 0 por sus
  *  fechas (ver calidadActividadCku); las que aún no se miden no son unidades. */
-export function detalleCalidad(s: Scope & { cku: string }, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso): DetalleMedicion {
+export function detalleCalidad(s: Scope & { cku: string }, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
   const unidades = buildReprocesoRows(s.req, [], s.projBoards, reproceso, s.ini).map((r): UnidadMedida => {
     const nota = notaCalidadCku(r.id, reproceso);
     return {
-      id: r.id, fuente: fuenteDe(r.source), nombre: r.name, fase: r.fase,
+      id: r.id, fuente: fuenteDe(r.source), fuenteEvm: fuenteEvmDe(r.source, r.id, clases), nombre: r.name, fase: r.fase,
       estado: nota === 100 ? "ok" : "atraso",
       cuenta: true, valor: nota / 100, nota,
       responsable: reprocesoOriginal[r.id]?.responsible ?? null,
     };
   });
 
-  const proyectosCalidad = armarProyectosCalidad(entregablesDelCku(s.proj, s.cku));
+  const proyectosCalidad = armarProyectosCalidad(entregablesDelCku(s.proj, s.cku), clases);
   for (const proy of proyectosCalidad) {
     for (const it of proy.items) {
       for (const a of it.actividades) {
         if (a.nota === null) continue;
         unidades.push({
-          id: a.id, fuente: "proj", nombre: a.nombre, fase: it.nombre, proyecto: proy.proyecto,
+          id: a.id, fuente: "proj", fuenteEvm: fuenteDeClase(proy.clase), nombre: a.nombre, fase: it.nombre, proyecto: proy.proyecto,
           estado: a.nota === 100 ? "ok" : "atraso", cuenta: true, valor: a.nota / 100, nota: a.nota, responsable: null,
         });
       }

@@ -65,4 +65,13 @@ describe("computeWeeklySnapshotMetrics", () => {
     expect(m.evm as number).toBeGreaterThanOrEqual(0);
     expect(m.evm as number).toBeLessThanOrEqual(100);
   });
+
+  it("EVM del equipo: cada clase pesa lo suyo (Iniciativas 10 · A 35 · B 30 · C 25) según la clase asignada", () => {
+    const base = { req: [req({ id: "r1", pm: "Ana", vem: 1 }), req({ id: "r2", pm: "Ana", vem: 0 })] };
+    // Sin asignar nada, los dos PML son Clase C: promedian 0.5 → 50.
+    expect(computeWeeklySnapshotMetrics(mkData(base), 0).evm).toBe(50);
+    // r1 (nota 1) en la Clase A y r2 (nota 0) en la C: (1·0.35 + 0·0.25) / 0.60 = 58.33 → 58.
+    const conClases = mkData({ ...base, clases: { r1: { clase: "A", by: "", at: "" } } });
+    expect(computeWeeklySnapshotMetrics(conClases, 0).evm).toBe(58);
+  });
 });

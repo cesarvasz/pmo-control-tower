@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { claseDeCodigo, claseDePml, claseDeProyecto, esClaseAsignable, leerClases, PROYECTO_SIN_ID, PAISES_TODOS } from "./claseProyecto";
+import { claseDeBoard, claseDeCodigo, claseDePml, claseDeProyecto, codigoDeBoard, esClaseAsignable, fuenteDeClase, leerClases, PROYECTO_SIN_ID, PAISES_TODOS } from "./claseProyecto";
 
 describe("claseDeCodigo", () => {
   it("acepta PM-003 y PM 003", () => {
@@ -45,6 +45,28 @@ describe("clase asignada a mano", () => {
     expect(claseDePml("PML-1", {})).toBe("C");
     expect(claseDePml("PML-1", { "PML-1": ent("A") })).toBe("A");
     expect(claseDePml("PML-2", { "PML-1": ent("A") })).toBe("C");
+  });
+
+  it("codigoDeBoard saca el ID del nombre del board, con o sin «|», y es vacío si no hay", () => {
+    expect(codigoDeBoard("PM-003 | DUCAfast 2.0 GT")).toBe("PM-003");
+    expect(codigoDeBoard("PM-017 Impala 2.0☄️")).toBe("PM-017");
+    expect(codigoDeBoard("Sin barra")).toBe("");
+    expect(codigoDeBoard("PM-017")).toBe("");        // solo el ID, sin nombre: no lo separa
+    expect(codigoDeBoard(undefined)).toBe("");
+  });
+
+  it("claseDeBoard usa el nombre del board (o la asignada por su id)", () => {
+    expect(claseDeBoard({ id: "b1", name: "PM-003 | DUCAfast" }, {})).toBe("A");
+    expect(claseDeBoard({ id: "b1", name: "PM-003 | DUCAfast" }, { b1: ent("C") })).toBe("C");
+    expect(claseDeBoard({ id: "b2", name: "PM-017 Impala 2.0" }, {})).toBe("Sin clasificar");
+    expect(claseDeBoard({ id: "b2", name: undefined }, {})).toBe("Sin clasificar");
+  });
+
+  it("fuenteDeClase: A, B y C cuentan en su fuente; «Sin clasificar» en ninguna", () => {
+    expect(fuenteDeClase("A")).toBe("A");
+    expect(fuenteDeClase("B")).toBe("B");
+    expect(fuenteDeClase("C")).toBe("C");
+    expect(fuenteDeClase("Sin clasificar")).toBeNull();
   });
 
   it("leerClases deja solo las entradas con una clase válida", () => {

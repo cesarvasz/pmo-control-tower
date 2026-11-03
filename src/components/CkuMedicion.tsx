@@ -2,7 +2,7 @@
 
 // Debajo de cada CKU en /players: QUÉ se mide en Cumplimiento de Entrega y en Calidad de
 // Entregas — las unidades que entran, el resultado de cada una y cuánto pesa cada fuente
-// (Iniciativas / PML / Proyectos, los mismos pesos del EVM). Todo sale de lib/ckuDetalle,
+// (Iniciativas y las Clases A, B y C de Proyectos y PML, los mismos pesos del EVM). Todo sale de lib/ckuDetalle,
 // con la misma cuenta que el scoreboard, así que el % de aquí es el de la tabla.
 //
 // Se lee como un acordeón, todo plegado al inicio: en Proyectos (Cumplimiento y Calidad) proyecto (Fase 3) →
@@ -13,24 +13,29 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Pill, type Tone } from "@/components/ui";
 import { fmtDate } from "@/lib/business";
-import { contarActividades, contarCalidad, detalleCalidad, detalleCumplimiento, FUENTE_LABEL, type ActividadCalidad, type ActividadCumplimiento, type DetalleMedicion, type FuenteMedida, type ItemCalidad, type ItemCumplimiento, type ProyectoCalidadCku, type ProyectoCumplimiento, type UnidadMedida } from "@/lib/ckuDetalle";
+import { contarActividades, contarCalidad, detalleCalidad, detalleCumplimiento, FUENTE_LABEL, fuenteEvmLabel, type ActividadCalidad, type ActividadCumplimiento, type DetalleMedicion, type FuenteMedida, type ItemCalidad, type ItemCumplimiento, type ProyectoCalidadCku, type ProyectoCumplimiento, type UnidadMedida } from "@/lib/ckuDetalle";
+import type { Clase } from "@/lib/claseProyecto";
 import type { MotivoCalidadActividad } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
+import { EVM_PESOS_TXT, FUENTES_EVM } from "@/lib/health";
 import type { CkuScope } from "@/lib/players";
+import type { ClaseEntry } from "@/types";
 
 const ORDEN: FuenteMedida[] = ["proj", "req", "ini"];
 const pctColor = (p: number | null) => (p === null ? "#6b7280" : p >= 90 ? "var(--ok)" : p >= 75 ? "var(--warn)" : "var(--bad)");
 const pesoTxt = (w: number) => `${Math.round(w * 1000) / 10}%`;
 
-export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, reprocesoOriginal, mesLabel }: {
+export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, reprocesoOriginal, clases, mesLabel }: {
   scope: CkuScope;
   /** Mapas con PM ↔ CKU intercambiado (deciden qué penaliza) y los originales (etiqueta real). */
   delays: DelayMap; delaysOriginal: DelayMap; reproceso: DelayMap; reprocesoOriginal: DelayMap;
+  /** Clase A/B/C de Proyectos y PML (Calidad & Cumplimiento → Clasificación): la fuente del peso de cada unidad. */
+  clases: Record<string, ClaseEntry>;
   /** Mes filtrado, p. ej. "Octubre 2026" (el `scope` ya viene recortado a sus actividades). Sin él, todos los meses. */
   mesLabel?: string;
 }) {
-  const cumplimiento = useMemo(() => detalleCumplimiento(scope, delays, delaysOriginal), [scope, delays, delaysOriginal]);
-  const calidad = useMemo(() => detalleCalidad(scope, reproceso, reprocesoOriginal), [scope, reproceso, reprocesoOriginal]);
+  const cumplimiento = useMemo(() => detalleCumplimiento(scope, delays, delaysOriginal, clases), [scope, delays, delaysOriginal, clases]);
+  const calidad = useMemo(() => detalleCalidad(scope, reproceso, reprocesoOriginal, clases), [scope, reproceso, reprocesoOriginal, clases]);
   const sufijo = mesLabel ? ` · ${mesLabel}` : "";
   const notaMes = mesLabel ? ` Filtrado a ${mesLabel}: solo las actividades con Limit Date en ese mes; PML e Iniciativas no se filtran por mes.` : "";
 
@@ -70,18 +75,19 @@ function Panel({ titulo, medida, esCalidad = false, notaProyectos, detalle, regl
         </span>
       </div>
       <p className="mb-2 text-[0.68rem] leading-snug text-[var(--text-muted)]">
-        Medido como el EVM: cada fuente saca su {medida} y se combinan Iniciativas 10% · PML 20% · Proyectos 70%.
-        El peso de una fuente sin unidades se reparte entre las demás.
+        Medido como el EVM: cada fuente saca su {medida} y se combinan {EVM_PESOS_TXT} (la clase que se le asigna a
+        cada Proyecto y PML en Calidad &amp; Cumplimiento → Clasificación).
+        El peso de una fuente sin unidades se reparte entre las demás, y lo que no tiene clase no pesa.
         <strong className="font-semibold text-[var(--text-secondary)]"> {notaProyectos}</strong>
       </p>
 
       {/* Peso real y resultado de cada fuente */}
       <ul className="mb-3 space-y-0.5 text-[0.76rem]">
-        {ORDEN.map((f) => {
+        {FUENTES_EVM.map((f) => {
           const r = detalle.fuentes.find((x) => x.fuente === f)!;
           return (
             <li key={f} className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-semibold text-[var(--text-primary)]">{FUENTE_LABEL[f]}</span>
+              <span className="font-semibold text-[var(--text-primary)]">{r.label}</span>
               {r.total === 0 ? (
                 <span className="text-[var(--text-disabled)]">sin unidades · no pesa</span>
               ) : (
@@ -96,9 +102,15 @@ function Panel({ titulo, medida, esCalidad = false, notaProyectos, detalle, regl
             </li>
           );
         })}
+        {detalle.sinClase > 0 && (
+          <li className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-semibold text-[var(--text-primary)]">Sin clasificar</span>
+            <span className="text-[var(--text-muted)]">{detalle.sinClase} {detalle.sinClase === 1 ? "unidad" : "unidades"} · no pesa hasta que se le asigne una clase</span>
+          </li>
+        )}
       </ul>
 
-      {/* Unidades que entran, agrupadas por fuente */}
+      {/* Unidades que entran, agrupadas por qué son (Iniciativa, PML o Proyecto) */}
       {unidades.length === 0 && arbol.length === 0 && arbolCalidad.length === 0 ? (
         <div className="text-[0.8rem] text-[var(--text-disabled)]">Sin unidades medidas todavía</div>
       ) : (
@@ -151,6 +163,7 @@ const tone = (e: ActividadCumplimiento["estado"]): Tone => (e === "atraso" ? "ba
 const txt = (e: ActividadCumplimiento["estado"]) =>
   e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : e === "excusado" ? "Excusado · no cuenta" : "• Pendiente · no cuenta";
 const unidos = (partes: (string | false | null | undefined)[]) => partes.filter(Boolean).join(" · ");
+const claseTxt = (c: Clase) => (c === "Sin clasificar" ? c : `Clase ${c}`);
 
 /** Cuánto pesa el texto de una fila según su nivel: 0 = unidad (proyecto…), 1 = item, 2 = actividad. */
 const TAMANO = {
@@ -229,7 +242,7 @@ function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
     <Fila
       cabecera={
         <Cabecera
-          nivel={0} titulo={u.nombre} detalle={u.fase}
+          nivel={0} titulo={u.nombre} detalle={unidos([u.fase, u.fuente === "req" && fuenteEvmLabel(u.fuenteEvm)])}
           derecha={<>
             <Pill tone={aTiempo ? "ok" : "bad"} small>{aTiempo ? "✓ A tiempo" : "✕ Con atraso"}</Pill>
             {!aTiempo && <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>}
@@ -252,6 +265,7 @@ function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
         <Cabecera
           nivel={0} titulo={p.proyecto}
           detalle={unidos([
+            claseTxt(p.clase),
             `${p.items.length} ${p.items.length === 1 ? "item" : "items"}`, `${c.ok} de ${cuentan} a tiempo`,
             c.excusado > 0 && `${c.excusado} ${c.excusado === 1 ? "excusada" : "excusadas"}`,
             c.pendiente > 0 && `${c.pendiente} ${c.pendiente === 1 ? "pendiente" : "pendientes"}`,
@@ -322,6 +336,7 @@ function ProyectoCalidadFila({ p }: { p: ProyectoCalidadCku }) {
         <Cabecera
           nivel={0} titulo={p.proyecto}
           detalle={unidos([
+            claseTxt(p.clase),
             `${p.items.length} ${p.items.length === 1 ? "item" : "items"}`, `${c.buenas} de ${medidas} con calidad 1`,
             c.sinMedir > 0 && `${c.sinMedir} sin medir`,
           ])}
@@ -392,7 +407,7 @@ function UnidadCalidad({ u }: { u: UnidadMedida }) {
     <Fila
       cabecera={
         <Cabecera
-          nivel={0} titulo={u.nombre} detalle={u.fase}
+          nivel={0} titulo={u.nombre} detalle={unidos([u.fase, u.fuente === "req" && fuenteEvmLabel(u.fuenteEvm)])}
           derecha={<>
             <Pill tone={t} small>{u.nota}</Pill>
             <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>

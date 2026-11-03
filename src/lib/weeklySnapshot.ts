@@ -19,8 +19,9 @@ import { buildAllProjectMetrics, boardHealthFromMetrics } from "@/lib/projectMet
 import { calcBoardMetrics } from "@/lib/proj";
 import { calcEntregaStatsRaw, calcReprocesoStatsRaw } from "@/lib/dashboard";
 import { weightedEvm } from "@/lib/health";
+import { notasPorClase, partesEvm } from "@/lib/evmClase";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
-import type { DashboardData } from "@/types";
+import type { DashboardData, ProjBoard } from "@/types";
 
 export interface WeeklySnapshotMetrics {
   /** EVM del equipo, 0–100 (igual que la tarjeta "Salud del equipo"). */
@@ -39,9 +40,9 @@ export interface WeeklySnapshotMetrics {
 }
 
 export function computeWeeklySnapshotMetrics(data: DashboardData, confirmacionRoi: number): WeeklySnapshotMetrics {
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, reprocesoAttributions: reproceso } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, reprocesoAttributions: reproceso, clases } = data;
 
-  // ── EVM del equipo: promedio ponderado Iniciativas 10% · REQ 20% · Proyectos 70% ──
+  // ── EVM del equipo: promedio ponderado de Iniciativas y las Clases A, B y C (ver EVM_WEIGHTS) ──
   const allPMs = [...new Set([
     ...ini.filter((r) => r.pm && r.estado !== "SKIP").map((r) => r.pm),
     ...req.filter((r) => r.pm && r.estado !== "CERRADO").map((r) => r.pm),
@@ -53,23 +54,21 @@ export function computeWeeklySnapshotMetrics(data: DashboardData, confirmacionRo
   const teamIniHealth = teamIniHIs.length > 0 ? teamIniHIs.reduce((a, b) => a + b, 0) / teamIniHIs.length : null;
 
   const reqProc = req.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
-  const reqVemAll = reqProc.filter((r) => r.vem != null).map((r) => r.vem as number);
-  const teamReqHealth = reqVemAll.length > 0 ? reqVemAll.reduce((a, b) => a + b, 0) / reqVemAll.length : null;
 
   const projMetricsByBoard = new Map(
     buildAllProjectMetrics(projBoards, proj, { baselines: projItemBaselines }).map((m) => [m.boardId, m]),
   );
-  const boardHealthIndexes: number[] = [];
+  const boardsConSalud: { board: ProjBoard; healthIndex: number }[] = [];
   projBoards.forEach((b) => {
     const m = projMetricsByBoard.get(b.id);
     if (!m) return;
     const { ac } = calcBoardMetrics(proj.filter((r) => r.boardId === b.id), projItemBaselines);
     const h = boardHealthFromMetrics(m, ac);
-    if (h.healthIndex != null) boardHealthIndexes.push(h.healthIndex);
+    if (h.healthIndex != null) boardsConSalud.push({ board: b, healthIndex: h.healthIndex });
   });
-  const teamProjHealth = boardHealthIndexes.length > 0 ? boardHealthIndexes.reduce((a, b) => a + b, 0) / boardHealthIndexes.length : null;
 
-  const teamVem = weightedEvm({ ini: teamIniHealth, req: teamReqHealth, proj: teamProjHealth });
+  // Cada clase vale el promedio de sus Proyectos y PML (misma cuenta que el EVM · PMO del Control Tower).
+  const teamVem = weightedEvm(partesEvm(teamIniHealth, notasPorClase(reqProc, boardsConSalud, clases ?? {})));
   const evm = teamVem !== null ? Math.round(teamVem * 100) : null;
 
   // ── Calidad de Entregas / Cumplimiento de Entrega (variantes reales, sin excusas) ──

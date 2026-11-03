@@ -16,10 +16,12 @@ import {
   isFase1, isFase2, isFase5,
 } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { healthStatusFromIndex, pmHealthStatus, weightedEvm, vemCfg, HEALTH_CFG, VEM_RANGOS_TXT, type HealthStatus } from "@/lib/health";
+import { healthStatusFromIndex, pmHealthStatus, weightedEvm, vemCfg, EVM_PESOS_TXT, EVM_WEIGHTS, FUENTES_EVM, HEALTH_CFG, VEM_RANGOS_TXT, type HealthStatus } from "@/lib/health";
+import { notasPorClase, partesEvm } from "@/lib/evmClase";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
-import type { CalMap, DashboardData, IniItem, NpsRecord, OnHoldDoc, ProjBoard, ProjItem, ReqItem } from "@/types";
+import { resumenPorClase } from "@/lib/claseCard";
+import type { CalMap, ClaseEntry, DashboardData, IniItem, NpsRecord, OnHoldDoc, ProjBoard, ProjItem, ReqItem } from "@/types";
 import { OnHoldChip } from "@/components/OnHoldButton";
 import { ErrorBox, Loader } from "@/components/ui";
 import NpsModal from "@/components/NpsModal";
@@ -74,7 +76,7 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
   const [hardOnly, setHardOnly] = useState(false); // filtro "Solo HardSaving" para Costo & Beneficio
   const [pmView, setPmView] = useState<"tabla" | "tarjetas">("tarjetas"); // vista de Portafolios por PM (default: Tarjetas)
 
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: delays, reprocesoAttributions: reproceso, metodologiaCalifs } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords, delayAttributions: delays, reprocesoAttributions: reproceso, metodologiaCalifs, clases } = data;
   // Para listas que muestran proyectos por nombre (Value Gate) — projBoards
   // SIN filtrar sigue siendo la base de todos los cálculos/KPIs.
   const visibleProjBoards = projBoards.filter((b) => !isHiddenFromControlTower(b.name));
@@ -132,7 +134,7 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
   // filtro hardOnly. Se memoizan para no recalcular al abrir modales o cambiar de vista.
   const {
     boardHealthMap, boardCompleteMap,
-    allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
+    allPMs, teamPartes, vemPct, hColor, hBg, hLabel, hIcon,
     totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit,
     pipelineAgg, boardPhase125, reqPhase125, valueGateAvgHealth,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
@@ -159,15 +161,15 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
     .map((h) => h.index);
   const teamIniHealth = teamIniHIs.length > 0 ? teamIniHIs.reduce((a, b) => a + b, 0) / teamIniHIs.length : null;
 
-  const reqVemAll = reqProc.filter((r) => r.vem != null).map((r) => r.vem as number);
-  const teamReqHealth = reqVemAll.length > 0 ? reqVemAll.reduce((a, b) => a + b, 0) / reqVemAll.length : null;
-
-  const boardHIs = boardsWithHealth.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
-  const teamProjHealth = boardHIs.length > 0 ? boardHIs.reduce((a, b) => a + b, 0) / boardHIs.length : null;
-
-  // Nota EVM del equipo: promedio PONDERADO Iniciativas 10% · REQ 20% · Proyectos 70%
-  // (ver EVM_WEIGHTS / weightedEvm en lib/health.ts).
-  const teamVem = weightedEvm({ ini: teamIniHealth, req: teamReqHealth, proj: teamProjHealth });
+  // Nota EVM del equipo: promedio PONDERADO de Iniciativas y de las Clases A, B y C (cada clase vale el
+  // promedio de sus Proyectos y PML, según Calidad & Cumplimiento → Clasificación; ver EVM_WEIGHTS /
+  // weightedEvm en lib/health.ts y partesEvm en lib/evmClase.ts).
+  const teamPartes = partesEvm(teamIniHealth, notasPorClase(
+    reqProc,
+    boardsWithHealth.map((board) => ({ board, healthIndex: boardHealthMap.get(board.id)?.healthIndex })),
+    clases,
+  ));
+  const teamVem = weightedEvm(teamPartes);
   const vemPct = teamVem !== null ? Math.round(teamVem * 100) : null;
   // Estado del equipo = el de su nota EVM (el % de arriba) con los mismos umbrales que cada PM
   // (VEM_THRESHOLDS). Ya no es «el peor de los PMs»; sin nota queda «Sin datos».
@@ -357,7 +359,7 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
 
   return {
     boardHealthMap, boardCompleteMap,
-    allPMs, teamIniHealth, teamReqHealth, teamProjHealth, vemPct, hColor, hBg, hLabel, hIcon,
+    allPMs, teamPartes, vemPct, hColor, hBg, hLabel, hIcon,
     totalCost, colValidacionCost, colValidacionBenefit, colAprobacionCost, colAprobacionBenefit,
     pipelineAgg, boardPhase125, reqPhase125, valueGateAvgHealth,
     vpaActions, vpaPending, vgEnTiempo, vgHoy, vgAtrasado,
@@ -365,7 +367,7 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
     mainReprocesoStats, mainReprocesoPct, mainRepColor, mainReprocesoRows,
     kpi, kpiPct, kpiAchievable, kpiColor,
   };
-  }, [ini, req, proj, projBoards, projItemBaselines, calMap, nps, hardOnly, delays, reproceso, metodologiaCalifs]);
+  }, [ini, req, proj, projBoards, projItemBaselines, calMap, nps, hardOnly, delays, reproceso, metodologiaCalifs, clases]);
 
   return (
     <div>
@@ -420,11 +422,14 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
             </div>
             <div
               className="flex flex-wrap justify-center gap-x-3 gap-y-1 pt-3 text-[0.78rem] font-semibold text-[var(--text-muted)]"
-              title="Nota EVM ponderada: Iniciativas 10% · PML 20% · Proyectos 70%"
+              title={`Nota EVM ponderada: ${EVM_PESOS_TXT}`}
             >
-              {teamIniHealth  !== null && <span>INI {Math.round(teamIniHealth  * 100)}% <span className="font-normal opacity-70">·10%</span></span>}
-              {teamReqHealth  !== null && <span>PML {Math.round(teamReqHealth  * 100)}% <span className="font-normal opacity-70">·20%</span></span>}
-              {teamProjHealth !== null && <span>PM {Math.round(teamProjHealth * 100)}% <span className="font-normal opacity-70">·70%</span></span>}
+              {FUENTES_EVM.map((f) => teamPartes[f] !== null && (
+                <span key={f}>
+                  {f === "ini" ? "INI" : f} {Math.round((teamPartes[f] as number) * 100)}%{" "}
+                  <span className="font-normal opacity-70">·{Math.round(EVM_WEIGHTS[f] * 100)}%</span>
+                </span>
+              ))}
             </div>
           </div>
 
@@ -684,13 +689,13 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
         </div>
       </div>
       {pmView === "tabla" ? (
-        <PmScoreboard pms={allPMs} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} confirmacionRoiPm={confirmacionRoiPm} />
+        <PmScoreboard pms={allPMs} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} confirmacionRoiPm={confirmacionRoiPm} clases={clases} />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {allPMs.map((pm) => {
             const q = encodeURIComponent(pm);
             return (
-              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} boardCompleteMap={boardCompleteMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} confirmacionRoi={confirmacionRoiPm[pm]} onHoldProyectos={enPausa.proyectos.filter((b) => b.pm === pm)} onHoldPml={enPausa.pml.filter((r) => r.pm === pm)} onHoldInfo={data.onHold} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
+              <PMPortfolioCard key={pm} pm={pm} ini={ini} req={req} proj={proj} projBoards={projBoards} boardHealthMap={boardHealthMap} boardCompleteMap={boardCompleteMap} calMap={calMap} npsRecords={npsRecords} delays={delays} reproceso={reproceso} metodologia={metodologiaCalifs} clases={data.clases} confirmacionRoi={confirmacionRoiPm[pm]} onHoldProyectos={enPausa.proyectos.filter((b) => b.pm === pm)} onHoldPml={enPausa.pml.filter((r) => r.pm === pm)} onHoldInfo={data.onHold} onGoIni={() => router.push(`/iniciativas?pm=${q}`)} onGoReq={() => router.push(`/req?pm=${q}`)} onGoProj={() => router.push(`/proyectos?pm=${q}`)} />
             );
           })}
         </div>
@@ -825,11 +830,14 @@ function ValueGateColumn({ label, rows, onSelect }: { label: string; rows: Value
 }
 
 function PMPortfolioCard({
-  pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoi, onHoldProyectos, onHoldPml, onHoldInfo, onGoIni, onGoReq, onGoProj,
+  pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, clases, confirmacionRoi, onHoldProyectos, onHoldPml, onHoldInfo, onGoIni, onGoReq, onGoProj,
 }: {
   pm: string; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[];
   projBoards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>; boardCompleteMap: Map<string, boolean>; calMap: CalMap;
   npsRecords: NpsRecord[]; delays: DelayMap; reproceso: DelayMap; metodologia: MetodologiaMap;
+  /** Clase A/B/C asignada a mano a Proyectos y PML (Calidad & Cumplimiento → Clasificación): la tarjeta
+   *  se divide por clase en vez de por PML y Proyectos. */
+  clases: Record<string, ClaseEntry>;
   /** Confirmación vía ROI de este PM, si le aplica (ver CONFIRMACION_ROI_PM). */
   confirmacionRoi?: ConfirmacionRoiPm;
   /** Proyectos y PML de este PM en On Hold: no entran en ninguna de las cifras de la tarjeta,
@@ -837,6 +845,7 @@ function PMPortfolioCard({
   onHoldProyectos: ProjBoard[]; onHoldPml: ReqItem[];
   /** Quién, cuándo y por qué se pausó cada uno (para el popup de cada chip). */
   onHoldInfo: OnHoldDoc;
+  /** Los de Req y Proyectos solo los usan los chips de la franja On Hold (ir a la lista). */
   onGoIni: () => void; onGoReq: () => void; onGoProj: () => void;
 }) {
   const [showValue, setShowValue] = useState(false);
@@ -847,8 +856,7 @@ function PMPortfolioCard({
   const {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
-    reqAct, rvc, reqBadgePct, rEvmOff, rEvmRisk, rEvmOn,
-    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
+    resumenClases, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
   } = useMemo(() => {
   // Luis y David: su Confirmación sale de ROI, no de Monday (ver conConfirmacionRoi).
@@ -872,37 +880,29 @@ function PMPortfolioCard({
   const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
   const entLateRows = buildLateResponsibleRows(pmReqFiltered, pmProjFiltered, projBoards, delays, pmIniFiltered);
 
+  // En vez de PML y Proyectos por separado, la tarjeta se divide por CLASE (A, B, C): los PML activos
+  // y los proyectos del PM, cada uno en la clase que se le asignó en Clasificación. Los proyectos que se
+  // listan son los sin completar (boardCompleteMap — NO por healthIndex=100 %, porque un proyecto activo
+  // y sano también puede mostrar 100 % sin haber terminado) y no ocultos del Control Tower; los completos
+  // siguen contando en el promedio de salud de su clase, como antes en la sección de Proyectos.
+  // El EVM del PM pondera estas mismas clases (ver calcPmEvm).
   const reqItems = req.filter((r) => r.pm === pm && r.estado !== "CERRADO");
   const reqAct = reqItems.filter((r) => REQ_ACTIVE_GRUPOS.has(r.grupo));
-  const reqVemItems = reqAct.filter((r) => r.vem != null);
-  const reqAvgVem = reqVemItems.length ? reqVemItems.reduce((s, r) => s + (r.vem as number), 0) / reqVemItems.length : null;
-  // El estado REQ del PM es el peor de sus REQs (un Off Track → Off Track; si no, un At Risk → At Risk; si todos On Track → On Track). El % sigue siendo el promedio.
-  const reqSts = reqVemItems.map((r) => healthStatusFromIndex(r.vem as number));
-  const reqVemStatus = reqSts.includes("off-track") ? "off-track" : reqSts.includes("in-risk") ? "in-risk" : reqSts.length ? "on-track" : null;
-  // Igual que Iniciativas (calcIniPMHealth): sin PML activos la sección no queda en blanco, muestra
-  // «0 total» y On Track 100 %. Solo es lo que se muestra: para el EVM del PM, `reqAvgVem` sigue
-  // en null y su peso se reparte (ver weightedEvm), exactamente como pasa con Iniciativas.
-  const sinPml = reqAct.length === 0;
-  const rvc = sinPml ? HEALTH_CFG["on-track"] : reqVemStatus ? HEALTH_CFG[reqVemStatus] : null;
-  const reqBadgePct = sinPml ? 100 : reqAvgVem !== null ? Math.round(reqAvgVem * 100) : null;
-
-  const rEvmCount = (st: HealthStatus) => reqAct.filter((r) => r.vem != null && healthStatusFromIndex(r.vem) === st).length;
-  const rEvmOff  = rEvmCount("off-track");
-  const rEvmRisk = rEvmCount("in-risk");
-  const rEvmOn   = rEvmCount("on-track");
-
-  const pmProjBoards = projBoards.filter((b) => b.pm === pm);
-  const projHas = pmProjBoards.length > 0;
-  const pmProjHIs = pmProjBoards.map((b) => boardHealthMap.get(b.id)?.healthIndex).filter((v): v is number => v != null);
-  const pmProjAvgHI = pmProjHIs.length > 0 ? pmProjHIs.reduce((a, b) => a + b, 0) / pmProjHIs.length : null;
-  const pmProjStatus = healthStatusFromIndex(pmProjAvgHI);
-  const ppc = pmProjStatus ? HEALTH_CFG[pmProjStatus] : null;
+  const resumenClases = resumenPorClase(
+    projBoards.filter((b) => b.pm === pm).map((board) => ({
+      board,
+      healthIndex: boardHealthMap.get(board.id)?.healthIndex ?? null,
+      visible: !boardCompleteMap.get(board.id) && !isHiddenFromControlTower(board.name),
+    })),
+    reqAct,
+    clases,
+  );
 
   const ihc = INI_HEALTH_CFG[iniHealth.status];
 
-  // Nota EVM del PM: Iniciativas 10% · REQ 20% · Proyectos 70% (ver calcPmEvm). Sin
-  // iniciativas, ese 10% se reparte entre REQ y Proyectos (no un 1.0 gratis).
-  const pmEvmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap);
+  // Nota EVM del PM: Iniciativas y sus Clases A, B y C con los pesos de EVM_WEIGHTS (ver calcPmEvm).
+  // Una fuente sin nada que medir reparte su peso entre las demás (no un 1.0 gratis).
+  const pmEvmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap, clases);
   const pmEvmPct = pmEvmRaw !== null ? Math.round(pmEvmRaw * 100) : null;
 
   // KPI del PM: mismo cálculo ponderado que el del equipo, con las métricas del PM
@@ -932,22 +932,13 @@ function PMPortfolioCard({
   return {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
-    reqAct, rvc, reqBadgePct, rEvmOff, rEvmRisk, rEvmOn,
-    pmProjBoards, projHas, pmProjAvgHI, ppc, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
+    resumenClases, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
   };
-  }, [pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoi]);
+  }, [pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, clases, confirmacionRoi]);
 
   // Mismo esquema de color del "Player" que la tabla de KPIs (por rango de %).
   const player = playerPalette(pmKpiPct);
-
-  // Proyectos que se listan en la sección "PM" de la tarjeta: se ocultan los
-  // ya Completados (boardCompleteMap) — NO por healthIndex=100%, porque un
-  // proyecto activo y sano también puede mostrar 100% ahí sin haber terminado.
-  // pmProjBoards SIN filtrar sigue siendo la base de pmProjHIs/pmProjAvgHI/
-  // pmKpi más arriba, así que esos proyectos siguen contribuyendo al Player/KPI
-  // aunque no aparezcan acá. El encabezado "PM (N)" cuenta lo visible, no el total.
-  const visiblePmProjBoards = pmProjBoards.filter((b) => !boardCompleteMap.get(b.id) && !isHiddenFromControlTower(b.name));
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
@@ -980,7 +971,7 @@ function PMPortfolioCard({
         const confColor = kpiColorFor(confRatio);
         const metrics: { label: string; value: React.ReactNode; color: string; onClick?: () => void; title: string; sub?: string; badge?: { text: string; color: string; bg: string } }[] = [
           // La salud del PM (también el borde de la tarjeta) sale de esta misma nota (umbrales en VEM_THRESHOLDS, lib/health.ts).
-          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, badge: { text: `${hc.icon} ${hc.label}`, color: hc.color, bg: hc.bg }, title: "EVM del PM · ponderado Iniciativas 10% · PML 20% · Proyectos 70% · su salud sale de esta nota: " + VEM_RANGOS_TXT },
+          { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, badge: { text: `${hc.icon} ${hc.label}`, color: hc.color, bg: hc.bg }, title: `EVM del PM · ponderado ${EVM_PESOS_TXT} · su salud sale de esta nota: ${VEM_RANGOS_TXT}` },
           { label: "Beneficio $", value: (
             // Validado arriba (negro) y Confirmado abajo (semáforo), apilados para no ensanchar la celda.
             <span className="flex flex-col items-center gap-0.5 text-[0.8rem] leading-none">
@@ -1000,7 +991,9 @@ function PMPortfolioCard({
           </div>
         );
       })()}
-      <div className="flex">
+      {/* Iniciativas y una sección por Clase (A, B, C), en 2 × 2: con 4 columnas en fila el texto de cada
+          sección ("12 Off Track", la píldora de salud) no cabe en una tarjeta de un tercio de pantalla. */}
+      <div className="grid grid-cols-2">
         <Section
           label="Iniciativas"
           has={true}
@@ -1022,44 +1015,44 @@ function PMPortfolioCard({
             </div>
           )}
         </Section>
-        <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-        <Section
-          label="PML"
-          has={true}
-          onClick={onGoReq}
-          badge={rvc && reqBadgePct !== null ? (
-            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: rvc.color, background: rvc.bg }}>
-              {rvc.icon} {rvc.label} · {reqBadgePct}%
-            </span>
-          ) : undefined}
-        >
-          <Stat n={reqAct.length} color="#6b7280" label="total" showZero />
-          <Stat n={rEvmOff} color="#ef4444" label="Off Track" />
-          <Stat n={rEvmRisk} color="#f59e0b" label="At Risk" />
-          <Stat n={rEvmOn} color="#10b981" label="On Track" />
-        </Section>
-        <div className="w-px flex-shrink-0" style={{ background: "var(--border)" }} />
-        <Section label={`PM (${visiblePmProjBoards.length})`} has={projHas} onClick={onGoProj} badge={ppc && pmProjAvgHI !== null ? (
-            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ppc.color, background: ppc.bg }}>
-              {ppc.icon} {ppc.label} · {Math.round(pmProjAvgHI * 100)}%
-            </span>
-          ) : undefined}>
-          <div className="flex flex-col gap-1.5 pt-0.5">
-            {visiblePmProjBoards.map((b) => {
-              const bh = boardHealthMap.get(b.id);
-              const hs = bh?.healthStatus;
-              const color = hs ? PROJ_HEALTH_COLOR[hs] : "#6b7280";
-              const hi = bh?.healthIndex;
-              return (
-                <div key={b.id} className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
-                  <span className="text-[0.75rem] font-mono text-[var(--text-secondary)]" title={b.name}>{b.name.slice(0, 6)}</span>
-                  {hi != null && <span className="ml-auto text-[0.72rem] font-bold tabular-nums" style={{ color }}>{Math.round(hi * 100)}%</span>}
-                </div>
-              );
-            })}
-          </div>
-        </Section>
+        {resumenClases.map((rc, j) => {
+          const i = j + 1; // lugar en la cuadrícula (la 0 es Iniciativas): línea a la izquierda en la 2.ª columna y arriba desde la 2.ª fila
+          const cfg = rc.estado ? HEALTH_CFG[rc.estado] : null;
+          const items = [
+            rc.proyectos.length ? `Proyectos: ${rc.proyectos.join(", ")}` : "",
+            rc.pml.length ? `PML: ${rc.pml.join(", ")}` : "",
+          ].filter(Boolean).join("\n");
+          return (
+            <Section
+              key={rc.clase}
+              label={`${rc.clase === "Sin clasificar" ? rc.clase : `Clase ${rc.clase}`} (${rc.total})`}
+              has={rc.hay}
+              title={items || "Sin Proyectos ni PML en esta clase"}
+              className={`${i % 2 === 1 ? "border-l" : ""} ${i >= 2 ? "border-t" : ""}`}
+              badge={cfg && rc.promedio !== null ? (
+                <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: cfg.color, background: cfg.bg }}>
+                  {cfg.icon} {cfg.label} · {Math.round(rc.promedio * 100)}%
+                </span>
+              ) : undefined}
+            >
+              {/* Los IDs de lo que cuenta en la clase (proyectos primero, luego PML), con su salud: el punto lleva
+                  el color de su estado y a la derecha va su %. */}
+              <div className="flex flex-col gap-1.5 pt-0.5">
+                {rc.items.map((it) => {
+                  const color = it.estado ? HEALTH_CFG[it.estado].color : "#6b7280";
+                  return (
+                    <div key={`${it.tipo}-${it.id}`} className="flex items-center gap-1.5" title={it.nombre}>
+                      <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+                      <span className="font-mono text-[0.75rem] text-[var(--text-secondary)]">{it.id}</span>
+                      {it.healthIndex !== null && <span className="ml-auto text-[0.72rem] font-bold tabular-nums" style={{ color }}>{Math.round(it.healthIndex * 100)}%</span>}
+                    </div>
+                  );
+                })}
+                {rc.items.length === 0 && <div className="text-[0.75rem] text-[var(--text-disabled)]">Nada activo</div>}
+              </div>
+            </Section>
+          );
+        })}
       </div>
 
       {/* On Hold: pausados, fuera de toda cifra de esta tarjeta. Solo aparece si el PM tiene alguno. */}
@@ -1091,9 +1084,14 @@ function PMPortfolioCard({
   );
 }
 
-function Section({ label, has, onClick, children, badge }: { label: string; has: boolean; onClick: () => void; children: React.ReactNode; badge?: React.ReactNode }) {
+function Section({ label, has, onClick, children, badge, className = "", title }: {
+  label: string; has: boolean; onClick?: () => void; children: React.ReactNode; badge?: React.ReactNode; className?: string; title?: string;
+}) {
+  const clicable = has && !!onClick;
   return (
-    <div onClick={has ? onClick : undefined} className={`min-w-0 flex-1 px-[18px] py-3.5 transition-colors ${has ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""}`}>
+    <div
+      onClick={clicable ? onClick : undefined} title={title} style={{ borderColor: "var(--border)" }}
+      className={`min-w-0 flex-1 px-[18px] py-3.5 transition-colors ${clicable ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""} ${className}`}>
       <div className="mb-2">
         <span className="text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</span>
         {badge && <div className="mt-1">{badge}</div>}

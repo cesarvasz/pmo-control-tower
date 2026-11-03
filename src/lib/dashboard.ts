@@ -5,7 +5,9 @@
 
 import { today, businessDays, parseYMD } from "@/lib/business";
 import { calcIniPMHealth, INI_LIMITS } from "@/lib/ini";
-import { pmHealthStatus, weightedEvm } from "@/lib/health";
+import { pmHealthStatus, weightedEvm, type PartesEvm } from "@/lib/health";
+import { claseDeItemProyecto, claseDePml, fuenteDeClase, type Clase } from "@/lib/claseProyecto";
+import { notasPorClase, partesEvm } from "@/lib/evmClase";
 import { calcBoardMetrics, deriveBoardHealth, esPlantillaLite, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
@@ -16,7 +18,7 @@ import { esActividadATiempo } from "@/lib/ckuAjustes";
 import { construirExpedientes, ahorroDucafast, ahorroPorTiempos, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "@/lib/tramites";
 import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "@/lib/clonaciones";
 import type {
-  CalMap, ClonacionRow, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ProjSubitem, ReqItem, RoiRow,
+  CalMap, ClaseEntry, ClonacionRow, IniItem, NpsRecord, ProjBoard, ProjItem, ProjItemBaseline, ProjSubitem, ReqItem, RoiRow,
 } from "@/types";
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -298,10 +300,33 @@ export function buildBoardHealthMap(
   return map;
 }
 
-/** Nota EVM (0–1) de un PM: promedio PONDERADO Iniciativas 10% · PML 20% · Proyectos 70% (ver
- *  weightedEvm / EVM_WEIGHTS en lib/health.ts). Cada fuente vale el promedio de sus items; una
- *  sin datos no cuenta y su peso se reparte entre las otras. null si el PM no tiene ninguna.
- *  Es el % de la tarjeta del PM y de lo que sale su estado (ver pmHealthStatus). */
+/** Las fuentes de la nota EVM de un PM: Iniciativas y, por cada Clase (A, B, C), el promedio de la salud
+ *  de sus Proyectos y PML activos (ver partesEvm y la Clase en lib/claseProyecto.ts). Las notas por
+ *  fuente que se ven en pantalla; calcPmEvm las pondera. */
+export function calcPmPartesEvm(
+  pm: string,
+  ini: IniItem[],
+  req: ReqItem[],
+  projBoards: ProjBoard[],
+  boardHealthMap: Map<string, BoardHealthData>,
+  calMap: CalMap,
+  clases: Record<string, ClaseEntry> = {},
+): PartesEvm {
+  const iniHealth = calcIniPMHealth(pm, ini, calMap);
+
+  const pmlActivos = req.filter((r) => r.pm === pm && r.estado !== "CERRADO" && REQ_ACTIVE_GRUPOS.has(r.grupo));
+  const boards = projBoards
+    .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null)
+    .map((board) => ({ board, healthIndex: boardHealthMap.get(board.id)?.healthIndex }));
+
+  return partesEvm(iniHealth.total > 0 ? iniHealth.index : null, notasPorClase(pmlActivos, boards, clases));
+}
+
+/** Nota EVM (0–1) de un PM: promedio PONDERADO de Iniciativas y de sus Clases A, B y C (ver
+ *  weightedEvm / EVM_WEIGHTS en lib/health.ts). Cada fuente vale el promedio de sus items (Proyectos
+ *  y PML de esa clase, según Calidad & Cumplimiento → Clasificación); una sin datos no cuenta y su
+ *  peso se reparte entre las otras, y lo que no tiene clase no cuenta en ninguna. null si el PM no
+ *  tiene ninguna. Es el % de la tarjeta del PM y de lo que sale su estado (ver pmHealthStatus). */
 export function calcPmEvm(
   pm: string,
   ini: IniItem[],
@@ -309,25 +334,9 @@ export function calcPmEvm(
   projBoards: ProjBoard[],
   boardHealthMap: Map<string, BoardHealthData>,
   calMap: CalMap,
+  clases: Record<string, ClaseEntry> = {},
 ): number | null {
-  const iniHealth = calcIniPMHealth(pm, ini, calMap);
-
-  const reqVems = req
-    .filter((r) => r.pm === pm && r.estado !== "CERRADO" && REQ_ACTIVE_GRUPOS.has(r.grupo) && r.vem != null)
-    .map((r) => r.vem as number);
-  const reqAvgVem = reqVems.length ? reqVems.reduce((s, v) => s + v, 0) / reqVems.length : null;
-
-  const projHIs = projBoards
-    .filter((b) => b.pm === pm && boardHealthMap.get(b.id)?.healthStatus !== null)
-    .map((b) => boardHealthMap.get(b.id)?.healthIndex)
-    .filter((v): v is number => v != null);
-  const projAvgHI = projHIs.length > 0 ? projHIs.reduce((a, b) => a + b, 0) / projHIs.length : null;
-
-  return weightedEvm({
-    ini: iniHealth.total > 0 ? iniHealth.index : null,
-    req: reqAvgVem,
-    proj: projAvgHI,
-  });
+  return weightedEvm(calcPmPartesEvm(pm, ini, req, projBoards, boardHealthMap, calMap, clases));
 }
 
 /** Costo/beneficio por PM en tres etapas (Validación VPA / Aprobación VPB / Confirmación
@@ -540,12 +549,35 @@ export function entregablesDelCku(projs: ProjItem[], cku: string): ProjItem[] {
 }
 
 /** Cumplimiento de Entrega de un CKU: lo mismo que calcEntregaStatsPonderado (una nota por
- *  fuente, combinadas 10/20/70) pero en Proyectos la unidad es cada ACTIVIDAD (subitem) a cargo del
+ *  fuente, combinadas con los pesos del EVM) pero en Proyectos la unidad es cada ACTIVIDAD (subitem) a cargo del
  *  CKU, de sus entregables de la Fase 3 (Launch) de los boards con plantilla nueva — ver
  *  entregablesDelCku y entregaActividadesCku. PML e Iniciativas no cambian. */
-export function calcEntregaStatsCku(cku: string, reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
-  const f = entregaPorFuente(reqs, [], delays, ini);
-  return combinarEntregaPonderada({ ...f, proj: entregaActividadesCku(entregablesDelCku(projs, cku), delays) });
+export function calcEntregaStatsCku(cku: string, reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = [], clases: Record<string, ClaseEntry> = {}): EntregaStats {
+  return combinarEntregaPonderada(entregaPorClase(
+    reqs, projs, delays, ini, clases,
+    (ps) => entregaActividadesCku(entregablesDelCku(ps, cku), delays),
+  ));
+}
+
+/** Conteo de Cumplimiento por FUENTE de la nota EVM: Iniciativas y cada Clase (A, B, C) con los PML y los
+ *  Proyectos que tienen esa clase (ver lib/claseProyecto.ts). `sin` junta lo «Sin clasificar»: entra en los
+ *  conteos pero no en la nota, hasta que se le asigne una clase. `entregaProyectos` decide cómo se cuentan
+ *  los proyectos de una clase (por defecto, las fases; un CKU, sus actividades). */
+interface EntregaPorClase { ini: FuenteEntrega; A: FuenteEntrega; B: FuenteEntrega; C: FuenteEntrega; sin: FuenteEntrega }
+const CLASES_CONTADAS: readonly Clase[] = ["A", "B", "C", "Sin clasificar"];
+
+function entregaPorClase(
+  reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[], clases: Record<string, ClaseEntry>,
+  entregaProyectos: (ps: ProjItem[]) => FuenteEntrega = (ps) => entregaPorFuente([], ps, delays, []).proj,
+): EntregaPorClase {
+  const vacia = (): FuenteEntrega => ({ total: 0, onTime: 0 });
+  const out: EntregaPorClase = { ini: entregaPorFuente([], [], delays, ini).ini, A: vacia(), B: vacia(), C: vacia(), sin: vacia() };
+  for (const c of CLASES_CONTADAS) {
+    const r = entregaPorFuente(reqs.filter((x) => claseDePml(x.id, clases) === c), [], delays, []).req;
+    const p = entregaProyectos(projs.filter((x) => claseDeItemProyecto(x, clases) === c));
+    out[fuenteDeClase(c) ?? "sin"] = { total: r.total + p.total, onTime: r.onTime + p.onTime };
+  }
+  return out;
 }
 
 /** Proyectos de un CKU: cada ACTIVIDAD (subitem) de los items que recibe (ya recortados a lo suyo, ver
@@ -575,12 +607,12 @@ export const entregaActividadCku = (s: ProjSubitem): ProjSubitem["entrega"] =>
   s.entrega === "late" && esActividadATiempo(s.id) ? "on-time" : s.entrega;
 
 /** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
- *  lib/health.ts): el % a tiempo de cada fuente por separado (Iniciativas, PML,
- *  Proyectos), combinados 10% · 20% · 70%. Una fuente sin unidades no cuenta y su
+ *  lib/health.ts): el % a tiempo de cada fuente por separado (Iniciativas y las Clases A, B y C de
+ *  Proyectos y PML), combinados con los pesos del EVM. Una fuente sin unidades no cuenta y su
  *  peso se reparte entre las demás. Los conteos (`total`/`onTime`/`late`) siguen
  *  siendo la suma de todas las unidades; solo `pct` cambia respecto a calcEntregaStats. */
-export function calcEntregaStatsPonderado(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
-  return combinarEntregaPonderada(entregaPorFuente(reqs, projs, delays, ini));
+export function calcEntregaStatsPonderado(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = [], clases: Record<string, ClaseEntry> = {}): EntregaStats {
+  return combinarEntregaPonderada(entregaPorClase(reqs, projs, delays, ini, clases));
 }
 
 /** Fracción (0–1) a % entero para las notas ponderadas de un CKU. Un empate exacto (52.5) puede salir
@@ -588,13 +620,14 @@ export function calcEntregaStatsPonderado(reqs: ReqItem[], projs: ProjItem[], de
  *  el epsilon lo deja siempre hacia arriba (53), igual en el scoreboard y en el detalle de /players. */
 export const redondearPct = (fraccion: number): number => Math.round(fraccion * 100 + 1e-9);
 
-/** Combina el conteo por fuente en un EntregaStats: conteos = suma de todas las unidades, `pct` =
- *  nota por fuente ponderada 10/20/70 (la fuente sin unidades no cuenta). */
-function combinarEntregaPonderada(f: { req: FuenteEntrega; proj: FuenteEntrega; ini: FuenteEntrega }): EntregaStats {
-  const total = f.req.total + f.proj.total + f.ini.total;
-  const onTime = f.req.onTime + f.proj.onTime + f.ini.onTime;
+/** Combina el conteo por fuente en un EntregaStats: conteos = suma de todas las unidades (también lo «Sin
+ *  clasificar»), `pct` = nota por fuente ponderada con los pesos del EVM (la fuente sin unidades no cuenta). */
+function combinarEntregaPonderada(f: EntregaPorClase): EntregaStats {
+  const todas = [f.ini, f.A, f.B, f.C, f.sin];
+  const total = todas.reduce((s, x) => s + x.total, 0);
+  const onTime = todas.reduce((s, x) => s + x.onTime, 0);
   const frac = (x: FuenteEntrega) => (x.total ? x.onTime / x.total : null);
-  const ponderado = weightedEvm({ ini: frac(f.ini), req: frac(f.req), proj: frac(f.proj) });
+  const ponderado = weightedEvm({ ini: frac(f.ini), A: frac(f.A), B: frac(f.B), C: frac(f.C) });
   return { total, onTime, late: total - onTime, pct: ponderado === null ? null : redondearPct(ponderado) };
 }
 
@@ -1010,19 +1043,30 @@ function notasReprocesoPorFuente(
 
 /** Calidad de Entregas de los CKUs (Players): medida COMO EL EVM (ver weightedEvm /
  *  EVM_WEIGHTS en lib/health.ts) — la nota promedio de cada fuente por separado
- *  (Iniciativas, PML, Proyectos), combinadas 10% · 20% · 70%. Una fuente sin unidades no
- *  cuenta y su peso se reparte entre las demás. A diferencia de los PM, TODAS las unidades valen
+ *  (Iniciativas y las Clases A, B y C de Proyectos y PML), combinadas con los pesos del EVM. Una fuente
+ *  sin unidades no cuenta y su peso se reparte entre las demás; lo «Sin clasificar» cuenta en los
+ *  conteos pero no en la nota. A diferencia de los PM, TODAS las unidades valen
  *  0 o 100: PML e Iniciativas según su responsable (ver notaCalidadCku) y Proyectos por las FECHAS
  *  de cada actividad a cargo del CKU, de sus entregables de la Fase 3 de plantilla nueva (ver
  *  entregablesDelCku y calidadActividadCku). Los conteos (`total`/`limpias`/`conReproceso`) son los
  *  de todas las unidades juntas. */
-export function calcReprocesoStatsPonderado(cku: string, reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = []): ReprocesoStats {
-  const n = notasReprocesoPorFuente(reqs, projs, reproceso, ini, cku);
-  const notas = [...n.req, ...n.proj, ...n.ini];
+export function calcReprocesoStatsPonderado(cku: string, reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[] = [], clases: Record<string, ClaseEntry> = {}): ReprocesoStats {
+  // Las notas de cada fuente de la nota EVM: Iniciativas y las Clases A/B/C (PML + actividades de Proyectos).
+  const n: { ini: number[]; A: number[]; B: number[]; C: number[]; sin: number[] } =
+    { ini: notasReprocesoPorFuente([], [], reproceso, ini, cku).ini, A: [], B: [], C: [], sin: [] };
+  for (const c of CLASES_CONTADAS) {
+    const x = notasReprocesoPorFuente(
+      reqs.filter((r) => claseDePml(r.id, clases) === c),
+      projs.filter((p) => claseDeItemProyecto(p, clases) === c),
+      reproceso, [], cku,
+    );
+    n[fuenteDeClase(c) ?? "sin"] = [...x.req, ...x.proj];
+  }
+  const notas = [...n.ini, ...n.A, ...n.B, ...n.C, ...n.sin];
   const total = notas.length;
   const limpias = notas.filter((x) => x === 100).length;
   const media = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length / 100 : null);
-  const ponderado = weightedEvm({ ini: media(n.ini), req: media(n.req), proj: media(n.proj) });
+  const ponderado = weightedEvm({ ini: media(n.ini), A: media(n.A), B: media(n.B), C: media(n.C) });
   return { total, limpias, conReproceso: total - limpias, pct: ponderado === null ? null : redondearPct(ponderado) };
 }
 
@@ -1386,16 +1430,19 @@ export function calcPmMetrics(
   /** Confirmación vía ROI de los PMs de CONFIRMACION_ROI_PM (reemplaza la de Monday). */
   confirmacionRoiPm: Record<string, ConfirmacionRoiPm> = {},
   /** Medición de un CKU: Cumplimiento de Entrega y Calidad de Entregas como el EVM (nota por
-   *  fuente ponderada 10/20/70) y, en Cumplimiento, Proyectos solo con su Fase 3 (ver
-   *  calcEntregaStatsCku); el Beneficio, contra su propia meta (ver computeBenefitKpiCku).
-   *  Hoy solo los Players por CKU. */
+   *  fuente — Iniciativas y Clases A/B/C — ponderada con los pesos del EVM) y, en Cumplimiento,
+   *  Proyectos solo con su Fase 3 (ver calcEntregaStatsCku); el Beneficio, contra su propia meta (ver
+   *  computeBenefitKpiCku). Hoy solo los Players por CKU. */
   ponderarPorFuente = false,
   /** Meta y Profit de Implementación de un mes, para el CKU que la lleva: la meta se suma a la
    *  meta de su Beneficio y el Profit a su cumplimiento (ver computeBenefitKpiCku). */
   implementacionCku?: { mes: string; meta: number; profit: number },
+  /** Clase A/B/C asignada a Proyectos y PML (Calidad & Cumplimiento → Clasificación): reparte el EVM
+   *  (y, en un CKU, Cumplimiento y Calidad) en sus fuentes por clase. */
+  clases: Record<string, ClaseEntry> = {},
 ) {
-  // Nota EVM del PM (ver calcPmEvm). Sin iniciativas ese 10% se reparte entre REQ y Proyectos.
-  const evmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap);
+  // Nota EVM del PM (ver calcPmEvm). Una fuente sin nada que medir reparte su peso entre las demás.
+  const evmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap, clases);
   const evmPct = evmRaw !== null ? Math.round(evmRaw * 100) : null;
 
   const nps = calcNpsFromRecords(npsRecords, pm);
@@ -1409,7 +1456,7 @@ export function calcPmMetrics(
   ] as const;
   // Un CKU se mide solo con sus entregables y actividades (en `pm` viene su nombre) — ver entregablesDelCku.
   const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = ponderarPorFuente
-    ? calcEntregaStatsCku(pm, ...entregaArgs)
+    ? calcEntregaStatsCku(pm, ...entregaArgs, clases)
     : calcEntregaStats(...entregaArgs);
 
   const pmValueAll = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, false), confirmacionRoiPm[pm]);
@@ -1428,7 +1475,7 @@ export function calcPmMetrics(
     reproceso,
     ini.filter((i) => i.pm === pm),
   ] as const;
-  const reprocesoPct = (ponderarPorFuente ? calcReprocesoStatsPonderado(pm, ...reprocesoArgs) : calcReprocesoStats(...reprocesoArgs)).pct;
+  const reprocesoPct = (ponderarPorFuente ? calcReprocesoStatsPonderado(pm, ...reprocesoArgs, clases) : calcReprocesoStats(...reprocesoArgs)).pct;
   const metodologiaPct = metodologiaActual(metodologia, pm);
   const kpi = computeKpi({
     evm: evmRaw, nps: nps.nps,

@@ -5,7 +5,7 @@
 // antes era solo de On Hold.
 // Módulo PURO. Recibe el dashboard COMPLETO (`dataTodo`).
 
-import { claseDePml, claseDeProyecto, type Clase } from "@/lib/claseProyecto";
+import { claseDeBoard, claseDePml, type Clase } from "@/lib/claseProyecto";
 import { filasOnHold } from "@/lib/onHoldLista";
 import { lookupEstrategia, splitBoardName } from "@/lib/proj";
 import type { DashboardData } from "@/types";
@@ -37,7 +37,7 @@ export interface FilaClasificacion {
 
 /** ID y nombre de un board. Si Monday lo nombró sin la barra («PM-017 Impala 2.0»), igual se separa
  *  el ID del nombre; un board sin ningún ID («Sin barra») se queda entero como ID, sin nombre. */
-function codigoYNombre(boardName: string): { code: string; name: string } {
+export function codigoYNombre(boardName: string): { code: string; name: string } {
   const partido = splitBoardName(boardName);
   if (partido.code) return partido;
   const m = boardName.trim().match(/^(PM[- ]?\d{3})\s+(.+)$/i);
@@ -58,7 +58,7 @@ export function filasClasificacion(data: DashboardData): FilaClasificacion[] {
     filas.push({
       tipo: "proyecto", id: b.id, codigo: code || b.name, nombre: code ? name : "",
       pm: b.pm || "", cku: b.cku || "", sponsor: b.sponsor || "",
-      clase: claseDeProyecto(code, b.id, data.clases),
+      clase: claseDeBoard(b, data.clases),
       fase: oh ? oh.fase : "Completado", pausable: !!oh, enOnHold: oh?.enOnHold ?? false, motivo: oh?.motivo ?? "",
     });
   }

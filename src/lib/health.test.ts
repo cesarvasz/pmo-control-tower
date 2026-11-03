@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcVem, healthStatusFromIndex, pmHealthStatus, vemCfg, weightedEvm, EVM_WEIGHTS, VEM_RANGOS_TXT, VEM_THRESHOLDS } from "./health";
+import { calcVem, healthStatusFromIndex, pmHealthStatus, vemCfg, weightedEvm, EVM_PESOS_TXT, EVM_WEIGHTS, FUENTES_EVM, VEM_RANGOS_TXT, VEM_THRESHOLDS } from "./health";
 
 describe("calcVem", () => {
   it("promedia SPI, CPI y Scope", () => {
@@ -38,30 +38,38 @@ describe("healthStatusFromIndex", () => {
 });
 
 describe("weightedEvm", () => {
-  it("pondera Iniciativas 10% · REQ 20% · Proyectos 70%", () => {
-    expect(EVM_WEIGHTS).toEqual({ ini: 0.1, req: 0.2, proj: 0.7 });
-    // 1·0.1 + 0.5·0.2 + 0.8·0.7 = 0.1 + 0.1 + 0.56 = 0.76
-    expect(weightedEvm({ ini: 1, req: 0.5, proj: 0.8 })).toBeCloseTo(0.76, 10);
+  it("pondera Iniciativas 10% · Clase A 35% · Clase B 30% · Clase C 25%", () => {
+    expect(EVM_WEIGHTS).toEqual({ ini: 0.1, A: 0.35, B: 0.3, C: 0.25 });
+    expect(EVM_PESOS_TXT).toBe("Iniciativas 10% · Clase A 35% · Clase B 30% · Clase C 25%");
+    // Los pesos suman 1.
+    expect(FUENTES_EVM.reduce((s, f) => s + EVM_WEIGHTS[f], 0)).toBeCloseTo(1, 10);
+    // 1·0.1 + 0.5·0.35 + 0.8·0.3 + 0.2·0.25 = 0.1 + 0.175 + 0.24 + 0.05 = 0.565
+    expect(weightedEvm({ ini: 1, A: 0.5, B: 0.8, C: 0.2 })).toBeCloseTo(0.565, 10);
   });
 
-  it("Proyectos domina la nota", () => {
-    // Proyectos en 0.6, el resto perfecto → la nota se acerca a 0.6, no a ~0.87
-    expect(weightedEvm({ ini: 1, req: 1, proj: 0.6 })).toBeCloseTo(0.72, 10);
+  it("la Clase A manda más que la B y que la C", () => {
+    // Una clase en 0.6 y el resto perfecto: el golpe es mayor cuanto más pesa la clase.
+    const nota = (c: "A" | "B" | "C") => weightedEvm({ ini: 1, A: 1, B: 1, C: 1, [c]: 0.6 });
+    expect(nota("A")!).toBeCloseTo(1 - 0.35 * 0.4, 10);
+    expect(nota("B")!).toBeCloseTo(1 - 0.3 * 0.4, 10);
+    expect(nota("C")!).toBeCloseTo(1 - 0.25 * 0.4, 10);
+    expect(nota("A")!).toBeLessThan(nota("B")!);
+    expect(nota("B")!).toBeLessThan(nota("C")!);
   });
 
   it("una fuente ausente reparte su peso a prorrata entre las presentes", () => {
-    // Sin REQ: pesos 0.1 y 0.7 se renormalizan a 0.125 / 0.875
-    expect(weightedEvm({ ini: 1, req: null, proj: 0.8 })).toBeCloseTo(1 * 0.125 + 0.8 * 0.875, 10);
-    // Solo Proyectos → la nota ES la de Proyectos
-    expect(weightedEvm({ ini: null, req: null, proj: 0.42 })).toBeCloseTo(0.42, 10);
+    // Sin Clase B: pesos 0.1, 0.35 y 0.25 se renormalizan sobre 0.7
+    expect(weightedEvm({ ini: 1, A: 0.8, B: null, C: 0.6 })).toBeCloseTo((1 * 0.1 + 0.8 * 0.35 + 0.6 * 0.25) / 0.7, 10);
+    // Solo una clase → la nota ES la de esa clase
+    expect(weightedEvm({ ini: null, A: null, B: 0.42, C: null })).toBeCloseTo(0.42, 10);
   });
 
   it("null si no hay ninguna fuente", () => {
-    expect(weightedEvm({ ini: null, req: null, proj: null })).toBeNull();
+    expect(weightedEvm({ ini: null, A: null, B: null, C: null })).toBeNull();
   });
 
   it("una fuente en 0 sí cuenta (no se confunde con ausente)", () => {
-    expect(weightedEvm({ ini: 0, req: 1, proj: 1 })).toBeCloseTo(0 * 0.1 + 1 * 0.2 + 1 * 0.7, 10);
+    expect(weightedEvm({ ini: 0, A: 1, B: 1, C: 1 })).toBeCloseTo(0 * 0.1 + 1 * 0.35 + 1 * 0.3 + 1 * 0.25, 10);
   });
 });
 

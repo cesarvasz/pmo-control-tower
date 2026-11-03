@@ -53,7 +53,15 @@ import type { BoardHealthData } from "./proj";
 import type { DelayMap } from "./delay";
 import { construirExpedientes, ahorroDucafast, TARIFA_HORA_DEFECTO, ETAPA_KEYS } from "./tramites";
 import { construirRegistros, costoClonacionPorOrigen, TARIFA_CLONACION_DEFECTO } from "./clonaciones";
-import type { IniItem, ProjBoard, ProjItem, ProjSubitem, ReqItem, RoiRow, ClonacionRow } from "@/types";
+import type { ClaseEntry, IniItem, ProjBoard, ProjItem, ProjSubitem, ReqItem, RoiRow, ClonacionRow } from "@/types";
+
+// La clase (A/B/C) asignada a mano en Calidad & Cumplimiento → Clasificación, por id de board o de PML.
+const cl = (m: Record<string, "A" | "B" | "C">): Record<string, ClaseEntry> =>
+  Object.fromEntries(Object.entries(m).map(([id, clase]) => [id, { clase, by: "", at: "" }]));
+
+// Nombre de un board cuya Clase, sin asignar nada, es A (PM-001 está en la tabla de claseProyecto.ts): los proyectos
+// de las pruebas de CKU lo llevan para que cuenten en la nota (un proyecto sin clase no pesa).
+const BOARD_A = "PM-001 | Tablero";
 
 // Fixtures mínimos: solo se rellenan los campos que leen las funciones.
 const req = (o: Partial<ReqItem>): ReqItem => o as ReqItem;
@@ -386,16 +394,37 @@ describe("calcPmEvm (nota EVM del PM, de la que sale su estado)", () => {
   const reqLuis = (vem: number | null, o: Partial<ReqItem> = {}) =>
     req({ pm: "Luis", estado: "EN PROCESO", grupo: "Desarrollo", vem, ...o });
 
-  it("pondera Iniciativas 10% · PML 20% · Proyectos 70%, cada fuente por el promedio de sus items", () => {
-    // Sin iniciativas: PML 0.5 (20%) y Proyectos (1 + 0.6)/2 = 0.8 (70%), pesos renormalizados a 2/9 y 7/9.
-    const v = calcPmEvm("Luis", [], [reqLuis(0.5)], boards, bhm({ b1: 1, b2: 0.6, b3: 0 }), new Map());
-    expect(v).toBeCloseTo(0.5 * (2 / 9) + 0.8 * (7 / 9), 10);
+  it("pondera Iniciativas 10% · Clase A 35% · Clase B 30% · Clase C 25%, cada clase por el promedio de sus Proyectos y PML", () => {
+    // Sin iniciativas: A = b1 (1.0), B = b2 (0.6), C = el PML (0.5, vale C si nadie le asigna otra).
+    // Pesos 0.35 / 0.30 / 0.25 renormalizados sobre 0.90.
+    const v = calcPmEvm("Luis", [], [reqLuis(0.5)], boards, bhm({ b1: 1, b2: 0.6, b3: 0 }), new Map(), cl({ b1: "A", b2: "B" }));
+    expect(v).toBeCloseTo((1 * 0.35 + 0.6 * 0.3 + 0.5 * 0.25) / 0.9, 10);
+  });
+
+  it("una clase vale el promedio de TODOS sus items, sean Proyectos o PML", () => {
+    // Clase A = b1 (1), b2 (0.6) y un PML asignado a A (0.5): promedio 0.7; es la única clase con datos.
+    const v = calcPmEvm("Luis", [], [reqLuis(0.5, { id: "PML-1" })], boards, bhm({ b1: 1, b2: 0.6 }), new Map(), cl({ b1: "A", b2: "A", "PML-1": "A" }));
+    expect(v).toBeCloseTo((1 + 0.6 + 0.5) / 3, 10);
   });
 
   it("un PML atrasado (su vem tope es 0.67) no hunde solo al PM si el resto aguanta (ya no manda el peor)", () => {
-    const v = calcPmEvm("Luis", [], [reqLuis(0.67)], boards, bhm({ b1: 1, b2: 1 }), new Map());
-    expect(v).toBeCloseTo(0.67 * (2 / 9) + 1 * (7 / 9), 10); // ≈ 0.93
+    const v = calcPmEvm("Luis", [], [reqLuis(0.67)], boards, bhm({ b1: 1, b2: 1 }), new Map(), cl({ b1: "A", b2: "B" }));
+    expect(v).toBeCloseTo((1 * 0.35 + 1 * 0.3 + 0.67 * 0.25) / 0.9, 10); // ≈ 0.91
     expect(pmHealthStatus(v)).toBe("in-risk"); // At Risk, no Off Track
+  });
+
+  it("lo que no tiene clase no cuenta en ninguna fuente, hasta que se le asigne una", () => {
+    // b2 sin clase (no está en la tabla ni asignado): solo cuenta b1 (A = 1).
+    expect(calcPmEvm("Luis", [], [], boards, bhm({ b1: 1, b2: 0 }), new Map(), cl({ b1: "A" }))).toBe(1);
+    // Le asignan la Clase B: ahora sí pesa.
+    expect(calcPmEvm("Luis", [], [], boards, bhm({ b1: 1, b2: 0 }), new Map(), cl({ b1: "A", b2: "B" }))).toBeCloseTo(1 * (0.35 / 0.65), 10);
+  });
+
+  it("un proyecto sin clase asignada usa la de siempre (la de su código PM-XXX)", () => {
+    const conNombre = [board({ id: "b1", pm: "Luis", name: "PM-003 | DUCAfast" }), board({ id: "b2", pm: "Luis", name: "PM-004 | MOPA" })];
+    // PM-003 es Clase A y PM-004 Clase B (tabla de claseProyecto.ts), sin asignar nada.
+    const v = calcPmEvm("Luis", [], [], conNombre, bhm({ b1: 1, b2: 0.5 }), new Map());
+    expect(v).toBeCloseTo((1 * 0.35 + 0.5 * 0.3) / 0.65, 10);
   });
 
   it("ignora lo de otros PM, los PML cerrados o en grupos inactivos y los proyectos sin índice", () => {
@@ -405,7 +434,7 @@ describe("calcPmEvm (nota EVM del PM, de la que sale su estado)", () => {
       reqLuis(0, { estado: "CERRADO" }),
       reqLuis(0, { grupo: "En Espera" }),
     ];
-    expect(calcPmEvm("Luis", [], reqs, boards, bhm({ b1: null, b3: 0 }), new Map())).toBe(1);
+    expect(calcPmEvm("Luis", [], reqs, boards, bhm({ b1: null, b3: 0 }), new Map(), cl({ b1: "A", b3: "A" }))).toBe(1);
   });
 
   it("null si el PM no tiene nada que medir", () => {
@@ -569,33 +598,52 @@ describe("calcEntregaStats / calcEntregaStatsRaw con Iniciativas APROBADAS", () 
   });
 });
 
-describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada 10/20/70)", () => {
+describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada: Iniciativas 10 · Clase A 35 · B 30 · C 25)", () => {
   const creacion = new Date(2026, 0, 5);
   const iniOnTime = (id: string): IniItem =>
     ({ id, estado: "APROBADA", creacion, meet1: "2026-01-12", meet2: "2026-01-26", pm: "Luis" }) as IniItem;
   const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
+  /** Un item de proyecto en un board de Clase A (por su nombre, ver BOARD_A). */
+  const projA = (o: Partial<ProjItem>) => proj({ boardName: BOARD_A, ...o });
 
-  it("Cumplimiento: cada fuente aporta su propio %, no su volumen — 1 PML a tiempo pesa 20% aunque haya 9 fases atrasadas", () => {
+  it("Cumplimiento: cada fuente aporta su propio %, no su volumen — 1 PML a tiempo (Clase C) pesa 25/60 aunque haya 9 fases atrasadas (Clase A)", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
     // 9 fases atrasadas (board+grupo distintos): como grupo todo junto serían 1 de 10 a tiempo = 10%.
-    const projs = Array.from({ length: 9 }, (_, i) => proj({ id: `p${i}`, boardId: `b${i}`, grupo: "Fase 1", entrega: "late" }));
+    const projs = Array.from({ length: 9 }, (_, i) => projA({ id: `p${i}`, boardId: `b${i}`, grupo: "Fase 1", entrega: "late" }));
     expect(calcEntregaStats(reqs, projs, {}).pct).toBe(10);
-    // Ponderado: PML 100% (peso 20) y Proyectos 0% (peso 70) → 20 / 90 = 22%.
-    expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(22);
+    // Ponderado: PML 100% (Clase C, peso 25) y Proyectos 0% (Clase A, peso 35) → 25 / 60 = 42%.
+    expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(42);
   });
 
-  it("Cumplimiento: con las tres fuentes aplica 10/20/70 exacto", () => {
+  it("Cumplimiento: con Iniciativas y las clases aplica los pesos exactos", () => {
     const inis = [iniOnTime("i1")];                                                    // 100%
-    const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50%
-    const projs = [proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];                    // 0%
-    // 100·0.10 + 50·0.20 + 0·0.70 = 20
-    expect(calcEntregaStatsPonderado(reqs, projs, {}, inis).pct).toBe(20);
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50% (Clase C)
+    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];                    // 0% (Clase A)
+    // (100·0.10 + 50·0.25 + 0·0.35) / (0.10 + 0.25 + 0.35) = 22.5 / 0.70 = 32
+    expect(calcEntregaStatsPonderado(reqs, projs, {}, inis).pct).toBe(32);
+  });
+
+  it("Cumplimiento: la clase asignada manda — un PML en Clase A pesa 35, uno en Clase C pesa 25", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") })];                                           // 100%
+    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];                  // 0% (Clase A)
+    // PML en C (por defecto): 25 / 60 = 42. PML en la misma Clase A que el proyecto: promedian 50.
+    expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(42);
+    expect(calcEntregaStatsPonderado(reqs, projs, {}, [], cl({ r1: "A" })).pct).toBe(50);
+  });
+
+  it("Cumplimiento: lo que no tiene clase cuenta en los conteos pero no en la nota, hasta que se le asigne una", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") })];                                           // Clase C, 100%
+    const sinClase = [proj({ id: "p1", boardId: "bX", boardName: "Sin ID", grupo: "Fase 1", entrega: "late" })];
+    const r = calcEntregaStatsPonderado(reqs, sinClase, {});
+    expect(r).toMatchObject({ total: 2, onTime: 1, late: 1, pct: 100 });     // la nota es solo la del PML
+    // Le asignan la Clase A: ahora pesa (PML C 100% · proyecto A 0% → 25/60).
+    expect(calcEntregaStatsPonderado(reqs, sinClase, {}, [], cl({ bX: "A" })).pct).toBe(42);
   });
 
   it("Cumplimiento: una fuente sin unidades no cuenta y su peso se reparte (solo Proyectos → su propio %)", () => {
     const projs = [
-      proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "on-time" }),
-      proj({ id: "p2", boardId: "b2", grupo: "Fase 1", entrega: "late" }),
+      projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "on-time" }),
+      projA({ id: "p2", boardId: "b2", grupo: "Fase 1", entrega: "late" }),
     ];
     expect(calcEntregaStatsPonderado([], projs, {}).pct).toBe(50);
     expect(calcEntregaStatsPonderado([], [], {}).pct).toBeNull();
@@ -603,14 +651,14 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
 
   it("Cumplimiento: los conteos siguen siendo los de todas las unidades; solo cambia pct", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
-    const projs = [proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
+    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
     const normal = calcEntregaStats(reqs, projs, {});
     const pond = calcEntregaStatsPonderado(reqs, projs, {});
     expect({ total: pond.total, onTime: pond.onTime, late: pond.late }).toEqual({ total: normal.total, onTime: normal.onTime, late: normal.late });
   });
 
   it("Cumplimiento: el mismo atraso excusado por un responsable ≠ PM tampoco penaliza en la variante ponderada", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
+    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
     expect(calcEntregaStatsPonderado([], projs, { "b1::Fase 1": { responsible: "Sponsor" } }).pct).toBe(100);
   });
 
@@ -622,7 +670,7 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     sub({ id, status: "Done", responsible: CKU, deadline: fecha("2026-06-10"), actualEnd: fecha("2026-06-10"), newLimitDate: null, ...o });
   /** Un entregable (item) de la Fase 3 de un board, a cargo del CKU salvo que se diga otra cosa. */
   const itemC = (id: string, subs: ProjSubitem[], o: Partial<ProjItem> = {}) =>
-    proj({ id, boardId: "b1", grupo: "Launch | Lanzamiento", responsible: CKU, subitems: subs, ...o });
+    proj({ id, boardId: "b1", boardName: BOARD_A, grupo: "Launch | Lanzamiento", responsible: CKU, subitems: subs, ...o });
 
   describe("calidadActividadCku", () => {
     it("cerró en o antes de su Limit Date → 1", () => {
@@ -721,41 +769,52 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(notaCalidadCku("y", {})).toBe(0);
   });
 
-  it("Calidad: con las tres fuentes aplica 10/20/70 exacto y una fuente vacía no cuenta", () => {
+  it("Calidad: con Iniciativas y las clases aplica los pesos exactos y una fuente vacía no cuenta", () => {
     const ini = { id: "INI-1", estado: "APROBADA", pm: "Luis" } as IniItem;
     const reqs = [req({ id: "r1", estado: "CERRADO" })];
     const m: DelayMap = { "INI-1": { responsible: "VPA" } };
-    // Iniciativa 100·0.10 + PML sin asignar 0·0.20 + Proyecto (1 actividad a tiempo) 100·0.70 = 80
-    expect(calcReprocesoStatsPonderado(CKU, reqs, [itemC("p1", [actC("a")])], m, [ini]).pct).toBe(80);
+    // Iniciativa 100·0.10 + PML sin asignar (Clase C) 0·0.25 + Proyecto (Clase A, 1 actividad a tiempo) 100·0.35 = 45 / 0.70 = 64
+    expect(calcReprocesoStatsPonderado(CKU, reqs, [itemC("p1", [actC("a")])], m, [ini]).pct).toBe(64);
     expect(calcReprocesoStatsPonderado(CKU, [], [], {}).pct).toBeNull();
   });
 
-  it("Calidad (CKU): 1 PML limpio pesa 20% aunque haya 9 actividades con calidad 0", () => {
+  it("Calidad (CKU): 1 PML limpio (Clase C) pesa 25/60 aunque haya 9 actividades con calidad 0 (Clase A)", () => {
     const reqs = [req({ id: "r1", estado: "CERRADO" })];
     const projs = [itemC("i1", Array.from({ length: 9 }, (_, i) => actC(`a${i}`, { actualEnd: fecha("2026-06-20") })))];
-    // PML 100 (peso 20), Proyectos 0 (peso 70) → 20 / 0.9 = 22; los conteos suman todo.
-    expect(calcReprocesoStatsPonderado(CKU, reqs, projs, { r1: { responsible: "VPA" } })).toMatchObject({ total: 10, limpias: 1, pct: 22 });
+    // PML 100 (Clase C, peso 25), Proyectos 0 (Clase A, peso 35) → 25 / 60 = 42; los conteos suman todo.
+    expect(calcReprocesoStatsPonderado(CKU, reqs, projs, { r1: { responsible: "VPA" } })).toMatchObject({ total: 10, limpias: 1, pct: 42 });
+  });
+
+  it("Calidad (CKU): la clase asignada manda, y lo que no tiene clase cuenta en los conteos pero no en la nota", () => {
+    const reqs = [req({ id: "r1", estado: "CERRADO" })];                                                                // 100 (VPA)
+    const projs = [itemC("i1", [actC("a", { actualEnd: fecha("2026-06-20") })])];                                       // 0 (tarde)
+    const m: DelayMap = { r1: { responsible: "VPA" } };
+    expect(calcReprocesoStatsPonderado(CKU, reqs, projs, m).pct).toBe(42);                                              // PML en C, proyecto en A
+    expect(calcReprocesoStatsPonderado(CKU, reqs, projs, m, [], cl({ r1: "A" })).pct).toBe(50);                         // los dos en A: promedian
+    // El proyecto sin clase (otro nombre de board): sale de la nota, no de los conteos.
+    const sinClase = [itemC("i2", [actC("b", { actualEnd: fecha("2026-06-20") })], { boardName: "Sin ID" })];
+    expect(calcReprocesoStatsPonderado(CKU, reqs, sinClase, m)).toMatchObject({ total: 2, limpias: 1, pct: 100 });
   });
 
   it("calcPmMetrics solo usa la medición de CKU si se pide (los PM siguen igual por defecto)", () => {
     const reqs = [req({ id: "r1", pm: "Luis", onTime: onTime("on-time"), estado: "CERRADO" })];
     // 3 proyectos, cada uno con su Fase 3 atrasada (y una actividad cerrada con atraso, que es lo que mide el CKU).
-    const projBoards = ["b0", "b1", "b2"].map((id) => board({ id, pm: "Luis" }));
+    const projBoards = ["b0", "b1", "b2"].map((id) => board({ id, pm: "Luis", name: BOARD_A }));
     // (el nombre del CKU viene en `pm`: solo se miden los entregables y actividades a su cargo)
-    const projs = projBoards.map((b, i) => proj({ id: `p${i}`, boardId: b.id, grupo: "Launch | Lanzamiento", entrega: "late", responsible: "Luis", subitems: [sub({ id: `s${i}`, entrega: "late", responsible: "Luis" })] }));
+    const projs = projBoards.map((b, i) => proj({ id: `p${i}`, boardId: b.id, boardName: BOARD_A, grupo: "Launch | Lanzamiento", entrega: "late", responsible: "Luis", subitems: [sub({ id: `s${i}`, entrega: "late", responsible: "Luis" })] }));
     const bhm = buildBoardHealthMap(projs, projBoards, {});
     const run = (ponderar: boolean) =>
       calcPmMetrics("Luis", [], reqs, projs, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, ponderar);
-    // 1 PML a tiempo + 3 fases atrasadas: junto 1/4 = 25%; CKU: PML 100% y 3 actividades atrasadas 0% → (20·1 + 70·0) / 90 = 22%.
+    // 1 PML a tiempo + 3 fases atrasadas: junto 1/4 = 25%; CKU: PML 100% (Clase C) y 3 actividades atrasadas 0% (Clase A) → (25·1 + 35·0) / 60 = 42%.
     expect(run(false).entPct).toBe(25);
-    expect(run(true).entPct).toBe(22);
+    expect(run(true).entPct).toBe(42);
   });
 
   it("calcPmMetrics de un CKU ignora las fases del proyecto que no son la 3; un PM las sigue contando", () => {
-    const projBoards = [board({ id: "b1", pm: "Luis" })];
+    const projBoards = [board({ id: "b1", pm: "Luis", name: BOARD_A })];
     const projs = [
-      proj({ id: "p1", name: "Kick Off", boardId: "b1", grupo: "Valuación | Formulación del proyecto", entrega: "late" }),
-      proj({ id: "p2", name: "Entregable", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "on-time", responsible: "Luis", subitems: [sub({ id: "s2", entrega: "on-time", responsible: "Luis" })] }),
+      proj({ id: "p1", name: "Kick Off", boardId: "b1", boardName: BOARD_A, grupo: "Valuación | Formulación del proyecto", entrega: "late" }),
+      proj({ id: "p2", name: "Entregable", boardId: "b1", boardName: BOARD_A, grupo: "Launch | Lanzamiento", entrega: "on-time", responsible: "Luis", subitems: [sub({ id: "s2", entrega: "on-time", responsible: "Luis" })] }),
     ];
     const bhm = buildBoardHealthMap(projs, projBoards, {});
     const run = (cku: boolean) =>
@@ -772,7 +831,7 @@ describe("calcEntregaStatsCku (Cumplimiento de un CKU: cada actividad cerrada, a
   const act = (id: string, entrega: "on-time" | "late" | null, responsible = CKU) => sub({ id, entrega, responsible });
   /** Un entregable (item) de un board a cargo del CKU (salvo que se diga otra cosa), con sus actividades; el veredicto del item mismo no importa. */
   const item = (id: string, boardId: string, grupo: string, subs: ProjSubitem[], entrega: "on-time" | "late" | null = null, responsible = CKU) =>
-    proj({ id, boardId, grupo, entrega, responsible, subitems: subs });
+    proj({ id, boardId, boardName: BOARD_A, grupo, entrega, responsible, subitems: subs });
 
   it("solo cuentan los entregables a cargo del CKU y, dentro de ellos, sus actividades", () => {
     const projs = [
@@ -831,11 +890,13 @@ describe("calcEntregaStatsCku (Cumplimiento de un CKU: cada actividad cerrada, a
     expect(calcEntregaStatsCku(CKU, [], [aTiempoSinActividades], {}).pct).toBeNull();
   });
 
-  it("PML e Iniciativas no cambian: se ponderan igual que antes", () => {
-    const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50%
-    const projs = [item("p1", "b1", LAUNCH, [act("s1", "late")])];                                         // 0%
-    // PML 50·0.20 + Proyectos 0·0.70 = 10 / 0.90 = 11
-    expect(calcEntregaStatsCku(CKU, reqs, projs, {}).pct).toBe(11);
+  it("PML e Iniciativas siguen contando por su responsable; cada uno pesa según su clase", () => {
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50% (Clase C)
+    const projs = [item("p1", "b1", LAUNCH, [act("s1", "late")])];                                         // 0% (Clase A)
+    // PML 50·0.25 + Proyectos 0·0.35 = 12.5 / 0.60 = 21
+    expect(calcEntregaStatsCku(CKU, reqs, projs, {}).pct).toBe(21);
+    // Con los dos PML en la Clase A del proyecto: (2 PML: 1 a tiempo + 1 tarde, 1 actividad tarde) → 1 de 3
+    expect(calcEntregaStatsCku(CKU, reqs, projs, {}, [], cl({ r1: "A", r2: "A" })).pct).toBe(33);
   });
 
   it("el atraso en una fase con responsable ≠ CKU sale de la cuenta (no cuenta como a tiempo)", () => {
@@ -886,7 +947,7 @@ describe("proyectosFase3Nueva (solo Fase 3 y solo boards con plantilla nueva)", 
 
   it("calcEntregaStatsCku ignora los boards de plantilla vieja aunque su Fase 3 esté atrasada", () => {
     const vieja = [proj({ id: "v1", boardId: "bV", grupo: "Launch | Desarrollo", name: DEV_STEP, entrega: "late", responsible: "Javier Juarez", subitems: [sub({ id: "vs1", entrega: "late", responsible: "Javier Juarez" })] })];
-    const nueva = [proj({ id: "n1", boardId: "bN", grupo: "Launch | Lanzamiento", name: "POC", entrega: "on-time", responsible: "Javier Juarez", subitems: [sub({ id: "ns1", entrega: "on-time", responsible: "Javier Juarez" })] })];
+    const nueva = [proj({ id: "n1", boardId: "bN", boardName: BOARD_A, grupo: "Launch | Lanzamiento", name: "POC", entrega: "on-time", responsible: "Javier Juarez", subitems: [sub({ id: "ns1", entrega: "on-time", responsible: "Javier Juarez" })] })];
     expect(calcEntregaStatsCku("Javier Juarez", [], [...vieja, ...nueva], {}).pct).toBe(100);
     expect(calcEntregaStatsCku("Javier Juarez", [], vieja, {}).pct).toBeNull();
   });
@@ -1511,29 +1572,33 @@ describe("Calidad de Entregas con Iniciativas (aprobadas, nota binaria como un P
   });
 });
 describe("calcPmMetrics", () => {
-  it("EVM del PM = promedio ponderado (INI 10% · REQ 20% · Proyectos 70%) y eso alimenta el KPI", () => {
-    // 1 board 100% Done y en tiempo → healthIndex 1 (Proyectos = 1.0)
-    const projBoards = [board({ id: "b1", pm: "Luis" })];
+  it("EVM del PM = promedio ponderado (INI 10% · Clase A 35% · B 30% · C 25%) y eso alimenta el KPI", () => {
+    // 1 board 100% Done y en tiempo → healthIndex 1; es de Clase A (por su nombre, ver BOARD_A)
+    const projBoards = [board({ id: "b1", pm: "Luis", name: BOARD_A })];
     const projItems = [
       proj({ boardId: "b1", id: "p1", name: "x", grupo: "Launch", status: "Done", estado: "EN TIEMPO", cost: 100,
         subitems: [] }),
     ];
     const bhm = buildBoardHealthMap(projItems, projBoards, {});
-    // 1 REQ con VEM 0.5 (REQ = 0.5). Sin iniciativas → ese 10% se reparte.
+    // 1 PML con VEM 0.5 (Clase C, la de siempre). Sin iniciativas → ese 10% se reparte.
     const reqs = [req({ id: "r1", pm: "Luis", estado: "EN PROCESO", grupo: "Desarrollo", vem: 0.5, onTime: onTime("n/a") })];
 
     const m = calcPmMetrics("Luis", [], reqs, projItems, projBoards, bhm, new Map(), []);
 
-    // weightedEvm({ ini: null, req: 0.5, proj: 1 }) = (0.5·0.2 + 1·0.7) / (0.2 + 0.7) = 0.8/0.9
-    expect(m.evmRaw).toBeCloseTo(0.8 / 0.9, 10);
-    expect(m.evmPct).toBe(89);
+    // weightedEvm({ ini: null, A: 1, B: null, C: 0.5 }) = (1·0.35 + 0.5·0.25) / (0.35 + 0.25) = 0.475/0.6
+    expect(m.evmRaw).toBeCloseTo(0.475 / 0.6, 10);
+    expect(m.evmPct).toBe(79);
 
     // El componente EVM del KPI (peso 25, meta 100%) usa ese mismo valor.
     const evmComp = m.kpi.components.find((c) => c.key === "evm")!;
     expect(evmComp.weight).toBe(25);
-    expect(evmComp.logro).toBeCloseTo(0.8 / 0.9, 10);
-    expect(evmComp.real).toBe("89%");
-    expect(evmComp.logro * evmComp.weight).toBeCloseTo((0.8 / 0.9) * 25, 6);
+    expect(evmComp.logro).toBeCloseTo(0.475 / 0.6, 10);
+    expect(evmComp.real).toBe("79%");
+    expect(evmComp.logro * evmComp.weight).toBeCloseTo((0.475 / 0.6) * 25, 6);
+
+    // Con la clase asignada a mano el mismo PML puede ir en la Clase A, junto al proyecto: (1 + 0.5) / 2.
+    const conClase = calcPmMetrics("Luis", [], reqs, projItems, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, false, undefined, cl({ r1: "A" }));
+    expect(conClase.evmRaw).toBeCloseTo(0.75, 10);
   });
 
   it("Reproceso (5º componente): PM y sin asignar penalizan, ≠PM excusa; afecta el KPI", () => {

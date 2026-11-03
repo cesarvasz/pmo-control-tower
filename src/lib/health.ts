@@ -18,24 +18,35 @@ export function calcVem(spi: number | null, cpi: number | null, scope01: number 
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// NOTA EVM (equipo y por PM) — promedio PONDERADO de las 3 fuentes
+// NOTA EVM (equipo y por PM) — promedio PONDERADO de las fuentes
 // ─────────────────────────────────────────────────────────────────────
-/** Peso de cada fuente en la nota EVM. Proyectos manda porque ahí está el
- *  grueso del valor y del trabajo medible; las Iniciativas son señal
- *  temprana (poca plata comprometida todavía). Suman 1. */
-export const EVM_WEIGHTS = { ini: 0.10, req: 0.20, proj: 0.70 } as const;
+/** Las fuentes de la nota EVM: Iniciativas y una por CLASE de Proyectos y PML (A, B, C — la que se
+ *  les asigna en Calidad & Cumplimiento → Clasificación, ver lib/claseProyecto.ts). Antes eran
+ *  Iniciativas / PML / Proyectos. */
+export type FuenteEvm = "ini" | "A" | "B" | "C";
+export const FUENTES_EVM: readonly FuenteEvm[] = ["ini", "A", "B", "C"];
+export const FUENTE_EVM_LABEL: Record<FuenteEvm, string> = { ini: "Iniciativas", A: "Clase A", B: "Clase B", C: "Clase C" };
+
+/** Peso de cada fuente en la nota EVM: la Clase A manda (lo más grande), luego B y C; las
+ *  Iniciativas son señal temprana (poca plata comprometida todavía). Suman 1. */
+export const EVM_WEIGHTS: Record<FuenteEvm, number> = { ini: 0.10, C: 0.25, B: 0.30, A: 0.35 };
+
+/** Los pesos como texto para tooltips: «Iniciativas 10% · Clase A 35% · Clase B 30% · Clase C 25%». */
+export const EVM_PESOS_TXT = FUENTES_EVM.map((f) => `${FUENTE_EVM_LABEL[f]} ${Math.round(EVM_WEIGHTS[f] * 100)}%`).join(" · ");
+
+/** La nota (0–1) de cada fuente; null si esa fuente no tiene nada que medir. */
+export type PartesEvm = Record<FuenteEvm, number | null>;
 
 /**
- * Nota EVM (0–1) = promedio ponderado de las sub-notas de Iniciativas, REQ y
- * Proyectos (ver EVM_WEIGHTS). Una fuente sin datos (null) NO cuenta y su peso
- * se reparte a prorrata entre las presentes, así la nota sigue en escala 0–1
- * aunque un PM no tenga REQ o proyectos. null si no hay ninguna fuente.
+ * Nota EVM (0–1) = promedio ponderado de las sub-notas de Iniciativas y de las Clases A, B y C
+ * (ver EVM_WEIGHTS). Una fuente sin datos (null) NO cuenta y su peso se reparte a prorrata entre
+ * las presentes, así la nota sigue en escala 0–1 aunque un PM no tenga, por ejemplo, nada de Clase C.
+ * null si no hay ninguna fuente.
  */
-export function weightedEvm(parts: { ini: number | null; req: number | null; proj: number | null }): number | null {
-  const present: { v: number; w: number }[] = [];
-  if (parts.ini !== null)  present.push({ v: parts.ini,  w: EVM_WEIGHTS.ini });
-  if (parts.req !== null)  present.push({ v: parts.req,  w: EVM_WEIGHTS.req });
-  if (parts.proj !== null) present.push({ v: parts.proj, w: EVM_WEIGHTS.proj });
+export function weightedEvm(parts: PartesEvm): number | null {
+  const present = FUENTES_EVM
+    .filter((f) => parts[f] !== null)
+    .map((f) => ({ v: parts[f] as number, w: EVM_WEIGHTS[f] }));
   if (present.length === 0) return null;
   const wSum = present.reduce((s, p) => s + p.w, 0);
   return present.reduce((s, p) => s + p.v * p.w, 0) / wSum;

@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { fmtMoney, fmtMoneyShort, today } from "@/lib/business";
 import { calcPmMetrics, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
+import { healthStatusFromIndex, EVM_PESOS_TXT, HEALTH_CFG } from "@/lib/health";
 import { npsCfg } from "@/lib/nps";
 import { kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion, KPI_W, type KpiWeights } from "@/lib/kpi";
 
@@ -15,11 +15,11 @@ import { kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion, KPI_W, type 
 const mesesTerminados = () => today().getMonth();
 
 const POR_FUENTE_TIP = (medida: string) =>
-  `Medido como el EVM: ${medida} de cada fuente por separado, combinadas Iniciativas 10% · PML 20% · Proyectos 70% (una fuente sin unidades no cuenta y su peso se reparte entre las demás)`;
+  `Medido como el EVM: ${medida} de cada fuente por separado, combinadas ${EVM_PESOS_TXT} (una fuente sin unidades no cuenta y su peso se reparte entre las demás)`;
 import { etiquetaMesLargo, pmLabel } from "@/lib/players";
 import type { MetodologiaMap } from "@/lib/metodologia";
 import type { BoardHealthData } from "@/lib/proj";
-import type { CalMap, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
+import type { CalMap, ClaseEntry, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
 import KpiModal from "@/components/KpiModal";
 import PMValueModal from "@/components/PMValueModal";
 
@@ -37,9 +37,11 @@ export function playerPalette(pct: number): { bg: string; fg: string } {
 // Scoreboard comparativo de PMs: tabla ordenada por KPI (desc). KPI y $ abren su detalle.
 type PmRow = ReturnType<typeof calcPmMetrics>;
 
-export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow, cargando, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W, ponderadoPorFuente = false }: {
-  /** Calidad y Cumplimiento se midieron como el EVM (Iniciativas 10% · PML 20% · Proyectos 70%) — solo cambia el texto de ayuda. */
+export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, clases, getRow, cargando, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W, ponderadoPorFuente = false }: {
+  /** Calidad y Cumplimiento se midieron como el EVM (Iniciativas y Clases A/B/C con los pesos del EVM) — solo cambia el texto de ayuda. */
   ponderadoPorFuente?: boolean;
+  /** Clase A/B/C asignada a Proyectos y PML: reparte el EVM de cada PM en sus fuentes por clase. */
+  clases?: Record<string, ClaseEntry>;
   /** Pesos del KPI que se muestran en los encabezados (los mismos con los que se calculó getRow). */
   weights?: KpiWeights;
   pms: string[]; ini: IniItem[]; req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[];
@@ -63,9 +65,9 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
   // Con algún player esperando datos, su nota es provisional: no se ordena (el orden final sale al terminar).
   const hayCargando = pms.some((pm) => cargando?.(pm));
   const rows = useMemo(() => {
-    const filas = pms.map((pm) => (getRow ? getRow(pm) : calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, undefined, metodologia, confirmacionRoiPm)));
+    const filas = pms.map((pm) => (getRow ? getRow(pm) : calcPmMetrics(pm, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, undefined, metodologia, confirmacionRoiPm, false, undefined, clases)));
     return hayCargando ? filas : filas.sort((a, b) => b.kpi.score - a.kpi.score);
-  }, [pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, getRow, hayCargando]);
+  }, [pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, clases, getRow, hayCargando]);
 
   const openKpi = rows.find((r) => r.pm === kpiPm);
   const openValue = rows.find((r) => r.pm === valuePm);
