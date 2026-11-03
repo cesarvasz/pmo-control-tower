@@ -939,6 +939,7 @@ function PMPortfolioCard({
 
   // Mismo esquema de color del "Player" que la tabla de KPIs (por rango de %).
   const player = playerPalette(pmKpiPct);
+  const hayOnHold = onHoldProyectos.length > 0 || onHoldPml.length > 0;
 
   return (
     <div className="overflow-hidden rounded-xl border-2" style={{ background: "var(--bg-surface)", borderColor: hc.color }}>
@@ -991,32 +992,11 @@ function PMPortfolioCard({
           </div>
         );
       })()}
-      {/* Iniciativas y una sección por Clase (A, B, C), en 2 × 2: con 4 columnas en fila el texto de cada
-          sección ("12 Off Track", la píldora de salud) no cabe en una tarjeta de un tercio de pantalla. */}
-      <div className="grid grid-cols-2">
-        <Section
-          label="Iniciativas"
-          has={true}
-          onClick={onGoIni}
-          badge={
-            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ihc.color, background: ihc.bg }}>
-              {ihc.icon} {ihc.label} · {Math.round(iniHealth.index * 100)}%
-            </span>
-          }
-        >
-          <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
-          <Stat n={iniHealth.offTrack} color="#ef4444" label="Off Track" />
-          <Stat n={iniHealth.inRisk} color="#f59e0b" label="At Risk" />
-          <Stat n={iniHealth.onTrack} color="#10b981" label="On Track" />
-          {planFuturoDue > 0 && (
-            <div className="mt-1">
-              <div className="text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">Plan Futuro</div>
-              <div className="text-[0.82rem] font-bold" style={{ color: "#6c63ff" }}>{planFuturoDue}</div>
-            </div>
-          )}
-        </Section>
-        {resumenClases.map((rc, j) => {
-          const i = j + 1; // lugar en la cuadrícula (la 0 es Iniciativas): línea a la izquierda en la 2.ª columna y arriba desde la 2.ª fila
+      {/* Fila 1: una columna por Clase (A, B, C; «Sin clasificar» solo si hay). Las columnas son angostas
+          (la tarjeta ocupa un tercio de pantalla), por eso la píldora de cada clase lleva solo el icono y el
+          %; el estado completo va en el tooltip. */}
+      <div className="grid" style={{ gridTemplateColumns: `repeat(${resumenClases.length}, minmax(0, 1fr))` }}>
+        {resumenClases.map((rc, i) => {
           const cfg = rc.estado ? HEALTH_CFG[rc.estado] : null;
           const items = [
             rc.proyectos.length ? `Proyectos: ${rc.proyectos.join(", ")}` : "",
@@ -1025,25 +1005,25 @@ function PMPortfolioCard({
           return (
             <Section
               key={rc.clase}
-              label={`${rc.clase === "Sin clasificar" ? rc.clase : `Clase ${rc.clase}`} (${rc.total})`}
+              label={`${rc.clase === "Sin clasificar" ? "S/C" : `Clase ${rc.clase}`} (${rc.total})`}
               has={rc.hay}
               title={items || "Sin Proyectos ni PML en esta clase"}
-              className={`${i % 2 === 1 ? "border-l" : ""} ${i >= 2 ? "border-t" : ""}`}
+              className={`px-3! ${i > 0 ? "border-l" : ""}`}
               badge={cfg && rc.promedio !== null ? (
-                <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: cfg.color, background: cfg.bg }}>
-                  {cfg.icon} {cfg.label} · {Math.round(rc.promedio * 100)}%
+                <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: cfg.color, background: cfg.bg }} title={`${cfg.label} · ${Math.round(rc.promedio * 100)}%`}>
+                  {cfg.icon} {Math.round(rc.promedio * 100)}%
                 </span>
               ) : undefined}
             >
               {/* Los IDs de lo que cuenta en la clase (proyectos primero, luego PML), con su salud: el punto lleva
                   el color de su estado y a la derecha va su %. */}
-              <div className="flex flex-col gap-1.5 pt-0.5">
+              <div className="flex flex-col gap-1">
                 {rc.items.map((it) => {
                   const color = it.estado ? HEALTH_CFG[it.estado].color : "#6b7280";
                   return (
                     <div key={`${it.tipo}-${it.id}`} className="flex items-center gap-1.5" title={it.nombre}>
                       <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
-                      <span className="font-mono text-[0.75rem] text-[var(--text-secondary)]">{it.id}</span>
+                      <span className="truncate font-mono text-[0.75rem] text-[var(--text-secondary)]">{it.id}</span>
                       {it.healthIndex !== null && <span className="ml-auto text-[0.72rem] font-bold tabular-nums" style={{ color }}>{Math.round(it.healthIndex * 100)}%</span>}
                     </div>
                   );
@@ -1055,22 +1035,40 @@ function PMPortfolioCard({
         })}
       </div>
 
-      {/* On Hold: pausados, fuera de toda cifra de esta tarjeta. Solo aparece si el PM tiene alguno. */}
-      {(onHoldProyectos.length > 0 || onHoldPml.length > 0) && (
-        <div className="border-t px-[18px] py-2.5" style={{ borderColor: "var(--border)" }}>
-          <div className="mb-1.5 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            On Hold <span className="font-normal text-[var(--text-disabled)]">({onHoldProyectos.length + onHoldPml.length})</span>
+      {/* Fila 2: Iniciativas y, si el PM tiene algo pausado, On Hold (fuera de toda cifra de esta tarjeta). */}
+      <div className={`grid border-t ${hayOnHold ? "grid-cols-2" : "grid-cols-1"}`} style={{ borderColor: "var(--border)" }}>
+        <Section
+          label="Iniciativas"
+          has={true}
+          onClick={onGoIni}
+          badge={
+            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ihc.color, background: ihc.bg }}>
+              {ihc.icon} {ihc.label} · {Math.round(iniHealth.index * 100)}%
+            </span>
+          }
+        >
+          {/* En renglón (no en columna) para que la tarjeta no crezca hacia abajo. */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
+            <Stat n={iniHealth.offTrack} color="#ef4444" label="Off Track" />
+            <Stat n={iniHealth.inRisk} color="#f59e0b" label="At Risk" />
+            <Stat n={iniHealth.onTrack} color="#10b981" label="On Track" />
+            <Stat n={planFuturoDue} color="#6c63ff" label="Plan Futuro" />
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {onHoldPml.map((r) => (
-              <OnHoldChip key={`pml-${r.id}`} tipo="pml" codigo={r.id} nombre={r.name} entry={onHoldInfo.pml[r.id]} onIr={onGoReq} />
-            ))}
-            {onHoldProyectos.map((b) => (
-              <OnHoldChip key={`proy-${b.id}`} tipo="proyecto" codigo={b.name.slice(0, 6)} nombre={b.name} entry={onHoldInfo.proyectos[b.id]} onIr={onGoProj} />
-            ))}
-          </div>
-        </div>
-      )}
+        </Section>
+        {hayOnHold && (
+          <Section label={`On Hold (${onHoldProyectos.length + onHoldPml.length})`} has={true} className="border-l">
+            <div className="flex flex-wrap gap-1.5">
+              {onHoldPml.map((r) => (
+                <OnHoldChip key={`pml-${r.id}`} tipo="pml" codigo={r.id} nombre={r.name} entry={onHoldInfo.pml[r.id]} onIr={onGoReq} />
+              ))}
+              {onHoldProyectos.map((b) => (
+                <OnHoldChip key={`proy-${b.id}`} tipo="proyecto" codigo={b.name.slice(0, 6)} nombre={b.name} entry={onHoldInfo.proyectos[b.id]} onIr={onGoProj} />
+              ))}
+            </div>
+          </Section>
+        )}
+      </div>
 
       {showValue && (
         <PMValueModal pm={pm} valueAll={pmValueAll} valueHard={pmValueHard} initialHard={true} onClose={() => setShowValue(false)} />
@@ -1091,8 +1089,8 @@ function Section({ label, has, onClick, children, badge, className = "", title }
   return (
     <div
       onClick={clicable ? onClick : undefined} title={title} style={{ borderColor: "var(--border)" }}
-      className={`min-w-0 flex-1 px-[18px] py-3.5 transition-colors ${clicable ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""} ${className}`}>
-      <div className="mb-2">
+      className={`min-w-0 flex-1 px-[18px] py-2.5 transition-colors ${clicable ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""} ${className}`}>
+      <div className="mb-1.5">
         <span className="text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</span>
         {badge && <div className="mt-1">{badge}</div>}
       </div>
