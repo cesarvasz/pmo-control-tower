@@ -26,7 +26,7 @@ import TablaClienteMes from "@/components/implementacion/TablaClienteMes";
 import TablaDetalleImplementacion from "@/components/implementacion/TablaDetalleImplementacion";
 import MetasModal from "@/components/implementacion/MetasModal";
 import {
-  SIN_FECHA, agruparPorClienteYMes, contarPorCliente, filtrarPorClientes, filtrarPorMeses, fmtImporte, indexarMetas,
+  SIN_FECHA, agruparPorClienteYMes, contarPorCliente, filtrarPorClientes, filtrarPorMeses, fmtImporte, indexarMetas, soloDesdeMedicion,
   serieMensual, totalesImplementacion,
 } from "@/lib/implementaciones";
 import type { ImplementacionRow, MetaCliente, MetasImplementacionDoc, ObjetivoMes } from "@/types";
@@ -99,7 +99,13 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
   // descarta: dejarlo vaciaría la vista sin que haya nada que el usuario pueda quitar.
   const meses = useMemo(() => elegidos.filter((m) => serie.some((p) => p.clave === m)), [elegidos, serie]);
   const filtradas = useMemo(() => filtrarPorMeses(porCliente, meses), [porCliente, meses]);
-  const matriz = useMemo(() => agruparPorClienteYMes(filtradas), [filtradas]);
+  // Sin filtro de mes, la matriz muestra a cada cliente solo desde el mes en que empieza a medirse su
+  // cumplimiento («Desde»). Si se filtra por mes de facturación, se ve todo lo de esos meses (los
+  // anteriores al «Desde» con su conteo y Profit, sin % de cumplimiento).
+  const matriz = useMemo(
+    () => agruparPorClienteYMes(meses.length > 0 ? filtradas : soloDesdeMedicion(filtradas, metasPorCliente)),
+    [filtradas, meses, metasPorCliente],
+  );
   const totales = useMemo(() => totalesImplementacion(filtradas), [filtradas]);
   const opcionesMes = useMemo<MSOption[]>(
     () => serie.map((p) => ({ value: p.clave, label: p.label, count: p.volumen })), [serie]);

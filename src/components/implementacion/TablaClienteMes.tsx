@@ -221,6 +221,12 @@ export default function TablaClienteMes({ matriz, metas }: { matriz: MatrizClien
                     ) : (
                       <span className="block truncate">{c.cliente}</span>
                     )}
+                    {meta?.desde && (
+                      <span className="block text-[0.72rem] font-normal text-[var(--text-muted)]"
+                        title="Su cumplimiento se mide desde este mes; los meses anteriores no se muestran">
+                        se mide desde {etiquetaMes(meta.desde)}
+                      </span>
+                    )}
                   </td>
                   {hayMetas && (
                     <CeldasMeta vol={meta?.vol ?? null} cm1={meta?.cm1 ?? null} total={meta ? metaProfitMensual(meta) : null} />

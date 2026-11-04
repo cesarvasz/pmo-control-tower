@@ -350,6 +350,16 @@ export const objetivoDe = (idx: IndiceMetas, mes: string) => idx.objetivos.get(m
  *  no es anterior a nada: sus files se juzgan con el CM1 del cliente. */
 export const metaAplica = (m: Pick<MetaCliente, "desde">, mes: string) => !m.desde || mes === SIN_FECHA || mes >= m.desde;
 
+/** Las filas que cuentan para la matriz Cliente × mes: sin los files facturados antes del
+ *  «desde» del cumplimiento de su cliente (esos meses todavía no se miden). Un cliente sin
+ *  cumplimiento o sin «desde» conserva todo, y «Sin facturar» siempre queda. */
+export function soloDesdeMedicion(rows: ImplementacionRow[], idx: IndiceMetas): ImplementacionRow[] {
+  return rows.filter((r) => {
+    const m = idx.clientes.get(nombreCliente(r));
+    return !m || metaAplica(m, claveMes(r.fecha_facturacion));
+  });
+}
+
 /** La meta de un cliente que cuenta en un mes, o undefined si no tiene o aún no empieza. */
 export function metaDelMes(idx: IndiceMetas, cliente: string, mes: string): MetaCliente | undefined {
   const m = idx.clientes.get(cliente);

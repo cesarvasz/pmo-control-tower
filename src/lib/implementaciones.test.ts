@@ -3,7 +3,7 @@ import {
   GRUPOS_CLIENTES, OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes, avanceVolMesCliente, avanceVolTotalMes,
   claveCliente, claveMes, clienteReal, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
   fmtFechaCorta, fmtImporte, fmtPct, grupoDeCliente, indexarMetas, leerDocMetas, metaProfitMensual, miembrosDeGrupo, nivelCumplimiento, nombreCliente,
-  implementacionDelMes, metaAplica, metaMensualDe, normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
+  implementacionDelMes, metaAplica, metaMensualDe, normalizarMetas, soloDesdeMedicion, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
 
@@ -955,6 +955,16 @@ describe("cumplimiento «desde» un mes", () => {
     expect(implementacionDelMes(r, "2026-10")).toEqual({ mes: "2026-10", meta: 2000, objetivo: OBJETIVO_DEFECTO, profit: 1700 });
     // Un mes en que ninguna meta cuenta todavía no suma nada.
     expect(implementacionDelMes(resumenImplementacionCku(rows, [metas[0]], []), "2026-09")).toBeNull();
+  });
+
+  it("la matriz solo trae a cada cliente desde su «desde»: sin sus meses anteriores, con «Sin facturar»", () => {
+    const m = agruparPorClienteYMes(soloDesdeMedicion(rows, idx));
+    const a = m.clientes.find((c) => c.cliente === "A")!;
+    expect(Object.keys(a.porMes).sort()).toEqual(["2026-10", SIN_FECHA]);
+    expect(a.total).toMatchObject({ volumen: 2, profit: 850 });
+    expect(m.totalesPorMes["2026-09"]).toMatchObject({ volumen: 1, profit: 500 }); // solo B
+    // Sin cumplimiento para A, se ve todo.
+    expect(soloDesdeMedicion(rows, indexarMetas([], []))).toHaveLength(rows.length);
   });
 
   it("se guarda y se lee el «desde»; vacío no deja la llave y uno inválido se rechaza", () => {

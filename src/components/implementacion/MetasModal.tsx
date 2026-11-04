@@ -121,7 +121,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
   });
 
   return (
-    <Modal open onClose={onClose} width={780} label="Cumplimiento de Implementación">
+    <Modal open onClose={onClose} width={1120} label="Cumplimiento de Implementación">
       <div className="flex shrink-0 items-start justify-between gap-4 border-b p-5" style={{ borderColor: "var(--border)" }}>
         <div>
           <h2 className="text-lg font-bold text-[var(--text-primary)]">Cumplimiento</h2>
@@ -170,9 +170,9 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
                 return (
                   <tr key={n} className="align-top">
                     <td className="py-2.5 pr-3 text-[var(--text-primary)]">
-                      <div className="max-w-[240px] truncate font-medium" title={n}>{n}</div>
+                      <div className="max-w-[380px] truncate font-medium" title={n}>{n}</div>
                       {miembrosDeGrupo(n) && (
-                        <div className="max-w-[240px] text-[0.78rem] leading-snug text-[var(--text-muted)]">
+                        <div className="max-w-[380px] text-[0.78rem] leading-snug text-[var(--text-muted)]">
                           Grupo de {miembrosDeGrupo(n)!.length} clientes: el cumplimiento es el total de todo el grupo · {miembrosDeGrupo(n)!.join(" · ")}
                         </div>
                       )}
@@ -193,13 +193,13 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
                         placeholder="0"
                         aria-label={`Vol de ${n}`}
                         aria-invalid={!!ev.errorVol}
-                        className="w-[110px] rounded-lg border px-2.5 py-1.5 text-right tabular-nums outline-none disabled:opacity-60"
+                        className="w-[130px] rounded-lg border px-2.5 py-1.5 text-right tabular-nums outline-none disabled:opacity-60"
                         style={estiloInput(!!ev.errorVol)}
                       />
                       {ev.errorVol && <div className="mt-0.5 text-[0.76rem]" style={{ color: "var(--bad)" }}>{ev.errorVol}</div>}
                     </td>
                     <td style={celda()}>
-                      <div className="flex w-[130px] items-center rounded-lg border focus-within:border-[var(--accent)]"
+                      <div className="flex w-[150px] items-center rounded-lg border focus-within:border-[var(--accent)]"
                         style={estiloInput(!!ev.errorCm1)}>
                         <span className="pl-2.5 text-[var(--text-muted)]">$</span>
                         <input
@@ -221,7 +221,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
                         onChange={(e) => setCliente(n, { desde: e.target.value })}
                         disabled={bloqueado}
                         aria-label={`Mes desde el que cuenta el cumplimiento de ${n}`}
-                        className="w-[120px] rounded-lg border px-2 py-1.5 outline-none disabled:opacity-60"
+                        className="w-[150px] rounded-lg border px-2 py-1.5 outline-none disabled:opacity-60"
                         style={estiloInput(false)}>
                         <option value="">Todos</option>
                         {mesesDesde.map((m) => <option key={m} value={m}>{etiquetaMes(m)}</option>)}
