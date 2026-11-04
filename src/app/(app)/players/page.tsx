@@ -25,7 +25,9 @@ import type { DashboardData, EstrategiaInfo, IniItem, ProjBoard, ReqItem } from 
 const SIN_ROI: Record<string, ConfirmacionRoiPm> = {};
 
 export default function PlayersPage() {
-  const { data, loading, error } = useData();
+  // Todo el portafolio, también para un Sponsor: aquí ve a todos los CKUs con sus métricas completas
+  // (y su Beneficio vía ROI), no solo lo ligado a su nombre.
+  const { dataCompleto: data, loading, error } = useData();
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;

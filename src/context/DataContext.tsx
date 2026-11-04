@@ -32,6 +32,10 @@ interface DataContextValue {
   /** Igual que `data` pero CON los Proyectos y PML en On Hold. Solo para las pantallas que
    *  tienen que mostrarlos (Proyectos, PML) — nunca para calcular una métrica. */
   dataTodo: DashboardData | null;
+  /** Igual que `data` (sin lo que está en On Hold) pero SIN el recorte del rol Sponsor: todo el
+   *  portafolio. Solo para las pantallas que un Sponsor debe ver completas (Players). Para los demás
+   *  roles es el mismo objeto que `data`. */
+  dataCompleto: DashboardData | null;
   /** Los Proyectos (boards) y PML en On Hold, listos para mostrar. */
   enPausa: EnOnHold;
   /** Presente cuando `data` está recortado: de quién es el alcance (nombre null = su correo no
@@ -96,6 +100,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   );
   // Lo que miden las métricas: sin lo que está en On Hold.
   const data = useMemo(() => (dataTodo ? aplicarOnHold(dataTodo) : null), [dataTodo]);
+  const dataCompleto = useMemo(() => (alcance ? (fullData ? aplicarOnHold(fullData) : null) : data), [alcance, fullData, data]);
   const enPausa = useMemo(() => (dataTodo ? enOnHold(dataTodo) : { proyectos: [], pml: [] }), [dataTodo]);
   const [error, setError] = useState<string | null>(null);
   const fetchedOnce = useRef(false);
@@ -267,7 +272,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, dataTodo, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold, setClase }}>
+    <DataContext.Provider value={{ data, dataTodo, dataCompleto, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold, setClase }}>
       {children}
     </DataContext.Provider>
   );
