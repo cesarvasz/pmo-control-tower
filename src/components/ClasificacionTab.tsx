@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
-import { CLASES_ASIGNABLES, type ClaseAsignable } from "@/lib/claseProyecto";
+import { CLASES_ASIGNABLES, type Clase, type ClaseAsignable } from "@/lib/claseProyecto";
 import { enSituacion, filasClasificacion, type FiltroSituacion, type FilaClasificacion, type TipoClasificacion } from "@/lib/clasificacion";
 import { hasAction } from "@/lib/permissions";
 import MultiSelect, { type MSOption } from "@/components/MultiSelect";
@@ -28,15 +28,16 @@ import type { DashboardData } from "@/types";
 const COLOR_TIPO: Record<TipoClasificacion, string> = { proyecto: "#38bdf8", pml: "#a78bfa" };
 const ETIQUETA_TIPO: Record<TipoClasificacion, string> = { proyecto: "Proyecto", pml: "PML" };
 
-type FiltroTipo = "todos" | TipoClasificacion;
-const FILTROS_TIPO: [FiltroTipo, string][] = [["todos", "Todos"], ["proyecto", "Proyectos"], ["pml", "PML"]];
+/** Filtro principal de la tabla: por Clase (antes era por Tipo, Proyecto o PML). */
+type FiltroClase = "todas" | Clase;
+const FILTROS_CLASE: [FiltroClase, string][] = [["todas", "Todas"], ["A", "Clase A"], ["B", "Clase B"], ["C", "Clase C"], ["Sin clasificar", "Sin clasificar"]];
 
 /** Por defecto la tabla muestra solo los Activos (ver enSituacion en lib/clasificacion.ts). */
 const SITUACION_INICIAL: FiltroSituacion = "activos";
 const FILTROS_SITUACION: [FiltroSituacion, string][] = [["activos", "Activos"], ["onhold", "En On Hold"], ["terminados", "Terminados"], ["todos", "Todos"]];
 
-type Dimension = "pm" | "cku" | "sponsor" | "clase";
-const SIN_FILTROS: Record<Dimension, string[]> = { pm: [], cku: [], sponsor: [], clase: [] };
+type Dimension = "pm" | "cku" | "sponsor";
+const SIN_FILTROS: Record<Dimension, string[]> = { pm: [], cku: [], sponsor: [] };
 
 /** Fondo suave del color de un tipo, para la etiqueta. */
 const tinte = (color: string) => `color-mix(in srgb, ${color} 18%, transparent)`;
@@ -52,37 +53,39 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
   const puedePausar = hasAction(me?.permissions, "edit_on_hold");
 
   const [sel, setSel] = useState<Record<Dimension, string[]>>(SIN_FILTROS);
-  const [tipo, setTipo] = useState<FiltroTipo>("todos");
+  const [clase, setClaseFiltro] = useState<FiltroClase>("todas");
   const [situacion, setSituacion] = useState<FiltroSituacion>(SITUACION_INICIAL);
 
   // La lista ya viene ordenada: Proyectos por ID y luego PML por PML ID.
   const filas = useMemo(() => filasClasificacion(data), [data]);
 
   // Los números de cada filtro cuentan lo que quedaría con los OTROS filtros puestos.
-  const pasa = (f: FilaClasificacion, ignorar?: Dimension | "tipo" | "situacion") =>
-    (ignorar === "tipo" || tipo === "todos" || f.tipo === tipo) &&
+  const pasa = (f: FilaClasificacion, ignorar?: Dimension | "clase" | "situacion") =>
+    (ignorar === "clase" || clase === "todas" || f.clase === clase) &&
     (ignorar === "situacion" || enSituacion(f, situacion)) &&
-    (["pm", "cku", "sponsor", "clase"] as const).every((d) => ignorar === d || !sel[d].length || sel[d].includes(f[d]));
+    (["pm", "cku", "sponsor"] as const).every((d) => ignorar === d || !sel[d].length || sel[d].includes(f[d]));
 
   const opciones = (d: Dimension): MSOption[] => {
     const base = filas.filter((f) => pasa(f, d));
     return [...new Set(filas.map((f) => f[d]).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, "es"))
-      .map((v) => ({ value: v, label: d === "clase" ? etiquetaClase(v) : v, count: base.filter((f) => f[d] === v).length }));
+      .map((v) => ({ value: v, label: v, count: base.filter((f) => f[d] === v).length }));
   };
   const toggle = (d: Dimension) => (v: string, ch: boolean) =>
     setSel((s) => ({ ...s, [d]: ch ? [...s[d].filter((y) => y !== v), v] : s[d].filter((y) => y !== v) }));
   const limpiar = (d: Dimension) => () => setSel((s) => ({ ...s, [d]: [] }));
 
-  const baseTipo = filas.filter((f) => pasa(f, "tipo"));
-  const cuenta = (t: FiltroTipo) => (t === "todos" ? baseTipo.length : baseTipo.filter((f) => f.tipo === t).length);
+  const baseClase = filas.filter((f) => pasa(f, "clase"));
+  const cuenta = (c: FiltroClase) => (c === "todas" ? baseClase.length : baseClase.filter((f) => f.clase === c).length);
+  // «Sin clasificar» solo aparece si hay algo así (o si es el filtro puesto).
+  const filtrosClase = FILTROS_CLASE.filter(([c]) => c !== "Sin clasificar" || clase === c || filas.some((f) => f.clase === c));
 
   const baseSituacion = filas.filter((f) => pasa(f, "situacion"));
   const cuentaSituacion = (s: FiltroSituacion) => baseSituacion.filter((f) => enSituacion(f, s)).length;
 
   const visibles = filas.filter((f) => pasa(f));
   const nOnHold = filas.filter((f) => f.enOnHold).length;
-  const hayFiltro = tipo !== "todos" || situacion !== SITUACION_INICIAL || Object.values(sel).some((v) => v.length > 0);
+  const hayFiltro = clase !== "todas" || situacion !== SITUACION_INICIAL || Object.values(sel).some((v) => v.length > 0);
 
   // Optimista: la clase cambia al instante; si el servidor la rechaza, se vuelve a cargar lo real.
   const clasificar = async (f: FilaClasificacion, clase: ClaseAsignable) => {
@@ -120,16 +123,13 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
 
       <div className="mb-4 flex flex-wrap items-end gap-3.5">
         <div className="flex flex-col gap-1.5">
-          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Tipo</span>
-          <div role="group" aria-label="Filtrar por tipo" className="inline-flex rounded-lg border p-0.5"
+          <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Clase</span>
+          <div role="group" aria-label="Filtrar por clase" className="inline-flex flex-wrap rounded-lg border p-0.5"
             style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}>
-            {FILTROS_TIPO.map(([v, label]) => (
-              <button key={v} type="button" onClick={() => setTipo(v)} aria-pressed={tipo === v}
+            {filtrosClase.map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setClaseFiltro(v)} aria-pressed={clase === v}
                 className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                style={tipo === v ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-secondary)" }}>
-                {v !== "todos" && (
-                  <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: COLOR_TIPO[v] }} />
-                )}
+                style={clase === v ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-secondary)" }}>
                 {label}
                 <span className="text-xs tabular-nums opacity-70">({cuenta(v)})</span>
               </button>
@@ -152,12 +152,11 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
           </div>
         </div>
 
-        <MultiSelect label="Clase" options={opciones("clase")} selected={sel.clase} onToggle={toggle("clase")} onToggleAll={limpiar("clase")} />
         <MultiSelect label="PM" options={opciones("pm")} selected={sel.pm} onToggle={toggle("pm")} onToggleAll={limpiar("pm")} />
         <MultiSelect label="CKU" options={opciones("cku")} selected={sel.cku} onToggle={toggle("cku")} onToggleAll={limpiar("cku")} />
         <MultiSelect label="Sponsor" options={opciones("sponsor")} selected={sel.sponsor} onToggle={toggle("sponsor")} onToggleAll={limpiar("sponsor")} />
 
-        {hayFiltro && <FilterReset onClick={() => { setSel(SIN_FILTROS); setTipo("todos"); setSituacion(SITUACION_INICIAL); }} />}
+        {hayFiltro && <FilterReset onClick={() => { setSel(SIN_FILTROS); setClaseFiltro("todas"); setSituacion(SITUACION_INICIAL); }} />}
       </div>
 
       {visibles.length === 0 ? <EmptyRow /> : (
