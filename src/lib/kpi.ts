@@ -36,10 +36,10 @@ import { npsKpiLogro } from "@/lib/nps";
 export const KPI_META = { evm: 1.0, nps: 50, benefitAnnual: 84000, entregas: 1.0, reproceso: 1.0, metodologia: 1.0 };
 export type KpiWeights = { evm: number; nps: number; benefit: number; entregas: number; reproceso: number; metodologia: number };
 export const KPI_W: KpiWeights = { evm: 25, nps: 15, benefit: 25, entregas: 10, reproceso: 10, metodologia: 15 };
-/** Pesos del KPI de los Players por CKU (/players): EVM 25 · Beneficio 25 · Cumplimiento de
- *  Entrega ("Compromiso") 20 · Calidad de Entregas (reproceso) 20 · NPS 10. Suman 100.
+/** Pesos del KPI de los Players por CKU (/players): EVM 15 · Beneficio 25 · Cumplimiento de
+ *  Entrega ("Compromiso") 20 · Calidad de Entregas (reproceso) 20 · NPS 20. Suman 100.
  *  Metodología VALOR no aplica a los CKU (peso 0 → el componente no se muestra). */
-export const KPI_W_CKU: KpiWeights = { evm: 25, nps: 10, benefit: 25, entregas: 20, reproceso: 20, metodologia: 0 };
+export const KPI_W_CKU: KpiWeights = { evm: 15, nps: 20, benefit: 25, entregas: 20, reproceso: 20, metodologia: 0 };
 // Beneficio (peso 25) se reparte 90% Aprobación VPB / 10% Confirmación VPC.
 export const BENEFIT_SPLIT = { aprobacion: 0.90, confirmacion: 0.10 };
 
