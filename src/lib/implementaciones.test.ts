@@ -3,7 +3,7 @@ import {
   GRUPOS_CLIENTES, OBJETIVO_DEFECTO, SIN_CLIENTE, SIN_FECHA, UMBRAL_AMARILLO, UMBRAL_VERDE, aNumero, agruparPorClienteYMes, avanceMesCliente, avanceTotalMes, avanceVolMesCliente, avanceVolTotalMes,
   claveCliente, claveMes, clienteReal, contarPorCliente, etiquetaMes, evaluarFile, evaluarFilaMeta, evaluarObjetivo, filtrarPorClientes, filtrarPorMeses,
   fmtFechaCorta, fmtImporte, fmtPct, grupoDeCliente, indexarMetas, leerDocMetas, metaProfitMensual, miembrosDeGrupo, nivelCumplimiento, nombreCliente,
-  implementacionDelMes, normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
+  implementacionDelMes, metaAplica, metaMensualDe, normalizarMetas, normalizarObjetivos, objetivoDe, pasaFiltroSemaforo, resumenImplementacionCku, resumenSemaforo, serieMensual, totalesImplementacion,
 } from "./implementaciones";
 import type { ImplementacionRow, MetaCliente, ObjetivoMes } from "@/types";
 
@@ -671,7 +671,7 @@ describe("Implementación en el Beneficio de un CKU (resumen y mes)", () => {
   const r = resumenImplementacionCku(rows, metas, objetivos);
 
   it("meta mensual = Σ Vol × CM1 y Profit por mes solo de clientes con meta, sin «Sin facturar»", () => {
-    expect(r.metaMensual).toBe(2000);
+    expect(metaMensualDe(r, "2026-09")).toBe(2000);
     expect(r.profitPorMes).toEqual({ "2026-09": 1500.5, "2026-10": 0 });
   });
 
@@ -766,7 +766,7 @@ describe("grupos de clientes (GRUPOS_CLIENTES)", () => {
 
   it("el resumen de Implementación del CKU cuenta a los clientes del grupo con su cumplimiento", () => {
     const r = resumenImplementacionCku(datos, metaGrupo, []);
-    expect(r.metaMensual).toBe(1000);
+    expect(metaMensualDe(r, "2026-09")).toBe(1000);
     expect(r.profitPorMes).toEqual({ "2026-09": 500, "2026-10": 10 });   // «Otro» no tiene cumplimiento
   });
 });
@@ -841,13 +841,13 @@ describe("Grupo Cerveceria C.A. (cumplimiento Vol × CM1 del grupo completo)", (
     expect(idx.clientes.has("ALIMENTOS MARAVILLA S.A.")).toBe(false);
     expect(idx.clientes.size).toBe(1);
     const r = resumenImplementacionCku([fila(EN_HOJA[2], "2026-09-01T00:00:00", 500)], [vieja, ...metaGrupo], []);
-    expect(r.metaMensual).toBe(9000);                       // la de Maravilla (8,800) ya no suma
+    expect(metaMensualDe(r, "2026-09")).toBe(9000);                     // la de Maravilla (8,800) ya no suma
     expect(r.profitPorMes).toEqual({ "2026-09": 500 });     // y su Profit cuenta para el grupo
   });
 
   it("sin cumplimiento capturado, el Profit del grupo no cuenta para nadie", () => {
     const r = resumenImplementacionCku([fila(EN_HOJA[2], "2026-09-01T00:00:00", 500)], [], []);
-    expect(r.metaMensual).toBe(0);
+    expect(metaMensualDe(r, "2026-09")).toBe(0);
     expect(r.profitPorMes).toEqual({});
   });
 });
@@ -909,5 +909,59 @@ describe("avance de Vol (cuánto se lleva completado por mes)", () => {
       f(g.clientes[0], 40, "2026-05-02T00:00:00"), f(g.clientes[1], 10, "2026-05-03T00:00:00"), f(g.clientes[1], 30, "2026-05-04T00:00:00"),
     ]);
     expect(avanceVolMesCliente(m.clientes.find((x) => x.cliente === g.nombre)!, "2026-05", idxG)).toMatchObject({ hecho: 3, vol: 4 });
+  });
+});
+
+describe("cumplimiento «desde» un mes", () => {
+  // A tiene datos desde septiembre, pero su cumplimiento cuenta desde octubre.
+  const metas: MetaCliente[] = [{ cliente: "A", vol: 10, cm1: 100, desde: "2026-10" }, { cliente: "B", vol: 5, cm1: 200 }];
+  const rows = [
+    fila("A", "2026-09-02T10:00:00", 300),
+    fila("A", "2026-10-02T10:00:00", 800),
+    fila("B", "2026-09-15T00:00:00", 500),
+    fila("B", "2026-10-15T00:00:00", 900),
+    fila("A", "", 50),
+  ];
+  const idx = indexarMetas(metas, []);
+  const matriz = agruparPorClienteYMes(rows);
+  const A = matriz.clientes.find((c) => c.cliente === "A")!;
+
+  it("metaAplica: desde su mes en adelante, siempre sin «desde», y en «Sin facturar»", () => {
+    expect(metaAplica({ desde: "2026-10" }, "2026-09")).toBe(false);
+    expect(metaAplica({ desde: "2026-10" }, "2026-10")).toBe(true);
+    expect(metaAplica({ desde: "2026-10" }, "2027-01")).toBe(true);
+    expect(metaAplica({}, "2020-01")).toBe(true);
+    expect(metaAplica({ desde: "2026-10" }, SIN_FECHA)).toBe(true);
+  });
+
+  it("antes del «desde» el cliente no tiene cumplimiento ni entra al total del mes", () => {
+    expect(avanceMesCliente(A, "2026-09", idx)).toBeNull();
+    expect(avanceVolMesCliente(A, "2026-09", idx)).toBeNull();
+    expect(avanceMesCliente(A, "2026-10", idx)).toMatchObject({ meta: 1000, profit: 800 });
+    expect(avanceTotalMes(matriz, "2026-09", idx)).toMatchObject({ meta: 1000, profit: 500, n: 1 }); // solo B
+    expect(avanceTotalMes(matriz, "2026-10", idx)).toMatchObject({ meta: 2000, profit: 1700, n: 2 });
+  });
+
+  it("un file anterior al «desde» no se juzga contra el CM1; uno sin facturar sí", () => {
+    expect(evaluarFile(fila("A", "2026-09-02T10:00:00", 300), idx)).toEqual({ estado: "sin-meta", cm1: null });
+    expect(evaluarFile(fila("A", "2026-10-02T10:00:00", 50), idx)).toEqual({ estado: "no-cumple", cm1: 100 });
+    expect(evaluarFile(fila("A", "", 150), idx)).toEqual({ estado: "cumple", cm1: 100 });
+  });
+
+  it("el resumen del CKU solo cuenta la meta y el Profit de A desde octubre", () => {
+    const r = resumenImplementacionCku(rows, metas, []);
+    expect(r.profitPorMes).toEqual({ "2026-09": 500, "2026-10": 1700 });
+    expect(implementacionDelMes(r, "2026-09")).toEqual({ mes: "2026-09", meta: 1000, objetivo: OBJETIVO_DEFECTO, profit: 500 });
+    expect(implementacionDelMes(r, "2026-10")).toEqual({ mes: "2026-10", meta: 2000, objetivo: OBJETIVO_DEFECTO, profit: 1700 });
+    // Un mes en que ninguna meta cuenta todavía no suma nada.
+    expect(implementacionDelMes(resumenImplementacionCku(rows, [metas[0]], []), "2026-09")).toBeNull();
+  });
+
+  it("se guarda y se lee el «desde»; vacío no deja la llave y uno inválido se rechaza", () => {
+    expect(normalizarMetas([{ cliente: "A", vol: 10, cm1: 100, desde: "2026-10" }, { cliente: "B", vol: 5, cm1: 200, desde: "" }]))
+      .toEqual({ ok: true, metas: [{ cliente: "A", vol: 10, cm1: 100, desde: "2026-10" }, { cliente: "B", vol: 5, cm1: 200 }] });
+    expect(normalizarMetas([{ cliente: "A", vol: 10, cm1: 100, desde: "octubre" }]).ok).toBe(false);
+    expect(leerDocMetas({ metas: [{ cliente: "A", vol: 10, cm1: 100, desde: "2026-10" }, { cliente: "B", vol: 5, cm1: 200, desde: "x" }] }).metas)
+      .toEqual([{ cliente: "A", vol: 10, cm1: 100, desde: "2026-10" }, { cliente: "B", vol: 5, cm1: 200 }]);
   });
 });

@@ -3,7 +3,8 @@
 // Popup de metas de Implementación, en dos partes:
 //  1. La META de cada cliente: Vol (files por mes) y CM1 (dólares de Profit por file). Es
 //     la misma para todos los meses, así que se captura una sola vez. El Total (Vol × CM1)
-//     se calcula en vivo. Dejar los dos campos vacíos quita la meta de ese cliente.
+//     se calcula en vivo. Dejar los dos campos vacíos quita la meta de ese cliente. «Desde»
+//     dice a partir de qué mes cuenta (vacío = todos): los meses anteriores quedan sin meta.
 //  2. El % a alcanzar de cada mes: qué parte de esa meta hay que lograr para darla por
 //     cumplida (vacío = 100 %). Es uno por mes, igual para todos los clientes.
 // Se guardan juntos en Firestore (PUT .../metas); quien no tiene la acción
@@ -22,8 +23,8 @@ import {
 import { META_BORDE, META_FONDO, META_FONDO_ENCABEZADO, META_TEXTO } from "@/components/implementacion/estiloMeta";
 import type { MetaCliente, MetasImplementacionDoc, ObjetivoMes } from "@/types";
 
-interface Campos { vol: string; cm1: string }
-const VACIO: Campos = { vol: "", cm1: "" };
+interface Campos { vol: string; cm1: string; desde: string }
+const VACIO: Campos = { vol: "", cm1: "", desde: "" };
 
 const estiloInput = (error: boolean): React.CSSProperties => ({
   background: "var(--bg-base)",
@@ -64,9 +65,12 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
     .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0)) // el mes más reciente arriba
     .map((clave) => ({ clave, etiqueta: etiquetaMes(clave), volumen: enHoja.get(clave)?.volumen ?? null }));
 
+  // Meses que se pueden elegir en «Desde»: los de la hoja y los ya guardados, del más viejo al más nuevo.
+  const mesesDesde = [...new Set([...filasMes.map((f) => f.clave), ...metas.flatMap((m) => (m.desde ? [m.desde] : []))])].sort();
+
   const [campos, setCampos] = useState<Record<string, Campos>>(() => {
     const ini: Record<string, Campos> = {};
-    for (const m of metas) ini[m.cliente] = { vol: aTexto(m.vol), cm1: m.cm1.toFixed(2) };
+    for (const m of metas) ini[m.cliente] = { vol: aTexto(m.vol), cm1: m.cm1.toFixed(2), desde: m.desde ?? "" };
     return ini;
   });
   const [pcts, setPcts] = useState<Record<string, string>>(() =>
@@ -89,7 +93,10 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
     try {
       const metasLista: MetaCliente[] = evaluadas
         .filter(({ ev }) => ev.completa)
-        .map(({ n, ev }) => ({ cliente: n, vol: ev.vol as number, cm1: ev.cm1 as number }));
+        .map(({ n, ev }) => {
+          const desde = (campos[n] ?? VACIO).desde;
+          return { cliente: n, vol: ev.vol as number, cm1: ev.cm1 as number, ...(desde ? { desde } : {}) };
+        });
       // El 100 % es el valor por defecto: no se guarda.
       const objetivosLista: ObjetivoMes[] = evaluadosMes
         .filter(({ ev }) => ev.objetivo != null && ev.objetivo !== OBJETIVO_DEFECTO)
@@ -138,7 +145,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
         )}
 
         <section>
-          <Titulo nota="Igual para todos los meses. Deja Vol y CM1 vacíos para no ponerle cumplimiento a un cliente. Los clientes de un grupo comparten el cumplimiento del grupo.">
+          <Titulo nota="Igual para todos los meses desde el mes de «Desde» (Todos = desde el primero); los meses anteriores de ese cliente no se miden. Deja Vol y CM1 vacíos para no ponerle cumplimiento a un cliente. Los clientes de un grupo comparten el cumplimiento del grupo.">
             Cumplimiento por cliente o grupo
           </Titulo>
           <table className="w-full border-collapse text-[0.92rem]">
@@ -147,6 +154,7 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
                 <th className="pb-2 pr-3 font-medium">Cliente</th>
                 <th className="font-medium" style={thMeta({ borderLeft: META_BORDE, borderTopLeftRadius: 8 })}>Vol (files/mes)</th>
                 <th className="font-medium" style={thMeta()}>CM1 por file (USD)</th>
+                <th className="font-medium" style={thMeta()} title="Mes desde el que cuenta el cumplimiento de este cliente. Los meses anteriores no se miden.">Desde</th>
                 <th className="text-right font-medium" style={thMeta({ borderRight: META_BORDE, borderTopRightRadius: 8 })}>
                   Total (Vol × CM1)
                 </th>
@@ -206,6 +214,18 @@ export default function MetasModal({ clientes, meses, metas, objetivos, puedeEdi
                         />
                       </div>
                       {ev.errorCm1 && <div className="mt-0.5 text-[0.76rem]" style={{ color: "var(--bad)" }}>{ev.errorCm1}</div>}
+                    </td>
+                    <td style={celda()}>
+                      <select
+                        value={c.desde}
+                        onChange={(e) => setCliente(n, { desde: e.target.value })}
+                        disabled={bloqueado}
+                        aria-label={`Mes desde el que cuenta el cumplimiento de ${n}`}
+                        className="w-[120px] rounded-lg border px-2 py-1.5 outline-none disabled:opacity-60"
+                        style={estiloInput(false)}>
+                        <option value="">Todos</option>
+                        {mesesDesde.map((m) => <option key={m} value={m}>{etiquetaMes(m)}</option>)}
+                      </select>
                     </td>
                     <td className="text-right tabular-nums font-bold"
                       style={celda({ borderRight: META_BORDE, color: META_TEXTO, verticalAlign: "top", paddingTop: 14 })}>

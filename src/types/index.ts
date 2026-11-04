@@ -159,7 +159,7 @@ export interface ImplementacionPayload {
 }
 
 /** Meta de un cliente en Implementación (la captura el usuario a mano). Es la misma
- *  para todos los meses. Meta de Profit del mes = vol × cm1. */
+ *  para todos los meses (desde `desde`, si lo tiene). Meta de Profit del mes = vol × cm1. */
 export interface MetaCliente {
   /** Nombre del cliente tal como aparece en la hoja (columna Cliente). */
   cliente: string;
@@ -167,6 +167,9 @@ export interface MetaCliente {
   vol: number;
   /** CM1 en dólares: Profit esperado por file. */
   cm1: number;
+  /** Mes («yyyy-MM») desde el que cuenta su cumplimiento. Los meses anteriores quedan sin
+   *  cumplimiento para este cliente. Ausente = cuenta en todos los meses. */
+  desde?: string;
 }
 
 /** % de la meta de Profit que hay que alcanzar en un mes para darla por cumplida

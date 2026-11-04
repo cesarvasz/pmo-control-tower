@@ -4,7 +4,7 @@
 //  GET: las metas guardadas. Requiere el permiso de la página "roi".
 //  PUT: reemplaza TODAS las metas. Requiere la acción "edit_implementacion_metas"
 //       (Admin siempre; otros roles se la otorgan en /roles).
-//       Body: { metas: [{ cliente, vol, cm1 }], objetivos: [{ mes, objetivo }] } — ver
+//       Body: { metas: [{ cliente, vol, cm1, desde? }], objetivos: [{ mes, objetivo }] } — ver
 //       normalizarMetas / normalizarObjetivos. `objetivos` puede faltar (todo a 100 %).
 
 import { NextResponse } from "next/server";

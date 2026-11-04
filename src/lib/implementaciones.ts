@@ -346,6 +346,16 @@ export function indexarMetas(metas: MetaCliente[], objetivos: ObjetivoMes[] = []
 /** % a alcanzar de un mes (100 si no se capturó). */
 export const objetivoDe = (idx: IndiceMetas, mes: string) => idx.objetivos.get(mes) ?? OBJETIVO_DEFECTO;
 
+/** ¿Cuenta la meta en este mes? Sí desde su mes «desde» (o siempre, si no tiene). «Sin facturar»
+ *  no es anterior a nada: sus files se juzgan con el CM1 del cliente. */
+export const metaAplica = (m: Pick<MetaCliente, "desde">, mes: string) => !m.desde || mes === SIN_FECHA || mes >= m.desde;
+
+/** La meta de un cliente que cuenta en un mes, o undefined si no tiene o aún no empieza. */
+export function metaDelMes(idx: IndiceMetas, cliente: string, mes: string): MetaCliente | undefined {
+  const m = idx.clientes.get(cliente);
+  return m && metaAplica(m, mes) ? m : undefined;
+}
+
 /** Lo guardado en Firestore → metas por cliente y % a alcanzar por mes. Lee también los
  *  dos formatos anteriores: una meta por cliente sin mes (valía para todos los meses) y
  *  una meta por cliente Y mes con su propio Vol, CM1 y %. Del segundo se toma, por
@@ -369,7 +379,8 @@ export function leerDocMetas(d: { metas?: unknown; objetivos?: unknown } | null 
     if (typeof vol !== "number" || !Number.isFinite(vol) || typeof cm1 !== "number" || !Number.isFinite(cm1)) continue;
     const mes = typeof o.mes === "string" ? o.mes : "";
     const previa = porCliente.get(cliente);
-    if (!previa || mes > previa.mes) porCliente.set(cliente, { meta: { cliente, vol, cm1 }, mes });
+    const desde = esMesValido(o.desde) ? { desde: o.desde } : {};
+    if (!previa || mes > previa.mes) porCliente.set(cliente, { meta: { cliente, vol, cm1, ...desde }, mes });
     ponObjetivo(o.mes, o.objetivo, false);
   }
   for (const raw of Array.isArray(d?.objetivos) ? d.objetivos : []) {
@@ -385,9 +396,10 @@ export function leerDocMetas(d: { metas?: unknown; objetivos?: unknown } | null 
 
 export type ResultadoMetas = { ok: true; metas: MetaCliente[] } | { ok: false; error: string };
 
-/** Valida lo que llega del popup antes de guardarlo: lista de {cliente, vol, cm1},
- *  números finitos y no negativos, sin clientes repetidos. El CM1 se redondea a
- *  centavos. Devuelve las metas ordenadas por cliente (guardado estable). */
+/** Valida lo que llega del popup antes de guardarlo: lista de {cliente, vol, cm1, desde?},
+ *  números finitos y no negativos, sin clientes repetidos, `desde` un mes «yyyy-MM» o
+ *  vacío. El CM1 se redondea a centavos. Devuelve las metas ordenadas por cliente
+ *  (guardado estable). Sin `desde` la llave no se guarda (Firestore no acepta undefined). */
 export function normalizarMetas(input: unknown): ResultadoMetas {
   if (!Array.isArray(input)) return { ok: false, error: "metas debe ser una lista" };
   if (input.length > METAS_MAX) return { ok: false, error: `Máximo ${METAS_MAX} metas` };
@@ -407,7 +419,10 @@ export function normalizarMetas(input: unknown): ResultadoMetas {
     if (typeof cm1 !== "number" || !Number.isFinite(cm1) || cm1 < 0 || cm1 > TOPE)
       return { ok: false, error: `CM1 inválido para ${cliente}` };
 
-    metas.push({ cliente, vol, cm1: Math.round(cm1 * 100) / 100 });
+    const { desde } = o;
+    if (desde != null && desde !== "" && !esMesValido(desde)) return { ok: false, error: `Mes «desde» inválido para ${cliente}` };
+
+    metas.push({ cliente, vol, cm1: Math.round(cm1 * 100) / 100, ...(esMesValido(desde) ? { desde } : {}) });
   }
   return { ok: true, metas: metas.sort((a, b) => a.cliente.localeCompare(b.cliente, "es")) };
 }
@@ -536,10 +551,11 @@ function avance(partes: Parte[]): Avance | null {
   };
 }
 
-/** La parte de un cliente en un mes, o null si el cliente no tiene meta o el mes es
- *  «Sin facturar». Un mes en que el cliente no tuvo files cuenta con Profit 0. */
+/** La parte de un cliente en un mes, o null si el cliente no tiene meta, su meta aún no
+ *  empieza (`desde`) o el mes es «Sin facturar». Un mes en que el cliente no tuvo files
+ *  cuenta con Profit 0. */
 function parte(fila: FilaCliente, mes: string, idx: IndiceMetas): Parte | null {
-  const m = idx.clientes.get(fila.cliente);
+  const m = metaDelMes(idx, fila.cliente, mes);
   if (!m || mes === SIN_FECHA) return null;
   return { meta: metaProfitMensual(m), profit: fila.porMes[mes]?.profit ?? 0, objetivo: objetivoDe(idx, mes) };
 }
@@ -596,7 +612,7 @@ function avanceVol(partes: ParteVol[]): AvanceVol | null {
 /** La parte de un cliente en un mes, o null si no tiene cumplimiento o el mes es «Sin facturar». Un mes
  *  en que el cliente no tuvo files cuenta con 0, igual que el Profit en el % de cumplimiento. */
 function parteVol(fila: FilaCliente, mes: string, idx: IndiceMetas): ParteVol | null {
-  const m = idx.clientes.get(fila.cliente);
+  const m = metaDelMes(idx, fila.cliente, mes);
   if (!m || mes === SIN_FECHA) return null;
   return { hecho: fila.porMes[mes]?.volumen ?? 0, vol: m.vol, objetivo: objetivoDe(idx, mes) };
 }
@@ -634,7 +650,8 @@ export interface EvaluacionFile {
  *  salir en rojo contra un CM1 de $12.30. `metas` es el índice de `indexarMetas` (solo
  *  metas con Vol × CM1 > 0, por lo que su CM1 es > 0). */
 export function evaluarFile(r: ImplementacionRow, metas: IndiceMetas): EvaluacionFile {
-  const meta = metas.clientes.get(nombreCliente(r));
+  // Un file facturado antes del «desde» de su cliente no se juzga: su cumplimiento aún no contaba.
+  const meta = metaDelMes(metas, nombreCliente(r), claveMes(r.fecha_facturacion));
   if (!meta || r.Profit == null) return { estado: "sin-meta", cm1: meta?.cm1 ?? null };
   return { estado: centavos(r.Profit) >= centavos(meta.cm1) ? "cumple" : "no-cumple", cm1: meta.cm1 };
 }
@@ -670,10 +687,10 @@ export function pasaFiltroSemaforo(estado: Semaforo, filtro: FiltroSemaforo): bo
 // que el % Meta de la pestaña (Profit de clientes sin meta no entra; «Sin facturar» tampoco).
 
 export interface ResumenImplementacionCku {
-  /** Σ Vol × CM1 de los clientes con meta: la meta de un mes al 100 %. */
-  metaMensual: number;
+  /** Vol × CM1 de cada cliente con meta y el mes desde el que cuenta (null = todos). */
+  metas: { meta: number; desde: string | null }[];
   objetivos: ObjetivoMes[];
-  /** «yyyy-MM» → Profit de los clientes con meta en ese mes. */
+  /** «yyyy-MM» → Profit de los clientes cuya meta cuenta en ese mes. */
   profitPorMes: Record<string, number>;
 }
 
@@ -682,12 +699,19 @@ export function resumenImplementacionCku(rows: ImplementacionRow[], metas: MetaC
   const profitPorMes: Record<string, number> = {};
   for (const r of rows) {
     const mes = claveMes(r.fecha_facturacion);
-    if (mes === SIN_FECHA || !idx.clientes.has(nombreCliente(r))) continue;
+    if (mes === SIN_FECHA || !metaDelMes(idx, nombreCliente(r), mes)) continue;
     profitPorMes[mes] = (profitPorMes[mes] ?? 0) + (r.Profit ?? 0);
   }
-  const metaMensual = [...idx.clientes.values()].reduce((s, m) => s + metaProfitMensual(m), 0);
-  return { metaMensual, objetivos: [...idx.objetivos].map(([mes, objetivo]) => ({ mes, objetivo })), profitPorMes };
+  return {
+    metas: [...idx.clientes.values()].map((m) => ({ meta: metaProfitMensual(m), desde: m.desde ?? null })),
+    objetivos: [...idx.objetivos].map(([mes, objetivo]) => ({ mes, objetivo })),
+    profitPorMes,
+  };
 }
+
+/** Σ Vol × CM1 de los clientes cuya meta cuenta en el mes: la meta de ese mes al 100 %. */
+export const metaMensualDe = (r: ResumenImplementacionCku, mes: string) =>
+  r.metas.reduce((s, m) => s + (metaAplica({ desde: m.desde ?? undefined }, mes) ? m.meta : 0), 0);
 
 export interface ImplementacionMes {
   mes: string;
@@ -698,9 +722,11 @@ export interface ImplementacionMes {
   profit: number;
 }
 
-/** Meta y Profit de Implementación de UN mes. null si no hay metas capturadas. */
+/** Meta y Profit de Implementación de UN mes. null si ese mes no cuenta ninguna meta (no hay
+ *  metas capturadas o todas empiezan después). */
 export function implementacionDelMes(r: ResumenImplementacionCku, mes: string): ImplementacionMes | null {
-  if (!(r.metaMensual > 0)) return null;
+  const metaMensual = metaMensualDe(r, mes);
+  if (!(metaMensual > 0)) return null;
   const objetivo = r.objetivos.find((o) => o.mes === mes)?.objetivo ?? OBJETIVO_DEFECTO;
-  return { mes, meta: Math.round(r.metaMensual * objetivo) / 100, objetivo, profit: r.profitPorMes[mes] ?? 0 };
+  return { mes, meta: Math.round(metaMensual * objetivo) / 100, objetivo, profit: r.profitPorMes[mes] ?? 0 };
 }
