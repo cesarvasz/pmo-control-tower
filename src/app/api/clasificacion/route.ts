@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAction } from "@/lib/users";
-import { saveClase } from "@/lib/firebase-admin";
+import { saveClase } from "@/lib/store";
 import { esClaseAsignable } from "@/lib/claseProyecto";
 import { apiError } from "@/lib/api-errors";
 

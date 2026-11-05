@@ -4,7 +4,7 @@
 // Solo accesible para usuarios con la acción "manage_users" (Administrador).
 
 import { NextResponse } from "next/server";
-import { saveProjItemBaseline } from "@/lib/firebase-admin";
+import { saveProjItemBaseline } from "@/lib/store";
 import { requireAction } from "@/lib/users";
 
 export const dynamic = "force-dynamic";

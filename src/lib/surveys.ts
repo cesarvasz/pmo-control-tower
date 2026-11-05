@@ -1,57 +1,38 @@
 // src/lib/surveys.ts
-// SOLO SERVIDOR. Encuestas personalizadas por REQ en Firestore.
-//   surveys/{token}            → metadatos + estado (answered)
-//   survey_responses/{token}   → respuestas (inmutable; una sola vez)
+// SOLO SERVIDOR. Encuestas personalizadas por REQ en Supabase.
+//   surveys           → metadatos + estado (answered)
+//   survey_responses  → respuestas (una sola por token: la PK es el candado)
 
 import { randomUUID } from "node:crypto";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { DbError, getSupabaseAdmin, PG, selectAll, unwrap, unwrapOne } from "@/lib/supabase-admin";
+import { npsRecordsDe, surveyDe, surveyResponseDe } from "@/lib/storeRows";
 import type { SurveyAnswers, SurveyDoc, SurveyResponseDoc } from "@/lib/survey";
 import type { NpsRecord } from "@/types";
+import type { Json } from "@/types/supabase";
 
-const SURVEYS = "surveys";
-const RESPONSES = "survey_responses";
-
-function toSurvey(token: string, d: FirebaseFirestore.DocumentData): SurveyDoc {
-  return {
-    token,
-    reqId: d.reqId ?? "",
-    reqCode: d.reqCode ?? "",
-    reqName: d.reqName ?? "",
-    pm: d.pm ?? "",
-    assignedEmail: (d.assignedEmail ?? "").toLowerCase(),
-    assignedName: d.assignedName ?? "",
-    createdByEmail: d.createdByEmail ?? "",
-    createdAt: d.createdAt ?? "",
-    answered: !!d.answered,
-    answeredAt: d.answeredAt ?? null,
-    invalidated: !!d.invalidated,
-    cku: d.cku ?? "",
-  };
-}
+const db = getSupabaseAdmin;
 
 export async function listSurveys(): Promise<SurveyDoc[]> {
-  const db = getAdminDb();
-  const snap = await db.collection(SURVEYS).get();
-  return snap.docs.map((doc) => toSurvey(doc.id, doc.data()));
+  const rows = await selectAll((a, b) => db().from("surveys").select("*").order("token").range(a, b));
+  return rows.map(surveyDe);
 }
 
 export async function getSurvey(token: string): Promise<SurveyDoc | null> {
-  const db = getAdminDb();
-  const snap = await db.collection(SURVEYS).doc(token).get();
-  return snap.exists ? toSurvey(snap.id, snap.data()!) : null;
+  const row = unwrap(await db().from("surveys").select("*").eq("token", token).maybeSingle());
+  return row ? surveyDe(row) : null;
 }
 
 /** Todas las encuestas (links) de un REQ. Un REQ puede tener varias, una por persona. */
 export async function listSurveysByReq(reqId: string): Promise<SurveyDoc[]> {
-  const db = getAdminDb();
-  const snap = await db.collection(SURVEYS).where("reqId", "==", reqId).get();
-  return snap.docs.map((doc) => toSurvey(doc.id, doc.data()));
+  const rows = unwrap(await db().from("surveys").select("*").eq("req_id", reqId)) ?? [];
+  return rows.map(surveyDe);
 }
 
 /**
  * Crea un link de encuesta para una persona dentro de un REQ.
- * Un REQ puede tener varios links (uno por destinatario). Idempotente por (reqId, correo):
- * si esa persona ya tiene un link PENDIENTE en el REQ, se reutiliza en vez de duplicarlo.
+ * Un REQ puede tener varios links (uno por destinatario). Idempotente por (reqId, correo, cku):
+ * si esa persona ya tiene un link PENDIENTE en el REQ, se reutiliza en vez de duplicarlo
+ * (el índice único surveys_pendiente_unico lo garantiza también ante dos envíos simultáneos).
  */
 export async function createSurvey(input: {
   reqId: string; reqCode: string; reqName: string; pm: string;
@@ -59,71 +40,66 @@ export async function createSurvey(input: {
   /** CKU remitente (vacío = PM/admin). Una persona puede tener a la vez un link de PM y uno de CKU. */
   cku?: string;
 }): Promise<SurveyDoc> {
-  const db = getAdminDb();
   const email = input.assignedEmail.toLowerCase();
-
-  // Reutiliza un link pendiente ya existente para la misma persona en el mismo REQ.
-  const existing = await listSurveysByReq(input.reqId);
   const cku = input.cku ?? "";
-  const pending = existing.find((s) => s.assignedEmail === email && !s.answered && (s.cku ?? "") === cku);
-  if (pending) {
-    await db.collection(SURVEYS).doc(pending.token).set(
-      { assignedName: input.assignedName, reqCode: input.reqCode, reqName: input.reqName, pm: input.pm },
-      { merge: true },
-    );
-    return { ...pending, assignedName: input.assignedName, reqCode: input.reqCode, reqName: input.reqName, pm: input.pm };
-  }
 
-  const token = randomUUID();
-  const doc: SurveyDoc = {
-    token,
-    reqId: input.reqId,
-    reqCode: input.reqCode,
-    reqName: input.reqName,
-    pm: input.pm,
-    assignedEmail: input.assignedEmail.toLowerCase(),
-    assignedName: input.assignedName,
-    createdByEmail: input.createdByEmail,
-    createdAt: new Date().toISOString(),
-    answered: false,
-    answeredAt: null,
-    invalidated: false,
-    cku,
+  const reutilizarPendiente = async (): Promise<SurveyDoc | null> => {
+    const pending = unwrap(await db().from("surveys").select("*")
+      .eq("req_id", input.reqId).eq("assigned_email", email).eq("cku", cku).eq("answered", false)
+      .maybeSingle());
+    if (!pending) return null;
+    const actualizada = unwrapOne(await db().from("surveys")
+      .update({ assigned_name: input.assignedName, req_code: input.reqCode, req_name: input.reqName, pm: input.pm })
+      .eq("token", pending.token).select("*").single());
+    return surveyDe(actualizada);
   };
-  const { token: _t, ...data } = doc;
-  void _t;
-  await db.collection(SURVEYS).doc(token).set(data);
-  return doc;
+
+  const existente = await reutilizarPendiente();
+  if (existente) return existente;
+
+  try {
+    const row = unwrapOne(await db().from("surveys").insert({
+      token: randomUUID(),
+      req_id: input.reqId,
+      req_code: input.reqCode,
+      req_name: input.reqName,
+      pm: input.pm,
+      assigned_email: email,
+      assigned_name: input.assignedName,
+      created_by_email: input.createdByEmail,
+      cku,
+    }).select("*").single());
+    return surveyDe(row);
+  } catch (err) {
+    // Otro envío simultáneo creó el pendiente entre la consulta y el insert: se reutiliza ese.
+    if (err instanceof DbError && err.code === PG.uniqueViolation) {
+      const ganador = await reutilizarPendiente();
+      if (ganador) return ganador;
+    }
+    throw err;
+  }
 }
 
 /** Marca/desmarca la encuesta como invalidada (no cuenta en métricas). Solo admin. */
 export async function setInvalidated(token: string, invalidated: boolean): Promise<SurveyDoc | null> {
-  const db = getAdminDb();
-  await db.collection(SURVEYS).doc(token).set({ invalidated }, { merge: true });
-  return getSurvey(token);
+  const rows = unwrap(await db().from("surveys").update({ invalidated }).eq("token", token).select("*")) ?? [];
+  return rows[0] ? surveyDe(rows[0]) : null;
 }
 
 /** Reabre la encuesta para volver a enviarla: borra la respuesta y quita el candado. Solo admin. */
 export async function reopenSurvey(token: string): Promise<SurveyDoc | null> {
-  const db = getAdminDb();
-  await db.collection(RESPONSES).doc(token).delete();
-  await db.collection(SURVEYS).doc(token).set(
-    { answered: false, answeredAt: null, invalidated: false },
-    { merge: true },
-  );
+  unwrap(await db().rpc("reabrir_encuesta", { p_token: token }));
   return getSurvey(token);
 }
 
 /** Cancela (elimina) una encuesta PENDIENTE. Lanza "survey-not-found" si no existe
  *  y "survey-answered" si ya fue contestada (esas no se cancelan, se invalidan). Solo admin. */
 export async function deleteSurvey(token: string): Promise<void> {
-  const db = getAdminDb();
-  const ref = db.collection(SURVEYS).doc(token);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error("survey-not-found");
-  if (snap.data()!.answered) throw new Error("survey-answered");
-  await db.collection(RESPONSES).doc(token).delete(); // por si hubiera una respuesta huérfana
-  await ref.delete();
+  const s = unwrap(await db().from("surveys").select("answered").eq("token", token).maybeSingle());
+  if (!s) throw new Error("survey-not-found");
+  if (s.answered) throw new Error("survey-answered");
+  unwrap(await db().from("survey_responses").delete().eq("token", token)); // por si hubiera una respuesta huérfana
+  unwrap(await db().from("surveys").delete().eq("token", token));
 }
 
 /**
@@ -131,53 +107,30 @@ export async function deleteSurvey(token: string): Promise<void> {
  * Fuente única del NPS (global y por PM). Las importadas del Sheet tienen pm="".
  */
 export async function listNpsRecords(): Promise<NpsRecord[]> {
-  const db = getAdminDb();
-  const [respSnap, surveySnap] = await Promise.all([
-    db.collection(RESPONSES).get(),
-    db.collection(SURVEYS).get(),
+  const [responses, surveys] = await Promise.all([
+    selectAll((a, b) => db().from("survey_responses").select("*").order("token").range(a, b)),
+    selectAll((a, b) => db().from("surveys").select("*").order("token").range(a, b)),
   ]);
-  const surveyById = new Map(surveySnap.docs.map((d) => [d.id, d.data()]));
-  return respSnap.docs.map((d) => {
-    const r = d.data();
-    const s = surveyById.get(d.id) ?? {};
-    return {
-      answers: (r.answers ?? {}) as NpsRecord["answers"],
-      pm: s.pm ?? "",
-      invalidated: !!s.invalidated,
-      respondentEmail: r.respondentEmail ?? "",
-      submittedAt: r.submittedAt ?? "",
-      reqCode: s.reqCode ?? "",
-      reqId: s.reqId ?? "",
-      cku: s.cku ?? "",
-      token: d.id,
-    };
-  });
+  return npsRecordsDe(responses, surveys);
 }
 
 export async function getResponse(token: string): Promise<SurveyResponseDoc | null> {
-  const db = getAdminDb();
-  const snap = await db.collection(RESPONSES).doc(token).get();
-  return snap.exists ? (snap.data() as SurveyResponseDoc) : null;
+  const row = unwrap(await db().from("survey_responses").select("*").eq("token", token).maybeSingle());
+  return row ? surveyResponseDe(row) : null;
 }
 
 /**
- * Guarda la respuesta y marca la encuesta como contestada.
- * Lanza "already-answered" si ya existía una respuesta (candado de una sola vez).
+ * Guarda la respuesta y marca la encuesta como contestada, en una sola transacción
+ * (función responder_encuesta). Lanza "already-answered" si ya existía una respuesta.
  */
 export async function saveResponse(
   token: string,
   answers: SurveyAnswers,
   respondentEmail: string,
 ): Promise<void> {
-  const db = getAdminDb();
-  const respRef = db.collection(RESPONSES).doc(token);
-  const surveyRef = db.collection(SURVEYS).doc(token);
-
-  await db.runTransaction(async (tx) => {
-    const resp = await tx.get(respRef);
-    if (resp.exists) throw new Error("already-answered");
-    const now = new Date().toISOString();
-    tx.set(respRef, { answers, respondentEmail, submittedAt: now } satisfies SurveyResponseDoc);
-    tx.set(surveyRef, { answered: true, answeredAt: now }, { merge: true });
-  });
+  unwrap(await db().rpc("responder_encuesta", {
+    p_token: token,
+    p_answers: answers as Json,
+    p_respondent_email: respondentEmail,
+  }));
 }

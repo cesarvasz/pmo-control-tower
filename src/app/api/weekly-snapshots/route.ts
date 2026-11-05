@@ -5,7 +5,8 @@
 // portafolio, no un dato sensible por proyecto/persona).
 
 import { NextResponse } from "next/server";
-import { verifyRequest, listWeeklySnapshots } from "@/lib/firebase-admin";
+import { verifyRequest } from "@/lib/firebase-admin";
+import { listWeeklySnapshots } from "@/lib/store";
 import { apiError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";

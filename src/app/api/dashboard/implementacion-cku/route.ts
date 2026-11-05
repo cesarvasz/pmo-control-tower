@@ -6,7 +6,8 @@
 // filas crudas, que sí lo requieren en /api/roi/implementacion.
 
 import { NextResponse } from "next/server";
-import { getMetasImplementacion, verifyRequest } from "@/lib/firebase-admin";
+import { verifyRequest } from "@/lib/firebase-admin";
+import { getMetasImplementacion } from "@/lib/store";
 import { fetchImplementacionRows } from "@/lib/implementacion";
 import { resumenImplementacionCku } from "@/lib/implementaciones";
 import { apiError } from "@/lib/api-errors";

@@ -1,36 +1,37 @@
 // src/lib/groups.ts
-// SOLO SERVIDOR. CRUD de grupos dinámicos en Firestore (colección "groups").
+// SOLO SERVIDOR. CRUD de grupos dinámicos en Supabase (tabla "menu_groups").
 // Un grupo agrupa páginas del catálogo (PAGES) para el sidebar y los permisos.
 
-import { getAdminDb } from "@/lib/firebase-admin";
 import type { Group } from "@/lib/permissions";
 import { BOOTSTRAP_ADMIN_GROUP_ID, PAGES } from "@/lib/registry";
 import { invalidateRolesCache } from "@/lib/roles";
+import { getSupabaseAdmin, unwrap, unwrapOne } from "@/lib/supabase-admin";
+import { iso } from "@/lib/storeRows";
+import type { Tables } from "@/types/supabase";
 
-const COLL = "groups";
 const VALID_PAGE_KEYS = new Set(PAGES.map((p) => p.key));
 
 // ── Caché en memoria (por instancia) ───────────────────────────────────
 // listGroups() se invoca en cada getMe(); se cachea con TTL corto para no
-// releer la colección en cada request. Las mutaciones invalidan el caché.
+// releer la tabla en cada request. Las mutaciones invalidan el caché.
 const CACHE_TTL_MS = 60_000;
 let groupsCache: { list: Group[]; at: number } | null = null;
 let defaultsSeeded = false;
 
-/** Invalida el caché de grupos (llamar tras cualquier escritura en la colección). */
+/** Invalida el caché de grupos (llamar tras cualquier escritura en la tabla). */
 export function invalidateGroupsCache(): void {
   groupsCache = null;
 }
 
-function docToGroup(id: string, d: FirebaseFirestore.DocumentData): Group {
+function rowToGroup(r: Tables<"menu_groups">): Group {
   return {
-    id,
-    name: d.name ?? id,
-    icon: d.icon ?? "🗂",
-    pageKeys: Array.isArray(d.pageKeys) ? (d.pageKeys as string[]) : [],
-    isSystem: !!d.isSystem,
-    createdAt: d.createdAt ?? undefined,
-    updatedAt: d.updatedAt ?? undefined,
+    id: r.id,
+    name: r.name || r.id,
+    icon: r.icon || "🗂",
+    pageKeys: r.page_keys ?? [],
+    isSystem: r.is_system,
+    createdAt: iso(r.created_at),
+    updatedAt: iso(r.updated_at),
   };
 }
 
@@ -43,30 +44,25 @@ const ADMIN_PAGE_KEYS = ["usuarios", "roles", "grupos"];
  */
 export async function ensureDefaultGroups(): Promise<void> {
   if (defaultsSeeded) return;
-  const db = getAdminDb();
-  const ref = db.collection(COLL).doc(BOOTSTRAP_ADMIN_GROUP_ID);
-  const snap = await ref.get();
+  const db = getSupabaseAdmin();
+  const actual = unwrap(await db.from("menu_groups").select("page_keys").eq("id", BOOTSTRAP_ADMIN_GROUP_ID).maybeSingle());
   const now = new Date().toISOString();
 
-  if (!snap.exists) {
-    await ref.set({
-      name: "Administración",
-      icon: "⚙",
-      pageKeys: ADMIN_PAGE_KEYS,
-      isSystem: true,
-      createdAt: now,
-      updatedAt: now,
-    });
+  if (!actual) {
+    unwrap(await db.from("menu_groups").upsert(
+      { id: BOOTSTRAP_ADMIN_GROUP_ID, name: "Administración", icon: "⚙", page_keys: ADMIN_PAGE_KEYS, is_system: true, created_at: now, updated_at: now },
+      { onConflict: "id", ignoreDuplicates: true },
+    ));
     invalidateGroupsCache();
     defaultsSeeded = true;
     return;
   }
 
   // Migración: agrega las páginas admin que falten en instalaciones previas.
-  const current: string[] = Array.isArray(snap.data()!.pageKeys) ? snap.data()!.pageKeys : [];
+  const current = actual.page_keys ?? [];
   const missing = ADMIN_PAGE_KEYS.filter((k) => !current.includes(k));
   if (missing.length) {
-    await ref.set({ pageKeys: [...current, ...missing], updatedAt: now }, { merge: true });
+    unwrap(await db.from("menu_groups").update({ page_keys: [...current, ...missing], updated_at: now }).eq("id", BOOTSTRAP_ADMIN_GROUP_ID));
     invalidateGroupsCache();
   }
   defaultsSeeded = true;
@@ -80,73 +76,48 @@ function cleanPageKeys(keys: unknown): string[] {
 
 export async function listGroups(): Promise<Group[]> {
   if (groupsCache && Date.now() - groupsCache.at < CACHE_TTL_MS) return groupsCache.list;
-  const snap = await getAdminDb().collection(COLL).get();
-  const list = snap.docs
-    .map((d) => docToGroup(d.id, d.data()))
+  const rows = unwrap(await getSupabaseAdmin().from("menu_groups").select("*")) ?? [];
+  const list = rows
+    .map(rowToGroup)
     .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.name.localeCompare(b.name));
   groupsCache = { list, at: Date.now() };
   return list;
 }
 
 export async function getGroup(id: string): Promise<Group | null> {
-  const snap = await getAdminDb().collection(COLL).doc(id).get();
-  return snap.exists ? docToGroup(snap.id, snap.data()!) : null;
+  const row = unwrap(await getSupabaseAdmin().from("menu_groups").select("*").eq("id", id).maybeSingle());
+  return row ? rowToGroup(row) : null;
 }
 
 export async function createGroup(name: string, icon: string, pageKeys: unknown): Promise<Group> {
-  const now = new Date().toISOString();
-  const ref = await getAdminDb().collection(COLL).add({
+  const row = unwrapOne(await getSupabaseAdmin().from("menu_groups").insert({
     name: name.trim() || "Grupo sin nombre",
     icon: (icon || "🗂").trim(),
-    pageKeys: cleanPageKeys(pageKeys),
-    createdAt: now,
-    updatedAt: now,
-  });
+    page_keys: cleanPageKeys(pageKeys),
+  }).select("*").single());
   invalidateGroupsCache();
-  return docToGroup(ref.id, (await ref.get()).data()!);
+  return rowToGroup(row);
 }
 
 export async function updateGroup(
   id: string,
   patch: { name?: string; icon?: string; pageKeys?: unknown }
 ): Promise<Group> {
-  const ref = getAdminDb().collection(COLL).doc(id);
-  if (!(await ref.get()).exists) throw new Error("group-not-found");
-
-  const update: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  const update: { updated_at: string; name?: string; icon?: string; page_keys?: string[] } = { updated_at: new Date().toISOString() };
   if (patch.name !== undefined) update.name = patch.name.trim() || "Grupo sin nombre";
   if (patch.icon !== undefined) update.icon = (patch.icon || "🗂").trim();
-  if (patch.pageKeys !== undefined) update.pageKeys = cleanPageKeys(patch.pageKeys);
+  if (patch.pageKeys !== undefined) update.page_keys = cleanPageKeys(patch.pageKeys);
 
-  await ref.set(update, { merge: true });
+  const rows = unwrap(await getSupabaseAdmin().from("menu_groups").update(update).eq("id", id).select("*")) ?? [];
+  if (rows.length === 0) throw new Error("group-not-found");
   invalidateGroupsCache();
-  return docToGroup(id, (await ref.get()).data()!);
+  return rowToGroup(rows[0]);
 }
 
+/** Borra el grupo y lo quita de los permisos de cada rol que lo concedía, en una sola
+ *  transacción (función borrar_grupo). Lanza group-not-found / group-is-system. */
 export async function deleteGroup(id: string): Promise<void> {
-  const db = getAdminDb();
-  const ref = db.collection(COLL).doc(id);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error("group-not-found");
-  if (snap.data()!.isSystem) throw new Error("group-is-system");
-  await ref.delete();
+  unwrap(await getSupabaseAdmin().rpc("borrar_grupo", { p_id: id }));
   invalidateGroupsCache();
-
-  // Limpia el grupo borrado de los permisos de cada rol que lo concedía.
-  const roles = await db.collection("roles").get();
-  const batch = db.batch();
-  let touched = 0;
-  for (const r of roles.docs) {
-    const groups = r.data()?.permissions?.groups as Record<string, boolean> | undefined;
-    if (groups && id in groups) {
-      const next = { ...groups };
-      delete next[id];
-      batch.set(r.ref, { permissions: { ...r.data().permissions, groups: next } }, { merge: true });
-      touched++;
-    }
-  }
-  if (touched) {
-    await batch.commit();
-    invalidateRolesCache(); // los permisos de roles cambiaron
-  }
+  invalidateRolesCache(); // los permisos de roles pudieron cambiar
 }

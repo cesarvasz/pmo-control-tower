@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { requirePage } from "@/lib/users";
-import { saveBoardAlcance, deleteBoardAlcance } from "@/lib/firebase-admin";
+import { saveBoardAlcance, deleteBoardAlcance } from "@/lib/store";
 import { apiError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";

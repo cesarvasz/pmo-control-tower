@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAction, requirePage } from "@/lib/users";
-import { getMetasImplementacion, saveMetasImplementacion } from "@/lib/firebase-admin";
+import { getMetasImplementacion, saveMetasImplementacion } from "@/lib/store";
 import { normalizarMetas, normalizarObjetivos } from "@/lib/implementaciones";
 import { apiError } from "@/lib/api-errors";
 

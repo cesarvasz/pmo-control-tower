@@ -15,7 +15,8 @@
 
 import { NextResponse } from "next/server";
 import { requirePage } from "@/lib/users";
-import { verifyRequest, getPreprodRestoreDates, savePreprodRestoreDates } from "@/lib/firebase-admin";
+import { verifyRequest } from "@/lib/firebase-admin";
+import { getPreprodRestoreDates, savePreprodRestoreDates } from "@/lib/store";
 import { ensurePreprodSchedule } from "@/lib/preprodSchedule";
 import { today } from "@/lib/business";
 import { apiError } from "@/lib/api-errors";

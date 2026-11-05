@@ -5,7 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAction } from "@/lib/users";
-import { saveAttribution, deleteAttribution } from "@/lib/firebase-admin";
+import { saveAttribution, deleteAttribution } from "@/lib/store";
 import { isDelayResponsible } from "@/lib/delay";
 import { apiError } from "@/lib/api-errors";
 import type { AttributionKind } from "@/types";

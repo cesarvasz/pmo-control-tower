@@ -15,7 +15,7 @@
 import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
-import { getReqBaselines, getProjItemBaselines, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, getOnHold, saveWeeklySnapshot } from "@/lib/firebase-admin";
+import { getReqBaselines, getProjItemBaselines, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, getOnHold, saveWeeklySnapshot } from "@/lib/store";
 import { buildDashboardData } from "@/lib/dashboardData";
 import { aplicarOnHold } from "@/lib/onHold";
 import { computeWeeklySnapshotMetrics } from "@/lib/weeklySnapshot";

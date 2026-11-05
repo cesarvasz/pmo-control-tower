@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAction } from "@/lib/users";
-import { saveMetodologiaCalif, deleteMetodologiaCalif } from "@/lib/firebase-admin";
+import { saveMetodologiaCalif, deleteMetodologiaCalif } from "@/lib/store";
 import { esMesValido, metodologiaKey } from "@/lib/metodologia";
 import { apiError } from "@/lib/api-errors";
 

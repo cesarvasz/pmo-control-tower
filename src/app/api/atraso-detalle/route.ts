@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { requirePage } from "@/lib/users";
-import { saveAtrasoDetalle, deleteAtrasoDetalle } from "@/lib/firebase-admin";
+import { saveAtrasoDetalle, deleteAtrasoDetalle } from "@/lib/store";
 import { isAtrasoResp } from "@/lib/delay";
 import { apiError } from "@/lib/api-errors";
 import type { AtrasoReparto } from "@/types";

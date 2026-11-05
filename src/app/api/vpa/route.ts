@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAction, requirePage } from "@/lib/users";
-import { getVpaCalifs, saveVpaNota } from "@/lib/firebase-admin";
+import { getVpaCalifs, saveVpaNota } from "@/lib/store";
 import { esIndicadorVpa, normalizarNotaVpa } from "@/lib/vpa";
 import { esMesValido } from "@/lib/metodologia";
 import { apiError } from "@/lib/api-errors";

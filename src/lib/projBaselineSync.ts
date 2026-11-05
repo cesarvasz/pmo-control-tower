@@ -7,7 +7,7 @@
 // evita que el refresh de un board reimplemente la regla por su cuenta.
 
 import { resolveCost } from "@/lib/proj";
-import { getProjItemBaselinesFor, saveProjItemBaseline } from "@/lib/firebase-admin";
+import { getProjItemBaselinesFor, saveProjItemBaseline } from "@/lib/store";
 import type { MondayItem, ProjItemBaseline } from "@/types";
 
 /** Decide qué items necesitan guardar/actualizar su baseline — PURA, sin I/O. */

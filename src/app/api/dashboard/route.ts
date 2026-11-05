@@ -6,7 +6,8 @@ import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
 import { decideBaselineUpdates } from "@/lib/projBaselineSync";
-import { verifyRequest, getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, getOnHold, getClases } from "@/lib/firebase-admin";
+import { verifyRequest } from "@/lib/firebase-admin";
+import { getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, getOnHold, getClases } from "@/lib/store";
 import type { MondayItem, ProjBoardRaw } from "@/types";
 
 // IDs de columnas REQ necesarios para baseline (mismo valor que REQ_COLS en process.ts).

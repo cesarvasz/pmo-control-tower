@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAction } from "@/lib/users";
-import { setMotivoOnHold, setOnHold } from "@/lib/firebase-admin";
+import { setMotivoOnHold, setOnHold } from "@/lib/store";
 import { esTipoOnHold, MOTIVO_ON_HOLD_MAX, normalizarIdOnHold, normalizarMotivoOnHold } from "@/lib/onHold";
 import { apiError } from "@/lib/api-errors";
 

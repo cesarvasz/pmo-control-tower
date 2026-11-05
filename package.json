@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.109.0",
     "firebase": "^12.14.0",
     "firebase-admin": "^13.10.0",
     "html2canvas": "^1.4.1",
