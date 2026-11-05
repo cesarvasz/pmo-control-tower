@@ -7,6 +7,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { useData } from "@/context/DataContext";
+import Fase3Detalle from "@/components/Fase3Detalle";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { buildStatusReportDataForBoard } from "@/lib/statusReportData";
 import type { ProjBoard, ProjItem } from "@/types";
@@ -55,6 +56,7 @@ export default function StatusCardTab({ board, items }: { board: ProjBoard; item
           <StatusReport data={reportData} />
         </div>
       </div>
+      <Fase3Detalle items={items} />
     </div>
   );
 }
