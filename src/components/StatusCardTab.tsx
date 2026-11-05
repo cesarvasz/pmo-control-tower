@@ -7,7 +7,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { useData } from "@/context/DataContext";
-import Fase3Detalle from "@/components/Fase3Detalle";
+import ActividadesFase3 from "@/components/ActividadesFase3";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { buildStatusReportDataForBoard } from "@/lib/statusReportData";
 import type { ProjBoard, ProjItem } from "@/types";
@@ -53,10 +53,9 @@ export default function StatusCardTab({ board, items }: { board: ProjBoard; item
         style={{ border: "1px solid var(--border)", boxShadow: "0 2px 14px rgba(0,0,0,.10)", height: SHEET_H * scale }}
       >
         <div style={{ width: SHEET_W, height: SHEET_H, transformOrigin: "top left", transform: `scale(${scale})` }}>
-          <StatusReport data={reportData} />
+          <StatusReport data={reportData} renderActividades={(id) => <ActividadesFase3 item={items.find((p) => p.id === id)} />} />
         </div>
       </div>
-      <Fase3Detalle items={items} />
     </div>
   );
 }

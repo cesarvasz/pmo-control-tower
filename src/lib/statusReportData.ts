@@ -35,6 +35,7 @@ export interface StatusPhase {
   start?: string;                // YYYY-MM-DD
   due?: string;                  // YYYY-MM-DD
   milestone?: string;            // YYYY-MM-DD (rombo, en vez de start/due)
+  itemId?: string;               // solo en entregables de Fase 3 (indent 1): id del item de Monday, para abrir sus actividades en pantalla
 }
 
 export interface StatusRepartoTramo {
@@ -320,6 +321,7 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
       indent: r.indent,
       bold: r.indent === 0,
       ...(r.indent === 0 && bandOf(r.grupo) ? { band: bandOf(r.grupo) } : {}),
+      ...(r.indent === 1 && r.units[0] ? { itemId: r.units[0].stepId } : {}),
     };
     if (range && range.start !== range.end) {
       return { ...base, start: toYMD(new Date(range.start)), due: toYMD(new Date(range.end)), progress: r.total ? r.done / r.total : 0 };

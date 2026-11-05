@@ -304,7 +304,12 @@ function Kpis({ data }: { data: StatusReportData }) {
   );
 }
 
-function GanttRow({ r, pct, today }: { r: StatusPhase; pct: (t: number) => number; today: number }) {
+function GanttRow({ r, pct, today, detalle }: {
+  r: StatusPhase; pct: (t: number) => number; today: number;
+  /** Solo en pantalla: las actividades del entregable, que se abren con la flecha de la fila. */
+  detalle?: ReactNode;
+}) {
+  const [abierto, setAbierto] = useState(false);
   // Sangría reducida a propósito: el color/peso de fuente (nameStyle) ya
   // distingue entregable de fase, así que el "tab" solo necesita un guiño,
   // no 22px — se recupera ese ancho para el nombre.
@@ -348,14 +353,24 @@ function GanttRow({ r, pct, today }: { r: StatusPhase; pct: (t: number) => numbe
   }
 
   return (
+    <>
     <div className="g-row">
       <div className="g-label" style={{ paddingLeft: 10 + indentPx }}>
+        {detalle !== undefined && (
+          <button
+            type="button" aria-expanded={abierto} aria-label={abierto ? "Ocultar actividades" : "Ver actividades"}
+            onClick={() => setAbierto((a) => !a)}
+            style={{ border: 0, background: "none", padding: 0, cursor: "pointer", fontSize: "7pt", color: INK_SEC, width: 10 }}
+          >{abierto ? "▾" : "▸"}</button>
+        )}
         {r.indent === 0 && r.band && <span className="band-chip" style={{ background: BAND_COLOR[r.band] }} />}
         <span className="g-name" style={nameStyle}>{r.name}</span>
         <span className={`g-state ${stateCls}`}>{r.state}</span>
       </div>
       <div className="g-chart">{chart}</div>
     </div>
+    {abierto && detalle}
+    </>
   );
 }
 
@@ -415,10 +430,12 @@ export interface StatusReportProps {
   renderMotivo?: (atraso: StatusAtraso, index: number) => ReactNode;
   /** vista en pantalla: control editable de la línea "Alcance" del header. */
   renderAlcance?: (data: StatusReportData) => ReactNode;
+  /** vista en pantalla: las actividades de un entregable de la Fase 3; con esto cada entregable lleva su flecha para expandirlo. */
+  renderActividades?: (itemId: string) => ReactNode;
 }
 
 const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function StatusReport(
-  { data, renderResp, renderMotivo, renderAlcance }, ref,
+  { data, renderResp, renderMotivo, renderAlcance, renderActividades }, ref,
 ) {
   // Auto-ajuste vertical: si el contenido (fases + causas de atraso) no cabe en
   // la hoja, se reduce con un scale uniforme para que TODO se vea y no pise el
@@ -511,7 +528,7 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
               <div className="g-todayline" style={{ left: `${f3(pct(today))}%` }} />
               <div className="g-planline" style={{ left: `${f3(pct(planDate))}%` }} />
             </div>
-            {data.phases.map((r, i) => <GanttRow key={i} r={r} pct={pct} today={today} />)}
+            {data.phases.map((r, i) => <GanttRow key={i} r={r} pct={pct} today={today} detalle={r.itemId && renderActividades ? renderActividades(r.itemId) : undefined} />)}
           </div>
           <div className="gantt-legend">
             <span className="legend-item"><span className="legend-swatch" style={{ background: GOOD }} />Completada</span>

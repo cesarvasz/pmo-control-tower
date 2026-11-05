@@ -28,7 +28,7 @@ import { HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { GRID } from "@/lib/reportTheme";
 import { buildStatusReportDataForBoard } from "@/lib/statusReportData";
 import { EmptyRow, ErrorBox, Loader } from "@/components/ui";
-import Fase3Detalle from "@/components/Fase3Detalle";
+import ActividadesFase3 from "@/components/ActividadesFase3";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
 import { AlcanceInput } from "@/components/AlcanceInlineEdit";
@@ -650,10 +650,10 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
                 renderAlcance={() => <AlcanceInput boardId={board.id} />}
                 renderResp={(a) => <AtrasoRespReparto itemId={a.id} totalDias={a.diasNum} />}
                 renderMotivo={(a) => <AtrasoMotivoInput itemId={a.id} totalDias={a.diasNum} />}
+                renderActividades={(id) => <ActividadesFase3 item={items.find((p) => p.id === id)} />}
               />
             </div>
           </div>
-          <div className="print:hidden"><Fase3Detalle items={items} /></div>
         </>
       )}
     </div>
