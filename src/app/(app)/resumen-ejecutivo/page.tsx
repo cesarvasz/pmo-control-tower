@@ -28,6 +28,7 @@ import { HEALTH_CFG, type HealthStatus } from "@/lib/health";
 import { GRID } from "@/lib/reportTheme";
 import { buildStatusReportDataForBoard } from "@/lib/statusReportData";
 import { EmptyRow, ErrorBox, Loader } from "@/components/ui";
+import Fase3Detalle from "@/components/Fase3Detalle";
 import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
 import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
 import { AlcanceInput } from "@/components/AlcanceInlineEdit";
@@ -652,6 +653,7 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
               />
             </div>
           </div>
+          <div className="print:hidden"><Fase3Detalle items={items} /></div>
         </>
       )}
     </div>
