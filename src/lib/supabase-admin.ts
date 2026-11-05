@@ -3,7 +3,10 @@
 // puede leer y escribir las tablas (todas tienen RLS sin políticas y sin permisos para
 // anon/authenticated). Nunca importar desde un componente "use client".
 
-import { createClient, type PostgrestError, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type PostgrestError, type SupabaseClient, type SupabaseClientOptions } from "@supabase/supabase-js";
+import WebSocket from "ws";
+
+type RealtimeTransport = NonNullable<SupabaseClientOptions<"public">["realtime"]>["transport"];
 import type { Database } from "@/types/supabase";
 
 export type Db = SupabaseClient<Database>;
@@ -19,6 +22,10 @@ export function getSupabaseAdmin(): Db {
   }
   cached = createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    // supabase-js arma el cliente de Realtime al crearse y en Node 20 (sin WebSocket nativo)
+    // lanza error. No usamos Realtime, pero se le da `ws` como transporte para que arranque.
+    // Se puede quitar cuando todo (local, CI, Docker, Vercel) esté en Node ≥ 22.
+    realtime: { transport: WebSocket as unknown as NonNullable<RealtimeTransport> },
   });
   return cached;
 }
