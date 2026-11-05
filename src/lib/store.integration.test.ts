@@ -19,7 +19,7 @@ describe.skipIf(!ACTIVO)("Supabase · capa de datos (integración)", { timeout: 
   const groups = await import("@/lib/groups");
   const surveys = await import("@/lib/surveys");
   const { getSupabaseAdmin } = await import("@/lib/supabase-admin");
-  const db = getSupabaseAdmin();
+  const db = () => getSupabaseAdmin(); // perezoso: con la suite saltada no hay llaves
 
   let metasPrevias: Awaited<ReturnType<typeof store.getMetasImplementacion>>;
   let fechasPrevias: string[];
@@ -31,20 +31,20 @@ describe.skipIf(!ACTIVO)("Supabase · capa de datos (integración)", { timeout: 
 
   afterAll(async () => {
     const like = `${P}%`;
-    await db.from("req_baselines").delete().like("req_id", like);
-    await db.from("proj_item_baselines").delete().like("item_id", like);
-    await db.from("responsible_attributions").delete().like("item_id", like);
-    await db.from("metodologia_califs").delete().like("key", like);
-    await db.from("vpa_califs").delete().eq("mes", "1999-01");
-    await db.from("on_hold").delete().like("id", like);
-    await db.from("atraso_detalles").delete().like("item_id", like);
-    await db.from("board_alcance").delete().like("board_id", like);
-    await db.from("clasificacion").delete().like("id", like);
-    await db.from("weekly_snapshots").delete().eq("week_of", "1999-01-04");
-    await db.from("survey_responses").delete().like("token", like);
-    await db.from("surveys").delete().like("req_id", like);
-    await db.from("roles").delete().like("name", like);
-    await db.from("menu_groups").delete().like("name", like);
+    await db().from("req_baselines").delete().like("req_id", like);
+    await db().from("proj_item_baselines").delete().like("item_id", like);
+    await db().from("responsible_attributions").delete().like("item_id", like);
+    await db().from("metodologia_califs").delete().like("key", like);
+    await db().from("vpa_califs").delete().eq("mes", "1999-01");
+    await db().from("on_hold").delete().like("id", like);
+    await db().from("atraso_detalles").delete().like("item_id", like);
+    await db().from("board_alcance").delete().like("board_id", like);
+    await db().from("clasificacion").delete().like("id", like);
+    await db().from("weekly_snapshots").delete().eq("week_of", "1999-01-04");
+    await db().from("survey_responses").delete().like("token", like);
+    await db().from("surveys").delete().like("req_id", like);
+    await db().from("roles").delete().like("name", like);
+    await db().from("menu_groups").delete().like("name", like);
     await store.saveMetasImplementacion(metasPrevias.metas, metasPrevias.objetivos, metasPrevias.by || YO);
     await store.savePreprodRestoreDates(fechasPrevias, YO);
   });
