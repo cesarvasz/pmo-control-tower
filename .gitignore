@@ -41,3 +41,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# config local de MCP (puede traer tokens de acceso, p. ej. el de Supabase). Nunca se versiona.
+.mcp.json
