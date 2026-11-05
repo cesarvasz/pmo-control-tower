@@ -42,8 +42,16 @@ export interface AppUser {
   /** Página (key de PAGES) a la que se le redirige al entrar a "/" en vez de
    *  Control Tower. null = sin override, usa Control Tower como siempre. */
   defaultPage: string | null;
+  /** Un Admin le puso una contraseña temporal: la app lo obliga a cambiarla al entrar. */
+  mustChangePassword?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** Cuenta en espera: se registró pero ningún Admin le ha asignado un rol todavía.
+ *  No ve datos (el servidor se los niega con "pending-approval"). */
+export function esCuentaEnEspera(u: Pick<AppUser, "roleId"> | null | undefined): boolean {
+  return !!u && !u.roleId;
 }
 
 /** ¿El rol del usuario es "CKU"? Se compara por nombre (sin importar mayúsculas ni espacios):

@@ -6,6 +6,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useData } from "@/context/DataContext";
 import AsuetosModal from "@/components/AsuetosModal";
 import CalcHabilesModal from "@/components/CalcHabilesModal";
+import Modal from "@/components/Modal";
+import { CambiarPasswordForm } from "@/components/CuentaPantallas";
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/": { title: "Control Tower", subtitle: "Resumen de portafolios PMO" },
@@ -42,6 +44,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   const [theme, setTheme] = useState<Theme>("dark");
   const [showAsuetos, setShowAsuetos] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Inicializa el tema desde localStorage/preferencia del sistema al montar.
   // localStorage solo existe en el cliente, por eso debe leerse en un efecto
@@ -132,6 +135,14 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
           ↻ Actualizar
         </button>
         <button
+          onClick={() => setShowPassword(true)}
+          title="Cambiar contraseña"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          style={{ borderColor: "var(--border)" }}
+        >
+          🔑
+        </button>
+        <button
           onClick={() => logout()}
           className="rounded-md border px-3 py-1.5 text-[0.8rem] text-[var(--text-secondary)] transition-colors hover:border-[#ef4444] hover:text-[#ef4444]"
           style={{ borderColor: "var(--border)" }}
@@ -142,6 +153,12 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
       {showAsuetos && <AsuetosModal onClose={() => setShowAsuetos(false)} />}
       {showCalc && <CalcHabilesModal onClose={() => setShowCalc(false)} />}
+      <Modal open={showPassword} onClose={() => setShowPassword(false)} width={420} label="Cambiar contraseña">
+        <div className="p-6">
+          <div className="mb-4 text-base font-semibold text-[var(--text-primary)]">Cambiar contraseña</div>
+          <CambiarPasswordForm onListo={() => setShowPassword(false)} />
+        </div>
+      </Modal>
     </header>
   );
 }

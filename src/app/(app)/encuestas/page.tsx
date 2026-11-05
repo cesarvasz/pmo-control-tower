@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { auth } from "@/lib/firebase";
-import { authedFetch } from "@/lib/api";
+import { authedFetch, getAccessToken } from "@/lib/api";
 import { useMe } from "@/context/PermissionsContext";
 import { useData } from "@/context/DataContext";
 import { hasAction } from "@/lib/permissions";
@@ -33,7 +32,7 @@ export default function EncuestasPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const t = await auth.currentUser?.getIdToken();
+      const t = await getAccessToken();
       if (!t) throw new Error("Sesión no válida.");
       const res = await fetch("/api/surveys", { cache: "no-store", headers: { Authorization: `Bearer ${t}` } });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);

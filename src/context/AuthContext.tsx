@@ -7,15 +7,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-  type User,
-} from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import type { Session } from "@supabase/supabase-js";
+import { getSupabaseBrowser } from "@/lib/supabase-browser";
+import { errorDePassword } from "@/lib/password";
 
 const ALLOWED_DOMAIN = process.env.NEXT_PUBLIC_ALLOWED_DOMAIN?.toLowerCase();
 
@@ -25,61 +19,76 @@ function isAllowed(email: string | null | undefined): boolean {
   return !!email && email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`);
 }
 
+/** Lo que la app necesita de la sesión. `uid` = id del usuario en Supabase Auth. */
+export interface AuthUser {
+  uid: string;
+  email: string;
+}
+
+const userDe = (s: Session | null): AuthUser | null =>
+  s?.user ? { uid: s.user.id, email: (s.user.email ?? "").toLowerCase() } : null;
+
 interface AuthContextValue {
-  user: User | null;
+  user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  /** Crea la cuenta e inicia sesión. Queda EN ESPERA hasta que un Admin le asigne un rol. */
+  signUp: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Suscripción al estado de sesión de Firebase.
-    const unsub = onAuthStateChanged(auth, (u) => {
-      // Guarda sesiones persistidas de dominios no permitidos.
+    const auth = getSupabaseBrowser().auth;
+    // Suscripción al estado de sesión (incluye la sesión guardada al recargar).
+    const { data } = auth.onAuthStateChange((_event, session) => {
+      const u = userDe(session);
+      // Guarda sesiones persistidas de dominios no permitidos. (Fuera del callback: llamar a
+      // auth desde dentro de onAuthStateChange puede trabar el cliente.)
       if (u && !isAllowed(u.email)) {
-        signOut(auth);
+        setTimeout(() => void auth.signOut(), 0);
         setUser(null);
-        setLoading(false);
-        return;
+      } else {
+        // Mismo uid → mismo objeto: la renovación del token no dispara recargas en los contextos.
+        setUser((prev) => (prev && u && prev.uid === u.uid && prev.email === u.email ? prev : u));
       }
-      setUser(u);
       setLoading(false);
     });
-    return () => unsub();
+    return () => data.subscription.unsubscribe();
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    if (!isAllowed(cred.user.email)) {
-      await signOut(auth);
-      throw new Error("auth/domain-not-allowed");
-    }
+    if (!isAllowed(email)) throw new Error("domain-not-allowed");
+    const { error } = await getSupabaseBrowser().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    if (error) throw new Error(error.code ?? error.message);
   };
 
-  const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    // Fuerza el selector de cuenta de Google en cada inicio de sesión.
-    provider.setCustomParameters({ prompt: "select_account" });
-    const cred = await signInWithPopup(auth, provider);
-    if (!isAllowed(cred.user.email)) {
-      await signOut(auth);
-      throw new Error("auth/domain-not-allowed");
-    }
+  const signUp = async (name: string, email: string, password: string) => {
+    const correo = email.trim().toLowerCase();
+    if (!isAllowed(correo)) throw new Error("domain-not-allowed");
+    const motivo = errorDePassword(password);
+    if (motivo) throw new Error(motivo);
+    const { data, error } = await getSupabaseBrowser().auth.signUp({
+      email: correo,
+      password,
+      options: { data: { name: name.trim() } },
+    });
+    if (error) throw new Error(error.code ?? error.message);
+    // Sin sesión = el proyecto pide confirmar el correo, y no hay SMTP configurado.
+    if (!data.session) throw new Error("email-confirmation-enabled");
   };
 
   const logout = async () => {
-    await signOut(auth);
+    await getSupabaseBrowser().auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signInWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, logout }}>
       {children}
     </AuthContext.Provider>
   );

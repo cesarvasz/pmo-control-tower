@@ -3,9 +3,8 @@
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
-import { auth } from "@/lib/firebase";
 import { fmtDate, fmtMoney } from "@/lib/business";
-import { authedFetch } from "@/lib/api";
+import { authedFetch, getAccessToken } from "@/lib/api";
 import { hasAction } from "@/lib/permissions";
 import { PROJ_ACTIVE_STS, calcBoardMetrics, estaFueraDeMedicion, itemsMedibles, type BoardHealthData } from "@/lib/proj";
 import { calcItemCalidad, calcItemNota, isFase3, isDesarrolloPorIteracionesStep } from "@/lib/dashboard";
@@ -78,7 +77,7 @@ function ProyectosInner() {
 
   const loadSurveys = useCallback(async () => {
     try {
-      const t = await auth.currentUser?.getIdToken();
+      const t = await getAccessToken();
       if (!t) return;
       const res = await fetch("/api/surveys", { cache: "no-store", headers: { Authorization: `Bearer ${t}` } });
       if (!res.ok) return;

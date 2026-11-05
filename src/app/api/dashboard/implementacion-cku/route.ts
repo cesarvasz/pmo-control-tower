@@ -6,7 +6,7 @@
 // filas crudas, que sí lo requieren en /api/roi/implementacion.
 
 import { NextResponse } from "next/server";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requireSession } from "@/lib/users";
 import { getMetasImplementacion } from "@/lib/store";
 import { fetchImplementacionRows } from "@/lib/implementacion";
 import { resumenImplementacionCku } from "@/lib/implementaciones";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    await verifyRequest(request.headers.get("authorization"));
+    await requireSession(request.headers.get("authorization"));
     const [{ rows }, { metas, objetivos }] = await Promise.all([fetchImplementacionRows(), getMetasImplementacion()]);
     return NextResponse.json(resumenImplementacionCku(rows, metas, objetivos));
   } catch (err) {

@@ -6,6 +6,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useMe } from "@/context/PermissionsContext";
 import { useData } from "@/context/DataContext";
 import { canSeePage, pageByHref, pageByKey } from "@/lib/registry";
+import { esCuentaEnEspera } from "@/lib/permissions";
+import { CambioObligatorio, EnEspera } from "@/components/CuentaPantallas";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -91,7 +93,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  // Error cargando permisos (p.ej. Admin SDK / Firestore sin configurar).
+  // Error cargando permisos (p.ej. Supabase sin configurar).
   if (meError && !me) {
     return (
       <FullScreen>
@@ -106,6 +108,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </FullScreen>
     );
   }
+
+  // Cuenta recién registrada que ningún Admin ha aprobado (sin rol): no ve nada más.
+  if (esCuentaEnEspera(me)) return <EnEspera />;
+  // Entró con una contraseña temporal (la puso un Admin): primero la cambia.
+  if (me?.mustChangePassword) return <CambioObligatorio />;
 
   // Gating por permiso de página (o acción para páginas de administración).
   const allowed = (() => {

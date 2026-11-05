@@ -14,8 +14,7 @@
 // el calendario no se agrega a mano, solo se calcula. Body: { date: "YYYY-MM-DD" }.
 
 import { NextResponse } from "next/server";
-import { requirePage } from "@/lib/users";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requirePage, requireSession } from "@/lib/users";
 import { getPreprodRestoreDates, savePreprodRestoreDates } from "@/lib/store";
 import { ensurePreprodSchedule } from "@/lib/preprodSchedule";
 import { today } from "@/lib/business";
@@ -37,7 +36,7 @@ async function syncSchedule(by: string): Promise<string[]> {
 
 export async function GET(request: Request) {
   try {
-    const me = await verifyRequest(request.headers.get("authorization"));
+    const me = await requireSession(request.headers.get("authorization"));
     const dates = await syncSchedule(me.email);
     return NextResponse.json({ dates });
   } catch (err) {

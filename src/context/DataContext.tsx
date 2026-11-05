@@ -12,9 +12,8 @@ import {
 } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useMe } from "@/context/PermissionsContext";
-import { auth } from "@/lib/firebase";
-import { authedFetch } from "@/lib/api";
-import { esRolSponsor } from "@/lib/permissions";
+import { authedFetch, getAccessToken } from "@/lib/api";
+import { esCuentaEnEspera, esRolSponsor } from "@/lib/permissions";
 import { calcProjEntrega, projProcess } from "@/lib/proj";
 import { buildDashboardData } from "@/lib/dashboardData";
 import type { ClaseAsignable } from "@/lib/claseProyecto";
@@ -109,8 +108,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      // ID token de Firebase para autenticar la llamada al servidor.
-      const token = await auth.currentUser?.getIdToken();
+      // Access token de la sesión (Supabase Auth) para autenticar la llamada al servidor.
+      const token = await getAccessToken();
       if (!token) throw new Error("Sesión no válida. Vuelve a iniciar sesión.");
       const res = await fetch("/api/dashboard", {
         cache: "no-store",
@@ -259,10 +258,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setData((prev) => (prev ? { ...prev, clases: { ...prev.clases, [id]: { clase, by, at: new Date().toISOString() } } } : prev));
   }, []);
 
-  // Carga inicial una sola vez, cuando hay sesión. Los datos NO se refrescan solos:
-  // solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
+  // Carga inicial una sola vez, cuando hay sesión Y la cuenta puede ver datos (aprobada y sin
+  // contraseña temporal pendiente; si no, el servidor respondería 403). Los datos NO se refrescan
+  // solos: solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
+  const puedeCargar = !!user && !!me && !esCuentaEnEspera(me) && !me.mustChangePassword;
   useEffect(() => {
-    if (user && !fetchedOnce.current) {
+    if (puedeCargar && !fetchedOnce.current) {
       fetchedOnce.current = true;
       refresh();
     }
@@ -272,7 +273,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- limpieza al cambiar el estado de sesión (sistema externo)
       setData(null);
     }
-  }, [user, refresh]);
+  }, [user, puedeCargar, refresh]);
 
   return (
     <DataContext.Provider value={{ data, dataTodo, dataCompleto, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold, setClase }}>

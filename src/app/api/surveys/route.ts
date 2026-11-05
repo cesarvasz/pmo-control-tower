@@ -6,7 +6,7 @@
 //       con su nombre y cuenta SOLO en su Player — lo decide el servidor, no el cliente.
 
 import { NextResponse } from "next/server";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requireSession } from "@/lib/users";
 import { createSurvey, listSurveys } from "@/lib/surveys";
 import { fetchHrItems } from "@/lib/monday";
 import { ckuNameForEmail } from "@/lib/players";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    await verifyRequest(request.headers.get("authorization"));
+    await requireSession(request.headers.get("authorization"));
     return NextResponse.json(await listSurveys());
   } catch (err) {
     return apiError(err);
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const me = await verifyRequest(request.headers.get("authorization"));
+    const me = await requireSession(request.headers.get("authorization"));
     const body = (await request.json()) as {
       reqId?: string; reqCode?: string; reqName?: string; pm?: string;
       assignedEmail?: string; assignedName?: string;

@@ -26,6 +26,7 @@ export type Database = {
           email: string
           firebase_uid: string | null
           id: string
+          must_change_password: boolean
           role_id: string | null
           updated_at: string
         }
@@ -36,6 +37,7 @@ export type Database = {
           email: string
           firebase_uid?: string | null
           id: string
+          must_change_password?: boolean
           role_id?: string | null
           updated_at?: string
         }
@@ -46,6 +48,7 @@ export type Database = {
           email?: string
           firebase_uid?: string | null
           id?: string
+          must_change_password?: boolean
           role_id?: string | null
           updated_at?: string
         }

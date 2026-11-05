@@ -2,7 +2,7 @@
 // Perfil del usuario actual (rol + permisos efectivos). Crea el doc si no existe.
 
 import { NextResponse } from "next/server";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { verifyRequest } from "@/lib/auth-server";
 import { getMe } from "@/lib/users";
 import { apiError } from "@/lib/api-errors";
 

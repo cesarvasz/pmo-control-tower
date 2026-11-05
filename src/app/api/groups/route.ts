@@ -3,7 +3,7 @@
 // POST: crea un grupo (solo manage_roles).
 
 import { NextResponse } from "next/server";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { verifyRequest } from "@/lib/auth-server";
 import { createGroup, listGroups } from "@/lib/groups";
 import { requireAction } from "@/lib/users";
 import { apiError } from "@/lib/api-errors";

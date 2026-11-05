@@ -5,7 +5,7 @@
 // sin el permiso de página "roi". Fetch aparte: ROI es una fuente externa lenta.
 
 import { NextResponse } from "next/server";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requireSession } from "@/lib/users";
 import { fetchRoiRows } from "@/lib/roi";
 import { construirExpedientes } from "@/lib/tramites";
 import { metaDucafastPorMes } from "@/lib/ducafastMesa2";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    await verifyRequest(request.headers.get("authorization"));
+    await requireSession(request.headers.get("authorization"));
     const { rows } = await fetchRoiRows();
     return NextResponse.json({ meses: metaDucafastPorMes(construirExpedientes(rows)) });
   } catch (err) {

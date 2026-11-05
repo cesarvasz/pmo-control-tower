@@ -7,6 +7,7 @@ import { authedFetch } from "@/lib/api";
 import type { AppUser, Role } from "@/lib/permissions";
 import { ACTIONS, canSeePage, PAGES, resolvePermissions } from "@/lib/registry";
 import { ErrorBox, Loader, SectionHeader } from "@/components/ui";
+import Modal from "@/components/Modal";
 
 export default function UsuariosPage() {
   const { me } = useMe();
@@ -38,6 +39,45 @@ export default function UsuariosPage() {
   }, []);
 
   const rolesById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
+  // Las cuentas en espera (sin rol) van primero: son las que el Admin tiene que atender.
+  const ordenados = useMemo(
+    () => [...users].sort((a, b) => Number(!!a.roleId) - Number(!!b.roleId) || a.email.localeCompare(b.email)),
+    [users],
+  );
+  const enEspera = users.filter((u) => !u.roleId).length;
+
+  // Contraseña temporal recién generada: se muestra UNA vez en el modal.
+  const [temporal, setTemporal] = useState<{ email: string; password: string } | null>(null);
+  const [copiada, setCopiada] = useState(false);
+  const [generandoUid, setGenerandoUid] = useState<string | null>(null);
+
+  const ponerTemporal = async (u: AppUser) => {
+    if (!window.confirm(`¿Generar una contraseña temporal para ${u.email}?\n\nSu contraseña actual dejará de funcionar y tendrá que crear una nueva al entrar.`)) return;
+    setGenerandoUid(u.uid);
+    setError(null);
+    try {
+      const res = await authedFetch(`/api/users/${u.uid}/password`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      const { password } = (await res.json()) as { password: string };
+      setUsers((list) => list.map((x) => (x.uid === u.uid ? { ...x, mustChangePassword: true } : x)));
+      setCopiada(false);
+      setTemporal({ email: u.email, password });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al generar la contraseña");
+    } finally {
+      setGenerandoUid(null);
+    }
+  };
+
+  const copiar = async () => {
+    if (!temporal) return;
+    try {
+      await navigator.clipboard.writeText(temporal.password);
+      setCopiada(true);
+    } catch {
+      setCopiada(false);
+    }
+  };
 
   const changeRole = (uid: string, roleId: string) => {
     setUsers((list) => list.map((u) => (u.uid === uid ? { ...u, roleId } : u)));
@@ -76,10 +116,15 @@ export default function UsuariosPage() {
 
   return (
     <div>
-      <SectionHeader title="Gestión de Usuarios" badge={`${users.length} usuario${users.length !== 1 ? "s" : ""}`} />
+      <SectionHeader
+        title="Gestión de Usuarios"
+        badge={`${users.length} usuario${users.length !== 1 ? "s" : ""}${enEspera ? ` · ${enEspera} en espera` : ""}`}
+      />
       <p className="mb-5 text-sm text-[var(--text-muted)]">
         Asigna un rol a cada usuario. Los permisos (qué ve y qué hace) los define el rol — créalos y edítalos en{" "}
-        <span className="font-semibold text-[var(--accent-light)]">Roles</span>.
+        <span className="font-semibold text-[var(--accent-light)]">Roles</span>. Las cuentas <strong>en espera</strong> se
+        registraron solas y no ven nada hasta que les asignes un rol. Con <strong>🔑 Temporal</strong> le das a alguien una
+        contraseña para entrar (usuarios migrados u olvido de contraseña); la tendrá que cambiar al ingresar.
       </p>
 
       {error && <div className="mb-4"><ErrorBox msg={error} /></div>}
@@ -101,7 +146,7 @@ export default function UsuariosPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => {
+            {ordenados.map((u) => {
               const isSelf = me?.uid === u.uid;
               const isDirty = dirty.has(u.uid);
               const role = u.roleId ? rolesById.get(u.roleId) : undefined;
@@ -116,6 +161,14 @@ export default function UsuariosPage() {
                   <td>
                     <div className="ini-name">{u.displayName || u.email}{isSelf && <span className="ml-2 text-[0.7rem] text-[var(--accent-light)]">(tú)</span>}</div>
                     <div style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>{u.email}</div>
+                    {!u.roleId && (
+                      <span className="mt-1 inline-block rounded-full border px-2 py-0.5 text-[0.68rem] font-semibold" style={{ background: "var(--pill-parahoy-bg)", borderColor: "var(--pill-parahoy-br)", color: "var(--pill-parahoy-fg)" }}>
+                        En espera · asígnale un rol
+                      </span>
+                    )}
+                    {u.mustChangePassword && (
+                      <div className="mt-1 text-[0.7rem] text-[var(--text-muted)]">🔑 Con contraseña temporal (aún no la cambia)</div>
+                    )}
                   </td>
                   <td>
                     <select
@@ -156,7 +209,18 @@ export default function UsuariosPage() {
                       </>
                     )}
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    {!isSelf && (
+                      <button
+                        onClick={() => ponerTemporal(u)}
+                        disabled={generandoUid === u.uid}
+                        title="Generar una contraseña temporal para este usuario"
+                        className="mr-2 rounded-md border px-2.5 py-1.5 text-[0.8rem] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40"
+                        style={{ borderColor: "var(--border)" }}
+                      >
+                        {generandoUid === u.uid ? "Generando..." : "🔑 Temporal"}
+                      </button>
+                    )}
                     <button
                       onClick={() => save(u)}
                       disabled={!isDirty || savingUid === u.uid}
@@ -172,6 +236,30 @@ export default function UsuariosPage() {
           </tbody>
         </table>
       </div>
+
+      <Modal open={!!temporal} onClose={() => setTemporal(null)} width={440} label="Contraseña temporal">
+        {temporal && (
+          <div className="p-6">
+            <div className="mb-1 text-base font-semibold text-[var(--text-primary)]">Contraseña temporal</div>
+            <p className="mb-4 text-sm text-[var(--text-muted)]">
+              Pásasela a <strong className="text-[var(--text-secondary)]">{temporal.email}</strong> por un canal privado.
+              No se vuelve a mostrar: si se pierde, genera otra.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded-lg border px-3 py-2 text-center text-lg tracking-wider text-[var(--text-primary)]" style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}>
+                {temporal.password}
+              </code>
+              <button
+                onClick={copiar}
+                className="rounded-md bg-[var(--accent)] px-3 py-2 text-[0.8rem] text-white transition-colors hover:bg-[var(--accent-hover)]"
+              >
+                {copiada ? "✓ Copiada" : "Copiar"}
+              </button>
+            </div>
+            <p className="mt-4 text-[0.75rem] text-[var(--text-muted)]">Al entrar con ella, la app le pedirá crear su propia contraseña.</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

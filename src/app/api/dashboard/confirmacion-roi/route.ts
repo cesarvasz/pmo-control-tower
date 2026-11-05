@@ -15,7 +15,7 @@
 // crudas que sí requieren ese permiso en /api/roi).
 
 import { NextResponse } from "next/server";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requireSession } from "@/lib/users";
 import { fetchRoiRows } from "@/lib/roi";
 import { fetchClonacionRows } from "@/lib/clonacion";
 import { calcConfirmacionRoiDetalle, confirmacionRoiPorPm } from "@/lib/dashboard";
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    await verifyRequest(request.headers.get("authorization"));
+    await requireSession(request.headers.get("authorization"));
     const [{ rows: roiRows }, { rows: clonacionRows }] = await Promise.all([
       fetchRoiRows(),
       fetchClonacionRows(),

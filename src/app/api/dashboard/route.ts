@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
 import { listNpsRecords } from "@/lib/surveys";
 import { decideBaselineUpdates } from "@/lib/projBaselineSync";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requireSession } from "@/lib/users";
 import { getReqBaselines, saveReqBaseline, getProjItemBaselines, saveProjItemBaseline, getAttributions, getMetodologiaCalifs, getAtrasoDetalles, getBoardAlcances, getOnHold, getClases } from "@/lib/store";
 import type { MondayItem, ProjBoardRaw } from "@/types";
 
@@ -86,7 +86,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   // 1. Autenticación/autorización (token + dominio).
   try {
-    await verifyRequest(request.headers.get("authorization"));
+    await requireSession(request.headers.get("authorization"));
   } catch (err) {
     const code = err instanceof Error ? err.message : "unauthorized";
     if (code === "no-token" || code === "invalid-token")

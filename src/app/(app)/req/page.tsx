@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { hasAction } from "@/lib/permissions";
-import { auth } from "@/lib/firebase";
+import { getAccessToken } from "@/lib/api";
 import { businessDays, fmtDate, fmtMoney, today } from "@/lib/business";
 import { HEALTH_CFG, healthStatusFromIndex, vemCfg } from "@/lib/health";
 import { REQ_ACTIVE_GRUPOS, REQ_GROUP_COLOR, REQ_PIPELINE } from "@/lib/req";
@@ -76,7 +76,7 @@ function ReqInner() {
 
   const loadSurveys = useCallback(async () => {
     try {
-      const t = await auth.currentUser?.getIdToken();
+      const t = await getAccessToken();
       if (!t) return;
       const res = await fetch("/api/surveys", { cache: "no-store", headers: { Authorization: `Bearer ${t}` } });
       if (!res.ok) return;

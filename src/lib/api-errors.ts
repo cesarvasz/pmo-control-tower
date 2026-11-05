@@ -12,6 +12,10 @@ export function apiError(err: unknown): NextResponse {
       return NextResponse.json({ error: "Dominio no autorizado" }, { status: 403 });
     case "forbidden":
       return NextResponse.json({ error: "No tienes permiso para esta acción" }, { status: 403 });
+    case "pending-approval":
+      return NextResponse.json({ error: "Tu cuenta está pendiente de aprobación por un administrador" }, { status: 403 });
+    case "weak-password":
+      return NextResponse.json({ error: "La contraseña no cumple los requisitos (mínimo 8 caracteres, con letras y números)" }, { status: 400 });
     case "already-answered":
       return NextResponse.json({ error: "Esta encuesta ya fue contestada" }, { status: 409 });
     case "survey-answered":

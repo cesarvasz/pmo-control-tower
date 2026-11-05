@@ -5,7 +5,7 @@
 // portafolio, no un dato sensible por proyecto/persona).
 
 import { NextResponse } from "next/server";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requireSession } from "@/lib/users";
 import { listWeeklySnapshots } from "@/lib/store";
 import { apiError } from "@/lib/api-errors";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    await verifyRequest(request.headers.get("authorization"));
+    await requireSession(request.headers.get("authorization"));
     return NextResponse.json(await listWeeklySnapshots());
   } catch (err) {
     return apiError(err);

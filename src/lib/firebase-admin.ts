@@ -1,6 +1,9 @@
 // src/lib/firebase-admin.ts
-// SOLO SERVIDOR. Admin SDK: verificación de ID tokens + acceso a Firestore.
-// Requiere un Service Account (FIREBASE_ADMIN_* en .env.local).
+// ⚠ LEGADO — la app ya NO usa este módulo: los datos viven en Supabase (lib/store.ts) y el
+// login es Supabase Auth (lib/auth-server.ts). Se conserva SOLO para el script de migración
+// de datos y la comparación Firestore vs Supabase (fase 3); se borra al terminar la migración.
+// No lo importes desde código nuevo.
+// SOLO SERVIDOR. Admin SDK de Firebase (Firestore + Auth). Requiere FIREBASE_ADMIN_* en .env.local.
 
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
@@ -44,16 +47,6 @@ export function getAdminDb(): Firestore {
   return cachedDb;
 }
 
-export interface VerifiedUser {
-  uid: string;
-  email: string;
-  name: string;
-}
-
-/**
- * Verifica el ID token y exige que el correo pertenezca al dominio permitido.
- * Lanza Error con código en el mensaje: no-token | invalid-token | domain-not-allowed.
- */
 export async function getReqBaselines(): Promise<Record<string, ReqBaseline>> {
   const db = getAdminDb();
   const snap = await db.collection("req_baselines").get();
@@ -321,27 +314,4 @@ export async function savePreprodRestoreDates(dates: string[], by: string): Prom
   const sorted = [...new Set(dates)].sort();
   await db.collection("preprod_restore_dates").doc("list").set({ dates: sorted, by, at: new Date().toISOString() });
   return sorted;
-}
-
-export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!token) throw new Error("no-token");
-
-  // getAdminApp() puede lanzar "Firebase Admin sin configurar..." → se propaga
-  // tal cual (el route lo devuelve como 500 con mensaje claro), separado del
-  // caso de token inválido.
-  const adminAuth = getAdminAuth();
-
-  let decoded;
-  try {
-    decoded = await adminAuth.verifyIdToken(token);
-  } catch {
-    throw new Error("invalid-token");
-  }
-
-  const email = (decoded.email ?? "").toLowerCase();
-  const domain = process.env.NEXT_PUBLIC_ALLOWED_DOMAIN?.toLowerCase();
-  if (domain && !email.endsWith(`@${domain}`)) throw new Error("domain-not-allowed");
-
-  return { uid: decoded.uid, email, name: (decoded.name as string) || email };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { auth } from "@/lib/firebase";
+import { getAccessToken } from "@/lib/api";
 import type { DirectorioEntry } from "@/types";
 import type { SurveyDoc } from "@/lib/survey";
 import Modal from "@/components/Modal";
@@ -39,7 +39,7 @@ export default function SurveySendModal({
     if (!entry) { setErr("Selecciona una persona del Directorio RH."); return; }
     setSaving(true); setErr("");
     try {
-      const t = await auth.currentUser?.getIdToken();
+      const t = await getAccessToken();
       const res = await fetch("/api/surveys", {
         method: "POST",
         headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
@@ -65,7 +65,7 @@ export default function SurveySendModal({
     if (!window.confirm("Se eliminará este enlace pendiente. ¿Continuar?")) return;
     setBusyToken(token); setErr("");
     try {
-      const t = await auth.currentUser?.getIdToken();
+      const t = await getAccessToken();
       const res = await fetch(`/api/surveys/${token}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
       if (res.ok) update(list.filter((s) => s.token !== token));
       else setErr((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);

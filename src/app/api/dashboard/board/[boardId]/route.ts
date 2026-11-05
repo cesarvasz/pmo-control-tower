@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { discoverProjBoards, fetchIniAndHrRaw, fetchProjBoardRaw } from "@/lib/monday";
 import { buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
 import { syncBoardBaselines } from "@/lib/projBaselineSync";
-import { verifyRequest } from "@/lib/firebase-admin";
+import { requireSession } from "@/lib/users";
 import type { ProjBoard, ProjBoardRaw, ProjItemBaseline } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export interface BoardRefreshResponse {
 
 export async function GET(request: Request, { params }: { params: Promise<{ boardId: string }> }) {
   try {
-    await verifyRequest(request.headers.get("authorization"));
+    await requireSession(request.headers.get("authorization"));
   } catch (err) {
     const code = err instanceof Error ? err.message : "unauthorized";
     if (code === "no-token" || code === "invalid-token")
