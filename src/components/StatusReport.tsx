@@ -304,12 +304,11 @@ function Kpis({ data }: { data: StatusReportData }) {
   );
 }
 
-function GanttRow({ r, pct, today, detalle }: {
+function GanttRow({ r, pct, today, expandible, abierto, onToggle }: {
   r: StatusPhase; pct: (t: number) => number; today: number;
-  /** Solo en pantalla: las actividades del entregable, que se abren con la flecha de la fila. */
-  detalle?: ReactNode;
+  /** Solo en pantalla: el entregable lleva una flecha para abrir sus actividades (una a la vez, ver StatusReport). */
+  expandible?: boolean; abierto?: boolean; onToggle?: () => void;
 }) {
-  const [abierto, setAbierto] = useState(false);
   // Sangría reducida a propósito: el color/peso de fuente (nameStyle) ya
   // distingue entregable de fase, así que el "tab" solo necesita un guiño,
   // no 22px — se recupera ese ancho para el nombre.
@@ -318,7 +317,9 @@ function GanttRow({ r, pct, today, detalle }: {
   const stateCls = `state-${r.status.split("_")[0]}`;
 
   let chart: ReactNode;
-  if (r.milestone) {
+  if (!r.milestone && !(r.start && r.due)) {
+    chart = <div className="g-track" />;
+  } else if (r.milestone) {
     const left = pct(parseDate(r.milestone));
     const col = statusColors(r.status);
     const filled = col.fill !== "none";
@@ -353,13 +354,12 @@ function GanttRow({ r, pct, today, detalle }: {
   }
 
   return (
-    <>
     <div className="g-row">
       <div className="g-label" style={{ paddingLeft: 10 + indentPx }}>
-        {detalle !== undefined && (
+        {expandible && (
           <button
             type="button" aria-expanded={abierto} aria-label={abierto ? "Ocultar actividades" : "Ver actividades"}
-            onClick={() => setAbierto((a) => !a)}
+            onClick={onToggle}
             style={{ border: 0, background: "none", padding: 0, cursor: "pointer", fontSize: "7pt", color: INK_SEC, width: 10 }}
           >{abierto ? "▾" : "▸"}</button>
         )}
@@ -369,8 +369,6 @@ function GanttRow({ r, pct, today, detalle }: {
       </div>
       <div className="g-chart">{chart}</div>
     </div>
-    {abierto && detalle}
-    </>
   );
 }
 
@@ -430,13 +428,16 @@ export interface StatusReportProps {
   renderMotivo?: (atraso: StatusAtraso, index: number) => ReactNode;
   /** vista en pantalla: control editable de la línea "Alcance" del header. */
   renderAlcance?: (data: StatusReportData) => ReactNode;
-  /** vista en pantalla: las actividades de un entregable de la Fase 3; con esto cada entregable lleva su flecha para expandirlo. */
-  renderActividades?: (itemId: string) => ReactNode;
+  /** vista en pantalla: las actividades de un entregable de la Fase 3, como filas del Gantt (indent 2); con esto cada
+   *  entregable lleva su flecha para expandirlo. Solo uno queda abierto a la vez. */
+  actividadesDe?: (itemId: string) => StatusPhase[];
 }
 
 const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function StatusReport(
-  { data, renderResp, renderMotivo, renderAlcance, renderActividades }, ref,
+  { data, renderResp, renderMotivo, renderAlcance, actividadesDe }, ref,
 ) {
+  // Entregable abierto: solo uno a la vez (abrir otro cierra el anterior) para que la línea de tiempo siga legible.
+  const [abiertoId, setAbiertoId] = useState<string | null>(null);
   // Auto-ajuste vertical: si el contenido (fases + causas de atraso) no cabe en
   // la hoja, se reduce con un scale uniforme para que TODO se vea y no pise el
   // footer. Se re-mide si el contenido cambia de alto (p. ej. al editar Motivo).
@@ -528,7 +529,17 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
               <div className="g-todayline" style={{ left: `${f3(pct(today))}%` }} />
               <div className="g-planline" style={{ left: `${f3(pct(planDate))}%` }} />
             </div>
-            {data.phases.map((r, i) => <GanttRow key={i} r={r} pct={pct} today={today} detalle={r.itemId && renderActividades ? renderActividades(r.itemId) : undefined} />)}
+            {data.phases.map((r, i) => {
+              const expandible = !!(r.itemId && actividadesDe);
+              const abierto = expandible && abiertoId === r.itemId;
+              return (
+                <Fragment key={i}>
+                  <GanttRow r={r} pct={pct} today={today} expandible={expandible} abierto={abierto}
+                    onToggle={() => setAbiertoId((a) => (a === r.itemId ? null : r.itemId!))} />
+                  {abierto && actividadesDe!(r.itemId!).map((a, j) => <GanttRow key={j} r={a} pct={pct} today={today} />)}
+                </Fragment>
+              );
+            })}
           </div>
           <div className="gantt-legend">
             <span className="legend-item"><span className="legend-swatch" style={{ background: GOOD }} />Completada</span>

@@ -28,7 +28,7 @@ export interface StatusPhase {
   name: string;
   state: string;                 // "Completada" | "En curso" | "Atrasada" | "Pendiente" | "A futuro"
   status: StatusPhaseStatus;
-  indent: 0 | 1;
+  indent: 0 | 1 | 2;             // 2 = actividad de un entregable (solo en pantalla, al expandirlo)
   bold: boolean;
   band?: StatusBand;             // solo en filas de nivel 0
   progress?: number;             // 0..1 (barras start/due)
