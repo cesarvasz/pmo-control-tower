@@ -116,6 +116,12 @@ export function etiquetaMes(clave: string): string {
   const [a, m] = clave.split("-");
   return `${MESES_ES[+m - 1] ?? m} ${a?.slice(2) ?? ""}`;
 }
+/** Mes que se muestra al entrar: el mes en curso si la hoja ya lo trae; si no, el más reciente. */
+export function mesPorDefecto(mesesHoja: string[], hoy = new Date()): string | null {
+  if (mesesHoja.length === 0) return null;
+  const actual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
+  return mesesHoja.includes(actual) ? actual : [...mesesHoja].sort().at(-1)!;
+}
 export function etiquetaDia(clave: string): string {
   const [, m, d] = clave.split("-");
   return `${d} ${MESES_ES[+m - 1] ?? m}`;

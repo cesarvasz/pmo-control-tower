@@ -12,6 +12,7 @@
 import { useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
 import { esRolCku } from "@/lib/permissions";
+import ResumenDucafast from "@/components/tramites/ResumenDucafast";
 import { FilterReset, SectionHeader } from "@/components/ui";
 import MultiSelect from "@/components/MultiSelect";
 import BuscableSelect from "@/components/tramites/BuscableSelect";
@@ -28,7 +29,7 @@ import {
   horasAsignadasPorFile, repartoPorTramos, ETAPA_KEYS,
   proyectarAnio, TARIFA_HORA_DEFECTO,
   exportarCSV,
-  rangoEtapas, etiquetaAlcance, recorridoAlcance,
+  rangoEtapas, etiquetaAlcance, recorridoAlcance, etiquetaMes, mesPorDefecto,
   METRICA_LABEL, FILTROS_VACIOS, ETAPAS, HITOS,
   type EtapaKey, type Filtros, type Metrica,
 } from "@/lib/tramites";
@@ -89,15 +90,6 @@ export default function ReporteTramites({ rows, clonacion }: {
 }) {
   const { me } = useMe();
   const esCku = esRolCku(me?.roleName);
-  const [fUsuario, setF] = useState<Filtros>(FILTROS_VACIOS);
-  const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
-  const [tarifaUsuario, setTarifa] = useState(TARIFA_HORA_DEFECTO);
-  const [informe, setInforme] = useState(false);
-  const f = useMemo<Filtros>(
-    () => (esCku ? { ...FILTROS_CKU, meses: fUsuario.meses, mesas: fUsuario.mesas } : fUsuario),
-    [esCku, fUsuario],
-  );
-  const tarifa = esCku ? TARIFA_HORA_DEFECTO : tarifaUsuario;
 
   const todos = useMemo(() => construirExpedientes(rows), [rows]);
   const opciones = useMemo(() => opcionesDeFiltro(todos), [todos]);
@@ -108,6 +100,21 @@ export default function ReporteTramites({ rows, clonacion }: {
     [esCku, todos],
   );
   const mesesTimeline = opcionesCku?.meses ?? opciones.meses;
+
+  // Al entrar se ve el mes en curso (o el más reciente que traiga la hoja), no todo el histórico.
+  const [fUsuario, setF] = useState<Filtros>(() => {
+    const mes = mesPorDefecto(mesesTimeline.map((m) => m.value));
+    return { ...FILTROS_VACIOS, meses: mes ? [mes] : [] };
+  });
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
+  const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
+  const [tarifaUsuario, setTarifa] = useState(TARIFA_HORA_DEFECTO);
+  const [informe, setInforme] = useState(false);
+  const f = useMemo<Filtros>(
+    () => (esCku ? { ...FILTROS_CKU, meses: fUsuario.meses, mesas: fUsuario.mesas } : fUsuario),
+    [esCku, fUsuario],
+  );
+  const tarifa = esCku ? TARIFA_HORA_DEFECTO : tarifaUsuario;
 
   // Recorte filtrado — de aquí cuelgan TODAS las secciones, para que cuadren.
   const exps = useMemo(() => filtrarExpedientes(todos, f), [todos, f]);
@@ -186,6 +193,17 @@ export default function ReporteTramites({ rows, clonacion }: {
     [costoUnit.serie, costoUnit.ventana.fin, porDia],
   );
 
+  // Resumen de una pantalla: Files con / sin Ducafast (cuenta simple).
+  const filesCon = useMemo(() => expsBeneficio.filter((e) => e.ducafast).length, [expsBeneficio]);
+  const filesSin = expsBeneficio.length - filesCon;
+  const periodoLabel = f.meses.length === 0 ? "Todo el histórico"
+    : f.meses.length === 1 ? etiquetaMes(f.meses[0])
+      : `${f.meses.length} meses`;
+  // Filtros activos aparte del periodo (la línea de tiempo siempre está a la vista).
+  const nFiltrosOcultos = [f.usuarios, f.analistas, f.clientes, f.mesas, f.procesos, f.documentos, f.embarques, f.impexp]
+    .filter((v) => v.length > 0).length
+    + (f.ducafast !== "todos" ? 1 : 0) + (tramoLabel ? 1 : 0) + (tarifa !== TARIFA_HORA_DEFECTO ? 1 : 0);
+
   const set = (p: Partial<Filtros>) => setF((x) => ({ ...x, ...p }));
   const alternar = (k: DimFiltro, v: string) =>
     setF((x) => ({ ...x, [k]: x[k].includes(v) ? x[k].filter((y) => y !== v) : [...x[k], v] }));
@@ -239,8 +257,18 @@ export default function ReporteTramites({ rows, clonacion }: {
         </div>
       )}
 
-      {/* ── Filtros ── */}
-      {!esCku && <div className="mb-6">
+      {/* ── Filtros (plegables: el periodo se elige en la línea de tiempo) ── */}
+      {!esCku && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button onClick={() => setFiltrosAbiertos((v) => !v)} aria-expanded={filtrosAbiertos}
+            className="rounded-lg border px-3 py-1.5 text-[0.78rem] font-semibold transition-colors hover:bg-[var(--bg-hover)]"
+            style={{ borderColor: nFiltrosOcultos ? "var(--accent)" : "var(--border)", color: nFiltrosOcultos ? "var(--accent-light)" : "var(--text-secondary)" }}>
+            {filtrosAbiertos ? "▴ Ocultar filtros" : "▾ Filtros"}{nFiltrosOcultos > 0 && ` (${nFiltrosOcultos} activos)`}
+          </button>
+          {conFiltros && <FilterReset onClick={() => setF({ ...FILTROS_VACIOS, metrica: f.metrica })} />}
+        </div>
+      )}
+      {!esCku && filtrosAbiertos && <div className="mb-6">
         {/* Fila 1: Filtros principales */}
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <BuscableSelect label="Cliente" options={opciones.clientes} selected={f.clientes}
@@ -317,8 +345,6 @@ export default function ReporteTramites({ rows, clonacion }: {
               </select>
             </div>
           </div>
-
-          {conFiltros && <FilterReset onClick={() => setF({ ...FILTROS_VACIOS, metrica: f.metrica })} />}
         </div>
 
         {tramoLabel && (
@@ -333,6 +359,9 @@ export default function ReporteTramites({ rows, clonacion }: {
           padre, así que un div del alto del propio timeline lo despegaría de
           inmediato. Su padre tiene que ser el contenedor del reporte entero. */}
       <TimelineMeses meses={mesesTimeline} seleccion={f.meses} onChange={(v) => set({ meses: v })} />
+
+      {/* ── Resumen de una pantalla: Files y costo con / sin Ducafast y beneficio ── */}
+      <ResumenDucafast periodo={periodoLabel} filesCon={filesCon} filesSin={filesSin} ahorro={ahorro} tarifa={tarifa} />
 
       {f.metrica === "promedio" && (
         <div className="mb-4 rounded-lg border px-4 py-2.5 text-[0.78rem]"

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  mesPorDefecto,
   esAutomatizado, ordenarMesas, parseFecha,
   construirExpedientes, calcularIndicadores, composicionCiclo,
   filtrarExpedientes, coberturaHitos, serieTemporal, cargaYCapacidad,
@@ -1509,5 +1510,18 @@ describe("disponibilidad contra uso", () => {
 describe("ETAPA_KEYS", () => {
   it("son las 5 etapas de la cadena", () => {
     expect(ETAPA_KEYS).toEqual(["t1", "t2", "t3", "t4", "t5"]);
+  });
+});
+
+describe("mesPorDefecto", () => {
+  const hoy = new Date(2026, 10, 4);
+  it("el mes en curso si está en la hoja", () => {
+    expect(mesPorDefecto(["2026-10", "2026-11"], hoy)).toBe("2026-11");
+  });
+  it("si no, el más reciente", () => {
+    expect(mesPorDefecto(["2026-09", "2026-10"], hoy)).toBe("2026-10");
+  });
+  it("null sin meses", () => {
+    expect(mesPorDefecto([], hoy)).toBeNull();
   });
 });
