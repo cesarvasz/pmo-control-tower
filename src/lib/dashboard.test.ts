@@ -24,6 +24,7 @@ import {
   calcReprocesoStats,
   calcReprocesoStatsPonderado,
   calidadActividadCku,
+  calidadActividadCkuResp,
   entregaActividadCku,
   calcReprocesoStatsRaw,
   iniUnidadesCalidad,
@@ -705,6 +706,42 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
       expect(entregaActividadCku(sub({ id: "otra", entrega: "late" }))).toBe("late");
     });
 
+    describe("Cumplimiento: cerró después de su Limit Date → se compara con la New Limit Date", () => {
+      // Limit Date 10-jun. Todas cerraron tarde según Monday (entrega "late"), salvo que se diga otra cosa.
+      const tarde = (id: string, o: Partial<ProjSubitem> = {}) => actC(id, { entrega: "late", actualEnd: fecha("2026-06-20"), ...o });
+
+      it("dentro de la nueva fecha límite (o justo en ella) → cumplida", () => {
+        expect(entregaActividadCku(tarde("a", { newLimitDate: fecha("2026-06-25") }))).toBe("on-time");
+        expect(entregaActividadCku(tarde("b", { newLimitDate: fecha("2026-06-20") }))).toBe("on-time");   // el mismo día
+      });
+
+      it("después de las dos fechas → incumplida", () => {
+        expect(entregaActividadCku(tarde("a", { newLimitDate: fecha("2026-06-15") }))).toBe("late");
+        expect(entregaActividadCku(tarde("b", { newLimitDate: fecha("2026-06-19") }))).toBe("late");       // un día antes de cerrar
+      });
+
+      it("sin nueva fecha, cerrar tarde sigue siendo incumplido", () => {
+        expect(entregaActividadCku(tarde("a"))).toBe("late");
+      });
+
+      it("lo cerrado a tiempo y lo pendiente no cambian; el ajuste del PMO sigue dejándola cumplida", () => {
+        expect(entregaActividadCku(actC("a", { entrega: "on-time", newLimitDate: fecha("2026-01-01") }))).toBe("on-time");   // a tiempo: la nueva fecha no la baja
+        expect(entregaActividadCku(actC("b", { entrega: null, status: "Working on it", actualEnd: null, newLimitDate: fecha("2026-12-01") }))).toBeNull();
+        const [id] = [...ACTIVIDADES_A_TIEMPO.keys()];
+        expect(entregaActividadCku(tarde(id, { newLimitDate: fecha("2026-06-15") }))).toBe("on-time");
+      });
+
+      it("cuenta en el Cumplimiento del CKU, y Calidad opina distinto: con New Limit Date es 0", () => {
+        const proyectos = [itemC("i1", [
+          tarde("a", { newLimitDate: fecha("2026-06-25") }),     // cumplida por su nueva fecha; en Calidad: 0
+          tarde("b", { newLimitDate: fecha("2026-06-15") }),     // incumplida; en Calidad: 0
+          tarde("c"),                                            // incumplida; en Calidad: 0
+        ])];
+        expect(calcEntregaStatsCku(CKU, [], proyectos, {})).toMatchObject({ total: 3, onTime: 1, pct: 33 });
+        expect(calcReprocesoStatsPonderado(CKU, [], proyectos, {})).toMatchObject({ total: 3, limpias: 0, pct: 0 });
+      });
+    });
+
     it("con New Limit Date llena → 0, gane lo que gane el resto: cerró a tiempo, está en curso o ni empezó", () => {
       const nueva = fecha("2026-12-01");
       expect(calidadActividadCku(actC("a", { newLimitDate: nueva }))).toEqual({ nota: 0, motivo: "nueva-fecha" });                                    // a tiempo
@@ -752,6 +789,37 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(calcReprocesoStatsPonderado("Luis Aguilar", [], [deLuis], {}).pct).toBe(0);
   });
 
+  describe("Calidad (CKU): responsable elegido para una ACTIVIDAD con calidad 0", () => {
+    const projs = [itemC("i1", [
+      actC("a"),                                                  // a tiempo → 100
+      actC("b", { actualEnd: fecha("2026-06-20") }),              // tarde → 0
+      actC("c", { newLimitDate: fecha("2026-12-01") }),           // nueva fecha → 0
+    ])];
+
+    it("un responsable ≠ CKU la excusa: sale de la cuenta; el CKU (\"PM\" tras el cambio) o nadie la dejan en 0", () => {
+      expect(calcReprocesoStatsPonderado(CKU, [], projs, {})).toEqual({ total: 3, limpias: 1, conReproceso: 2, pct: 33 });
+      // b excusada → 100 y 0 (c): 1 de 2.
+      expect(calcReprocesoStatsPonderado(CKU, [], projs, { b: { responsible: "Desarrollo" } })).toEqual({ total: 2, limpias: 1, conReproceso: 1, pct: 50 });
+      // Las dos excusadas → solo queda la de 100.
+      expect(calcReprocesoStatsPonderado(CKU, [], projs, { b: { responsible: "Desarrollo" }, c: { responsible: "IT" } }).pct).toBe(100);
+      // Elegir al CKU no la libera.
+      expect(calcReprocesoStatsPonderado(CKU, [], projs, { b: { responsible: "PM" } })).toMatchObject({ total: 3, pct: 33 });
+    });
+
+    it("una actividad con calidad 1 no cambia aunque se le elija un responsable", () => {
+      expect(calcReprocesoStatsPonderado(CKU, [], projs, { a: { responsible: "Desarrollo" } })).toMatchObject({ total: 3, limpias: 1, pct: 33 });
+      expect(calidadActividadCkuResp(actC("a"), { a: { responsible: "Desarrollo" } })).toMatchObject({ nota: 100, excusada: false });
+    });
+
+    it("calidadActividadCkuResp: excusada solo con calidad 0 y un responsable ≠ CKU", () => {
+      const tarde = actC("b", { actualEnd: fecha("2026-06-20") });
+      expect(calidadActividadCkuResp(tarde, {})).toMatchObject({ nota: 0, excusada: false });
+      expect(calidadActividadCkuResp(tarde, { b: { responsible: "Sponsor" } })).toMatchObject({ nota: 0, excusada: true });
+      expect(calidadActividadCkuResp(tarde, { b: { responsible: "PM" } })).toMatchObject({ nota: 0, excusada: false });
+      expect(calidadActividadCkuResp(actC("z", { status: "Working on it", actualEnd: null }), { z: { responsible: "Sponsor" } })).toBeNull();
+    });
+  });
+
   it("Calidad (CKU): los proyectos de plantilla vieja no cuentan — los PM sí los siguen midiendo", () => {
     const nueva = itemC("nueva", [actC("a")]);
     const vieja = proj({ id: "vieja", boardId: "b-vieja", grupo: "Launch | Desarrollo", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", status: "Done",
@@ -761,10 +829,10 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(calcReprocesoStatsPonderado(CKU, [], [vieja], {}).pct).toBeNull();          // sin proyectos nuevos → Proyectos no pesa
   });
 
-  it("Calidad (CKU): en Proyectos ya no importa el responsable asignado a mano; PML e Iniciativas siguen con él", () => {
+  it("Calidad (CKU): en Proyectos un responsable por item o fase no cambia nada (solo el elegido para la ACTIVIDAD); PML e Iniciativas siguen con el suyo", () => {
     const projs = [itemC("i1", [actC("a", { actualEnd: fecha("2026-06-20") })])];   // tarde → 0
-    // Aunque se excuse con un responsable ≠ PM, la actividad vale 0 por sus fechas.
-    expect(calcReprocesoStatsPonderado(CKU, [], projs, { i1: { responsible: "Desarrollo" }, a: { responsible: "Desarrollo" } }).pct).toBe(0);
+    // Excusar el item no cambia la actividad: vale 0 por sus fechas.
+    expect(calcReprocesoStatsPonderado(CKU, [], projs, { i1: { responsible: "Desarrollo" } }).pct).toBe(0);
     expect(notaCalidadCku("x", { x: { responsible: "Desarrollo" } })).toBe(100);   // PML / Iniciativa: sigue por responsable
     expect(notaCalidadCku("y", {})).toBe(0);
   });
@@ -907,6 +975,28 @@ describe("calcEntregaStatsCku (Cumplimiento de un CKU: cada actividad cerrada, a
     // Sin responsable (o con "PM", que en un CKU es lo que penaliza) las 2 penalizan: 1 de 3.
     expect(calcEntregaStatsCku(CKU, [], projs, {})).toMatchObject({ total: 3, onTime: 1, pct: 33 });
     expect(calcEntregaStatsCku(CKU, [], projs, { "b1::Launch | Lanzamiento": { responsible: "PM" } }).pct).toBe(33);
+  });
+
+  describe("responsable elegido para una ACTIVIDAD incumplida (mapa con PM ↔ CKU ya intercambiado)", () => {
+    const FASE = "b1::Launch | Lanzamiento";
+    const projs = [item("p1", "b1", LAUNCH, [act("s1", "late"), act("s2", "late"), act("s3", "on-time")])];
+
+    it("Cumplimiento: un responsable ≠ CKU excusa SOLO esa actividad; el CKU (\"PM\" tras el cambio) la deja penalizando", () => {
+      // s1 excusada → quedan s2 (tarde) y s3 (a tiempo): 1 de 2.
+      expect(calcEntregaStatsCku(CKU, [], projs, { s1: { responsible: "Sponsor" } })).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+      // Elegir al CKU (en el mapa ya cambiado es "PM") no cambia nada: sigue penalizando.
+      expect(calcEntregaStatsCku(CKU, [], projs, { s1: { responsible: "PM" } })).toMatchObject({ total: 3, onTime: 1, pct: 33 });
+      // Sin elegir nada, como siempre.
+      expect(calcEntregaStatsCku(CKU, [], projs, {})).toMatchObject({ total: 3, onTime: 1, pct: 33 });
+    });
+
+    it("Cumplimiento: lo elegido para la actividad manda sobre lo de su fase, hacia los dos lados", () => {
+      // La fase está excusada (Sponsor) pero s1 se fija al CKU → s1 penaliza, s2 sigue excusada.
+      expect(calcEntregaStatsCku(CKU, [], projs, { [FASE]: { responsible: "Sponsor" }, s1: { responsible: "PM" } }))
+        .toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+      // La fase penaliza (sin asignar) pero s2 se excusa → solo cuenta s1.
+      expect(calcEntregaStatsCku(CKU, [], projs, { s2: { responsible: "IT" } })).toMatchObject({ total: 2, onTime: 1, pct: 50 });
+    });
   });
 
   it("sin actividades cerradas en la Fase 3 ni otras fuentes: sin dato (null)", () => {

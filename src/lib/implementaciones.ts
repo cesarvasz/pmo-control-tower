@@ -696,26 +696,82 @@ export function pasaFiltroSemaforo(estado: Semaforo, filtro: FiltroSemaforo): bo
 // % a alcanzar de cada mes y el Profit por mes de los clientes con meta — la misma comparación
 // que el % Meta de la pestaña (Profit de clientes sin meta no entra; «Sin facturar» tampoco).
 
+/** Una cuenta (cliente o grupo de clientes) con meta, tal como viaja en el resumen: sus Files y su
+ *  Profit por mes, para poder listar las cuentas a implementar de un mes. */
+export interface CuentaResumen {
+  cliente: string;
+  vol: number;
+  cm1: number;
+  desde: string | null;
+  /** «yyyy-MM» → Files facturados en ese mes. */
+  filesPorMes: Record<string, number>;
+  /** «yyyy-MM» → Profit facturado en ese mes. */
+  profitPorMes: Record<string, number>;
+  /** Solo en un GRUPO (ver GRUPOS_CLIENTES): sus clientes tal como vienen en la hoja, con sus Files y Profit por mes.
+   *  La meta es del grupo entero; los clientes no tienen una propia. */
+  miembros?: Record<string, { filesPorMes: Record<string, number>; profitPorMes: Record<string, number> }>;
+}
+
 export interface ResumenImplementacionCku {
   /** Vol × CM1 de cada cliente con meta y el mes desde el que cuenta (null = todos). */
   metas: { meta: number; desde: string | null }[];
   objetivos: ObjetivoMes[];
   /** «yyyy-MM» → Profit de los clientes cuya meta cuenta en ese mes. */
   profitPorMes: Record<string, number>;
+  /** Cada cuenta con meta, con sus Files y Profit por mes (el detalle de `metas` y `profitPorMes`). */
+  cuentas: CuentaResumen[];
+}
+
+/** Una cuenta a implementar en un mes: su meta (Vol × CM1 × % a alcanzar), los Files que lleva y su Profit. */
+export interface CuentaImplementacion {
+  cliente: string;
+  vol: number;
+  cm1: number;
+  /** Meta de Profit del mes para esta cuenta: Vol × CM1 × % a alcanzar. */
+  meta: number;
+  files: number;
+  profit: number;
+  /** Solo en un GRUPO: cada cliente suyo con sus Files y Profit del mes (mayor Profit primero). */
+  miembros?: MiembroCuenta[];
+}
+
+/** Un cliente dentro de un grupo de cuentas a implementar, en un mes. */
+export interface MiembroCuenta {
+  cliente: string;
+  files: number;
+  profit: number;
 }
 
 export function resumenImplementacionCku(rows: ImplementacionRow[], metas: MetaCliente[], objetivos: ObjetivoMes[]): ResumenImplementacionCku {
   const idx = indexarMetas(metas, objetivos);
   const profitPorMes: Record<string, number> = {};
+  const cuentas = new Map<string, CuentaResumen>([...idx.clientes.values()].map((m) => [m.cliente, {
+    cliente: m.cliente, vol: m.vol, cm1: m.cm1, desde: m.desde ?? null, filesPorMes: {}, profitPorMes: {},
+  }]));
   for (const r of rows) {
     const mes = claveMes(r.fecha_facturacion);
-    if (mes === SIN_FECHA || !metaDelMes(idx, nombreCliente(r), mes)) continue;
-    profitPorMes[mes] = (profitPorMes[mes] ?? 0) + (r.Profit ?? 0);
+    const cliente = nombreCliente(r);
+    if (mes === SIN_FECHA || !metaDelMes(idx, cliente, mes)) continue;
+    const profit = r.Profit ?? 0;
+    profitPorMes[mes] = (profitPorMes[mes] ?? 0) + profit;
+    const c = cuentas.get(cliente);
+    if (c) {
+      c.filesPorMes[mes] = (c.filesPorMes[mes] ?? 0) + 1;
+      c.profitPorMes[mes] = (c.profitPorMes[mes] ?? 0) + profit;
+      // Una fila de un grupo: además se anota en su cliente, para el desglose del grupo.
+      const real = clienteReal(r);
+      if (real !== cliente) {
+        const m = ((c.miembros ??= {})[real] ??= { filesPorMes: {}, profitPorMes: {} });
+        m.filesPorMes[mes] = (m.filesPorMes[mes] ?? 0) + 1;
+        m.profitPorMes[mes] = (m.profitPorMes[mes] ?? 0) + profit;
+      }
+    }
   }
   return {
     metas: [...idx.clientes.values()].map((m) => ({ meta: metaProfitMensual(m), desde: m.desde ?? null })),
     objetivos: [...idx.objetivos].map(([mes, objetivo]) => ({ mes, objetivo })),
     profitPorMes,
+    cuentas: [...cuentas.values()].sort((a, b) => a.cliente.localeCompare(b.cliente, "es")),
   };
 }
 
@@ -730,6 +786,8 @@ export interface ImplementacionMes {
   objetivo: number;
   /** Profit del mes (0 si no hubo files). */
   profit: number;
+  /** Las cuentas a implementar del mes, de mayor a menor meta. */
+  cuentas: CuentaImplementacion[];
 }
 
 /** Meta y Profit de Implementación de UN mes. null si ese mes no cuenta ninguna meta (no hay
@@ -738,5 +796,17 @@ export function implementacionDelMes(r: ResumenImplementacionCku, mes: string): 
   const metaMensual = metaMensualDe(r, mes);
   if (!(metaMensual > 0)) return null;
   const objetivo = r.objetivos.find((o) => o.mes === mes)?.objetivo ?? OBJETIVO_DEFECTO;
-  return { mes, meta: Math.round(metaMensual * objetivo) / 100, objetivo, profit: r.profitPorMes[mes] ?? 0 };
+  const cuentas = r.cuentas
+    .filter((c) => metaAplica({ desde: c.desde ?? undefined }, mes))
+    .map((c): CuentaImplementacion => ({
+      cliente: c.cliente, vol: c.vol, cm1: c.cm1, meta: Math.round(c.vol * c.cm1 * objetivo) / 100,
+      files: c.filesPorMes[mes] ?? 0, profit: c.profitPorMes[mes] ?? 0,
+      ...(c.miembros ? {
+        miembros: Object.entries(c.miembros)
+          .map(([nombre, m]): MiembroCuenta => ({ cliente: nombre, files: m.filesPorMes[mes] ?? 0, profit: m.profitPorMes[mes] ?? 0 }))
+          .sort((a, b) => b.profit - a.profit || b.files - a.files || a.cliente.localeCompare(b.cliente, "es")),
+      } : {}),
+    }))
+    .sort((a, b) => b.meta - a.meta || a.cliente.localeCompare(b.cliente, "es"));
+  return { mes, meta: Math.round(metaMensual * objetivo) / 100, objetivo, profit: r.profitPorMes[mes] ?? 0, cuentas };
 }

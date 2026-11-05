@@ -1,6 +1,6 @@
 // src/app/api/attribution/route.ts
 // POST /api/attribution — asigna (o borra) el responsable de una atribución.
-// Autorización: ambas atribuciones (delay y reproceso) requieren Admin ("manage_users").
+// Autorización: todas las atribuciones (delay, reproceso y las «-cku» de los Players) requieren Admin ("manage_users").
 // Body: { kind, itemId, responsible|null }. responsible null/"" → borra la asignación.
 
 import { NextResponse } from "next/server";
@@ -12,7 +12,7 @@ import type { AttributionKind } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-const KINDS = new Set<AttributionKind>(["delay", "reproceso"]);
+const KINDS = new Set<AttributionKind>(["delay", "reproceso", "delay-cku", "reproceso-cku"]);
 const isKind = (v: unknown): v is AttributionKind => typeof v === "string" && KINDS.has(v as AttributionKind);
 
 export async function POST(request: Request) {
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "kind inválido" }, { status: 400 });
     const kind = body.kind;
 
-    // Ambas atribuciones (delay y reproceso) requieren Admin.
+    // Todas las atribuciones requieren Admin.
     const me = await requireAction(authHeader, "manage_users");
 
     const itemId = body?.itemId;

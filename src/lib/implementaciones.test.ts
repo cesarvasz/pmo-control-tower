@@ -676,8 +676,43 @@ describe("Implementación en el Beneficio de un CKU (resumen y mes)", () => {
   });
 
   it("meta del mes = meta mensual × % a alcanzar (100 si no se capturó); mes sin files → Profit 0", () => {
-    expect(implementacionDelMes(r, "2026-09")).toEqual({ mes: "2026-09", meta: 1400, objetivo: 70, profit: 1500.5 });
-    expect(implementacionDelMes(r, "2026-11")).toEqual({ mes: "2026-11", meta: 2000, objetivo: OBJETIVO_DEFECTO, profit: 0 });
+    expect(implementacionDelMes(r, "2026-09")).toMatchObject({ mes: "2026-09", meta: 1400, objetivo: 70, profit: 1500.5 });
+    expect(implementacionDelMes(r, "2026-11")).toMatchObject({ mes: "2026-11", meta: 2000, objetivo: OBJETIVO_DEFECTO, profit: 0 });
+  });
+
+  it("lista las cuentas a implementar del mes: meta = Vol × CM1 × % a alcanzar, con sus Files y Profit; sin cuentas sin meta", () => {
+    expect(implementacionDelMes(r, "2026-09")!.cuentas).toEqual([
+      { cliente: "A", vol: 10, cm1: 100, meta: 700, files: 1, profit: 1000 },
+      { cliente: "B", vol: 5, cm1: 200, meta: 700, files: 1, profit: 500.5 },
+    ]);
+    // Mes sin files: las cuentas siguen ahí con su meta y en cero.
+    expect(implementacionDelMes(r, "2026-11")!.cuentas.map((c) => [c.cliente, c.meta, c.files, c.profit]))
+      .toEqual([["A", 1000, 0, 0], ["B", 1000, 0, 0]]);
+    // La suma de las cuentas es la meta del mes.
+    const sum = implementacionDelMes(r, "2026-09")!.cuentas.reduce((t, c) => t + c.meta, 0);
+    expect(sum).toBe(implementacionDelMes(r, "2026-09")!.meta);
+  });
+
+  it("una cuenta que es un GRUPO trae a sus clientes con sus Files y Profit del mes; las demás no traen miembros", () => {
+    const tecnica = "TECNICA UNIVERSAL, SOCIEDAD ANONIMA", quimicos = "QUIMICOS AGRICOLAS INSECTROL SOCIEDAD ANONIMA";
+    const g = resumenImplementacionCku([
+      fila(tecnica, "2026-09-02T00:00:00", 300), fila(tecnica, "2026-09-05T00:00:00", 200),
+      fila(quimicos, "2026-09-09T00:00:00", 50), fila(quimicos, "2026-10-03T00:00:00", 7),
+      fila("A", "2026-09-01T00:00:00", 10),
+    ], [{ cliente: "Grupo Tecun", vol: 10, cm1: 100 }, { cliente: "A", vol: 1, cm1: 100 }], []);
+    const sep = implementacionDelMes(g, "2026-09")!.cuentas;
+    const grupo = sep.find((c) => c.cliente === "Grupo Tecun")!;
+    // La cuenta es el grupo entero; el desglose suma lo mismo, de mayor a menor Profit.
+    expect(grupo).toMatchObject({ files: 3, profit: 550 });
+    expect(grupo.miembros).toEqual([
+      { cliente: tecnica, files: 2, profit: 500 },
+      { cliente: quimicos, files: 1, profit: 50 },
+    ]);
+    expect(grupo.miembros!.reduce((s, m) => s + m.profit, 0)).toBe(grupo.profit);
+    expect(sep.find((c) => c.cliente === "A")!.miembros).toBeUndefined();
+    // Otro mes: los clientes del grupo siguen ahí, en cero si no facturaron.
+    expect(implementacionDelMes(g, "2026-10")!.cuentas.find((c) => c.cliente === "Grupo Tecun")!.miembros)
+      .toEqual([{ cliente: quimicos, files: 1, profit: 7 }, { cliente: tecnica, files: 0, profit: 0 }]);
   });
 
   it("sin metas capturadas no hay Implementación que sumar", () => {
@@ -951,8 +986,8 @@ describe("cumplimiento «desde» un mes", () => {
   it("el resumen del CKU solo cuenta la meta y el Profit de A desde octubre", () => {
     const r = resumenImplementacionCku(rows, metas, []);
     expect(r.profitPorMes).toEqual({ "2026-09": 500, "2026-10": 1700 });
-    expect(implementacionDelMes(r, "2026-09")).toEqual({ mes: "2026-09", meta: 1000, objetivo: OBJETIVO_DEFECTO, profit: 500 });
-    expect(implementacionDelMes(r, "2026-10")).toEqual({ mes: "2026-10", meta: 2000, objetivo: OBJETIVO_DEFECTO, profit: 1700 });
+    expect(implementacionDelMes(r, "2026-09")).toMatchObject({ mes: "2026-09", meta: 1000, objetivo: OBJETIVO_DEFECTO, profit: 500 });
+    expect(implementacionDelMes(r, "2026-10")).toMatchObject({ mes: "2026-10", meta: 2000, objetivo: OBJETIVO_DEFECTO, profit: 1700 });
     // Un mes en que ninguna meta cuenta todavía no suma nada.
     expect(implementacionDelMes(resumenImplementacionCku(rows, [metas[0]], []), "2026-09")).toBeNull();
   });

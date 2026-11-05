@@ -190,7 +190,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // Actualización optimista del responsable (atraso o reproceso); evita un refetch completo.
   const setAttribution = useCallback((kind: AttributionKind, itemId: string, responsible: DelayResponsible | null) => {
-    const field = kind === "delay" ? "delayAttributions" : "reprocesoAttributions";
+    const field = ({
+      delay: "delayAttributions", reproceso: "reprocesoAttributions",
+      "delay-cku": "ckuDelayAttributions", "reproceso-cku": "ckuReprocesoAttributions",
+    } as const)[kind];
     setData((prev) => {
       if (!prev) return prev;
       const map = { ...prev[field] };

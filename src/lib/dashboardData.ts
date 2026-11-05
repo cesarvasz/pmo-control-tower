@@ -50,6 +50,8 @@ export function buildDashboardData(raw: DashboardRaw): DashboardData {
     ini, req, proj, projBoards, projItemBaselines, calMap, nps, npsRecords,
     delayAttributions: raw.delayAttributions ?? {},
     reprocesoAttributions: raw.reprocesoAttributions ?? {},
+    ckuDelayAttributions: raw.ckuDelayAttributions ?? {},
+    ckuReprocesoAttributions: raw.ckuReprocesoAttributions ?? {},
     metodologiaCalifs: raw.metodologiaCalifs ?? {},
     atrasoDetalles: raw.atrasoDetalles ?? {},
     boardAlcance: raw.boardAlcance ?? {},

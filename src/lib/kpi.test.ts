@@ -3,6 +3,8 @@ import {
   computeKpi,
   computeBenefitKpi,
   computeBenefitKpiCku,
+  colorIndicadorCku,
+  tonoIndicadorCku,
   kpiColorFor,
   kpiBgFor,
   kpiCompColor,
@@ -224,6 +226,79 @@ describe("computeBenefitKpiCku (meta = lo aprobado HardSaving del CKU; cumplimie
   });
 });
 
+// CKU que lleva Implementación (Victoria): su Beneficio es lo cumplido ÷ la meta del mes SUMANDO Implementación y
+// Ducafast Mesa 2 (en dólares), y ya no mira los dólares del ROI ni lo aprobado.
+describe("computeBenefitKpiCku con Ducafast (cumplido total ÷ meta total de Implementación y Ducafast Mesa 2)", () => {
+  const impl = { mes: "2026-11", meta: 40_000, profit: 10_000 };                                   // 25 %
+  const duca = { mes: "2026-11", files: 40, filesCon: 4, metaUsd: 400, ahorroUsd: 40 };            // 10 %
+
+  it("logro = (Profit + Beneficio Ducafast) ÷ (meta Implementación + meta Ducafast), y vale todo el peso", () => {
+    const b = computeBenefitKpiCku(80_000, 70_000, KPI_W_CKU, impl, duca);
+    expect(b.metricasMes).toEqual({
+      pctImplementacion: 0.25, pctDucafast: 0.1,
+      metaTotal: 40_400, realTotal: 10_040, pctTotal: 10_040 / 40_400,
+    });
+    // no es el promedio de los dos % (17.5 %): Ducafast pesa lo que pesan sus dólares
+    expect(b.metricasMes!.pctTotal).not.toBeCloseTo(0.175, 3);
+    expect(b.logro).toBeCloseTo(10_040 / 40_400, 9);
+    expect(b.total).toBeCloseTo((10_040 / 40_400) * 25, 9);
+    expect(b.ducafast).toEqual(duca);   // los Files viajan para el detalle del popup
+    // el ROI y lo aprobado ya no entran en el porcentaje (siguen disponibles para el popup)
+    expect(b.benefitConfirmado).toBe(70_000);
+  });
+
+  it("sin Files de la Mesa 2 (null) cuenta solo Implementación", () => {
+    const b = computeBenefitKpiCku(0, 0, KPI_W_CKU, impl, null);
+    expect(b.metricasMes).toEqual({ pctImplementacion: 0.25, pctDucafast: null, metaTotal: 40_000, realTotal: 10_000, pctTotal: 0.25 });
+    expect(b.ducafast).toBeUndefined();
+  });
+
+  it("si Implementación no tiene meta, cuenta solo Ducafast (y su Profit no suma)", () => {
+    const b = computeBenefitKpiCku(0, 0, KPI_W_CKU, { mes: "2026-11", meta: 0, profit: 5 }, duca);
+    expect(b.metricasMes!.pctImplementacion).toBeNull();
+    expect(b.metricasMes!.pctTotal).toBeCloseTo(0.1, 9);
+  });
+
+  it("si al mes le falta un grupo de Ducafast (sin dólares), sus dólares no cuentan pero su % de Files sí se muestra", () => {
+    const b = computeBenefitKpiCku(0, 0, KPI_W_CKU, impl, { mes: "2026-11", files: 10, filesCon: 0, metaUsd: null, ahorroUsd: null });
+    expect(b.metricasMes!.pctDucafast).toBe(0);
+    expect(b.metricasMes!.metaTotal).toBe(40_000);
+    expect(b.metricasMes!.pctTotal).toBeCloseTo(0.25, 9);
+  });
+
+  it("el porcentaje se muestra sin tope, pero los puntos topan en el peso", () => {
+    const b = computeBenefitKpiCku(0, 0, KPI_W_CKU, { mes: "2026-11", meta: 10, profit: 30 }, { mes: "2026-11", files: 10, filesCon: 10, metaUsd: 10, ahorroUsd: 10 });
+    expect(b.metricasMes!.pctTotal).toBeCloseTo(2, 9);   // 40 ÷ 20
+    expect(b.logro).toBe(1);
+    expect(b.total).toBeCloseTo(25, 9);
+  });
+
+  it("un Profit negativo no baja los puntos de 0", () => {
+    const b = computeBenefitKpiCku(0, 0, KPI_W_CKU, { mes: "2026-11", meta: 10, profit: -50 }, { mes: "2026-11", files: 10, filesCon: 0, metaUsd: 10, ahorroUsd: 0 });
+    expect(b.logro).toBe(0);
+  });
+
+  it("sin nada que medir queda pendiente; midiendo, computeKpi muestra el % contra 100%", () => {
+    const vacio = computeBenefitKpiCku(0, 0, KPI_W_CKU, undefined, null);
+    expect(vacio.metricasMes!.pctTotal).toBeNull();
+    const rVacio = computeKpi({ evm: null, nps: null, benefitAprobado: 0, benefitConfirmado: 0, beneficioCku: vacio, entregasPct: null, weights: KPI_W_CKU });
+    expect(rVacio.components.find((c) => c.key === "benefit")!.pending).toBe(true);
+
+    const b = computeBenefitKpiCku(80_000, 70_000, KPI_W_CKU, impl, duca);
+    const c = computeKpi({ evm: null, nps: null, benefitAprobado: 0, benefitConfirmado: 0, beneficioCku: b, entregasPct: null, weights: KPI_W_CKU }).components.find((x) => x.key === "benefit")!;
+    expect(c.pending).toBeFalsy();
+    expect(c.real).toBe("25%");   // 24.85 % redondeado
+    expect(c.meta).toBe("100%");
+    expect(c.logro).toBeCloseTo(10_040 / 40_400, 9);
+  });
+
+  it("sin el parámetro Ducafast (Javier, PM) todo sigue como antes: dólares", () => {
+    const b = computeBenefitKpiCku(80_000, 20_000, KPI_W_CKU, impl);
+    expect(b.metricasMes).toBeUndefined();
+    expect(b.logro).toBeCloseTo((20_000 + 10_000) / (80_000 + 40_000), 9);
+  });
+});
+
 describe("kpiColorFor", () => {
   it("umbrales 0.9 (ok) / 0.75 (warn) / resto (bad)", () => {
     expect(kpiColorFor(0.95)).toBe("var(--ok)");
@@ -231,6 +306,34 @@ describe("kpiColorFor", () => {
     expect(kpiColorFor(0.8)).toBe("var(--warn)");
     expect(kpiColorFor(0.75)).toBe("var(--warn)");
     expect(kpiColorFor(0.5)).toBe("var(--bad)");
+  });
+});
+
+describe("colores de los indicadores de un CKU: 100 % verde · 95–99 amarillo · menos de 95 rojo", () => {
+  it("tonoIndicadorCku respeta los tres rangos y sus bordes", () => {
+    expect(tonoIndicadorCku(100)).toBe("ok");
+    expect(tonoIndicadorCku(99.99)).toBe("warn");
+    expect(tonoIndicadorCku(99)).toBe("warn");
+    expect(tonoIndicadorCku(95)).toBe("warn");
+    expect(tonoIndicadorCku(94.99)).toBe("bad");
+    expect(tonoIndicadorCku(0)).toBe("bad");
+    expect(tonoIndicadorCku(100 - 1e-12)).toBe("ok");   // ruido de punto flotante
+  });
+
+  it("nunca pasa de 100 %: un valor por encima cuenta como 100", () => {
+    expect(tonoIndicadorCku(130)).toBe("ok");
+    expect(colorIndicadorCku(250)).toBe("var(--ok)");
+  });
+
+  it("colorIndicadorCku devuelve la variable de tema del tono", () => {
+    expect(colorIndicadorCku(100)).toBe("var(--ok)");
+    expect(colorIndicadorCku(97)).toBe("var(--warn)");
+    expect(colorIndicadorCku(80)).toBe("var(--bad)");
+  });
+
+  it("es una escala distinta de la del KPI/Player de los PM (90/75)", () => {
+    expect(kpiColorFor(0.92)).toBe("var(--ok)");
+    expect(colorIndicadorCku(92)).toBe("var(--bad)");
   });
 });
 

@@ -5,7 +5,8 @@
 // constructores de filas que la página de auditoría, y su `pct` coincide con el del
 // scoreboard (calcEntregaStatsPonderado / calcReprocesoStatsPonderado). Módulo PURO.
 
-import { buildEntregaRows, buildReprocesoRows, calidadActividadCku, entregaActividadCku, entregablesDelCku, notaCalidadCku, projPhaseKey, redondearPct, type MotivoCalidadActividad } from "@/lib/dashboard";
+import { actividadExcusadaCku, buildEntregaRows, buildReprocesoRows, calidadActividadCkuResp, cerroDentroDeNuevaFecha, entregaActividadCku, entregablesDelCku, notaCalidadCku, projPhaseKey, redondearPct, type MotivoCalidadActividad } from "@/lib/dashboard";
+import { esActividadATiempo } from "@/lib/ckuAjustes";
 import { claseDeItemProyecto, claseDePml, fuenteDeClase, type Clase } from "@/lib/claseProyecto";
 import { lateExcused, type DelayMap } from "@/lib/delay";
 import { EVM_WEIGHTS, FUENTES_EVM, FUENTE_EVM_LABEL, weightedEvm, type FuenteEvm } from "@/lib/health";
@@ -66,6 +67,10 @@ export interface ActividadCumplimiento {
   estado: "ok" | "atraso" | "excusado" | "pendiente";
   /** El PMO la dejó «a tiempo» a mano aunque en Monday figure con atraso (ver ckuAjustes). */
   ajustada: boolean;
+  /** "New Limit Date": la nueva fecha límite, si se movió. */
+  nuevaFecha: Date | null;
+  /** Cerró después de su Limit Date pero dentro de la nueva: cumple por ella. */
+  porNuevaFecha: boolean;
   /** Persona responsable de la actividad en Monday (columna "Responsible"). */
   responsable: string | null;
 }
@@ -110,13 +115,13 @@ const rangoItem = (it: ItemCumplimiento) =>
 
 /** Arma el árbol proyecto → item → actividad de la Fase 3 (ya recortada a plantilla nueva). Un item sin
  *  actividades (p. ej. ninguna cae en el mes filtrado) no se lista, ni el proyecto que se quede sin items.
- *  `delays` es el mapa con PM ↔ CKU intercambiado (decide la excusa); `delaysOriginal`, solo para la etiqueta. */
+ *  `delays` es el mapa con PM ↔ CKU intercambiado (decide la excusa, por fase y por actividad); `delaysOriginal`,
+ *  solo para la etiqueta. */
 function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: DelayMap, clases: Record<string, ClaseEntry>): ProyectoCumplimiento[] {
   const porBoard = new Map<string, ProyectoCumplimiento>();
   for (const p of fase3) {
     if (p.subitems.length === 0) continue;
     const llave = projPhaseKey(p.boardId, p.grupo);
-    const excusada = lateExcused(llave, delays);
     let proy = porBoard.get(p.boardId);
     if (!proy) {
       const { code, name } = splitBoardName(p.boardName);
@@ -130,8 +135,12 @@ function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: Del
         const entrega = entregaActividadCku(s);
         return {
           id: s.id, nombre: s.name, status: s.status, deadline: s.deadline ?? null, cierre: s.actualEnd ?? null,
-          estado: entrega === "on-time" ? "ok" : entrega === "late" ? (excusada ? "excusado" : "atraso") : "pendiente",
-          ajustada: entrega !== s.entrega,
+          // Un responsable elegido para la actividad manda sobre el de su fase (ver actividadExcusadaCku).
+          estado: entrega === "on-time" ? "ok" : entrega === "late" ? (actividadExcusadaCku(s.id, llave, delays) ? "excusado" : "atraso") : "pendiente",
+          // Ajuste del PMO: la única razón, además de la nueva fecha, por la que el veredicto difiere del de Monday.
+          ajustada: s.entrega === "late" && esActividadATiempo(s.id),
+          nuevaFecha: s.newLimitDate ?? null,
+          porNuevaFecha: s.entrega === "late" && !esActividadATiempo(s.id) && cerroDentroDeNuevaFecha(s),
           responsable: s.responsible?.trim() || null,
         };
       }).sort(porFechaLimite),
@@ -160,6 +169,8 @@ export interface ActividadCalidad {
   responsable: string | null;
   nota: 0 | 100 | null;
   motivo: MotivoCalidadActividad | null;
+  /** Calidad 0 a la que un Admin le eligió un responsable ≠ CKU: no cuenta (sale de la nota). */
+  excusada: boolean;
 }
 
 export interface ItemCalidad {
@@ -179,13 +190,16 @@ export interface ProyectoCalidadCku {
   items: ItemCalidad[];
 }
 
-export interface ConteoCalidad { buenas: number; malas: number; sinMedir: number }
+export interface ConteoCalidad { buenas: number; malas: number; sinMedir: number; excusadas: number }
 
-/** Cuántas actividades tienen calidad 1, calidad 0 y cuántas todavía no se miden. */
+/** Cuántas actividades tienen calidad 1, calidad 0 (las que penalizan), cuántas todavía no se miden y cuántas
+ *  tienen calidad 0 pero están excusadas por el responsable elegido (no cuentan). */
 export function contarCalidad(items: ItemCalidad[]): ConteoCalidad {
-  const c: ConteoCalidad = { buenas: 0, malas: 0, sinMedir: 0 };
+  const c: ConteoCalidad = { buenas: 0, malas: 0, sinMedir: 0, excusadas: 0 };
   for (const it of items) for (const a of it.actividades) {
-    if (a.nota === 100) c.buenas++; else if (a.nota === 0) c.malas++; else c.sinMedir++;
+    if (a.nota === 100) c.buenas++;
+    else if (a.nota === 0) { if (a.excusada) c.excusadas++; else c.malas++; }
+    else c.sinMedir++;
   }
   return c;
 }
@@ -193,7 +207,7 @@ export function contarCalidad(items: ItemCalidad[]): ConteoCalidad {
 /** Arma el árbol proyecto → item → actividad con la Calidad de cada actividad (la Fase 3 ya recortada a
  *  lo del CKU). Los items con calidad 0 primero, y el proyecto con peor calidad primero. Un item sin
  *  actividades no se lista, ni el proyecto que se quede sin items. */
-function armarProyectosCalidad(fase3: ProjItem[], clases: Record<string, ClaseEntry>): ProyectoCalidadCku[] {
+function armarProyectosCalidad(fase3: ProjItem[], reproceso: DelayMap, clases: Record<string, ClaseEntry>): ProyectoCalidadCku[] {
   const porBoard = new Map<string, ProyectoCalidadCku>();
   for (const p of fase3) {
     if (p.subitems.length === 0) continue;
@@ -207,11 +221,11 @@ function armarProyectosCalidad(fase3: ProjItem[], clases: Record<string, ClaseEn
       id: p.id, nombre: p.name, status: p.status, deadline: p.deadline,
       responsable: p.responsible?.trim() || p.resp?.trim() || null,
       actividades: p.subitems.map((s): ActividadCalidad => {
-        const c = calidadActividadCku(s);
+        const c = calidadActividadCkuResp(s, reproceso);
         return {
           id: s.id, nombre: s.name, status: s.status, deadline: s.deadline ?? null, cierre: s.actualEnd ?? null,
           nuevaFecha: s.newLimitDate ?? null, responsable: s.responsible?.trim() || null,
-          nota: c?.nota ?? null, motivo: c?.motivo ?? null,
+          nota: c?.nota ?? null, motivo: c?.motivo ?? null, excusada: c?.excusada ?? false,
         };
       }).sort(porFechaLimite),
     });
@@ -320,7 +334,8 @@ export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap
 /** Detalle de Calidad de Entregas de un CKU (misma convención de mapas que detalleCumplimiento).
  *  PML e Iniciativas valen 100 si su responsable no es el CKU y 0 si lo es (o no hay nadie asignado).
  *  Proyectos: cada actividad a cargo del CKU, de sus entregables de la Fase 3, vale 100 o 0 por sus
- *  fechas (ver calidadActividadCku); las que aún no se miden no son unidades. */
+ *  fechas (ver calidadActividadCku); las que aún no se miden no son unidades, y las de calidad 0 a las que un
+ *  Admin les eligió un responsable ≠ CKU (clave: su id en `reproceso`) quedan excusadas: no cuentan. */
 export function detalleCalidad(s: Scope & { cku: string }, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
   const unidades = buildReprocesoRows(s.req, [], s.projBoards, reproceso, s.ini).map((r): UnidadMedida => {
     const nota = notaCalidadCku(r.id, reproceso);
@@ -332,14 +347,14 @@ export function detalleCalidad(s: Scope & { cku: string }, reproceso: DelayMap, 
     };
   });
 
-  const proyectosCalidad = armarProyectosCalidad(entregablesDelCku(s.proj, s.cku), clases);
+  const proyectosCalidad = armarProyectosCalidad(entregablesDelCku(s.proj, s.cku), reproceso, clases);
   for (const proy of proyectosCalidad) {
     for (const it of proy.items) {
       for (const a of it.actividades) {
         if (a.nota === null) continue;
         unidades.push({
           id: a.id, fuente: "proj", fuenteEvm: fuenteDeClase(proy.clase), nombre: a.nombre, fase: it.nombre, proyecto: proy.proyecto,
-          estado: a.nota === 100 ? "ok" : "atraso", cuenta: true, valor: a.nota / 100, nota: a.nota, responsable: null,
+          estado: a.nota === 100 ? "ok" : a.excusada ? "excusado" : "atraso", cuenta: !a.excusada, valor: a.nota / 100, nota: a.nota, responsable: null,
         });
       }
     }

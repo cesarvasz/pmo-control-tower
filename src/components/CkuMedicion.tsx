@@ -8,22 +8,23 @@
 // Se lee como un acordeón, todo plegado al inicio: en Proyectos (Cumplimiento y Calidad) proyecto (Fase 3) →
 // items → actividades. Se listan las unidades que ENTRAN en la nota, así que cada etiqueta cuadra con el %
 // de su fuente; en Cumplimiento también se ven las actividades excusadas (con su etiqueta «no cuenta») y,
-// en ambos, cuántas quedan pendientes / sin medir.
+// en ambos, cuántas quedan en proceso. Cada estado se lee solo Cumplido / Incumplido (gris = En Proceso).
 
+import { colorIndicadorCku, tonoIndicadorCku } from "@/lib/kpi";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pill, type Tone } from "@/components/ui";
+import CkuResponsableSelect from "@/components/CkuResponsableSelect";
 import { fmtDate } from "@/lib/business";
 import { contarActividades, contarCalidad, detalleCalidad, detalleCumplimiento, FUENTE_LABEL, fuenteEvmLabel, type ActividadCalidad, type ActividadCumplimiento, type DetalleMedicion, type FuenteMedida, type ItemCalidad, type ItemCumplimiento, type ProyectoCalidadCku, type ProyectoCumplimiento, type UnidadMedida } from "@/lib/ckuDetalle";
 import type { Clase } from "@/lib/claseProyecto";
 import type { MotivoCalidadActividad } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { EVM_PESOS_TXT, FUENTES_EVM } from "@/lib/health";
 import type { CkuScope } from "@/lib/players";
 import type { ClaseEntry } from "@/types";
 
 const ORDEN: FuenteMedida[] = ["proj", "req", "ini"];
-const pctColor = (p: number | null) => (p === null ? "#6b7280" : p >= 90 ? "var(--ok)" : p >= 75 ? "var(--warn)" : "var(--bad)");
-const pesoTxt = (w: number) => `${Math.round(w * 1000) / 10}%`;
+// Indicadores del CKU: 100 % verde · 95–99 amarillo · menos de 95 rojo, y ninguno pasa de 100 % (ver tonoIndicadorCku).
+const pctColor = (p: number | null) => (p === null ? "#6b7280" : colorIndicadorCku(p));
 
 export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, reprocesoOriginal, clases, mesLabel }: {
   scope: CkuScope;
@@ -37,78 +38,32 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
   const cumplimiento = useMemo(() => detalleCumplimiento(scope, delays, delaysOriginal, clases), [scope, delays, delaysOriginal, clases]);
   const calidad = useMemo(() => detalleCalidad(scope, reproceso, reprocesoOriginal, clases), [scope, reproceso, reprocesoOriginal, clases]);
   const sufijo = mesLabel ? ` · ${mesLabel}` : "";
-  const notaMes = mesLabel ? ` Filtrado a ${mesLabel}: solo las actividades con Limit Date en ese mes; PML e Iniciativas no se filtran por mes.` : "";
 
   return (
     <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t p-4 lg:grid-cols-2" style={{ borderColor: "var(--border)" }}>
-      <Panel
-        titulo={`Cumplimiento de Entrega${sufijo}`} medida="% a tiempo" detalle={cumplimiento}
-        notaProyectos={`En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad ya cerrada y las pendientes no cuentan.${notaMes}`}
-        regla="Un atraso no penaliza al CKU si tiene un responsable asignado distinto de CKU; sin asignar (o CKU) penaliza. Una Iniciativa, un PML o una actividad con un atraso así no se cuenta. En Proyectos el responsable se asigna por fase, y las actividades excusadas se listan marcadas «no cuenta»."
-      />
-      <Panel
-        titulo={`Calidad de Entregas${sufijo}`} medida="nota promedio" esCalidad detalle={calidad}
-        notaProyectos={`En Proyectos solo cuentan los entregables (items) de la Fase 3 (Launch) a cargo del CKU, de los proyectos con plantilla nueva, y dentro de ellos sus actividades; la unidad es cada actividad y se mide por sus fechas.${notaMes}`}
-        regla="PML e Iniciativas valen 100 si tienen un responsable asignado distinto de CKU y 0 si el responsable es el CKU o todavía no tienen (sin asignar penaliza). Una actividad de Proyecto vale 1 si cerró en o antes de su Limit Date, y 0 si tiene New Limit Date o cerró después de su Limit Date. Solo cuenta lo completado: las demás (Working on it, Future Steps, Stuck…) todavía no se miden."
-      />
+      <Panel titulo={`Cumplimiento de Entrega${sufijo}`} detalle={cumplimiento} />
+      <Panel titulo={`Calidad de Entregas${sufijo}`} esCalidad detalle={calidad} />
     </div>
   );
 }
 
-function Panel({ titulo, medida, esCalidad = false, notaProyectos, detalle, regla }: {
-  titulo: string; medida: string; esCalidad?: boolean;
-  /** Cómo se miden los Proyectos en este panel — se avisa en negritas en el encabezado. */
-  notaProyectos: string;
-  detalle: DetalleMedicion; regla: string;
+function Panel({ titulo, esCalidad = false, detalle }: {
+  titulo: string; esCalidad?: boolean; detalle: DetalleMedicion;
 }) {
-  // Solo lo que entra en la nota: un atraso excusado (PML, Iniciativa o actividad) no suma ni resta.
-  const unidades = detalle.unidades.filter((u) => u.cuenta);
+  // Lo que entra en la nota y, en Cumplimiento, los atrasos excusados de PML e Iniciativas: no suman ni restan, pero se
+  // listan para poder cambiarles el responsable (si no, al excusarlos desaparecerían y no se podrían revertir).
+  const unidades = detalle.unidades.filter((u) => u.cuenta || (!esCalidad && u.estado === "excusado"));
   // Proyectos: el árbol proyecto → item → actividad (incluye lo que no cuenta / aún no se mide).
   const arbol: ProyectoCumplimiento[] = esCalidad ? [] : detalle.proyectos ?? [];
   const arbolCalidad: ProyectoCalidadCku[] = esCalidad ? detalle.proyectosCalidad ?? [] : [];
   return (
     <div className="min-w-0">
-      <div className="mb-1 flex items-baseline gap-2">
+      <div className="mb-2 flex items-baseline gap-2">
         <span className="text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{titulo}</span>
         <span className="text-[1.05rem] font-extrabold tabular-nums" style={{ color: pctColor(detalle.pct) }}>
-          {detalle.pct !== null ? `${detalle.pct}%` : "—"}
+          {detalle.pct !== null ? `${Math.min(detalle.pct, 100)}%` : "—"}
         </span>
       </div>
-      <p className="mb-2 text-[0.68rem] leading-snug text-[var(--text-muted)]">
-        Medido como el EVM: cada fuente saca su {medida} y se combinan {EVM_PESOS_TXT} (la clase que se le asigna a
-        cada Proyecto y PML en Calidad &amp; Cumplimiento → Clasificación).
-        El peso de una fuente sin unidades se reparte entre las demás, y lo que no tiene clase no pesa.
-        <strong className="font-semibold text-[var(--text-secondary)]"> {notaProyectos}</strong>
-      </p>
-
-      {/* Peso real y resultado de cada fuente */}
-      <ul className="mb-3 space-y-0.5 text-[0.76rem]">
-        {FUENTES_EVM.map((f) => {
-          const r = detalle.fuentes.find((x) => x.fuente === f)!;
-          return (
-            <li key={f} className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-semibold text-[var(--text-primary)]">{r.label}</span>
-              {r.total === 0 ? (
-                <span className="text-[var(--text-disabled)]">sin unidades · no pesa</span>
-              ) : (
-                <>
-                  <span className="text-[var(--text-muted)]">pesa {pesoTxt(r.pesoEfectivo ?? 0)}</span>
-                  <span className="text-[var(--text-secondary)]">
-                    {esCalidad ? `${r.total} unidades · ${r.buenas} con nota 100` : `${r.buenas} de ${r.total} a tiempo`}
-                  </span>
-                  <span className="font-bold tabular-nums" style={{ color: pctColor(r.pct) }}>{r.pct}{esCalidad ? "" : "%"}</span>
-                </>
-              )}
-            </li>
-          );
-        })}
-        {detalle.sinClase > 0 && (
-          <li className="flex flex-wrap items-baseline gap-x-2">
-            <span className="font-semibold text-[var(--text-primary)]">Sin clasificar</span>
-            <span className="text-[var(--text-muted)]">{detalle.sinClase} {detalle.sinClase === 1 ? "unidad" : "unidades"} · no pesa hasta que se le asigne una clase</span>
-          </li>
-        )}
-      </ul>
 
       {/* Unidades que entran, agrupadas por qué son (Iniciativa, PML o Proyecto) */}
       {unidades.length === 0 && arbol.length === 0 && arbolCalidad.length === 0 ? (
@@ -119,9 +74,11 @@ function Panel({ titulo, medida, esCalidad = false, notaProyectos, detalle, regl
             const us = unidades.filter((u) => u.fuente === f);
             const nProyectos = f === "proj" ? arbol.length + arbolCalidad.length : 0;
             if (us.length === 0 && nProyectos === 0) return null;
+            const nCuentan = us.filter((u) => u.cuenta).length;
+            const nExcusadas = us.length - nCuentan;
             const encabezado = nProyectos > 0
-              ? `${nProyectos} ${nProyectos === 1 ? "proyecto" : "proyectos"} · ${us.length} ${us.length === 1 ? "actividad" : "actividades"} que cuentan`
-              : String(us.length);
+              ? `${nProyectos} ${nProyectos === 1 ? "proyecto" : "proyectos"} · ${nCuentan} ${nCuentan === 1 ? "actividad" : "actividades"} que cuentan`
+              : `${nCuentan}${nExcusadas > 0 ? ` · ${nExcusadas} ${nExcusadas === 1 ? "excusada" : "excusadas"}` : ""}`;
             return (
               <section key={f}>
                 <div className="mb-1 text-[0.62rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">
@@ -151,7 +108,6 @@ function Panel({ titulo, medida, esCalidad = false, notaProyectos, detalle, regl
           })}
         </div>
       )}
-      <p className="mt-2 text-[0.64rem] leading-snug text-[var(--text-disabled)]">{regla}</p>
     </div>
   );
 }
@@ -159,9 +115,12 @@ function Panel({ titulo, medida, esCalidad = false, notaProyectos, detalle, regl
 // ── Acordeón ──────────────────────────────────────────────────────────
 
 const resp = (r: string | null) => (r ? `Resp.: ${r}` : "sin responsable");
-const tone = (e: ActividadCumplimiento["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : "neutral");
+// Los estados se leen SOLO «Cumplido», «Incumplido» o «En Proceso» (gris), sin más palabras. Un incumplido excusado (su
+// responsable no es el CKU) sigue diciendo «Incumplido», en ámbar, y su tooltip aclara que no cuenta.
+const NO_CUENTA = "No cuenta en la nota: su responsable no es el CKU";
+const tone = (e: ActividadCumplimiento["estado"]): Tone => (e === "atraso" ? "bad" : e === "ok" ? "ok" : e === "excusado" ? "warn" : "neutral");
 const txt = (e: ActividadCumplimiento["estado"]) =>
-  e === "atraso" ? "✕ Con atraso" : e === "ok" ? "✓ A tiempo" : e === "excusado" ? "Excusado · no cuenta" : "• Pendiente · no cuenta";
+  e === "ok" ? "Cumplido" : e === "atraso" || e === "excusado" ? "Incumplido" : "En Proceso";
 const unidos = (partes: (string | false | null | undefined)[]) => partes.filter(Boolean).join(" · ");
 const claseTxt = (c: Clase) => (c === "Sin clasificar" ? c : `Clase ${c}`);
 
@@ -235,7 +194,7 @@ function Fila({ cabecera, hijos }: { cabecera: ReactNode; hijos?: ReactNode }) {
 
 // ── Unidades ──────────────────────────────────────────────────────────
 
-/** Un PML o una Iniciativa de Cumplimiento (una sola unidad cada uno; los atrasos excusados ya no llegan aquí). */
+/** Un PML o una Iniciativa de Cumplimiento (una sola unidad cada uno; un atraso excusado también se lista, sin contar). */
 function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
   const aTiempo = u.estado === "ok";
   return (
@@ -244,8 +203,10 @@ function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
         <Cabecera
           nivel={0} titulo={u.nombre} detalle={unidos([u.fase, u.fuente === "req" && fuenteEvmLabel(u.fuenteEvm)])}
           derecha={<>
-            <Pill tone={aTiempo ? "ok" : "bad"} small>{aTiempo ? "✓ A tiempo" : "✕ Con atraso"}</Pill>
-            {!aTiempo && <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>}
+            <Pill tone={aTiempo ? "ok" : u.estado === "excusado" ? "warn" : "bad"} small title={u.estado === "excusado" ? NO_CUENTA : undefined}>
+              {aTiempo ? "Cumplido" : "Incumplido"}
+            </Pill>
+            {!aTiempo && <CkuResponsableSelect itemId={u.id} kind="delay-cku" heredado={u.responsable} incumplido />}
           </>}
         />
       }
@@ -253,12 +214,12 @@ function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
   );
 }
 
-/** Un proyecto: su % a tiempo (solo con las actividades que cuentan) y, al abrirlo, sus items. */
+/** Un proyecto: su % cumplido (solo con las actividades que cuentan) y, al abrirlo, sus items. */
 function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
   const c = contarActividades(p.items);
   const cuentan = c.ok + c.atraso;
   const pct = cuentan > 0 ? Math.round((c.ok / cuentan) * 100) : null;
-  const t: Tone = pct === null ? "neutral" : pct >= 90 ? "ok" : pct >= 75 ? "warn" : "bad";
+  const t: Tone = pct === null ? "neutral" : tonoIndicadorCku(pct);
   return (
     <Fila
       cabecera={
@@ -266,9 +227,9 @@ function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
           nivel={0} titulo={p.proyecto}
           detalle={unidos([
             claseTxt(p.clase),
-            `${p.items.length} ${p.items.length === 1 ? "item" : "items"}`, `${c.ok} de ${cuentan} a tiempo`,
+            `${p.items.length} ${p.items.length === 1 ? "item" : "items"}`, `${c.ok} de ${cuentan} cumplidas`,
             c.excusado > 0 && `${c.excusado} ${c.excusado === 1 ? "excusada" : "excusadas"}`,
-            c.pendiente > 0 && `${c.pendiente} ${c.pendiente === 1 ? "pendiente" : "pendientes"}`,
+            c.pendiente > 0 && `${c.pendiente} en proceso`,
           ])}
           derecha={<>
             <Pill tone={t} small>{pct === null ? "—" : `${pct}%`}</Pill>
@@ -276,60 +237,67 @@ function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
           </>}
         />
       }
-      hijos={p.items.map((it) => <ItemCumplimientoFila key={it.id} it={it} />)}
+      hijos={p.items.map((it) => <ItemCumplimientoFila key={it.id} it={it} heredado={p.responsableFase} />)}
     />
   );
 }
 
 /** Un item (entregable) de la Fase 3: no es unidad, agrupa sus actividades. Las pendientes no se listan, solo se cuentan. */
-function ItemCumplimientoFila({ it }: { it: ItemCumplimiento }) {
+function ItemCumplimientoFila({ it, heredado }: { it: ItemCumplimiento; heredado: string | null }) {
   const c = contarActividades([it]);
   const cuentan = c.ok + c.atraso;
   const visibles = it.actividades.filter((a) => a.estado !== "pendiente");
-  const resultado = c.atraso > 0 ? <Pill tone="bad" small>{`✕ ${c.atraso} con atraso`}</Pill>
-    : cuentan > 0 ? <Pill tone="ok" small>✓ A tiempo</Pill>
-    : c.excusado > 0 ? <Pill tone="neutral" small>Excusado</Pill>
-    : <Pill tone="neutral" small>• Sin cerrar</Pill>;
+  const resultado = c.atraso > 0 ? <Pill tone="bad" small>Incumplido</Pill>
+    : cuentan > 0 ? <Pill tone="ok" small>Cumplido</Pill>
+    : c.excusado > 0 ? <Pill tone="warn" small title={NO_CUENTA}>Incumplido</Pill>
+    : <Pill tone="neutral" small>En Proceso</Pill>;
   return (
     <Fila
       cabecera={
         <Cabecera
           nivel={1} titulo={it.nombre}
           detalle={unidos([
-            it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, `${c.ok} de ${cuentan} a tiempo`,
-            c.pendiente > 0 && `${c.pendiente} ${c.pendiente === 1 ? "pendiente" : "pendientes"}`,
+            it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, `${c.ok} de ${cuentan} cumplidas`,
+            c.pendiente > 0 && `${c.pendiente} en proceso`,
           ])}
           responsable={it.responsable}
           derecha={resultado}
         />
       }
-      hijos={visibles.length > 0 ? visibles.map((a) => <ActividadFila key={a.id} a={a} />) : undefined}
+      hijos={visibles.length > 0 ? visibles.map((a) => <ActividadFila key={a.id} a={a} heredado={heredado} />) : undefined}
     />
   );
 }
 
-/** Una actividad (subitem): la unidad que se mide. */
-function ActividadFila({ a }: { a: ActividadCumplimiento }) {
+/** Una actividad (subitem): la unidad que se mide. `heredado` es el responsable de su fase, el que manda mientras un
+ *  Admin no le elija uno a la actividad. */
+function ActividadFila({ a, heredado }: { a: ActividadCumplimiento; heredado: string | null }) {
   return (
     <Fila
       cabecera={
         <Cabecera
           nivel={2} titulo={a.nombre}
-          detalle={unidos([a.status, a.deadline && `límite ${fmtDate(a.deadline)}`, a.cierre && `cerró ${fmtDate(a.cierre)}`, a.ajustada && "ajustada a mano a «a tiempo»"])}
+          detalle={unidos([a.status, a.deadline && `límite ${fmtDate(a.deadline)}`, a.cierre && `cerró ${fmtDate(a.cierre)}`,
+            a.nuevaFecha && `nueva fecha ${fmtDate(a.nuevaFecha)}`, a.porNuevaFecha && "cumple por su nueva fecha", a.ajustada && "ajustada a mano a «cumplida»"])}
           responsable={a.responsable}
-          derecha={<Pill tone={tone(a.estado)} small>{txt(a.estado)}</Pill>}
+          derecha={<>
+            <Pill tone={tone(a.estado)} small title={a.estado === "excusado" ? NO_CUENTA : undefined}>{txt(a.estado)}</Pill>
+            {(a.estado === "atraso" || a.estado === "excusado") && (
+              <CkuResponsableSelect itemId={a.id} kind="delay-cku" heredado={heredado} incumplido />
+            )}
+          </>}
         />
       }
     />
   );
 }
 
-/** Un proyecto en Calidad: su nota (% de actividades con calidad 1 entre las que ya se miden) y, al abrirlo, sus items. */
+/** Un proyecto en Calidad: su nota (% de actividades cumplidas entre las que ya se miden) y, al abrirlo, sus items. */
 function ProyectoCalidadFila({ p }: { p: ProyectoCalidadCku }) {
   const c = contarCalidad(p.items);
   const medidas = c.buenas + c.malas;
   const nota = medidas > 0 ? Math.round((c.buenas / medidas) * 100) : null;
-  const t: Tone = nota === null ? "neutral" : nota >= 90 ? "ok" : nota >= 75 ? "warn" : "bad";
+  const t: Tone = nota === null ? "neutral" : tonoIndicadorCku(nota);
   return (
     <Fila
       cabecera={
@@ -337,8 +305,9 @@ function ProyectoCalidadFila({ p }: { p: ProyectoCalidadCku }) {
           nivel={0} titulo={p.proyecto}
           detalle={unidos([
             claseTxt(p.clase),
-            `${p.items.length} ${p.items.length === 1 ? "item" : "items"}`, `${c.buenas} de ${medidas} con calidad 1`,
-            c.sinMedir > 0 && `${c.sinMedir} sin medir`,
+            `${p.items.length} ${p.items.length === 1 ? "item" : "items"}`, `${c.buenas} de ${medidas} cumplidas`,
+            c.excusadas > 0 && `${c.excusadas} ${c.excusadas === 1 ? "excusada" : "excusadas"}`,
+            c.sinMedir > 0 && `${c.sinMedir} en proceso`,
           ])}
           derecha={<>
             <Pill tone={t} small>{nota === null ? "—" : nota}</Pill>
@@ -356,17 +325,19 @@ function ItemCalidadFila({ it }: { it: ItemCalidad }) {
   const c = contarCalidad([it]);
   const medidas = c.buenas + c.malas;
   const visibles = it.actividades.filter((a) => a.nota !== null);
-  const resultado = c.malas > 0 ? <Pill tone="bad" small>{`✕ ${c.malas} con calidad 0`}</Pill>
-    : c.buenas > 0 ? <Pill tone="ok" small>✓ Calidad 1</Pill>
-    : <Pill tone="neutral" small>• Sin medir</Pill>;
+  const resultado = c.malas > 0 ? <Pill tone="bad" small>Incumplido</Pill>
+    : c.buenas > 0 ? <Pill tone="ok" small>Cumplido</Pill>
+    : c.excusadas > 0 ? <Pill tone="warn" small title={NO_CUENTA}>Incumplido</Pill>
+    : <Pill tone="neutral" small>En Proceso</Pill>;
   return (
     <Fila
       cabecera={
         <Cabecera
           nivel={1} titulo={it.nombre}
           detalle={unidos([
-            it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, `${c.buenas} de ${medidas} con calidad 1`,
-            c.sinMedir > 0 && `${c.sinMedir} sin medir`,
+            it.status, it.deadline && `límite ${fmtDate(it.deadline)}`, `${c.buenas} de ${medidas} cumplidas`,
+            c.excusadas > 0 && `${c.excusadas} ${c.excusadas === 1 ? "excusada" : "excusadas"}`,
+            c.sinMedir > 0 && `${c.sinMedir} en proceso`,
           ])}
           responsable={it.responsable}
           derecha={resultado}
@@ -377,8 +348,9 @@ function ItemCalidadFila({ it }: { it: ItemCalidad }) {
   );
 }
 
+/** Por qué vale lo que vale: va en el tooltip del estado, no en su texto. */
 const MOTIVO_CALIDAD: Record<MotivoCalidadActividad, string> = {
-  "a-tiempo": "1 · cerró a tiempo", "ajuste": "1 · ajustada a mano", "nueva-fecha": "0 · nueva fecha límite", "tarde": "0 · cerró tarde",
+  "a-tiempo": "Cerró a tiempo", "ajuste": "Ajustada a mano", "nueva-fecha": "Tiene nueva fecha límite", "tarde": "Cerró tarde",
 };
 
 /** Una actividad (subitem) con su calidad (1 o 0) y por qué: la unidad que se mide. */
@@ -393,7 +365,15 @@ function ActividadCalidadFila({ a }: { a: ActividadCalidad }) {
             a.nuevaFecha && `nueva fecha ${fmtDate(a.nuevaFecha)}`,
           ])}
           responsable={a.responsable}
-          derecha={<Pill tone={a.nota === 100 ? "ok" : "bad"} small>{a.motivo ? MOTIVO_CALIDAD[a.motivo] : "Sin medir"}</Pill>}
+          derecha={<>
+            <Pill
+              tone={a.nota === 100 ? "ok" : a.excusada ? "warn" : a.nota === 0 ? "bad" : "neutral"} small
+              title={a.excusada ? NO_CUENTA : a.motivo ? MOTIVO_CALIDAD[a.motivo] : undefined}
+            >
+              {a.nota === 100 ? "Cumplido" : a.nota === 0 ? "Incumplido" : "En Proceso"}
+            </Pill>
+            {a.nota === 0 && <CkuResponsableSelect itemId={a.id} kind="reproceso-cku" heredado={null} incumplido />}
+          </>}
         />
       }
     />
@@ -409,8 +389,8 @@ function UnidadCalidad({ u }: { u: UnidadMedida }) {
         <Cabecera
           nivel={0} titulo={u.nombre} detalle={unidos([u.fase, u.fuente === "req" && fuenteEvmLabel(u.fuenteEvm)])}
           derecha={<>
-            <Pill tone={t} small>{u.nota}</Pill>
-            <span className="block text-[0.62rem] text-[var(--text-muted)]">{resp(u.responsable)}</span>
+            <Pill tone={t} small>{u.nota === 100 ? "Cumplido" : "Incumplido"}</Pill>
+            <CkuResponsableSelect itemId={u.id} kind="reproceso-cku" heredado={u.responsable} incumplido={u.nota !== 100} />
           </>}
         />
       }

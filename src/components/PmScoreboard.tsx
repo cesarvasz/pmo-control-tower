@@ -9,7 +9,7 @@ import { calcPmMetrics, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
 import { healthStatusFromIndex, EVM_PESOS_TXT, HEALTH_CFG } from "@/lib/health";
 import { npsCfg } from "@/lib/nps";
-import { kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion, KPI_W, type KpiWeights } from "@/lib/kpi";
+import { kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion, KPI_W, type KpiWeights, colorIndicadorCku } from "@/lib/kpi";
 
 // Meses YA terminados del año (el en curso no cuenta) — base de la meta del Confirmado.
 const mesesTerminados = () => today().getMonth();
@@ -22,6 +22,7 @@ import type { BoardHealthData } from "@/lib/proj";
 import type { CalMap, ClaseEntry, IniItem, NpsRecord, ProjBoard, ProjItem, ReqItem } from "@/types";
 import KpiModal from "@/components/KpiModal";
 import PMValueModal from "@/components/PMValueModal";
+import BeneficioCkuModal from "@/components/BeneficioCkuModal";
 
 // Paleta por rangos para el número "Player" (KPI) del scoreboard — los mismos rangos
 // que la tabla "Monto máximo de pago de BPP":
@@ -37,7 +38,10 @@ export function playerPalette(pct: number): { bg: string; fg: string } {
 // Scoreboard comparativo de PMs: tabla ordenada por KPI (desc). KPI y $ abren su detalle.
 type PmRow = ReturnType<typeof calcPmMetrics>;
 
-export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, clases, getRow, cargando, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W, ponderadoPorFuente = false }: {
+/** Porcentaje entero de un ratio (0.224 → «22%»), o «—» si no hay. Nunca pasa de 100 %. */
+const pctMes = (r: number | null) => (r == null ? "—" : `${Math.min(Math.round(r * 100), 100)}%`);
+
+export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHealthMap, calMap, npsRecords, delays, reproceso, metodologia, confirmacionRoiPm, clases, getRow, ckuBeneficio, cargando, nameHeader = "Portafolio · PM", label = pmLabel, subtitle, weights = KPI_W, ponderadoPorFuente = false }: {
   /** Calidad y Cumplimiento se midieron como el EVM (Iniciativas y Clases A/B/C con los pesos del EVM) — solo cambia el texto de ayuda. */
   ponderadoPorFuente?: boolean;
   /** Clase A/B/C asignada a Proyectos y PML: reparte el EVM de cada PM en sus fuentes por clase. */
@@ -52,6 +56,13 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
   confirmacionRoiPm?: Record<string, ConfirmacionRoiPm>;
   /** Calcula la fila de un player con datos propios (p. ej. recortados por CKU). Por defecto: calcPmMetrics sobre los datos completos. */
   getRow?: (pm: string) => PmRow;
+  /** Solo Players por CKU: con esto el clic en el Beneficio abre el popup del CKU (BeneficioCkuModal) en vez del Costo & Beneficio de Monday. */
+  ckuBeneficio?: {
+    /** Mes («yyyy-MM») del Beneficio y de las cuentas a implementar. */
+    mes: string;
+    /** ¿Este CKU lleva Implementación (Beneficio = cumplido ÷ meta de Implementación y Ducafast Mesa 2)? */
+    conImplementacion: (cku: string) => boolean;
+  };
   /** ¿Este player aún espera datos que cambian su Beneficio (ROI, Implementación)? Mientras sí, su Beneficio y su
    *  Player salen como esqueleto en vez del valor provisional, y la tabla no se ordena para que las filas no salten. */
   cargando?: (pm: string) => boolean;
@@ -99,10 +110,14 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
           {rows.map((r, i) => {
             const player = playerPalette(r.kpiPct);
             const evmStatus = healthStatusFromIndex(r.evmRaw);
-            const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
+            // Indicadores de un CKU (Players): 100 % verde · 95–99 amarillo · menos de 95 rojo, y ninguno pasa de 100 %.
+            // En el Control Tower (PM) se conservan las escalas de siempre. El Player y el NPS no cambian.
+            const cku = ponderadoPorFuente;
+            const evmColor = cku && r.evmPct !== null ? colorIndicadorCku(r.evmPct) : evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
             const npsColor = npsCfg(r.nps.nps)?.color ?? "#6b7280";
-            const entColor = r.entPct === null ? "#6b7280" : r.entPct >= 90 ? "var(--ok)" : r.entPct >= 75 ? "var(--warn)" : "var(--bad)";
-            const repColor = r.reprocesoPct === null ? "#6b7280" : r.reprocesoPct >= 90 ? "var(--ok)" : r.reprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+            const entColor = r.entPct === null ? "#6b7280" : cku ? colorIndicadorCku(r.entPct) : r.entPct >= 90 ? "var(--ok)" : r.entPct >= 75 ? "var(--warn)" : "var(--bad)";
+            const repColor = r.reprocesoPct === null ? "#6b7280" : cku ? colorIndicadorCku(r.reprocesoPct) : r.reprocesoPct >= 90 ? "var(--ok)" : r.reprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+            const tope = (p: number) => (cku ? Math.min(p, 100) : p);
             // Peso ganado por cada métrica = logro × peso (aporte al KPI del PM).
             const pts = (key: string) => {
               const c = r.kpi.components.find((x) => x.key === key);
@@ -133,7 +148,7 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                 </td>
                 {/* EVM (peso 25) */}
                 <td className={`${td} text-center`}>
-                  <div className="tabular-nums font-bold" style={{ color: evmColor }}>{r.evmPct !== null ? `${r.evmPct}%` : "—"}</div>
+                  <div className="tabular-nums font-bold" style={{ color: evmColor }}>{r.evmPct !== null ? `${tope(r.evmPct)}%` : "—"}</div>
                   {r.evmPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("evm")} pts</div>}
                 </td>
                 {/* Beneficio HardSaving confirmado (peso 25) */}
@@ -146,6 +161,17 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                     </div>
                   ) : (
                     <div className="reveal">
+                      {r.beneficioCku?.metricasMes ? (
+                        /* CKU que lleva Implementación: su Beneficio es lo cumplido ÷ la meta de Implementación y Ducafast Mesa 2 juntas; solo el % y los pts. */
+                        <button
+                          onClick={() => setValuePm(r.pm)}
+                          title={`Implementación ${pctMes(r.beneficioCku.metricasMes.pctImplementacion)} · Ducafast Mesa 2 ${pctMes(r.beneficioCku.metricasMes.pctDucafast)} · clic para ver el detalle`}
+                          className="text-[0.95rem] leading-none tabular-nums font-bold transition-colors hover:underline"
+                          style={{ color: r.beneficioCku.metricasMes.pctTotal == null ? "var(--text-muted)" : colorIndicadorCku(Math.round(r.beneficioCku.metricasMes.pctTotal * 100)) }}
+                        >
+                          {pctMes(r.beneficioCku.metricasMes.pctTotal)}
+                        </button>
+                      ) : (
                       <button
                         onClick={() => setValuePm(r.pm)}
                         title={r.beneficioCku
@@ -155,8 +181,9 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                       >
                         {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados). En un CKU: su meta arriba y lo cumplido abajo (semáforo vs. esa meta). */}
                         <span style={{ color: "var(--text-primary)" }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.metaTotal : r.benefit)}</span>
-                        <span style={{ color: kpiColorFor(r.beneficioCku ? r.beneficioCku.logro : ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.real : r.pmValueHard.confirmacionBenefit)}</span>
+                        <span style={{ color: r.beneficioCku ? colorIndicadorCku(Math.round(r.beneficioCku.logro * 100)) : kpiColorFor(ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.real : r.pmValueHard.confirmacionBenefit)}</span>
                       </button>
+                      )}
                       <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
                     </div>
                   )}
@@ -168,18 +195,18 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                 </td>
                 {/* Calidad de Entregas — reproceso (peso 10) */}
                 <td className={`${td} text-center`} title={r.reprocesoPct === null ? "Sin unidades en scope (no aplica)" : ponderadoPorFuente ? `${POR_FUENTE_TIP("nota promedio de Calidad")}. Cada unidad vale 100 si su responsable no es el CKU y 0 si lo es o no tiene. En Proyectos solo cuenta la Fase 3 (Launch) de los proyectos con plantilla nueva` : "% de unidades limpias (PML cerrados + fases completadas) sin reproceso imputable al PM"}>
-                  <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${r.reprocesoPct}%` : "—"}</div>
+                  <div className="tabular-nums font-bold" style={{ color: repColor }}>{r.reprocesoPct !== null ? `${tope(r.reprocesoPct)}%` : "—"}</div>
                   {r.reprocesoPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("reproceso")} pts</div>}
                 </td>
                 {/* Cumplimiento de Entrega — % a tiempo (peso 10) */}
-                <td className={`${td} text-center`} title={ponderadoPorFuente && r.entPct !== null ? `${POR_FUENTE_TIP("% a tiempo")}. En Proyectos solo cuenta la Fase 3 (Launch) de los proyectos con plantilla nueva` : undefined}>
-                  <div className="tabular-nums font-bold" style={{ color: entColor }}>{r.entPct !== null ? `${r.entPct}%` : "—"}</div>
+                <td className={`${td} text-center`} title={ponderadoPorFuente && r.entPct !== null ? `${POR_FUENTE_TIP("% cumplido")}. En Proyectos solo cuenta la Fase 3 (Launch) de los proyectos con plantilla nueva` : undefined}>
+                  <div className="tabular-nums font-bold" style={{ color: entColor }}>{r.entPct !== null ? `${tope(r.entPct)}%` : "—"}</div>
                   {r.entPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("entregas")} pts</div>}
                 </td>
                 {/* Cumplimiento Metodología VALOR — nota vigente del mes en curso (peso 15) */}
                 {weights.metodologia > 0 && (
                   <td className={`${td} text-center`} title={r.metodologiaPct === null ? "Sin medición todavía" : "Nota de Metodología VALOR vigente (la del mes en curso)"}>
-                    <div className="tabular-nums font-bold" style={{ color: r.metodologiaPct === null ? "#6b7280" : r.metodologiaPct >= 90 ? "var(--ok)" : r.metodologiaPct >= 75 ? "var(--warn)" : "var(--bad)" }}>{r.metodologiaPct !== null ? `${r.metodologiaPct}%` : "—"}</div>
+                    <div className="tabular-nums font-bold" style={{ color: r.metodologiaPct === null ? "#6b7280" : cku ? colorIndicadorCku(r.metodologiaPct) : r.metodologiaPct >= 90 ? "var(--ok)" : r.metodologiaPct >= 75 ? "var(--warn)" : "var(--bad)" }}>{r.metodologiaPct !== null ? `${tope(r.metodologiaPct)}%` : "—"}</div>
                     {r.metodologiaPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("metodologia")} pts</div>}
                   </td>
                 )}
@@ -192,9 +219,14 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
       {openKpi && (
         <KpiModal title={`KPI · ${openKpi.pm}`} pct={openKpi.kpiPct} achievable={openKpi.kpi.achievable} pendingWeight={100 - openKpi.kpi.achievable} color={kpiColorFor(openKpi.kpi.ratio)} components={openKpi.kpi.components} onClose={() => setKpiPm(null)} />
       )}
-      {openValue && (
-        <PMValueModal pm={openValue.pm} valueAll={openValue.pmValueAll} valueHard={openValue.pmValueHard} initialHard={true} onClose={() => setValuePm(null)} weights={weights} beneficioCku={openValue.beneficioCku} />
-      )}
+      {openValue && (openValue.beneficioCku && ckuBeneficio ? (
+        <BeneficioCkuModal
+          cku={openValue.pm} beneficioCku={openValue.beneficioCku} etiquetaRoi={openValue.pmValueHard.confirmacionRoi}
+          conImplementacion={ckuBeneficio.conImplementacion(openValue.pm)} mes={ckuBeneficio.mes}
+          onClose={() => setValuePm(null)} />
+      ) : (
+        <PMValueModal pm={openValue.pm} valueAll={openValue.pmValueAll} valueHard={openValue.pmValueHard} initialHard={true} onClose={() => setValuePm(null)} weights={weights} />
+      ))}
     </div>
   );
 }

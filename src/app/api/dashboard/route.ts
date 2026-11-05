@@ -99,19 +99,21 @@ export async function GET(request: Request) {
   // 2. Single Fetch a Monday + sync baselines en Firestore.
   try {
     const data = await fetchDashboardRaw();
-    const [baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, onHold, clases] = await Promise.all([
+    const [baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, ckuDelayAttributions, ckuReprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, onHold, clases] = await Promise.all([
       syncBaselines(data.reqItems),
       syncProjItemBaselines(data.projRaw),
       listNpsRecords(),
       getAttributions("delay"),
       getAttributions("reproceso"),
+      getAttributions("delay-cku"),
+      getAttributions("reproceso-cku"),
       getMetodologiaCalifs(),
       getAtrasoDetalles(),
       getBoardAlcances(),
       getOnHold(),
       getClases(),
     ]);
-    return NextResponse.json({ ...data, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, onHold, clases });
+    return NextResponse.json({ ...data, baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, ckuDelayAttributions, ckuReprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, onHold, clases });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: message }, { status: 500 });

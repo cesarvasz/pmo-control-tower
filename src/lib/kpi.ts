@@ -32,6 +32,7 @@
 
 import { fmtMoney, today } from "@/lib/business";
 import { npsKpiLogro } from "@/lib/nps";
+import type { CuentaImplementacion } from "@/lib/implementaciones";
 
 export const KPI_META = { evm: 1.0, nps: 50, benefitAnnual: 84000, entregas: 1.0, reproceso: 1.0, metodologia: 1.0 };
 export type KpiWeights = { evm: number; nps: number; benefit: number; entregas: number; reproceso: number; metodologia: number };
@@ -115,16 +116,52 @@ export function computeBenefitKpi(
   };
 }
 
+/** Implementación de UN mes, para el CKU que la lleva: su meta y Profit, y (para el detalle del popup)
+ *  las cuentas a implementar que la forman. */
+export interface ImplementacionKpi { mes: string; meta: number; profit: number; objetivo?: number; cuentas?: CuentaImplementacion[] }
+
+/** Uso de Ducafast de UN mes en la Mesa 2 del ROI 003: Files con Ducafast sobre el total de Files. */
+export interface DucafastKpi {
+  mes: string; files: number; filesCon: number;
+  /** Costo total de los Files con / sin Ducafast del mes (el «Costo total» de la pestaña 003); null = sin tiempo medido. */
+  costoCon?: number | null; costoSin?: number | null;
+  /** Costo por File de cada grupo (el «Por File» de la pestaña 003); null = sin tiempo medido. */
+  porFileCon?: number | null; porFileSin?: number | null;
+  /** Meta en dólares: lo que se ahorraría si TODOS los Files del mes fueran Ducafast = total × (sin − con por File).
+   *  Cumplido en dólares: el Beneficio Ducafast = Files con Ducafast × (sin − con por File). null = al mes le falta un grupo. */
+  metaUsd?: number | null; ahorroUsd?: number | null;
+}
+
+/** El Beneficio del CKU que lleva Implementación (Victoria): lo cumplido ÷ la meta del mes, en dólares, sumando
+ *  Implementación y Ducafast Mesa 2. */
+export interface MetricasMesKpi {
+  /** Profit ÷ meta de Implementación del mes; null si el mes no tiene meta. (Solo para mostrar por fila.) */
+  pctImplementacion: number | null;
+  /** Files con Ducafast ÷ total de Files de la Mesa 2 del mes; null si el mes no tiene Files. (Solo para mostrar.) */
+  pctDucafast: number | null;
+  /** Meta del mes: meta de Implementación + meta en dólares de Ducafast Mesa 2 (la que exista). */
+  metaTotal: number;
+  /** Lo cumplido del mes: Profit de Implementación + Beneficio Ducafast (el que exista). */
+  realTotal: number;
+  /** Porcentaje del Beneficio = realTotal ÷ metaTotal, sin tope; null si no hay meta. */
+  pctTotal: number | null;
+}
+
 export interface BenefitKpiCku {
   meta: number;              // Aprobación VPB de sus proyectos y PML HardSaving (sin Implementación)
   benefitConfirmado: number; // lo generado: ROI (o Monday mientras ROI no carga), sin Implementación
   /** Implementación del mes, solo para el CKU que la lleva (ver CKU_CON_IMPLEMENTACION). */
-  implementacion?: { mes: string; meta: number; profit: number };
+  implementacion?: ImplementacionKpi;
   /** La meta contra la que se mide: `meta` + la meta de Implementación del mes. */
   metaTotal: number;
   /** Lo que se lleva cumplido: `benefitConfirmado` + el Profit de Implementación del mes. */
   real: number;
-  /** Cumplimiento de meta: real ÷ metaTotal, con tope en 100%. */
+  /** Solo el CKU que lleva Implementación: su Beneficio es lo cumplido ÷ la meta del mes de Implementación y
+   *  Ducafast Mesa 2 juntas (ver computeBenefitKpiCku). Con esto, `logro` y `total` salen de ahí y no del ROI. */
+  metricasMes?: MetricasMesKpi;
+  /** Los Files de la Mesa 2 del mes de los que sale el % de Ducafast (para el detalle del popup); undefined = el mes no tiene Files. */
+  ducafast?: DucafastKpi;
+  /** Cumplimiento de meta: real ÷ metaTotal, con tope en 100% (con `metricasMes`, su `pctTotal` con tope en 100%). */
   logro: number;
   peso: number;
   /** Puntos del KPI: logro × peso. */
@@ -141,15 +178,33 @@ export interface BenefitKpiCku {
  *     Implementación del mes a la meta y su Profit a lo cumplido.
  * Tope en 100%. Sin meta (nada aprobado ni meta de Implementación) el componente queda pendiente
  * (ver computeKpi).
+ *
+ * Con `ducafast` (undefined = no aplica) el Beneficio es OTRO: lo cumplido ÷ la meta del mes SUMANDO Implementación
+ * (Profit ÷ meta) y Ducafast Mesa 2 (Beneficio Ducafast ÷ meta en dólares: lo que se ahorraría si todos los Files
+ * del mes fueran Ducafast); ya no mira el ROI ni lo aprobado. null = el mes no tiene Files de la Mesa 2 (o le falta
+ * un grupo): suma solo Implementación. El porcentaje se muestra sin tope; los puntos sí lo llevan (100%).
  */
 export function computeBenefitKpiCku(
   meta: number, benefitConfirmado: number, weights: KpiWeights = KPI_W_CKU,
-  implementacion?: { mes: string; meta: number; profit: number },
+  implementacion?: ImplementacionKpi, ducafast?: DucafastKpi | null,
 ): BenefitKpiCku {
   const metaTotal = meta + (implementacion?.meta ?? 0);
   const real = benefitConfirmado + (implementacion?.profit ?? 0);
-  const logro = metaTotal > 0 ? clamp01(real / metaTotal) : 0;
-  return { meta, benefitConfirmado, implementacion, metaTotal, real, logro, peso: weights.benefit, total: logro * weights.benefit };
+  let metricasMes: MetricasMesKpi | undefined;
+  if (ducafast !== undefined) {
+    const pctImplementacion = implementacion && implementacion.meta > 0 ? implementacion.profit / implementacion.meta : null;
+    const pctDucafast = ducafast && ducafast.files > 0 ? ducafast.filesCon / ducafast.files : null;
+    // La meta de Implementación cuenta solo si hay (> 0); la de Ducafast, solo si el mes tiene los dos grupos.
+    const metaImpl = implementacion && implementacion.meta > 0 ? implementacion.meta : 0;
+    const metaTotalMes = metaImpl + (ducafast?.metaUsd ?? 0);
+    const realTotalMes = (metaImpl > 0 ? implementacion!.profit : 0) + (ducafast?.metaUsd != null ? ducafast.ahorroUsd ?? 0 : 0);
+    metricasMes = {
+      pctImplementacion, pctDucafast, metaTotal: metaTotalMes, realTotal: realTotalMes,
+      pctTotal: metaTotalMes > 0 ? realTotalMes / metaTotalMes : null,
+    };
+  }
+  const logro = metricasMes ? clamp01(metricasMes.pctTotal ?? 0) : metaTotal > 0 ? clamp01(real / metaTotal) : 0;
+  return { meta, benefitConfirmado, implementacion, metaTotal, real, metricasMes, ducafast: ducafast ?? undefined, logro, peso: weights.benefit, total: logro * weights.benefit };
 }
 
 export type KpiInput = {
@@ -187,8 +242,11 @@ export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, benef
   const benefitComp: KpiComponent = beneficioCku
     ? { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
         logro: W.benefit > 0 ? beneficioCku.total / W.benefit : 0,
-        real: fmtMoney(beneficioCku.real), meta: fmtMoney(beneficioCku.metaTotal),
-        pending: beneficioCku.metaTotal <= 0 }
+        real: beneficioCku.metricasMes
+          ? (beneficioCku.metricasMes.pctTotal != null ? `${Math.round(beneficioCku.metricasMes.pctTotal * 100)}%` : "—")
+          : fmtMoney(beneficioCku.real),
+        meta: beneficioCku.metricasMes ? "100%" : fmtMoney(beneficioCku.metaTotal),
+        pending: beneficioCku.metricasMes ? beneficioCku.metricasMes.pctTotal == null : beneficioCku.metaTotal <= 0 }
     : { key: "benefit", label: "Beneficio HardSaving", weight: W.benefit,
         logro: W.benefit > 0 ? b.total / W.benefit : 0,
         real: fmtMoney(benefitAprobado + benefitConfirmado), meta: fmtMoney(b.metaAcumulada) };
@@ -224,6 +282,18 @@ export function computeKpi({ evm, nps, benefitAprobado, benefitConfirmado, benef
 export function kpiColorFor(ratio: number): string {
   return ratio >= 0.9 ? "var(--ok)" : ratio >= 0.75 ? "var(--warn)" : "var(--bad)";
 }
+
+/** Tono de un INDICADOR de un CKU (Players) según su % (0–100): 100 % verde · 95–99 % amarillo · menos de 95 % rojo.
+ *  Solo para los indicadores de los CKUs: el Player y los indicadores de los PM del Control Tower tienen sus propias
+ *  escalas (kpiColorFor / playerPalette). Un indicador nunca pasa de 100 %, así que se topa antes de medirlo. */
+export function tonoIndicadorCku(pct: number): "ok" | "warn" | "bad" {
+  const p = Math.min(pct, 100);
+  if (p >= 100 - 1e-9) return "ok";
+  return p >= 95 ? "warn" : "bad";
+}
+
+/** El color (variable de tema) de un indicador de un CKU con ese % (0–100). */
+export const colorIndicadorCku = (pct: number): string => `var(--${tonoIndicadorCku(pct)})`;
 
 /** Tinte de fondo semántico del KPI (para badges/pills), según su ratio (0..1). */
 export function kpiBgFor(ratio: number): string {

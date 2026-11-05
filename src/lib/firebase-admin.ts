@@ -104,6 +104,9 @@ const normResp = <T extends string>(r: T): T => (RESP_ALIAS[r] as T) ?? r;
 const ATTRIBUTION_COLL: Record<AttributionKind, string> = {
   delay: "delay_attributions",
   reproceso: "reproceso_attributions",
+  // Responsable elegido para un Incumplido en la medición de un CKU (Players): no toca la de los PM.
+  "delay-cku": "cku_delay_attributions",
+  "reproceso-cku": "cku_reproceso_attributions",
 };
 
 export async function getAttributions(kind: AttributionKind): Promise<Record<string, DelayAttribution>> {

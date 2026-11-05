@@ -216,8 +216,9 @@ export interface DelayAttribution {
   by?: string;  // correo del admin que la asignó
   at?: string;  // ISO timestamp
 }
-/** Tipos de atribución persistidos por ítem, cada uno en su colección Firestore. */
-export type AttributionKind = "delay" | "reproceso";
+/** Tipos de atribución persistidos por ítem, cada uno en su colección Firestore. Los «-cku» son los responsables
+ *  que un Admin elige para un Incumplido en la medición de un CKU (Players); solo afectan a su Player, no a los PM. */
+export type AttributionKind = "delay" | "reproceso" | "delay-cku" | "reproceso-cku";
 
 /** Nota (0-100) de Metodología VALOR de una persona en un mes (clave "YYYY-MM::Persona"). La pone un admin. */
 export interface MetodologiaCalif {
@@ -325,6 +326,8 @@ export interface DashboardRaw {
   npsRecords: NpsRecord[]; // respuestas de encuestas (Firestore) para el NPS
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Firestore)
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Firestore)
+  ckuDelayAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Cumplimiento → responsable elegido para el CKU (Firestore)
+  ckuReprocesoAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Calidad → responsable elegido para el CKU (Firestore)
   metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR (Firestore)
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Firestore) — tabla Atrasos
   boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto (Firestore) — Status Card
@@ -589,6 +592,8 @@ export interface DashboardData {
   npsRecords: NpsRecord[];     // respuestas crudas para NPS por PM
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso
+  ckuDelayAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Cumplimiento → responsable elegido para el CKU
+  ckuReprocesoAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Calidad → responsable elegido para el CKU
   metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR
   atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso — tabla Atrasos
   boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto — Status Card

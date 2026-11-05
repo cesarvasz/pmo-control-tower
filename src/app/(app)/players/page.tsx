@@ -9,17 +9,16 @@ import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
 import { calcPmMetrics, confirmacionRoiPorCku, entregablesDelCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
-import { KPI_W_CKU } from "@/lib/kpi";
+import { KPI_W_CKU, type DucafastKpi } from "@/lib/kpi";
 import { esRolCku } from "@/lib/permissions";
 import { buildBoardMaps, buildCkuScope, ckuDeEmail, CKU_CON_IMPLEMENTACION, claveMesDe, cuentaEnPlayers, etiquetaMesLargo, mesesConActividades, PLAYER_CKUS, proyectosDelMes, sameCku, swapPmCku, type CkuScope } from "@/lib/players";
 import { implementacionDelMes, type ResumenImplementacionCku } from "@/lib/implementaciones";
+import type { MetaDucafastMesa2 } from "@/lib/ducafastMesa2";
 import { today } from "@/lib/business";
-import { healthStatusFromIndex, HEALTH_CFG } from "@/lib/health";
 import { ErrorBox, Loader } from "@/components/ui";
 import CkuMedicion from "@/components/CkuMedicion";
 import PmScoreboard from "@/components/PmScoreboard";
-import { lookupEstrategia, type BoardHealthData } from "@/lib/proj";
-import type { DashboardData, EstrategiaInfo, IniItem, ProjBoard, ReqItem } from "@/types";
+import type { DashboardData } from "@/types";
 
 // Sin Confirmación vía ROI (aún cargando o falló): la de Monday. Referencia estable para no invalidar getRow.
 const SIN_ROI: Record<string, ConfirmacionRoiPm> = {};
@@ -35,7 +34,7 @@ export default function PlayersPage() {
 }
 
 function Players({ data }: { data: DashboardData }) {
-  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, estrategiaMap, directorio, delayAttributions: delays, reprocesoAttributions: reproceso, clases } = data;
+  const { ini, req, proj, projBoards, projItemBaselines, calMap, npsRecords, directorio, delayAttributions: delays, reprocesoAttributions: reproceso, ckuDelayAttributions, ckuReprocesoAttributions, clases } = data;
 
   // Un usuario con rol CKU ve SOLO su propia información: su CKU se saca de su correo
   // (Directorio RH). Si el correo no corresponde a ningún player, no ve a nadie (no se
@@ -73,8 +72,10 @@ function Players({ data }: { data: DashboardData }) {
   );
 
   // Para un CKU, lo que penaliza es el responsable "CKU" (en vez de "PM") — ver swapPmCku.
-  const ckuDelays = useMemo(() => swapPmCku(delays), [delays]);
-  const ckuReproceso = useMemo(() => swapPmCku(reproceso), [reproceso]);
+  // Sobre lo del Control Tower manda el responsable que un Admin eligió para un Incumplido del CKU (ver CkuResponsableSelect):
+  // por id de PML, Iniciativa o actividad. Se mezcla ANTES del cambio, así que "CKU" penaliza y cualquier otro excusa.
+  const ckuDelays = useMemo(() => swapPmCku({ ...delays, ...ckuDelayAttributions }), [delays, ckuDelayAttributions]);
+  const ckuReproceso = useMemo(() => swapPmCku({ ...reproceso, ...ckuReprocesoAttributions }), [reproceso, ckuReprocesoAttributions]);
 
   // Confirmación vía ROI: Javier toma los tiempos de Luis y Victoria los de David
   // (ver CONFIRMACION_ROI_CKU). Fetch aparte (fuente externa lenta). null = aún cargando: mientras tanto el
@@ -108,18 +109,49 @@ function Players({ data }: { data: DashboardData }) {
     [resumenImpl, mesActivo],
   );
 
-  // El Beneficio de un CKU depende del ROI y, en el que lleva Implementación, también de ésta; mientras
-  // falte alguno su Beneficio y su Player aún no son los finales.
+  // Uso de Ducafast por mes en el ROI 003 (Mesa 2): junto con Implementación es el Beneficio de Victoria (lo cumplido ÷ la
+  // meta de los dos, ver computeBenefitKpiCku). Fetch aparte; undefined = cargando, null = falló.
+  const [metaDucafastPorMes, setMetaDucafastPorMes] = useState<Record<string, MetaDucafastMesa2> | null | undefined>(undefined);
+  useEffect(() => {
+    authedFetch("/api/dashboard/meta-ducafast")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((d: { meses: Record<string, MetaDucafastMesa2> }) => setMetaDucafastPorMes(d.meses))
+      .catch((err) => {
+        console.warn("Meta ROI 003 (Players): no se pudo cargar:", err);
+        setMetaDucafastPorMes(null);
+      });
+  }, []);
+  // Mes del popup del Beneficio: el del dropdown o, con «Todos los meses», el mes en curso (igual que Implementación).
+  const mesBeneficio = mesActivo ?? claveMesDe(today());
+  // Ducafast del mes para el Beneficio de Victoria: sin Files de la Mesa 2 (o si falló la carga) → null y promedia solo con Implementación.
+  const ducafastKpi = useMemo<DucafastKpi | null>(() => {
+    const d = metaDucafastPorMes?.[mesBeneficio];
+    return d ? { mes: mesBeneficio, files: d.files, filesCon: d.filesConDucafast, costoCon: d.costoTotalCon, costoSin: d.costoTotalSin,
+      // Sin Files con tiempo medido en el grupo no hay costo por File (la lib lo deja en 0): null.
+      porFileCon: d.costoTotalCon == null ? null : d.costoPorFileCon, porFileSin: d.costoTotalSin == null ? null : d.costoPorFileSin,
+      metaUsd: d.meta, ahorroUsd: d.ahorro } : null;
+  }, [metaDucafastPorMes, mesBeneficio]);
+  const ckuBeneficio = useMemo(() => ({
+    mes: mesBeneficio,
+    conImplementacion: (cku: string) => sameCku(cku, CKU_CON_IMPLEMENTACION),
+  }), [mesBeneficio]);
+
+  // El Beneficio de un CKU depende del ROI y, en el que lleva Implementación, también de ésta y del ROI 003 (Ducafast);
+  // mientras falte alguno su Beneficio y su Player aún no son los finales.
   const cargando = useCallback(
-    (cku: string) => confirmacionRoiCku === null || (sameCku(cku, CKU_CON_IMPLEMENTACION) && resumenImpl === undefined),
-    [confirmacionRoiCku, resumenImpl],
+    (cku: string) => confirmacionRoiCku === null
+      || (sameCku(cku, CKU_CON_IMPLEMENTACION) && (resumenImpl === undefined || metaDucafastPorMes === undefined)),
+    [confirmacionRoiCku, resumenImpl, metaDucafastPorMes],
   );
 
   const getRow = useCallback((cku: string) => {
     const s = scopesMes.get(cku)!;
-    const impl = sameCku(cku, CKU_CON_IMPLEMENTACION) ? implementacionMes ?? undefined : undefined;
-    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku ?? SIN_ROI, true, impl, clases);
-  }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku, implementacionMes, clases]);
+    const conImpl = sameCku(cku, CKU_CON_IMPLEMENTACION);
+    const impl = conImpl ? implementacionMes ?? undefined : undefined;
+    // Solo el CKU que lleva Implementación: su Beneficio es lo cumplido ÷ la meta de Implementación y Ducafast Mesa 2.
+    const ducafast = conImpl ? ducafastKpi : undefined;
+    return calcPmMetrics(cku, s.ini, s.req, s.proj, s.projBoards, boardHealthMap, calMap, s.npsRecords, ckuDelays, ckuReproceso, KPI_W_CKU, undefined, confirmacionRoiCku ?? SIN_ROI, true, impl, clases, ducafast);
+  }, [scopesMes, boardHealthMap, calMap, ckuDelays, ckuReproceso, confirmacionRoiCku, implementacionMes, clases, ducafastKpi]);
 
   const subtitle = (cku: string) => {
     const s = scopes.get(cku)!;
@@ -158,7 +190,7 @@ function Players({ data }: { data: DashboardData }) {
         pms={ckus} ini={ini} req={req} proj={proj} projBoards={projBoards}
         boardHealthMap={boardHealthMap} calMap={calMap} npsRecords={npsRecords}
         delays={ckuDelays} reproceso={ckuReproceso}
-        getRow={getRow} cargando={cargando} weights={KPI_W_CKU} nameHeader="CKU" label={(cku) => cku} subtitle={subtitle} ponderadoPorFuente
+        getRow={getRow} ckuBeneficio={ckuBeneficio} cargando={cargando} weights={KPI_W_CKU} nameHeader="CKU" label={(cku) => cku} subtitle={subtitle} ponderadoPorFuente
       />
 
       <h2 className="mb-3 mt-8 text-base font-semibold text-[var(--text-primary)]">{soloMio ? "Qué manejas" : "Qué maneja cada CKU"}</h2>
@@ -166,11 +198,9 @@ function Players({ data }: { data: DashboardData }) {
         {ckus.map((cku) => (
           <CkuPortfolio
             key={cku} cku={cku}
-            ini={ini.filter((r) => sameCku(r.cku, cku) && cuentaEnPlayers(r))}
-            req={req.filter((r) => sameCku(r.cku, cku))}
-            boards={projBoards.filter((b) => sameCku(b.cku, cku))}
-            boardHealthMap={boardHealthMap}
-            estrategiaMap={estrategiaMap}
+            nIni={ini.filter((r) => sameCku(r.cku, cku) && cuentaEnPlayers(r)).length}
+            nReq={req.filter((r) => sameCku(r.cku, cku)).length}
+            nProj={projBoards.filter((b) => sameCku(b.cku, cku)).length}
           >
             <CkuMedicion
               scope={scopesMes.get(cku)!}
@@ -187,79 +217,21 @@ function Players({ data }: { data: DashboardData }) {
   );
 }
 
-const ESTADO_LABEL: Record<string, string> = {
-  ATRASADO: "Atrasado", "PARA HOY": "Para hoy", "EN TIEMPO": "En tiempo", APROBADA: "Aprobada",
-  EN_ESPERA: "En espera", PLAN_FUTURO: "Plan futuro", POR_DEFINIR: "Por definir",
-  CAMBIO_ESTRATEGIA: "Cambio estrategia", SKIP: "—", "EN PROCESO": "En proceso", CERRADO: "Cerrado",
-};
-
-// Iniciativas, PML y Proyectos vinculados a un CKU (los mismos que alimentan sus métricas).
-// Sponsor: Iniciativas y Proyectos lo traen propio; el PML lo toma de su Estrategia (igual que Costo $ x Unid Neg).
-function CkuPortfolio({ cku, ini, req, boards, boardHealthMap, estrategiaMap, children }: {
-  cku: string; ini: IniItem[]; req: ReqItem[]; boards: ProjBoard[]; boardHealthMap: Map<string, BoardHealthData>;
-  estrategiaMap: Map<string, EstrategiaInfo>;
-  /** Contenido extra al pie de la tarjeta del CKU (el detalle de qué se mide). */
+// Tarjeta de un CKU: su nombre, cuántas Iniciativas, PML y Proyectos maneja, y el detalle de qué se mide.
+function CkuPortfolio({ cku, nIni, nReq, nProj, children }: {
+  cku: string; nIni: number; nReq: number; nProj: number;
+  /** El detalle de qué se mide (CkuMedicion). */
   children?: React.ReactNode;
 }) {
   return (
     <div className="rounded-xl border" style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}>
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
         <span className="text-[0.95rem] font-bold text-[var(--text-primary)]">{cku}</span>
         <span className="text-[0.75rem] text-[var(--text-muted)]">
-          {ini.length} Iniciativas · {req.length} PML · {boards.length} Proyectos
+          {nIni} Iniciativas · {nReq} PML · {nProj} Proyectos
         </span>
-      </div>
-      <div className="grid grid-cols-1 gap-x-6 gap-y-4 p-4 lg:grid-cols-3">
-        <PortfolioList title="Iniciativas" count={ini.length}>
-          {ini.map((r) => (
-            <PortfolioRow key={r.id || r.name} name={r.name} sub={[r.grupo, ESTADO_LABEL[r.estado] ?? r.estado, r.pm && `PM: ${r.pm}`, r.sponsor && `Sponsor: ${r.sponsor}`]} />
-          ))}
-        </PortfolioList>
-        <PortfolioList title="PML" count={req.length}>
-          {req.map((r) => {
-            const sponsor = lookupEstrategia(estrategiaMap, r.estrategia)?.sponsor;
-            return <PortfolioRow key={r.id} name={r.name} sub={[r.grupo, ESTADO_LABEL[r.estado] ?? r.estado, r.pm && `PM: ${r.pm}`, sponsor && `Sponsor: ${sponsor}`]} />;
-          })}
-        </PortfolioList>
-        <PortfolioList title="Proyectos" count={boards.length}>
-          {boards.map((b) => {
-            const hi = boardHealthMap.get(b.id)?.healthIndex;
-            const st = healthStatusFromIndex(hi ?? null);
-            return (
-              <PortfolioRow
-                key={b.id} name={b.name}
-                sub={[b.pm && `PM: ${b.pm}`, b.sponsor && `Sponsor: ${b.sponsor}`]}
-                badge={hi != null ? { text: `EVM ${Math.round(hi * 100)}%`, color: st ? HEALTH_CFG[st].color : "#6b7280" } : undefined}
-              />
-            );
-          })}
-        </PortfolioList>
       </div>
       {children}
     </div>
-  );
-}
-
-function PortfolioList({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <div className="mb-2 text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{title} ({count})</div>
-      {count === 0
-        ? <div className="text-[0.8rem] text-[var(--text-disabled)]">Sin {title.toLowerCase()}</div>
-        : <ul className="space-y-1.5">{children}</ul>}
-    </div>
-  );
-}
-
-function PortfolioRow({ name, sub, badge }: { name: string; sub: (string | false | undefined)[]; badge?: { text: string; color: string } }) {
-  const line = sub.filter(Boolean).join(" · ");
-  return (
-    <li className="flex items-start justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--bg-hover)]">
-      <div className="min-w-0">
-        <div className="truncate text-[0.82rem] font-semibold text-[var(--text-primary)]" title={name}>{name}</div>
-        {line && <div className="text-[0.68rem] text-[var(--text-muted)]">{line}</div>}
-      </div>
-      {badge && <span className="shrink-0 text-[0.72rem] font-bold tabular-nums" style={{ color: badge.color }}>{badge.text}</span>}
-    </li>
   );
 }

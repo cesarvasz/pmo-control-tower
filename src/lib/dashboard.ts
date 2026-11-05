@@ -11,7 +11,7 @@ import { notasPorClase, partesEvm } from "@/lib/evmClase";
 import { calcBoardMetrics, deriveBoardHealth, esPlantillaLite, splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { REQ_ACTIVE_GRUPOS } from "@/lib/req";
 import { calcNpsFromRecords } from "@/lib/nps";
-import { computeBenefitKpiCku, computeKpi, type KpiWeights } from "@/lib/kpi";
+import { computeBenefitKpiCku, computeKpi, type DucafastKpi, type ImplementacionKpi, type KpiWeights } from "@/lib/kpi";
 import { metodologiaActual, type MetodologiaMap } from "@/lib/metodologia";
 import { lateExcused, type DelayMap, type DelayResponsible } from "@/lib/delay";
 import { esActividadATiempo } from "@/lib/ckuAjustes";
@@ -582,29 +582,44 @@ function entregaPorClase(
 
 /** Proyectos de un CKU: cada ACTIVIDAD (subitem) de los items que recibe (ya recortados a lo suyo, ver
  *  entregablesDelCku) es una unidad. Solo
- *  entran las que YA cerraron con veredicto (Done con fecha real y límite): a tiempo si cerró en o
- *  antes de su límite, con atraso si no. Las pendientes (sin cerrar, o sin fechas) no cuentan.
+ *  entran las que YA cerraron con veredicto (Done con fecha real y límite): cumplida si cerró en o
+ *  antes de su límite o, si no, de su nueva fecha límite (ver entregaActividadCku); incumplida si no. Las pendientes (sin cerrar, o sin fechas) no cuentan.
  *  El item no es unidad: solo sus actividades. La excusa es la de la FASE (un responsable por fase,
  *  ver projPhaseKey): si es ≠ CKU, el atraso de sus actividades sale de la cuenta, igual que un PML o
- *  una Iniciativa; si está sin asignar o es el CKU, penaliza. */
+ *  una Iniciativa; si está sin asignar o es el CKU, penaliza. Si un Admin le eligió un responsable a la
+ *  actividad en particular (clave: su id), ese manda sobre el de la fase (ver actividadExcusadaCku). */
 export function entregaActividadesCku(fase3: ProjItem[], delays: DelayMap): FuenteEntrega {
   const out = { total: 0, onTime: 0 };
   for (const p of fase3) {
-    const excusada = lateExcused(projPhaseKey(p.boardId, p.grupo), delays);
+    const llaveFase = projPhaseKey(p.boardId, p.grupo);
     for (const s of p.subitems) {
       const entrega = entregaActividadCku(s);
       if (entrega === "on-time") { out.total++; out.onTime++; }
-      else if (entrega === "late" && !excusada) out.total++;
+      else if (entrega === "late" && !actividadExcusadaCku(s.id, llaveFase, delays)) out.total++;
     }
   }
   return out;
 }
 
-/** Veredicto de entrega de una actividad en la medición de un CKU: el de Monday (`entrega`), salvo que el
- *  PMO haya pedido dejarla a tiempo (ver ckuAjustes): una con atraso pasa a a tiempo; una sin veredicto
- *  (pendiente) sigue sin él. */
-export const entregaActividadCku = (s: ProjSubitem): ProjSubitem["entrega"] =>
-  s.entrega === "late" && esActividadATiempo(s.id) ? "on-time" : s.entrega;
+/** ¿Se excusa el atraso de esta actividad en la medición de un CKU? Manda el responsable que un Admin le eligió a la
+ *  ACTIVIDAD (clave: su id) y, si no hay, el de su FASE (llave `boardId::grupo`). `delays` trae PM ↔ CKU intercambiado
+ *  (ver swapPmCku): se excusa con un responsable ≠ CKU; sin asignar o CKU, penaliza. */
+export const actividadExcusadaCku = (subitemId: string, llaveFase: string, delays: DelayMap): boolean =>
+  delays[subitemId] ? lateExcused(subitemId, delays) : lateExcused(llaveFase, delays);
+
+/** ¿Cerró dentro de su NUEVA fecha límite? (Actual End ≤ New Limit Date; false si no tiene alguna de las dos.) */
+export const cerroDentroDeNuevaFecha = (s: ProjSubitem): boolean =>
+  !!s.actualEnd && !!s.newLimitDate && s.actualEnd.getTime() <= s.newLimitDate.getTime();
+
+/** Veredicto de entrega (Cumplimiento) de una actividad en la medición de un CKU. Cumplida si cerró en o antes de su
+ *  Limit Date; si cerró DESPUÉS, se compara con la New Limit Date: dentro de ella sigue cumplida, y solo es
+ *  incumplida si cerró después de las dos. Una sin veredicto (pendiente: sin cerrar o sin fechas) sigue sin él. El
+ *  PMO puede además dejarla cumplida a mano (ver ckuAjustes). Calidad es otra regla: ahí cualquier New Limit Date
+ *  es incumplido (ver calidadActividadCku). */
+export const entregaActividadCku = (s: ProjSubitem): ProjSubitem["entrega"] => {
+  if (s.entrega !== "late") return s.entrega;
+  return esActividadATiempo(s.id) || cerroDentroDeNuevaFecha(s) ? "on-time" : "late";
+};
 
 /** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
  *  lib/health.ts): el % a tiempo de cada fuente por separado (Iniciativas y las Clases A, B y C de
@@ -994,6 +1009,16 @@ export function calidadActividadCku(s: ProjSubitem): { nota: 0 | 100; motivo: Mo
   return null;
 }
 
+/** Calidad de una actividad en la medición de un CKU, con el responsable que un Admin haya elegido para su
+ *  incumplimiento (clave: el id de la actividad; `reproceso` trae PM ↔ CKU intercambiado, ver swapPmCku). Una actividad
+ *  con calidad 0 a la que se le eligió un responsable ≠ CKU queda `excusada`: sale de la cuenta, no suma ni resta. Sin
+ *  responsable elegido, o si es el CKU, vale lo mismo que en calidadActividadCku. null = todavía no se mide. */
+export function calidadActividadCkuResp(s: ProjSubitem, reproceso: DelayMap): { nota: 0 | 100; motivo: MotivoCalidadActividad; excusada: boolean } | null {
+  const c = calidadActividadCku(s);
+  if (!c) return null;
+  return { ...c, excusada: c.nota === 0 && !!reproceso[s.id] && lateExcused(s.id, reproceso) };
+}
+
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
 /** Unidades de Calidad de INICIATIVAS: las ya aprobadas (PM Aprobado / PML Aprobado,
@@ -1033,9 +1058,13 @@ function notasReprocesoPorFuente(
   return {
     req: reqs.filter((r) => r.estado === "CERRADO").map((r) => (lateExcused(r.id, reproceso) ? 100 : 0)),
     // CKU: cada actividad a cargo suya, de sus entregables de la Fase 3 (plantilla nueva), vale 0 o 100
-    // por sus fechas (ver calidadActividadCku); las que aún no se miden no entran.
+    // por sus fechas (ver calidadActividadCku); las que aún no se miden no entran, ni las de calidad 0 a las
+    // que un Admin les eligió un responsable ≠ CKU (ver calidadActividadCkuResp).
     proj: cku !== undefined
-      ? entregablesDelCku(projs, cku).flatMap((p) => p.subitems.flatMap((s) => calidadActividadCku(s)?.nota ?? []))
+      ? entregablesDelCku(projs, cku).flatMap((p) => p.subitems.flatMap((s) => {
+          const c = calidadActividadCkuResp(s, reproceso);
+          return c && !c.excusada ? c.nota : [];
+        }))
       : calidadUnits(projs).map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
     ini: iniUnidadesCalidad(ini).map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
   };
@@ -1436,10 +1465,13 @@ export function calcPmMetrics(
   ponderarPorFuente = false,
   /** Meta y Profit de Implementación de un mes, para el CKU que la lleva: la meta se suma a la
    *  meta de su Beneficio y el Profit a su cumplimiento (ver computeBenefitKpiCku). */
-  implementacionCku?: { mes: string; meta: number; profit: number },
+  implementacionCku?: ImplementacionKpi,
   /** Clase A/B/C asignada a Proyectos y PML (Calidad & Cumplimiento → Clasificación): reparte el EVM
    *  (y, en un CKU, Cumplimiento y Calidad) en sus fuentes por clase. */
   clases: Record<string, ClaseEntry> = {},
+  /** Uso de Ducafast del mes (Mesa 2 del ROI 003), solo para el CKU que lleva Implementación: su Beneficio pasa a ser
+   *  lo cumplido ÷ la meta de Implementación y Ducafast (ver computeBenefitKpiCku). undefined = no aplica; null = sin Files. */
+  ducafastCku?: DucafastKpi | null,
 ) {
   // Nota EVM del PM (ver calcPmEvm). Una fuente sin nada que medir reparte su peso entre las demás.
   const evmRaw = calcPmEvm(pm, ini, req, projBoards, boardHealthMap, calMap, clases);
@@ -1464,7 +1496,7 @@ export function calcPmMetrics(
   // Un CKU se mide contra su propia meta (ver computeBenefitKpiCku): lo aprobado de sus proyectos y PML
   // HardSaving, y su cumplimiento es lo generado (ROI).
   const beneficioCku = ponderarPorFuente
-    ? computeBenefitKpiCku(pmValueHard.aprobacionBenefit, pmValueHard.confirmacionBenefit, weights, implementacionCku)
+    ? computeBenefitKpiCku(pmValueHard.aprobacionBenefit, pmValueHard.confirmacionBenefit, weights, implementacionCku, ducafastCku)
     : undefined;
   // Beneficio mostrado (scoreboard) = solo Aprobación VPB, igual que la tarjeta de PM.
   const benefit = pmValueHard.aprobacionBenefit;

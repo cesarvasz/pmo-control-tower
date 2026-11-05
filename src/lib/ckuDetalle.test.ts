@@ -210,6 +210,50 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
       expect(contarActividades(p.items)).toEqual({ ok: 1, atraso: 0, excusado: 1, pendiente: 0 });
     });
 
+    it("el responsable elegido para una ACTIVIDAD manda sobre el de su fase, y el detalle cuadra con el scoreboard", () => {
+      const faseKey = `b1::${LAUNCH}`;
+      const proj = [item3("a", "b1", [act("s1", "late"), act("s2", "late"), act("s3", "on-time")])];
+      const s = { req: [], proj, projBoards: boards, ini: [] };
+      // La fase la tiene el Sponsor (excusa) pero s1 se fija al CKU ("PM" en el mapa ya cambiado) → s1 penaliza; s2 sigue excusada.
+      const fase: DelayMap = { [faseKey]: { responsible: "Sponsor" }, s1: { responsible: "PM" } };
+      const d = cumpl(s, fase, { [faseKey]: { responsible: "Sponsor" } });
+      const estados = Object.fromEntries(d.proyectos![0].items[0].actividades.map((a) => [a.id, a.estado]));
+      expect(estados).toEqual({ s1: "atraso", s2: "excusado", s3: "ok" });
+      expect(d.pct).toBe(calcEntregaStatsCku(CKU, s.req, s.proj, fase, s.ini).pct);
+      // Al revés: la fase penaliza (sin asignar) pero a s2 se le elige un responsable ≠ CKU → se excusa solo s2.
+      const unaSola: DelayMap = { s2: { responsible: "IT" } };
+      const d2 = cumpl(s, unaSola);
+      expect(Object.fromEntries(d2.proyectos![0].items[0].actividades.map((a) => [a.id, a.estado]))).toEqual({ s1: "atraso", s2: "excusado", s3: "ok" });
+      expect(d2.pct).toBe(calcEntregaStatsCku(CKU, s.req, s.proj, unaSola, s.ini).pct);
+    });
+
+    it("un PML con atraso excusado por el responsable elegido sale del conteo pero sigue en las unidades (para poder revertirlo)", () => {
+      const s = { req: [reqE("r1", "late")], proj: [], projBoards: [board], ini: [] };
+      const sinElegir = cumpl(s, {});
+      expect(sinElegir.unidades.find((u) => u.id === "r1")).toMatchObject({ estado: "atraso", cuenta: true });
+      const elegido: DelayMap = { r1: { responsible: "Sponsor" } };
+      const d = cumpl(s, elegido, {});
+      expect(d.unidades.find((u) => u.id === "r1")).toMatchObject({ estado: "excusado", cuenta: false });
+      expect(d.pct).toBeNull();   // la única unidad salió de la cuenta
+      // Elegir al CKU ("PM" en el mapa ya cambiado) la deja penalizando.
+      expect(cumpl(s, { r1: { responsible: "PM" } }).unidades.find((u) => u.id === "r1")).toMatchObject({ estado: "atraso", cuenta: true });
+    });
+
+    it("cerró tarde pero dentro de su New Limit Date: cumplida («cumple por su nueva fecha»); fuera de ella, incumplida", () => {
+      const tarde = (id: string, nueva: string) =>
+        act(id, "late", { deadline: new Date("2026-06-10T00:00:00"), actualEnd: new Date("2026-06-20T00:00:00"), newLimitDate: new Date(`${nueva}T00:00:00`) });
+      const proj = [item3("i1", "b1", [tarde("dentro", "2026-06-25"), tarde("fuera", "2026-06-15")])];
+      const s = { req: [], proj, projBoards: boards, ini: [] };
+      const d = cumpl(s, {});
+      const por = (id: string) => d.proyectos![0].items[0].actividades.find((a) => a.id === id)!;
+      expect(por("dentro")).toMatchObject({ estado: "ok", porNuevaFecha: true, ajustada: false });
+      expect(por("fuera")).toMatchObject({ estado: "atraso", porNuevaFecha: false });
+      expect(por("dentro").nuevaFecha).toEqual(new Date("2026-06-25T00:00:00"));
+      // El detalle cuadra con el scoreboard.
+      expect(d.pct).toBe(calcEntregaStatsCku(CKU, s.req, s.proj, {}, s.ini).pct);
+      expect(d.pct).toBe(50);
+    });
+
     it("si el responsable de la fase es el CKU (mapa intercambiado: aparece como 'PM') o no hay, el atraso penaliza", () => {
       const original: DelayMap = { [`b1::${LAUNCH}`]: { responsible: "CKU" } };
       const proj = [item3("a", "b1", [act("s1", "late")])];
@@ -349,10 +393,29 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
     expect(d.fuentes.find((x) => x.fuente === "A")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
   });
 
-  it("en Proyectos ya no decide el responsable asignado a mano: una actividad tarde vale 0 aunque se excuse", () => {
+  it("en Proyectos un responsable por item no decide: una actividad tarde vale 0 aunque su item se excuse", () => {
     const proj = [item3("i1", "b1", [actK("a", { actualEnd: f("2026-06-20") })])];
-    const d = cal({ req: [], proj, projBoards: boards, ini: [] }, { a: { responsible: "Desarrollo" }, i1: { responsible: "Desarrollo" } });
+    const d = cal({ req: [], proj, projBoards: boards, ini: [] }, { i1: { responsible: "Desarrollo" } });
     expect(d.unidades.find((u) => u.id === "a")).toMatchObject({ nota: 0, estado: "atraso" });
+  });
+
+  it("el responsable elegido para la ACTIVIDAD con calidad 0 la excusa (cuenta: false) y el detalle cuadra con el scoreboard", () => {
+    const proj = [item3("i1", "b1", [
+      actK("a"),                                             // 100
+      actK("b", { actualEnd: f("2026-06-20") }),             // 0
+      actK("c", { actualEnd: f("2026-06-21") }),             // 0
+    ])];
+    const s = { req: [], proj, projBoards: boards, ini: [] };
+    const rep: DelayMap = { b: { responsible: "Desarrollo" }, c: { responsible: "PM" } };   // b excusada; c "PM" = el CKU tras el cambio → penaliza
+    const d = cal(s, rep);
+    expect(d.unidades.find((u) => u.id === "b")).toMatchObject({ nota: 0, estado: "excusado", cuenta: false });
+    expect(d.unidades.find((u) => u.id === "c")).toMatchObject({ nota: 0, estado: "atraso", cuenta: true });
+    expect(d.fuentes.find((x) => x.fuente === "A")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
+    expect(d.pct).toBe(calcReprocesoStatsPonderado(CKU, s.req, s.proj, rep, s.ini).pct);
+    // En el árbol la actividad excusada sale marcada y no cuenta como mala.
+    const acts = d.proyectosCalidad![0].items[0].actividades;
+    expect(acts.find((x) => x.id === "b")).toMatchObject({ nota: 0, excusada: true });
+    expect(contarCalidad(d.proyectosCalidad![0].items)).toEqual({ buenas: 1, malas: 1, sinMedir: 0, excusadas: 1 });
   });
 
   it("solo entregables a cargo del CKU: los de otra persona no son unidades ni salen en el árbol", () => {
@@ -406,7 +469,7 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
       ]);
       expect(it0.actividades[1].nuevaFecha).toEqual(f("2026-12-01"));
       expect(it0.actividades[0].cierre).toEqual(f("2026-07-31"));
-      expect(contarCalidad(d.proyectosCalidad![0].items)).toEqual({ buenas: 0, malas: 2, sinMedir: 2 });
+      expect(contarCalidad(d.proyectosCalidad![0].items)).toEqual({ buenas: 0, malas: 2, sinMedir: 2, excusadas: 0 });
     });
 
     it("los items con calidad 0 van primero y el proyecto con peor calidad va primero", () => {
