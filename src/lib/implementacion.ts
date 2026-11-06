@@ -52,23 +52,26 @@ export function decodificarImplementacion(p: ImplementacionPayload): Implementac
 const suma = (a: number | null | undefined, b: number | null | undefined) => (a == null && b == null ? null : (a ?? 0) + (b ?? 0));
 
 /** Un mismo File puede venir en varias filas (un renglón por servicio facturado). Se unifica en UNO: los Servicios se
- *  concatenan separados por salto de línea, Monto y Factura se suman, y DESPUÉS se divide entre el TC (el primero que
- *  traiga el File) para sacar el Profit. Los demás campos son los de la primera fila. Filas sin File no se unen. */
+ *  concatenan separados por salto de línea, Monto y Factura se suman y el Profit (que ya trae la hoja) es el PROMEDIO
+ *  de los de sus filas. El TC es el primero que traiga el File. Los demás campos son los de la primera fila. Filas sin File no se unen. */
 export function unificarFiles(rows: ImplementacionRow[]): ImplementacionRow[] {
   const salida: ImplementacionRow[] = [];
   const porFile = new Map<string, ImplementacionRow>();
+  const profits = new Map<ImplementacionRow, { suma: number; n: number }>();
   for (const r of rows) {
     const k = r.File.trim();
     const previa = k ? porFile.get(k) : undefined;
     if (!previa) {
       const copia = { ...r };
       salida.push(copia);
-      if (k) porFile.set(k, copia);
+      if (k) {
+        porFile.set(k, copia);
+        profits.set(copia, { suma: copia.Profit ?? 0, n: copia.Profit == null ? 0 : 1 });
+      }
       continue;
     }
     const serv = (r.Servicio ?? "").trim();
-    if (serv) previa.Servicio = previa.Servicio?.trim() ? `${previa.Servicio}
-${serv}` : serv;
+    if (serv) previa.Servicio = previa.Servicio?.trim() ? previa.Servicio + "\n" + serv : serv;
     if (!previa.Proceso && r.Proceso) previa.Proceso = r.Proceso;
     if (!previa.fecha_facturacion) previa.fecha_facturacion = r.fecha_facturacion;
     if (!previa.Cliente) previa.Cliente = r.Cliente;
@@ -78,9 +81,9 @@ ${serv}` : serv;
     previa.Factura = suma(previa.Factura, r.Factura);
     previa.ingresos_facturados = suma(previa.ingresos_facturados, r.ingresos_facturados);
     previa.egresos_liquidados = suma(previa.egresos_liquidados, r.egresos_liquidados);
-    if (previa.Factura != null && previa.TC != null && previa.TC !== 0) previa.Profit = previa.Factura / previa.TC;
-    else if (r.Factura == null && r.TC == null) previa.Profit = suma(previa.Profit, r.Profit); // hoja anterior
-    else previa.Profit = null;
+    const pr = profits.get(previa)!;
+    if (r.Profit != null) { pr.suma += r.Profit; pr.n += 1; }
+    previa.Profit = pr.n > 0 ? pr.suma / pr.n : null;
   }
   return salida;
 }
@@ -114,11 +117,6 @@ function decodificarFilas(p: ImplementacionPayload): ImplementacionRow[] {
     // en vez de dejar un undefined que reventaría la tabla al ordenar o formatear.
     for (const c of COLS_TEXTO) if (row[c] === undefined) row[c] = "";
     for (const c of COLS_NUMERICAS) if (row[c] === undefined && !COLS_NUEVAS.includes(c)) row[c] = null;
-    // El Profit es Factura ÷ TC (hoja nueva: File, Fecha_facturacion, Cliente, Proceso, Usuario, Servicio, Monto, TC,
-    // Factura). Si la hoja aún trae la columna Profit anterior y no Factura/TC, se conserva tal cual.
-    const factura = (row.Factura ?? null) as number | null, tc = (row.TC ?? null) as number | null;
-    if (factura != null && tc != null && tc !== 0) row.Profit = factura / tc;
-    else if (factura != null || tc != null) row.Profit = null;
     return row as unknown as ImplementacionRow;
   });
 }

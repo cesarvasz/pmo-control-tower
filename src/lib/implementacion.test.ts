@@ -221,27 +221,17 @@ describe("fetchImplementacionRows", () => {
   });
 });
 
-describe("Profit = Factura ÷ TC (hoja nueva)", () => {
-  const nuevo = (factura: unknown, tc: unknown) => decodificarImplementacion({
-    epoca: 0, libres: ["Proceso", "Servicio", "Monto", "TC", "Factura"], textos: ["File", "Cliente", "Usuario"],
-    fechas: ["Fecha_facturacion"], dicc: { File: ["F1"], Cliente: ["A"], Usuario: ["u"] },
-    filas: [["p", "s", 100, tc, factura, 0, 0, 0, 0]],
-  } as unknown as ImplementacionPayload)[0];
-  it("divide Factura entre TC", () => expect(nuevo(1550, 7.75).Profit).toBe(200));
-  it("TC 0 o vacío: sin Profit", () => {
-    expect(nuevo(1550, 0).Profit).toBeNull();
-    expect(nuevo(1550, "").Profit).toBeNull();
-  });
-});
-
 describe("unificarFiles", () => {
-  const f = (File: string, Servicio: string, Factura: number | null, TC: number | null) =>
-    ({ File, fecha_facturacion: "2026-01-05T00:00:00", Cliente: "A", Usuario: "u", Servicio, Monto: 10, TC, Factura,
-      ingresos_facturados: null, egresos_liquidados: null, Profit: Factura != null && TC ? Factura / TC : null }) as never;
-  it("une duplicados: servicios con salto de línea, suma Factura y luego divide entre TC", () => {
-    const r = unificarFiles([f("F1", "X", 100, 10), f("F2", "Z", 50, 5), f("F1", "Y", 300, 10)]);
+  const f = (File: string, Servicio: string, Factura: number | null, Profit: number | null) =>
+    ({ File, fecha_facturacion: "2026-01-05T00:00:00", Cliente: "A", Usuario: "u", Servicio, Monto: 10, TC: 7.5, Factura,
+      ingresos_facturados: null, egresos_liquidados: null, Profit }) as never;
+  it("une duplicados: servicios con salto de línea, suma Factura y promedia el Profit de la hoja", () => {
+    const r = unificarFiles([f("F1", "X", 100, 10), f("F2", "Z", 50, 5), f("F1", "Y", 300, 30)]);
     expect(r).toHaveLength(2);
-    expect(r[0]).toMatchObject({ File: "F1", Servicio: "X\nY", Factura: 400, Monto: 20, Profit: 40 });
-    expect(r[1].Profit).toBe(10);
+    expect(r[0]).toMatchObject({ File: "F1", Servicio: "X\nY", Factura: 400, Monto: 20, Profit: 20 });
+    expect(r[1].Profit).toBe(5);
+  });
+  it("el promedio ignora las filas sin Profit", () => {
+    expect(unificarFiles([f("F1", "X", 1, 10), f("F1", "Y", 1, null)])[0].Profit).toBe(10);
   });
 });
