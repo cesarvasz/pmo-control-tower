@@ -16,7 +16,7 @@ import {
 } from "@/lib/implementaciones";
 import type { ImplementacionRow } from "@/types";
 
-type Campo = "File" | "fecha_facturacion" | "Cliente" | "Usuario" | "ingresos_facturados" | "egresos_liquidados" | "Profit" | "Semaforo";
+type Campo = "File" | "fecha_facturacion" | "Cliente" | "Usuario" | "Servicio" | "ingresos_facturados" | "egresos_liquidados" | "Profit" | "Semaforo";
 type Dir = "asc" | "desc";
 const TAMANOS = [25, 50, 100, 250] as const;
 
@@ -87,7 +87,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
         } else if (c === "Semaforo") {
           v = RANGO_SEMAFORO[a.e.estado] - RANGO_SEMAFORO[b.e.estado];
         } else {
-          v = a.r[c].localeCompare(b.r[c], "es");
+          v = (a.r[c] ?? "").localeCompare(b.r[c] ?? "", "es");
         }
         return orden.dir === "asc" ? v : -v;
       });
@@ -155,6 +155,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                   <Th campo="fecha_facturacion" actual={orden} alternar={alternar} align="center">Fecha de facturación</Th>
                   <Th campo="Cliente" actual={orden} alternar={alternar}>Cliente</Th>
                   <Th campo="Usuario" actual={orden} alternar={alternar}>Usuario</Th>
+                  <Th campo="Servicio" actual={orden} alternar={alternar}>Servicio</Th>
                   <Th campo="ingresos_facturados" actual={orden} alternar={alternar} align="right">Ingresos facturados</Th>
                   <Th campo="egresos_liquidados" actual={orden} alternar={alternar} align="right">Egresos liquidados</Th>
                   <Th campo="Profit" actual={orden} alternar={alternar} align="right">Profit</Th>
@@ -173,6 +174,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                     <td className="whitespace-nowrap tabular-nums text-center text-[var(--text-secondary)]">{fmtFechaCorta(r.fecha_facturacion)}</td>
                     <td className="max-w-[240px] truncate text-[var(--text-secondary)]" title={r.Cliente}>{r.Cliente}</td>
                     <td className="max-w-[180px] truncate text-[var(--text-secondary)]" title={r.Usuario}>{r.Usuario}</td>
+                    <td className="min-w-[200px] whitespace-pre-line text-[var(--text-secondary)]">{r.Servicio || "—"}</td>
                     <td className="whitespace-nowrap tabular-nums text-right">{fmtImporte(r.ingresos_facturados)}</td>
                     <td className="whitespace-nowrap tabular-nums text-right">{fmtImporte(r.egresos_liquidados)}</td>
                     <td className="whitespace-nowrap tabular-nums text-right font-semibold"
