@@ -61,6 +61,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(25);
   const [filtro, setFiltro] = useState<FiltroSemaforo>("todos");
+  const [busqueda, setBusqueda] = useState("");
 
   const filas = useMemo<Fila[]>(() => rows.map((r) => ({ r, e: evaluarFile(r, metas) })), [rows, metas]);
   const resumen = useMemo(() => resumenSemaforo(filas.map((f) => f.e.estado)), [filas]);
@@ -74,10 +75,12 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
   };
   const elegirFiltro = (f: FiltroSemaforo) => { setFiltro(f); setPagina(1); };
 
+  const texto = busqueda.trim().toLowerCase();
   const ordenadas = useMemo(() => {
     const num = (v: number | null) => (v == null ? -Infinity : v);
     return filas
       .filter((f) => pasaFiltroSemaforo(f.e.estado, filtroActivo))
+      .filter((f) => !texto || f.r.File.toLowerCase().includes(texto))
       .sort((a, b) => {
         const c = orden.campo;
         let v: number;
@@ -91,7 +94,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
         }
         return orden.dir === "asc" ? v : -v;
       });
-  }, [filas, filtroActivo, orden]);
+  }, [filas, filtroActivo, orden, texto]);
 
   const totalPaginas = Math.max(1, Math.ceil(ordenadas.length / tamano));
   const paginaActual = Math.min(pagina, totalPaginas);
@@ -100,6 +103,10 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
   return (
     <div>
       <div className="mb-2.5 flex flex-wrap items-center gap-x-5 gap-y-2.5">
+        <input type="search" value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
+          placeholder="Buscar File…" aria-label="Filtrar por File"
+          className="w-48 rounded-lg border px-3 py-1.5 text-[1rem] outline-none"
+          style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
         {hayMetas && (
           <>
             <div role="group" aria-label="Filtrar por cumplimiento del CM1" className="inline-flex rounded-lg border p-0.5"
