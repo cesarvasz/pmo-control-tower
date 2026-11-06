@@ -46,46 +46,7 @@ const COLS_NUEVAS: readonly string[] = ["Monto", "TC", "Factura"];
 
 /** Reconstruye las filas de la pestaña "implementacion" a partir del payload codificado. */
 export function decodificarImplementacion(p: ImplementacionPayload): ImplementacionRow[] {
-  return unificarFiles(decodificarFilas(p));
-}
-
-const suma = (a: number | null | undefined, b: number | null | undefined) => (a == null && b == null ? null : (a ?? 0) + (b ?? 0));
-
-/** Un mismo File puede venir en varias filas (un renglón por servicio facturado). Se unifica en UNO: los Servicios se
- *  concatenan separados por salto de línea, Monto y Factura se suman y el Profit (que ya trae la hoja) es el PROMEDIO
- *  de los de sus filas. El TC es el primero que traiga el File. Los demás campos son los de la primera fila. Filas sin File no se unen. */
-export function unificarFiles(rows: ImplementacionRow[]): ImplementacionRow[] {
-  const salida: ImplementacionRow[] = [];
-  const porFile = new Map<string, ImplementacionRow>();
-  const profits = new Map<ImplementacionRow, { suma: number; n: number }>();
-  for (const r of rows) {
-    const k = r.File.trim();
-    const previa = k ? porFile.get(k) : undefined;
-    if (!previa) {
-      const copia = { ...r };
-      salida.push(copia);
-      if (k) {
-        porFile.set(k, copia);
-        profits.set(copia, { suma: copia.Profit ?? 0, n: copia.Profit == null ? 0 : 1 });
-      }
-      continue;
-    }
-    const serv = (r.Servicio ?? "").trim();
-    if (serv) previa.Servicio = previa.Servicio?.trim() ? previa.Servicio + "\n" + serv : serv;
-    if (!previa.Proceso && r.Proceso) previa.Proceso = r.Proceso;
-    if (!previa.fecha_facturacion) previa.fecha_facturacion = r.fecha_facturacion;
-    if (!previa.Cliente) previa.Cliente = r.Cliente;
-    if (!previa.Usuario) previa.Usuario = r.Usuario;
-    if (previa.TC == null || previa.TC === 0) previa.TC = r.TC ?? previa.TC;
-    previa.Monto = suma(previa.Monto, r.Monto);
-    previa.Factura = suma(previa.Factura, r.Factura);
-    previa.ingresos_facturados = suma(previa.ingresos_facturados, r.ingresos_facturados);
-    previa.egresos_liquidados = suma(previa.egresos_liquidados, r.egresos_liquidados);
-    const pr = profits.get(previa)!;
-    if (r.Profit != null) { pr.suma += r.Profit; pr.n += 1; }
-    previa.Profit = pr.n > 0 ? pr.suma / pr.n : null;
-  }
-  return salida;
+  return decodificarFilas(p);
 }
 
 function decodificarFilas(p: ImplementacionPayload): ImplementacionRow[] {

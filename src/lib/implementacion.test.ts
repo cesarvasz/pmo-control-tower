@@ -1,7 +1,7 @@
 import { gzipSync } from "node:zlib";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  decodificarImplementacion, unificarFiles, fechaDesdeSegundos, fetchImplementacionRows,
+  decodificarImplementacion, fechaDesdeSegundos, fetchImplementacionRows,
 } from "./implementacion";
 import type { ImplementacionPayload } from "@/types";
 
@@ -218,20 +218,5 @@ describe("fetchImplementacionRows", () => {
   it("sin la variable de entorno avisa antes de intentar nada", async () => {
     delete process.env.ROI_IMPLEMENTACION_WEBAPP_URL;
     await expect(fetchImplementacionRows()).rejects.toThrow(/ROI_IMPLEMENTACION_WEBAPP_URL/);
-  });
-});
-
-describe("unificarFiles", () => {
-  const f = (File: string, Servicio: string, Factura: number | null, Profit: number | null) =>
-    ({ File, fecha_facturacion: "2026-01-05T00:00:00", Cliente: "A", Usuario: "u", Servicio, Monto: 10, TC: 7.5, Factura,
-      ingresos_facturados: null, egresos_liquidados: null, Profit }) as never;
-  it("une duplicados: servicios con salto de línea, suma Factura y promedia el Profit de la hoja", () => {
-    const r = unificarFiles([f("F1", "X", 100, 10), f("F2", "Z", 50, 5), f("F1", "Y", 300, 30)]);
-    expect(r).toHaveLength(2);
-    expect(r[0]).toMatchObject({ File: "F1", Servicio: "X\nY", Factura: 400, Monto: 20, Profit: 20 });
-    expect(r[1].Profit).toBe(5);
-  });
-  it("el promedio ignora las filas sin Profit", () => {
-    expect(unificarFiles([f("F1", "X", 1, 10), f("F1", "Y", 1, null)])[0].Profit).toBe(10);
   });
 });

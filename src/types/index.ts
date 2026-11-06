@@ -142,10 +142,10 @@ export interface ImplementacionRow {
   Usuario: string;
   ingresos_facturados: number | null;
   egresos_liquidados: number | null;
-  /** Profit en dólares, tal como viene en la hoja. Si el File venía en varias filas, el promedio de ellas. */
+  /** Profit en dólares, tal como viene en la hoja. */
   Profit: number | null;
   Proceso?: string;
-  /** Si el File venía en varias filas, sus servicios van separados por salto de línea. */
+  /** Servicio facturado. */
   Servicio?: string;
   Monto?: number | null;
   TC?: number | null;
