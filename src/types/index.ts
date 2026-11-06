@@ -144,6 +144,9 @@ export interface ImplementacionRow {
   egresos_liquidados: number | null;
   /** Factura ÷ TC (en dólares). Con la hoja anterior (sin Factura/TC), la columna Profit tal cual. */
   Profit: number | null;
+  Proceso?: string;
+  /** Si el File venía en varias filas, sus servicios van separados por salto de línea. */
+  Servicio?: string;
   Monto?: number | null;
   TC?: number | null;
   Factura?: number | null;
