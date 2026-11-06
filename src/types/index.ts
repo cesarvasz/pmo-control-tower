@@ -142,8 +142,11 @@ export interface ImplementacionRow {
   Usuario: string;
   ingresos_facturados: number | null;
   egresos_liquidados: number | null;
-  /** Tal como viene en la hoja — la app no lo recalcula. */
+  /** Factura ÷ TC (en dólares). Con la hoja anterior (sin Factura/TC), la columna Profit tal cual. */
   Profit: number | null;
+  Monto?: number | null;
+  TC?: number | null;
+  Factura?: number | null;
 }
 
 /** Hoja "implementacion" tal como la manda el Apps Script: codificada, mismo

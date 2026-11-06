@@ -219,3 +219,16 @@ describe("fetchImplementacionRows", () => {
     await expect(fetchImplementacionRows()).rejects.toThrow(/ROI_IMPLEMENTACION_WEBAPP_URL/);
   });
 });
+
+describe("Profit = Factura ÷ TC (hoja nueva)", () => {
+  const nuevo = (factura: unknown, tc: unknown) => decodificarImplementacion({
+    epoca: 0, libres: ["Proceso", "Servicio", "Monto", "TC", "Factura"], textos: ["File", "Cliente", "Usuario"],
+    fechas: ["Fecha_facturacion"], dicc: { File: ["F1"], Cliente: ["A"], Usuario: ["u"] },
+    filas: [["p", "s", 100, tc, factura, 0, 0, 0, 0]],
+  } as unknown as ImplementacionPayload)[0];
+  it("divide Factura entre TC", () => expect(nuevo(1550, 7.75).Profit).toBe(200));
+  it("TC 0 o vacío: sin Profit", () => {
+    expect(nuevo(1550, 0).Profit).toBeNull();
+    expect(nuevo(1550, "").Profit).toBeNull();
+  });
+});
