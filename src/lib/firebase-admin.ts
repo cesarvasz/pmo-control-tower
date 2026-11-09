@@ -323,6 +323,27 @@ export async function savePreprodRestoreDates(dates: string[], by: string): Prom
   return sorted;
 }
 
+// ── Suplentes de Buenas noticias (portada) ─────────────────────────────────
+// Colección `buenas_noticias_suplentes`, un solo doc ("list") con un mapa
+// «lunes de la semana (YYYY-MM-DD)» → nombre del suplente. Sin entrada = da las
+// buenas noticias quien toca por la rotación (ver lib/buenasNoticias.ts).
+export async function getBuenasNoticiasSuplentes(): Promise<Record<string, string>> {
+  const db = getAdminDb();
+  const doc = await db.collection("buenas_noticias_suplentes").doc("list").get();
+  return (doc.data()?.suplentes as Record<string, string> | undefined) ?? {};
+}
+
+export async function setBuenasNoticiasSuplente(semana: string, nombre: string | null, by: string): Promise<Record<string, string>> {
+  const suplentes = { ...(await getBuenasNoticiasSuplentes()) };
+  if (nombre) suplentes[semana] = nombre; else delete suplentes[semana];
+  // Se podan las semanas de hace más de ~2 meses para que el doc no crezca sin fin.
+  const corte = new Date(); corte.setDate(corte.getDate() - 60);
+  const limite = `${corte.getFullYear()}-${String(corte.getMonth() + 1).padStart(2, "0")}-${String(corte.getDate()).padStart(2, "0")}`;
+  for (const k of Object.keys(suplentes)) if (k < limite) delete suplentes[k];
+  await getAdminDb().collection("buenas_noticias_suplentes").doc("list").set({ suplentes, by, at: new Date().toISOString() });
+  return suplentes;
+}
+
 export async function verifyRequest(authHeader: string | null): Promise<VerifiedUser> {
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!token) throw new Error("no-token");

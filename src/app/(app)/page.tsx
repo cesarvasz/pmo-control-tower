@@ -38,6 +38,7 @@ import type { EnOnHold } from "@/lib/onHold";
 import WeeklyProgressChart from "@/components/WeeklyProgressChart";
 import NotificationsBell from "@/components/NotificationsBell";
 import PreprodRestoreDatesModal from "@/components/PreprodRestoreDatesModal";
+import BuenasNoticias from "@/components/BuenasNoticias";
 import PmScoreboard, { playerPalette } from "@/components/PmScoreboard";
 import MetricCell from "@/components/MetricCell";
 import VpaPlayerCard from "@/components/VpaPlayerCard";
@@ -374,7 +375,8 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
       {/* Próxima restauración de Pre-producción — fechas administradas a mano
           (ver PreprodRestoreDatesModal). Afuera del cuadro de saludo/campanita,
           alineado a la derecha ("float right"), tamaño justo al contenido. */}
-      <div className="mb-2 flex justify-end">
+      <div className="mb-2 flex flex-wrap justify-end gap-2">
+        <BuenasNoticias />
         <button
           onClick={() => setShowPreprodDates(true)}
           className="flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[0.78rem] whitespace-nowrap"
