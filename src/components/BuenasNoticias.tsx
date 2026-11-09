@@ -87,17 +87,20 @@ export default function BuenasNoticias() {
                         {s.suplente && <span className="ml-1.5 text-[0.75rem] text-[var(--text-muted)]">(suple a {s.original})</span>}
                       </div>
                     </div>
-                    <button
-                      onClick={() => setEditando(editando === s.semana ? null : s.semana)}
-                      disabled={busy}
-                      className="shrink-0 rounded-md border px-2 py-1 text-[0.75rem] font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                      style={{ borderColor: "var(--border)" }}
-                      aria-label={`Cambiar al asignado de ${fmtDateWithWeekday(s.dia)}`}
-                    >
-                      Cambiar ▾
-                    </button>
+                    {/* La semana en curso ya no se cambia: solo las que vienen. */}
+                    {i > 0 && (
+                      <button
+                        onClick={() => setEditando(editando === s.semana ? null : s.semana)}
+                        disabled={busy}
+                        className="shrink-0 rounded-md border px-2 py-1 text-[0.75rem] font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                        style={{ borderColor: "var(--border)" }}
+                        aria-label={`Cambiar al asignado de ${fmtDateWithWeekday(s.dia)}`}
+                      >
+                        Cambiar ▾
+                      </button>
+                    )}
                   </div>
-                  {editando === s.semana && (
+                  {i > 0 && editando === s.semana && (
                     <select
                       autoFocus
                       value={s.asignado}
