@@ -994,10 +994,10 @@ function PMPortfolioCard({
           </div>
         );
       })()}
-      {/* Fila 1: una columna por Clase (A, B, C; «Sin clasificar» solo si hay). Las columnas son angostas
-          (la tarjeta ocupa un tercio de pantalla), por eso la píldora de cada clase lleva solo el icono y el
-          %; el estado completo va en el tooltip. */}
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${resumenClases.length}, minmax(0, 1fr))` }}>
+      {/* Fila 1: una columna por PM A, B y C («Sin clasificar» solo si hay) y, al final, Iniciativas. Las columnas
+          son angostas (la tarjeta ocupa un tercio de pantalla), por eso la píldora de cada una lleva solo el icono y
+          el %; el estado completo va en el tooltip. */}
+      <div className="grid" style={{ gridTemplateColumns: `repeat(${resumenClases.length}, minmax(0, 1fr)) minmax(0, 1.5fr)` }}>
         {resumenClases.map((rc, i) => {
           const cfg = rc.estado ? HEALTH_CFG[rc.estado] : null;
           const items = [
@@ -1007,7 +1007,7 @@ function PMPortfolioCard({
           return (
             <Section
               key={rc.clase}
-              label={`${rc.clase === "Sin clasificar" ? "S/C" : `Clase ${rc.clase}`} (${rc.total})`}
+              label={`${rc.clase === "Sin clasificar" ? "S/C" : `PM ${rc.clase}`} (${rc.total})`}
               has={rc.hay}
               title={items || "Sin Proyectos ni PML en esta clase"}
               className={`px-3! ${i > 0 ? "border-l" : ""}`}
@@ -1035,13 +1035,10 @@ function PMPortfolioCard({
             </Section>
           );
         })}
-      </div>
-
-      {/* Fila 2: Iniciativas y, si el PM tiene algo pausado, On Hold (fuera de toda cifra de esta tarjeta). */}
-      <div className={`grid border-t ${hayOnHold ? "grid-cols-2" : "grid-cols-1"}`} style={{ borderColor: "var(--border)" }}>
         <Section
           label="Iniciativas"
           has={true}
+          className="border-l px-3!"
           onClick={onGoIni}
           badge={
             <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ihc.color, background: ihc.bg }}>
@@ -1058,8 +1055,12 @@ function PMPortfolioCard({
             <Stat n={planFuturoDue} color="#6c63ff" label="Plan Futuro" />
           </div>
         </Section>
+      </div>
+
+      {/* Fila 2: On Hold, solo si el PM tiene algo pausado (fuera de toda cifra de esta tarjeta). */}
+      <div className={hayOnHold ? "border-t" : ""} style={{ borderColor: "var(--border)" }}>
         {hayOnHold && (
-          <Section label={`On Hold (${onHoldProyectos.length + onHoldPml.length})`} has={true} className="border-l">
+          <Section label={`On Hold (${onHoldProyectos.length + onHoldPml.length})`} has={true}>
             <div className="flex flex-wrap gap-1.5">
               {onHoldPml.map((r) => (
                 <OnHoldChip key={`pml-${r.id}`} tipo="pml" codigo={r.id} nombre={r.name} entry={onHoldInfo.pml[r.id]} onIr={onGoReq} />
