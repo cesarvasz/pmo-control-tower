@@ -21,10 +21,8 @@ services:
         NODE_VERSION: "22"
         # Se incrustan en el bundle del cliente durante el build: cambiarlas
         # exige reconstruir la imagen, no basta con reiniciar el contenedor.
-        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:?falta en .env}
-        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:?falta en .env}
-        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:?falta en .env}
-        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:?falta en .env}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?falta en .env}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?falta en .env}
         NEXT_PUBLIC_ALLOWED_DOMAIN: ${NEXT_PUBLIC_ALLOWED_DOMAIN:-c807.com}
 
     image: pmo-dashboard:${APP_VERSION:-latest}
@@ -42,9 +40,9 @@ services:
 
       # ── Secretos: solo servidor, nunca llegan al cliente ──────────────
       MONDAY_API_KEY: ${MONDAY_API_KEY:?falta en .env}
-      FIREBASE_ADMIN_CLIENT_EMAIL: ${FIREBASE_ADMIN_CLIENT_EMAIL:?falta en .env}
-      # Debe conservar los \n literales; el código los convierte en saltos.
-      FIREBASE_ADMIN_PRIVATE_KEY: ${FIREBASE_ADMIN_PRIVATE_KEY:?falta en .env}
+      # Secret key de Supabase (rol service_role): única llave que lee/escribe las tablas.
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:?falta en .env}
+      CRON_SECRET: ${CRON_SECRET:-}
 
       # ── WebApps de Apps Script (opcionales) ───────────────────────────
       CALENDAR_WEBAPP_URL: ${CALENDAR_WEBAPP_URL:-}
