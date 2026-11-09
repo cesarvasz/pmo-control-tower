@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { requirePage } from "@/lib/users";
+import { esRolCku } from "@/lib/permissions";
 import { saveAtrasoDetalle, deleteAtrasoDetalle } from "@/lib/store";
 import { isAtrasoResp } from "@/lib/delay";
 import { apiError } from "@/lib/api-errors";
@@ -45,6 +46,8 @@ export async function POST(request: Request) {
   try {
     const authHeader = request.headers.get("authorization");
     const me = await requirePage(authHeader, "resumen-ejecutivo");
+    // Un CKU ve el Status Card de sus proyectos pero no lo edita: eso lo documenta el PM.
+    if (esRolCku(me.roleName)) throw new Error("forbidden");
 
     const body = (await request.json().catch(() => null)) as
       | { itemId?: unknown; reparto?: unknown; motivo?: unknown }

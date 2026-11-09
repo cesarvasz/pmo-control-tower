@@ -6,7 +6,7 @@ import { fmtMoney, fmtMoneyShort, fmtDateWithWeekday, today, parseYMD, businessD
 import { authedFetch } from "@/lib/api";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
-import { calcIniPMHealth, countPlanFuturoDue } from "@/lib/ini";
+import { calcIniPMHealth, countPlanFuturoDue, iniSaludDelPM } from "@/lib/ini";
 import type { BoardHealthData } from "@/lib/proj";
 import { buildUnits, calcEvm, detectPlantilla } from "@/lib/projectMetrics";
 import { buildProjectSummary, currentPhaseIndex } from "@/lib/projSummary";
@@ -38,6 +38,7 @@ import type { EnOnHold } from "@/lib/onHold";
 import WeeklyProgressChart from "@/components/WeeklyProgressChart";
 import NotificationsBell from "@/components/NotificationsBell";
 import PreprodRestoreDatesModal from "@/components/PreprodRestoreDatesModal";
+import BuenasNoticias from "@/components/BuenasNoticias";
 import PmScoreboard, { playerPalette } from "@/components/PmScoreboard";
 import MetricCell from "@/components/MetricCell";
 import VpaPlayerCard from "@/components/VpaPlayerCard";
@@ -374,7 +375,8 @@ function ControlTower({ data, enPausa }: { data: DashboardData; enPausa: EnOnHol
       {/* Próxima restauración de Pre-producción — fechas administradas a mano
           (ver PreprodRestoreDatesModal). Afuera del cuadro de saludo/campanita,
           alineado a la derecha ("float right"), tamaño justo al contenido. */}
-      <div className="mb-2 flex justify-end">
+      <div className="mb-2 flex flex-wrap justify-end gap-2">
+        <BuenasNoticias />
         <button
           onClick={() => setShowPreprodDates(true)}
           className="flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[0.78rem] whitespace-nowrap"
@@ -854,7 +856,7 @@ function PMPortfolioCard({
   const [showEntregaDetail, setShowEntregaDetail] = useState(false);
 
   const {
-    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
+    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, iniLista, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     resumenClases, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
@@ -863,6 +865,7 @@ function PMPortfolioCard({
   const pmValueAll = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, false), confirmacionRoi);
   const pmValueHard = conConfirmacionRoi(calcPmValue(pm, req, proj, projBoards, true), confirmacionRoi); // el badge $ muestra siempre solo HardSaving
   const iniHealth = calcIniPMHealth(pm, ini, calMap);
+  const iniLista = iniSaludDelPM(pm, ini, calMap);
   const planFuturoDue = countPlanFuturoDue(pm, ini);
 
   // NPS personal del PM (mismas fórmulas, filtrando por PM).
@@ -930,7 +933,7 @@ function PMPortfolioCard({
   const hc = HEALTH_CFG[pmHealth];
 
   return {
-    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, planFuturoDue, pmNps, npsColor,
+    pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, iniLista, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
     resumenClases, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
@@ -965,7 +968,7 @@ function PMPortfolioCard({
         const evmStatus = healthStatusFromIndex(pmEvmRaw);
         const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
         const repColor = pmReprocesoPct === null ? "#6b7280" : pmReprocesoPct >= 90 ? "var(--ok)" : pmReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
-        const npsLabel = npsCfg(pmNps.nps)?.label;
+        const npsLabel = pmNps.nps !== null ? npsCfg(pmNps.nps)?.label : undefined;
         // Confirmado en semáforo contra la meta por PM a meses TERMINADOS
         // ($84K ÷ 12 × meses cerrados; el mes en curso no cuenta).
         const confRatio = ratioConfirmacion(pmValueHard.confirmacionBenefit);
@@ -981,8 +984,8 @@ function PMPortfolioCard({
             </span>
           ), color: "var(--ok)", onClick: () => setShowValue(true), title: `Beneficio HardSaving · Validado (Aprobación VPB): ${fmtMoney(pmBenefitDisplay)} · Confirmado (VPC${pmValueHard.confirmacionRoi ? `, ${pmValueHard.confirmacionRoi}` : ""}): ${fmtMoney(pmValueHard.confirmacionBenefit)} (${Math.round(confRatio * 100)}% de la meta a ${today().getMonth()} meses terminados, ${fmtMoney(metaConfirmacionAcumulada())}) · clic para ver el detalle` },
           { label: "Calidad de Entrega", value: pmReprocesoPct !== null ? `${pmReprocesoPct}%` : "—", color: repColor, title: "Calidad de Entrega · % de unidades limpias sin reproceso imputable al PM" },
-          { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "s/d", color: entColor, onClick: () => setShowEntregaDetail(true), title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal} · clic para ver el detalle` },
-          { label: "NPS", value: pmNps.nps !== null ? String(pmNps.nps) : "s/d", color: npsColor, onClick: () => setShowNpsRanges(true), title: `NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""} · clic para ver cómo se mide`, sub: npsLabel },
+          { label: "Cumplimiento de Entrega", value: entPct !== null ? `${entPct}%` : "—", color: entColor, onClick: () => setShowEntregaDetail(true), title: `Cumplimiento de Entrega · ${entOn} a tiempo / ${entLate} con atraso de ${entTotal} · clic para ver el detalle` },
+          { label: "NPS", value: pmNps.nps !== null ? String(pmNps.nps) : "—", color: npsColor, onClick: () => setShowNpsRanges(true), title: `NPS del PM · ${pmNps.total} respuesta${pmNps.total !== 1 ? "s" : ""} · clic para ver cómo se mide`, sub: npsLabel },
         ];
         return (
           <div className="grid grid-cols-5 border-b" style={{ borderColor: "var(--border)" }}>
@@ -992,11 +995,37 @@ function PMPortfolioCard({
           </div>
         );
       })()}
-      {/* Fila 1: una columna por Clase (A, B, C; «Sin clasificar» solo si hay). Las columnas son angostas
-          (la tarjeta ocupa un tercio de pantalla), por eso la píldora de cada clase lleva solo el icono y el
-          %; el estado completo va en el tooltip. */}
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${resumenClases.length}, minmax(0, 1fr))` }}>
-        {resumenClases.map((rc, i) => {
+      {/* Fila 1: Iniciativas y una columna por PM A, B y C («Sin clasificar» solo si hay). Junto al nombre de cada una va
+          solo su nota EVM (el número, con el color de su estado; el estado completo va en el tooltip). */}
+      <div className="grid" style={{ gridTemplateColumns: `repeat(${resumenClases.length + 1}, minmax(0, auto))` }}>
+        <Section
+          label={`Iniciativas (${iniHealth.total})`}
+          has={true}
+          className="px-3!"
+          onClick={onGoIni}
+          badge={
+            <span className="text-[0.8rem] font-extrabold tabular-nums leading-none" style={{ color: ihc.color }} title={`${ihc.label} · ${Math.round(iniHealth.index * 100)}%`}>
+              {Math.round(iniHealth.index * 100)}%
+            </span>
+          }
+        >
+          {/* Una sola columna, como las clases: el ID de cada iniciativa con el color de su estado y su valor. */}
+          <div className="flex flex-col gap-1">
+            {iniLista.map((it) => {
+              const color = HEALTH_CFG[it.estado].color;
+              return (
+                <div key={it.id} className="flex items-center gap-1.5" title={it.name}>
+                  <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+                  <span className="truncate font-mono text-[0.75rem] text-[var(--text-secondary)]">{it.id}</span>
+                  <span className="ml-auto text-[0.72rem] font-bold tabular-nums" style={{ color }}>{Math.round(it.indice * 100)}%</span>
+                </div>
+              );
+            })}
+            {iniLista.length === 0 && <div className="text-[0.75rem] text-[var(--text-disabled)]">—</div>}
+            {planFuturoDue > 0 && <Stat n={planFuturoDue} color="#6c63ff" label="Plan Futuro" />}
+          </div>
+        </Section>
+        {resumenClases.map((rc) => {
           const cfg = rc.estado ? HEALTH_CFG[rc.estado] : null;
           const items = [
             rc.proyectos.length ? `Proyectos: ${rc.proyectos.join(", ")}` : "",
@@ -1005,13 +1034,13 @@ function PMPortfolioCard({
           return (
             <Section
               key={rc.clase}
-              label={`${rc.clase === "Sin clasificar" ? "S/C" : `Clase ${rc.clase}`} (${rc.total})`}
+              label={`${rc.clase === "Sin clasificar" ? "S/C" : `PM ${rc.clase}`} (${rc.total})`}
               has={rc.hay}
               title={items || "Sin Proyectos ni PML en esta clase"}
-              className={`px-3! ${i > 0 ? "border-l" : ""}`}
+              className="border-l px-3!"
               badge={cfg && rc.promedio !== null ? (
-                <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: cfg.color, background: cfg.bg }} title={`${cfg.label} · ${Math.round(rc.promedio * 100)}%`}>
-                  {cfg.icon} {Math.round(rc.promedio * 100)}%
+                <span className="text-[0.8rem] font-extrabold tabular-nums leading-none" style={{ color: cfg.color }} title={`${cfg.label} · ${Math.round(rc.promedio * 100)}%`}>
+                  {Math.round(rc.promedio * 100)}%
                 </span>
               ) : undefined}
             >
@@ -1028,36 +1057,17 @@ function PMPortfolioCard({
                     </div>
                   );
                 })}
-                {rc.items.length === 0 && <div className="text-[0.75rem] text-[var(--text-disabled)]">Nada activo</div>}
+                {rc.items.length === 0 && <div className="text-[0.75rem] text-[var(--text-disabled)]">—</div>}
               </div>
             </Section>
           );
         })}
       </div>
 
-      {/* Fila 2: Iniciativas y, si el PM tiene algo pausado, On Hold (fuera de toda cifra de esta tarjeta). */}
-      <div className={`grid border-t ${hayOnHold ? "grid-cols-2" : "grid-cols-1"}`} style={{ borderColor: "var(--border)" }}>
-        <Section
-          label="Iniciativas"
-          has={true}
-          onClick={onGoIni}
-          badge={
-            <span className="rounded-full px-1.5 py-0.5 text-[0.62rem] font-bold leading-none" style={{ color: ihc.color, background: ihc.bg }}>
-              {ihc.icon} {ihc.label} · {Math.round(iniHealth.index * 100)}%
-            </span>
-          }
-        >
-          {/* En renglón (no en columna) para que la tarjeta no crezca hacia abajo. */}
-          <div className="flex flex-wrap gap-x-3 gap-y-1">
-            <Stat n={iniHealth.total} color="#6b7280" label="total" showZero />
-            <Stat n={iniHealth.offTrack} color="#ef4444" label="Off Track" />
-            <Stat n={iniHealth.inRisk} color="#f59e0b" label="At Risk" />
-            <Stat n={iniHealth.onTrack} color="#10b981" label="On Track" />
-            <Stat n={planFuturoDue} color="#6c63ff" label="Plan Futuro" />
-          </div>
-        </Section>
+      {/* Fila 2: On Hold, solo si el PM tiene algo pausado (fuera de toda cifra de esta tarjeta). */}
+      <div className={hayOnHold ? "border-t" : ""} style={{ borderColor: "var(--border)" }}>
         {hayOnHold && (
-          <Section label={`On Hold (${onHoldProyectos.length + onHoldPml.length})`} has={true} className="border-l">
+          <Section label={`On Hold (${onHoldProyectos.length + onHoldPml.length})`} has={true}>
             <div className="flex flex-wrap gap-1.5">
               {onHoldPml.map((r) => (
                 <OnHoldChip key={`pml-${r.id}`} tipo="pml" codigo={r.id} nombre={r.name} entry={onHoldInfo.pml[r.id]} onIr={onGoReq} />
@@ -1090,11 +1100,11 @@ function Section({ label, has, onClick, children, badge, className = "", title }
     <div
       onClick={clicable ? onClick : undefined} title={title} style={{ borderColor: "var(--border)" }}
       className={`min-w-0 flex-1 px-[18px] py-2.5 transition-colors ${clicable ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""} ${className}`}>
-      <div className="mb-1.5">
+      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <span className="text-[0.7rem] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</span>
-        {badge && <div className="mt-1">{badge}</div>}
+        {badge}
       </div>
-      {has ? <div className="flex flex-col gap-1.5">{children}</div> : <div className="pt-1 text-[0.8rem] text-[var(--text-disabled)]">Sin datos</div>}
+      {has ? <div className="flex flex-col gap-1.5">{children}</div> : <div className="pt-1 text-[0.8rem] text-[var(--text-disabled)]">—</div>}
     </div>
   );
 }

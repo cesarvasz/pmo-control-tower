@@ -226,3 +226,27 @@ export async function savePreprodRestoreDates(dates: string[], by: string): Prom
   unwrap(await db().rpc("guardar_fechas_preprod", { p_fechas: sorted, p_by: by }));
   return sorted;
 }
+
+// ── Suplentes de Buenas noticias (portada) ────────────────────────────────
+// Una fila por semana (lunes YYYY-MM-DD) → nombre del suplente. Sin fila = da las buenas
+// noticias quien toca por la rotación (ver lib/buenasNoticias.ts).
+
+export async function getBuenasNoticiasSuplentes(): Promise<Record<string, string>> {
+  const rows = await selectAll((a, b) =>
+    db().from("buenas_noticias_suplentes").select("semana, nombre").order("semana").range(a, b));
+  return Object.fromEntries(rows.map((r) => [r.semana, r.nombre]));
+}
+
+/** Pone (o quita, con nombre null) el suplente de una semana y devuelve el mapa completo. */
+export async function setBuenasNoticiasSuplente(semana: string, nombre: string | null, by: string): Promise<Record<string, string>> {
+  if (nombre) {
+    unwrap(await db().from("buenas_noticias_suplentes").upsert({ semana, nombre, updated_by: by, updated_at: ahora() }));
+  } else {
+    unwrap(await db().from("buenas_noticias_suplentes").delete().eq("semana", semana));
+  }
+  // Se podan las semanas de hace más de ~2 meses, como antes en Firestore.
+  const corte = new Date(); corte.setDate(corte.getDate() - 60);
+  const limite = `${corte.getFullYear()}-${String(corte.getMonth() + 1).padStart(2, "0")}-${String(corte.getDate()).padStart(2, "0")}`;
+  unwrap(await db().from("buenas_noticias_suplentes").delete().lt("semana", limite));
+  return getBuenasNoticiasSuplentes();
+}

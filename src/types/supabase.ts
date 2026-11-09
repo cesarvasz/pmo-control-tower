@@ -89,6 +89,27 @@ export type Database = {
         }
         Relationships: []
       }
+      buenas_noticias_suplentes: {
+        Row: {
+          nombre: string
+          semana: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          nombre: string
+          semana: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          nombre?: string
+          semana?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       board_alcance: {
         Row: {
           alcance: string

@@ -28,13 +28,14 @@ export interface StatusPhase {
   name: string;
   state: string;                 // "Completada" | "En curso" | "Atrasada" | "Pendiente" | "A futuro"
   status: StatusPhaseStatus;
-  indent: 0 | 1;
+  indent: 0 | 1 | 2;             // 2 = actividad de un entregable (solo en pantalla, al expandirlo)
   bold: boolean;
   band?: StatusBand;             // solo en filas de nivel 0
   progress?: number;             // 0..1 (barras start/due)
   start?: string;                // YYYY-MM-DD
   due?: string;                  // YYYY-MM-DD
   milestone?: string;            // YYYY-MM-DD (rombo, en vez de start/due)
+  itemId?: string;               // solo en entregables de Fase 3 (indent 1): id del item de Monday, para abrir sus actividades en pantalla
 }
 
 export interface StatusRepartoTramo {
@@ -272,23 +273,14 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
   const gRows = buildGanttRows(phases, units);
 
   // ── dominio temporal ──
+  // El eje cubre SOLO lo que de verdad se dibuja (rowRange de cada fila), más hoy y la fecha planificada: nada de
+  // meses vacíos al inicio o al final por fechas que ninguna barra usa (el inicio de cada item, el fin estimado, las fases
+  // administrativas de la plantilla vieja con Limit Date meses después del cierre real…).
   const dateNums: number[] = [nowDate.getTime()];
-  if (isOldTemplate) {
-    // Igual que el Gantt: SOLO las fechas que de verdad se dibujan (rowRange de
-    // cada fila) — nunca las de `units` crudo. La plantilla vieja trae fases
-    // administrativas (ej. Fase 5 con "VPA recopila datos a 90 días...",
-    // "Cierre formal del proyecto") con Limit Date meses después del cierre
-    // real del proyecto (el de "Cierre VMO..."); si el eje las incluyera
-    // igual, el mes axis se estiraría con espacio muerto que ninguna barra usa.
-    gRows.forEach((r) => {
-      const range = rowRange(r, isOldTemplate);
-      if (range) { dateNums.push(range.start, range.end); }
-    });
-  } else {
-    units.forEach((u) => {
-      [u.startDate, u.deadline, u.actualEnd].forEach((d) => { if (d) dateNums.push(d.getTime()); });
-    });
-  }
+  gRows.forEach((r) => {
+    const range = rowRange(r, isOldTemplate);
+    if (range) { dateNums.push(range.start, range.end); }
+  });
   if (plannedFinish) dateNums.push(plannedFinish.getTime());
   if (estimatedFinish) dateNums.push(estimatedFinish.getTime());
   const rawMin = new Date(Math.min(...dateNums));
@@ -320,6 +312,7 @@ export function buildStatusReportData(input: StatusReportInput): StatusReportDat
       indent: r.indent,
       bold: r.indent === 0,
       ...(r.indent === 0 && bandOf(r.grupo) ? { band: bandOf(r.grupo) } : {}),
+      ...(r.indent === 1 && r.units[0] ? { itemId: r.units[0].stepId } : {}),
     };
     if (range && range.start !== range.end) {
       return { ...base, start: toYMD(new Date(range.start)), due: toYMD(new Date(range.end)), progress: r.total ? r.done / r.total : 0 };

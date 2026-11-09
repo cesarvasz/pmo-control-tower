@@ -105,11 +105,12 @@ describe("decodificarImplementacion", () => {
     // El script viejo no la conoce, así que va entre las libres: una fecha real como segundos, un texto tal cual.
     const base = { libres: ["ingresos_facturados", "egresos_liquidados", "Profit", "fecha_facturacion"], fechas: [] as string[] };
     const [a, b, c] = decodificarImplementacion(payload({
+      dicc: { File: ["F1", "F2", "F3"], Cliente: ["A"], Usuario: ["u"] },
       ...base,
       filas: [
         [1, 2, -1, seg(2026, 3, 9, 8, 15, 0), 0, 0, 0],
-        [1, 2, -1, "2026-04-02 10:00:00", 0, 0, 0],
-        [1, 2, -1, "", 0, 0, 0],
+        [1, 2, -1, "2026-04-02 10:00:00", 1, 0, 0],
+        [1, 2, -1, "", 2, 0, 0],
       ],
     }));
     expect(a.fecha_facturacion).toBe("2026-03-09T08:15:00");

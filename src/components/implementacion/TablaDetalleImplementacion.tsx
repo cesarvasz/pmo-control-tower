@@ -16,7 +16,7 @@ import {
 } from "@/lib/implementaciones";
 import type { ImplementacionRow } from "@/types";
 
-type Campo = "File" | "fecha_facturacion" | "Cliente" | "Usuario" | "ingresos_facturados" | "egresos_liquidados" | "Profit" | "Semaforo";
+type Campo = "File" | "fecha_facturacion" | "Cliente" | "Usuario" | "Proceso" | "Servicio" | "Factura" | "TC" | "Profit" | "Semaforo";
 type Dir = "asc" | "desc";
 const TAMANOS = [25, 50, 100, 250] as const;
 
@@ -61,6 +61,7 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(25);
   const [filtro, setFiltro] = useState<FiltroSemaforo>("todos");
+  const [busqueda, setBusqueda] = useState("");
 
   const filas = useMemo<Fila[]>(() => rows.map((r) => ({ r, e: evaluarFile(r, metas) })), [rows, metas]);
   const resumen = useMemo(() => resumenSemaforo(filas.map((f) => f.e.estado)), [filas]);
@@ -74,24 +75,26 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
   };
   const elegirFiltro = (f: FiltroSemaforo) => { setFiltro(f); setPagina(1); };
 
+  const texto = busqueda.trim().toLowerCase();
   const ordenadas = useMemo(() => {
     const num = (v: number | null) => (v == null ? -Infinity : v);
     return filas
       .filter((f) => pasaFiltroSemaforo(f.e.estado, filtroActivo))
+      .filter((f) => !texto || f.r.File.toLowerCase().includes(texto))
       .sort((a, b) => {
         const c = orden.campo;
         let v: number;
-        if (c === "ingresos_facturados" || c === "egresos_liquidados" || c === "Profit") {
-          const x = num(a.r[c]), y = num(b.r[c]);
+        if (c === "Factura" || c === "TC" || c === "Profit") {
+          const x = num(a.r[c] ?? null), y = num(b.r[c] ?? null);
           v = x === y ? 0 : x < y ? -1 : 1;
         } else if (c === "Semaforo") {
           v = RANGO_SEMAFORO[a.e.estado] - RANGO_SEMAFORO[b.e.estado];
         } else {
-          v = a.r[c].localeCompare(b.r[c], "es");
+          v = (a.r[c] ?? "").localeCompare(b.r[c] ?? "", "es");
         }
         return orden.dir === "asc" ? v : -v;
       });
-  }, [filas, filtroActivo, orden]);
+  }, [filas, filtroActivo, orden, texto]);
 
   const totalPaginas = Math.max(1, Math.ceil(ordenadas.length / tamano));
   const paginaActual = Math.min(pagina, totalPaginas);
@@ -100,6 +103,10 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
   return (
     <div>
       <div className="mb-2.5 flex flex-wrap items-center gap-x-5 gap-y-2.5">
+        <input type="search" value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setPagina(1); }}
+          placeholder="Buscar File…" aria-label="Filtrar por File"
+          className="w-48 rounded-lg border px-3 py-1.5 text-[1rem] outline-none"
+          style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
         {hayMetas && (
           <>
             <div role="group" aria-label="Filtrar por cumplimiento del CM1" className="inline-flex rounded-lg border p-0.5"
@@ -155,8 +162,10 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                   <Th campo="fecha_facturacion" actual={orden} alternar={alternar} align="center">Fecha de facturación</Th>
                   <Th campo="Cliente" actual={orden} alternar={alternar}>Cliente</Th>
                   <Th campo="Usuario" actual={orden} alternar={alternar}>Usuario</Th>
-                  <Th campo="ingresos_facturados" actual={orden} alternar={alternar} align="right">Ingresos facturados</Th>
-                  <Th campo="egresos_liquidados" actual={orden} alternar={alternar} align="right">Egresos liquidados</Th>
+                  <Th campo="Proceso" actual={orden} alternar={alternar}>Proceso</Th>
+                  <Th campo="Servicio" actual={orden} alternar={alternar}>Servicio</Th>
+                  <Th campo="Factura" actual={orden} alternar={alternar} align="right">Facturado</Th>
+                  <Th campo="TC" actual={orden} alternar={alternar} align="right">TC</Th>
                   <Th campo="Profit" actual={orden} alternar={alternar} align="right">Profit</Th>
                   {hayMetas && (
                     <Th campo="Semaforo" actual={orden} alternar={alternar} align="center"
@@ -173,8 +182,10 @@ export default function TablaDetalleImplementacion({ rows, metas }: { rows: Impl
                     <td className="whitespace-nowrap tabular-nums text-center text-[var(--text-secondary)]">{fmtFechaCorta(r.fecha_facturacion)}</td>
                     <td className="max-w-[240px] truncate text-[var(--text-secondary)]" title={r.Cliente}>{r.Cliente}</td>
                     <td className="max-w-[180px] truncate text-[var(--text-secondary)]" title={r.Usuario}>{r.Usuario}</td>
-                    <td className="whitespace-nowrap tabular-nums text-right">{fmtImporte(r.ingresos_facturados)}</td>
-                    <td className="whitespace-nowrap tabular-nums text-right">{fmtImporte(r.egresos_liquidados)}</td>
+                    <td className="max-w-[180px] truncate text-[var(--text-secondary)]" title={r.Proceso}>{r.Proceso || "—"}</td>
+                    <td className="min-w-[200px] whitespace-pre-line text-[var(--text-secondary)]">{r.Servicio || "—"}</td>
+                    <td className="whitespace-nowrap tabular-nums text-right">{fmtImporte(r.Factura ?? null)}</td>
+                    <td className="whitespace-nowrap tabular-nums text-right">{r.TC == null ? "—" : r.TC.toLocaleString("es-GT", { maximumFractionDigits: 4 })}</td>
                     <td className="whitespace-nowrap tabular-nums text-right font-semibold"
                       style={{ color: r.Profit != null && r.Profit < 0 ? "var(--bad)" : undefined }}>
                       {fmtImporte(r.Profit)}

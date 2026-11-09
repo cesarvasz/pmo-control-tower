@@ -39,10 +39,17 @@ const esColFecha = (c: string) =>
 
 /** Columnas de importe: llegan como número, pero si en la hoja alguna celda es
  *  texto («Q1,234.50», «$1,234.50», «(500)») también se interpreta. */
-const COLS_NUMERICAS = ["ingresos_facturados", "egresos_liquidados", "Profit"] as const;
+const COLS_NUMERICAS = ["ingresos_facturados", "egresos_liquidados", "Profit", "Monto", "TC", "Factura"] as const;
+
+/** Columnas de la hoja nueva: solo existen en la fila si la hoja las trae. */
+const COLS_NUEVAS: readonly string[] = ["Monto", "TC", "Factura"];
 
 /** Reconstruye las filas de la pestaña "implementacion" a partir del payload codificado. */
 export function decodificarImplementacion(p: ImplementacionPayload): ImplementacionRow[] {
+  return decodificarFilas(p);
+}
+
+function decodificarFilas(p: ImplementacionPayload): ImplementacionRow[] {
   const { epoca, libres = [], textos = [], fechas = [], dicc = {}, filas = [] } = p;
   const nLibres = libres.length, nTextos = textos.length;
   const numericas: readonly string[] = COLS_NUMERICAS;
@@ -70,7 +77,7 @@ export function decodificarImplementacion(p: ImplementacionPayload): Implementac
     // Si la hoja renombra o pierde una columna, la fila conserva su forma (vacía)
     // en vez de dejar un undefined que reventaría la tabla al ordenar o formatear.
     for (const c of COLS_TEXTO) if (row[c] === undefined) row[c] = "";
-    for (const c of COLS_NUMERICAS) if (row[c] === undefined) row[c] = null;
+    for (const c of COLS_NUMERICAS) if (row[c] === undefined && !COLS_NUEVAS.includes(c)) row[c] = null;
     return row as unknown as ImplementacionRow;
   });
 }

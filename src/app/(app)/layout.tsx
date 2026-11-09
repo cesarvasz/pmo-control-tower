@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useMe } from "@/context/PermissionsContext";
 import { useData } from "@/context/DataContext";
 import { canSeePage, pageByHref, pageByKey } from "@/lib/registry";
-import { esCuentaEnEspera } from "@/lib/permissions";
+import { esCuentaEnEspera, esRolCku } from "@/lib/permissions";
 import { CambioObligatorio, EnEspera } from "@/components/CuentaPantallas";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
@@ -119,6 +119,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     if (!me) return false;
     const page = pageByHref(pathname);
     if (!page) return true; // rutas no registradas → permitidas
+    // Un CKU entra al Status Card de sus proyectos (botón en /players) sin que el rol tenga la página marcada: la
+    // vista solo le muestra sus proyectos y no deja editar (ver resumen-ejecutivo/page.tsx).
+    if (page.key === "resumen-ejecutivo" && esRolCku(me.roleName)) return true;
     return canSeePage(me.permissions, page);
   })();
 

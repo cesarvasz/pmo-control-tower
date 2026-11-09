@@ -11,6 +11,7 @@
 // en ambos, cuántas quedan en proceso. Cada estado se lee solo Cumplido / Incumplido (gris = En Proceso).
 
 import { colorIndicadorCku, tonoIndicadorCku } from "@/lib/kpi";
+import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pill, type Tone } from "@/components/ui";
 import CkuResponsableSelect from "@/components/CkuResponsableSelect";
@@ -163,7 +164,11 @@ function Responsable({ nombre }: { nombre: string | null }) {
 
 /** Una fila del acordeón. Con `hijos` se pliega/despliega (todo parte plegado); sin ellos es una hoja
  *  con el mismo sangrado, para que las columnas queden alineadas. */
-function Fila({ cabecera, hijos }: { cabecera: ReactNode; hijos?: ReactNode }) {
+function Fila({ cabecera, hijos, accion }: {
+  cabecera: ReactNode; hijos?: ReactNode;
+  /** Un botón junto a la fila (fuera del botón que la despliega, para no anidar controles). */
+  accion?: ReactNode;
+}) {
   const [abierta, setAbierta] = useState(false);
   if (!hijos) {
     return (
@@ -175,16 +180,19 @@ function Fila({ cabecera, hijos }: { cabecera: ReactNode; hijos?: ReactNode }) {
   }
   return (
     <div>
-      <button
-        type="button" aria-expanded={abierta} onClick={() => setAbierta((a) => !a)}
-        className="flex w-full items-start gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-[var(--bg-hover)]"
-      >
-        <span
-          className="mt-[3px] w-3 shrink-0 text-[0.6rem] text-[var(--text-muted)] transition-transform"
-          style={{ transform: abierta ? "rotate(90deg)" : undefined }} aria-hidden
-        >▶</span>
-        <span className="block min-w-0 flex-1">{cabecera}</span>
-      </button>
+      <div className="flex items-start gap-1">
+        <button
+          type="button" aria-expanded={abierta} onClick={() => setAbierta((a) => !a)}
+          className="flex min-w-0 flex-1 items-start gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-[var(--bg-hover)]"
+        >
+          <span
+            className="mt-[3px] w-3 shrink-0 text-[0.6rem] text-[var(--text-muted)] transition-transform"
+            style={{ transform: abierta ? "rotate(90deg)" : undefined }} aria-hidden
+          >▶</span>
+          <span className="block min-w-0 flex-1">{cabecera}</span>
+        </button>
+        {accion && <span className="shrink-0 pt-1.5">{accion}</span>}
+      </div>
       {abierta && (
         <div className="mb-1.5 ml-[0.85rem] border-l pl-2" style={{ borderColor: "var(--border)" }}>{hijos}</div>
       )}
@@ -214,6 +222,20 @@ function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
   );
 }
 
+/** Abre el Status Card del proyecto (/resumen-ejecutivo); el CKU solo lo ve, no lo edita. */
+function BotonStatusCard({ boardId }: { boardId: string }) {
+  return (
+    <Link
+      href={`/resumen-ejecutivo?board=${boardId}`}
+      className="rounded-md border px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--accent-light)] hover:bg-[var(--bg-hover)]"
+      style={{ borderColor: "var(--border)" }}
+      title="Ver el Status Card de este proyecto"
+    >
+      Status Card
+    </Link>
+  );
+}
+
 /** Un proyecto: su % cumplido (solo con las actividades que cuentan) y, al abrirlo, sus items. */
 function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
   const c = contarActividades(p.items);
@@ -237,6 +259,7 @@ function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
           </>}
         />
       }
+      accion={<BotonStatusCard boardId={p.boardId} />}
       hijos={p.items.map((it) => <ItemCumplimientoFila key={it.id} it={it} heredado={p.responsableFase} />)}
     />
   );
@@ -315,6 +338,7 @@ function ProyectoCalidadFila({ p }: { p: ProyectoCalidadCku }) {
           </>}
         />
       }
+      accion={<BotonStatusCard boardId={p.boardId} />}
       hijos={p.items.map((it) => <ItemCalidadFila key={it.id} it={it} />)}
     />
   );
