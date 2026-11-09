@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { actividadesComoFases, estadoActividad } from "./statusActividades";
+import { actividadesComoFases, estadoActividad, tieneAcordeon } from "./statusActividades";
 import type { ProjItem, ProjSubitem } from "@/types";
 
 const d = (s: string) => new Date(`${s}T00:00:00`);
@@ -28,5 +28,14 @@ describe("actividadesComoFases", () => {
     expect(b).toMatchObject({ milestone: "2026-12-01" });
     expect(c.start).toBeUndefined(); expect(c.milestone).toBeUndefined();
     expect(actividadesComoFases(undefined, NOW)).toEqual([]);
+  });
+});
+
+describe("tieneAcordeon", () => {
+  it("los hitos no llevan acordeón", () => {
+    for (const n of ["HITO Go Live", "hito: cierre", "  Hito 3", "HITO"]) expect(tieneAcordeon(n)).toBe(false);
+  });
+  it("los que empiezan con E, y los demás, sí", () => {
+    for (const n of ["E1 Entrega de planos", "E-02 Pruebas", "Desarrollo", "Hitos de cierre", "Entrega"]) expect(tieneAcordeon(n)).toBe(true);
   });
 });

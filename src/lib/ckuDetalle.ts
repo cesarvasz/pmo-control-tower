@@ -89,6 +89,8 @@ export interface ItemCumplimiento {
 /** Un proyecto (board con plantilla nueva) y los items de su Fase 3. */
 export interface ProyectoCumplimiento {
   proyecto: string;
+  /** Id del board en Monday: para abrir el Status Card del proyecto. */
+  boardId: string;
   /** Su Clase (A/B/C, o «Sin clasificar»): la fuente del peso de sus actividades. */
   clase: Clase;
   /** Responsable asignado al atraso de la Fase 3 (etiqueta original); null si no hay. */
@@ -125,7 +127,7 @@ function armarProyectos(fase3: ProjItem[], delays: DelayMap, delaysOriginal: Del
     let proy = porBoard.get(p.boardId);
     if (!proy) {
       const { code, name } = splitBoardName(p.boardName);
-      proy = { proyecto: code ? `${code} · ${name}` : name, clase: claseDeItemProyecto(p, clases), responsableFase: delaysOriginal[llave]?.responsible ?? null, items: [] };
+      proy = { proyecto: code ? `${code} · ${name}` : name, boardId: p.boardId, clase: claseDeItemProyecto(p, clases), responsableFase: delaysOriginal[llave]?.responsible ?? null, items: [] };
       porBoard.set(p.boardId, proy);
     }
     proy.items.push({
@@ -185,6 +187,7 @@ export interface ItemCalidad {
 
 export interface ProyectoCalidadCku {
   proyecto: string;
+  boardId: string;
   /** Su Clase (A/B/C, o «Sin clasificar»): la fuente del peso de sus actividades. */
   clase: Clase;
   items: ItemCalidad[];
@@ -214,7 +217,7 @@ function armarProyectosCalidad(fase3: ProjItem[], reproceso: DelayMap, clases: R
     let proy = porBoard.get(p.boardId);
     if (!proy) {
       const { code, name } = splitBoardName(p.boardName);
-      proy = { proyecto: code ? `${code} · ${name}` : name, clase: claseDeItemProyecto(p, clases), items: [] };
+      proy = { proyecto: code ? `${code} · ${name}` : name, boardId: p.boardId, clase: claseDeItemProyecto(p, clases), items: [] };
       porBoard.set(p.boardId, proy);
     }
     proy.items.push({

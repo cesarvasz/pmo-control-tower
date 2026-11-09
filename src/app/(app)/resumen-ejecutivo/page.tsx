@@ -11,7 +11,7 @@
 // de agregación vive en lib/portfolioSummary.ts y lib/projSummary.ts (puras,
 // con tests) — esta página solo arma la presentación.
 
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bar, BarChart, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -29,7 +29,11 @@ import { GRID } from "@/lib/reportTheme";
 import { buildStatusReportDataForBoard } from "@/lib/statusReportData";
 import { EmptyRow, ErrorBox, Loader } from "@/components/ui";
 import { actividadesComoFases } from "@/lib/statusActividades";
-import StatusReport, { SHEET_H, SHEET_W } from "@/components/StatusReport";
+import StatusReport from "@/components/StatusReport";
+import StatusReportPantalla from "@/components/StatusReportPantalla";
+import { useMe } from "@/context/PermissionsContext";
+import { esRolCku } from "@/lib/permissions";
+import { ckuDeEmail, sameCku } from "@/lib/players";
 import { AtrasoMotivoInput, AtrasoRespReparto } from "@/components/AtrasoInlineEdit";
 import { AlcanceInput } from "@/components/AlcanceInlineEdit";
 import WeeklyProgressChart from "@/components/WeeklyProgressChart";
@@ -128,23 +132,28 @@ function ResumenEjecutivoInner() {
   const router = useRouter();
   const { data, loading, error } = useData();
   const boardId = sp.get("board") ?? "";
+  // Un CKU solo ve el Status Card de los proyectos que tiene asignados (su CKU sale de su correo, Directorio RH).
+  const { me } = useMe();
+  const soloMio = esRolCku(me?.roleName);
+  const miCku = useMemo(() => (soloMio && data ? ckuDeEmail(data.directorio, me?.email ?? "") : null), [soloMio, data, me?.email]);
 
   const goToProject = (id: string) => router.push(`/resumen-ejecutivo?board=${id}`, { scroll: false });
   const backToSummary = () => router.push("/resumen-ejecutivo", { scroll: false });
 
   const boardsSorted = useMemo(() => {
     if (!data) return [];
-    return [...data.projBoards].sort((a, b) => splitBoardName(a.name).name.localeCompare(splitBoardName(b.name).name));
-  }, [data]);
+    const suyos = soloMio ? data.projBoards.filter((b) => !!miCku && sameCku(b.cku, miCku)) : data.projBoards;
+    return [...suyos].sort((a, b) => splitBoardName(a.name).name.localeCompare(splitBoardName(b.name).name));
+  }, [data, soloMio, miCku]);
 
   const rows = useMemo(
-    () => (data ? buildPortfolioRows(data.projBoards, data.proj, data.projItemBaselines) : []),
-    [data],
+    () => (data ? buildPortfolioRows(boardsSorted, data.proj, data.projItemBaselines) : []),
+    [data, boardsSorted],
   );
   const totals = useMemo(() => calcPortfolioTotals(rows), [rows]);
   const delayRadar = useMemo(
-    () => (data ? buildDelayRadar(rows, data.projBoards, data.proj, data.atrasoDetalles) : []),
-    [rows, data],
+    () => (data ? buildDelayRadar(rows, boardsSorted, data.proj, data.atrasoDetalles) : []),
+    [rows, data, boardsSorted],
   );
 
   if (loading && !data) return <Loader />;
@@ -603,23 +612,10 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
   }, []);
   const handlePrint = () => window.print();
 
-  // En pantalla la hoja (1122×794 px) se escala al ancho disponible del panel.
-  // Se mide el contenedor EXTERIOR (cuyo ancho no se toca); solo se ajusta su
-  // alto y el `scale` de la hoja vía estado — sin loops de ResizeObserver.
-  const boxRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0);
-  useLayoutEffect(() => {
-    const box = boxRef.current;
-    if (!box) return;
-    const compute = () => {
-      const w = box.clientWidth;
-      if (w > 0) setScale(Math.min(w / SHEET_W, 1.5));
-    };
-    compute();
-    const ro = new ResizeObserver(compute);
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, []);
+  // Un CKU ve el reporte de sus proyectos, pero no edita: el Alcance, el responsable y el motivo de un atraso los
+  // documenta el PM (la API también lo rechaza).
+  const { me } = useMe();
+  const soloLectura = esRolCku(me?.roleName);
 
   return (
     <div>
@@ -639,21 +635,13 @@ function ProjectDetailView({ board, items, projItemBaselines, allBoards, onBack,
           </div>
           {/* En pantalla: la misma hoja escalada al ancho del panel, con
               Alcance/Responsable/Motivo editables in-situ */}
-          <div
-            ref={boxRef}
-            className="overflow-hidden rounded-xl print:hidden"
-            style={{ border: `1px solid ${GRID}`, boxShadow: "0 2px 14px rgba(0,0,0,.10)", height: SHEET_H * scale }}
-          >
-            <div style={{ width: SHEET_W, height: SHEET_H, transformOrigin: "top left", transform: `scale(${scale})` }}>
-              <StatusReport
-                data={reportData}
-                renderAlcance={() => <AlcanceInput boardId={board.id} />}
-                renderResp={(a) => <AtrasoRespReparto itemId={a.id} totalDias={a.diasNum} />}
-                renderMotivo={(a) => <AtrasoMotivoInput itemId={a.id} totalDias={a.diasNum} />}
-                actividadesDe={(id) => actividadesComoFases(items.find((p) => p.id === id), now)}
-              />
-            </div>
-          </div>
+          <StatusReportPantalla
+            data={reportData} maxScale={1.5} borderColor={GRID}
+            renderAlcance={soloLectura ? undefined : () => <AlcanceInput boardId={board.id} />}
+            renderResp={soloLectura ? undefined : (a) => <AtrasoRespReparto itemId={a.id} totalDias={a.diasNum} />}
+            renderMotivo={soloLectura ? undefined : (a) => <AtrasoMotivoInput itemId={a.id} totalDias={a.diasNum} />}
+            actividadesDe={(id) => actividadesComoFases(items.find((p) => p.id === id), now)}
+          />
         </>
       )}
     </div>

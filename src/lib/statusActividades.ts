@@ -29,3 +29,9 @@ export function actividadesComoFases(item: ProjItem | undefined, now: number): S
     return fin ? { ...base, milestone: ymd(fin) } : base;
   });
 }
+
+/** ¿El entregable de la Fase 3 lleva acordeón con sus actividades? Un nombre que empieza con «HITO» es un hito y no lo
+ *  lleva; uno que empieza con «E» (E1, E-02…) sí, y los que no cumplen ninguna de las dos reglas también. */
+export function tieneAcordeon(nombre: string): boolean {
+  return !/^\s*HITO(?![a-záéíóúñ])/i.test(nombre);
+}

@@ -18,12 +18,13 @@
 // lib/reportTheme.ts (única fuente de verdad, espejo del .py de la skill) — no
 // se hardcodean hex aquí.
 
-import { forwardRef, Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { forwardRef, Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   BLUE, BLUE_BG, BOLT_PATH, CARD_BG, CRITICAL, CRITICAL_BG, GOOD, GOOD_BG, GRID, INK, INK_MUTED,
   INK_SEC, NAVY, NEUTRAL, NEUTRAL_BG, NEUTRAL_LINE, SURFACE, TONE, VIOLET, WARNING,
   WARNING_BG, WARNING_FILL, spiTone,
 } from "@/lib/reportTheme";
+import { tieneAcordeon } from "@/lib/statusActividades";
 import type { StatusAtraso, StatusBand, StatusPhase, StatusPhaseStatus, StatusReportData } from "@/lib/statusReportData";
 
 // Dimensiones de la hoja (A4 landscape @ 96dpi) — las usa el escalado en pantalla.
@@ -83,6 +84,8 @@ const CSS = `
   background:none; list-style:none; text-decoration:none; letter-spacing:normal; }
 .pmo-report img{ display:block; max-width:none; }
 .pmo-report table{ border-spacing:0; }
+/* En pantalla (sin ajustar): la hoja crece a lo alto lo que haga falta en vez de achicar el contenido */
+.pmo-report.pmo-libre{ height:auto; min-height:210mm; overflow:visible; }
 /* cuerpo escalable: si el contenido no cabe en la hoja, JS le pone un scale<1 */
 .pmo-report .pmo-body{ transform-origin:top center; }
 
@@ -135,19 +138,19 @@ const CSS = `
 
 .pmo-report .gantt{ margin-bottom:11px; border:1px solid var(--grid); border-radius:8px;
   padding:5px 12px 4px 12px; background:#fdfdfc; }
-.pmo-report .g-months{ position:relative; height:12px; margin-left:280px; margin-bottom:1px; }
-.pmo-report .g-month{ position:absolute; top:0; font-size:5.4pt; color:var(--ink-muted); font-weight:600;
+.pmo-report .g-months{ position:relative; height:11px; margin-left:var(--lw,280px); margin-bottom:1px; }
+.pmo-report .g-month{ position:absolute; top:0; font-size:4.6pt; color:var(--ink-muted); font-weight:600;
   transform:translateX(1px); border-left:1px solid var(--grid); padding-left:2px; white-space:nowrap; }
 .pmo-report .g-rows{ position:relative; }
-.pmo-report .g-lines-overlay{ position:absolute; top:0; bottom:0; left:280px; right:0; pointer-events:none; }
+.pmo-report .g-lines-overlay{ position:absolute; top:0; bottom:0; left:var(--lw,280px); right:0; pointer-events:none; }
 .pmo-report .g-vline{ position:absolute; top:0; bottom:0; border-left:1px solid var(--grid); }
 .pmo-report .g-todayline{ position:absolute; top:0; bottom:0; border-left:1.6px solid var(--navy); }
 .pmo-report .g-planline{ position:absolute; top:0; bottom:0; border-left:1.6px dashed var(--warning); }
 .pmo-report .g-row{ display:flex; align-items:center; min-height:13.5px; border-top:1px solid #f1f0ec; padding:1.5px 0; }
 .pmo-report .g-row:first-child{ border-top:none; }
-.pmo-report .g-label{ width:280px; flex-shrink:0; display:flex; align-items:center; gap:5px; padding-right:6px; }
+.pmo-report .g-label{ width:var(--lw,280px); flex-shrink:0; display:flex; align-items:center; gap:5px; padding-right:6px; }
 .pmo-report .g-name{ font-size:7.9pt; line-height:1.15; white-space:normal; word-break:break-word; overflow:hidden;
-  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; max-height:2.35em; min-width:0; }
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; max-height:3.5em; min-width:0; }
 .pmo-report .band-chip{ width:6px; height:6px; border-radius:2px; flex-shrink:0; margin-top:2px; align-self:flex-start; }
 .pmo-report .g-state{ font-size:5.6pt; font-weight:700; padding:1px 7px; border-radius:7px;
   text-transform:uppercase; letter-spacing:.15px; margin-left:auto; margin-right:2px; white-space:nowrap; flex-shrink:0; }
@@ -313,7 +316,9 @@ function GanttRow({ r, pct, today, expandible, abierto, onToggle }: {
   // distingue entregable de fase, así que el "tab" solo necesita un guiño,
   // no 22px — se recupera ese ancho para el nombre.
   const indentPx = 10 * r.indent;
-  const nameStyle: React.CSSProperties = r.bold ? { fontWeight: 600 } : { fontWeight: 400, color: INK_SEC };
+  // Fase y entregable (item de la Fase 3) en negrita; las actividades (subitems), normales.
+  const nameStyle: React.CSSProperties = r.indent === 2 ? { fontWeight: 400, color: INK_SEC }
+    : r.indent === 1 ? { fontWeight: 600, color: INK_SEC } : { fontWeight: 700 };
   const stateCls = `state-${r.status.split("_")[0]}`;
 
   let chart: ReactNode;
@@ -431,13 +436,22 @@ export interface StatusReportProps {
   /** vista en pantalla: las actividades de un entregable de la Fase 3, como filas del Gantt (indent 2); con esto cada
    *  entregable lleva su flecha para expandirlo. Solo uno queda abierto a la vez. */
   actividadesDe?: (itemId: string) => StatusPhase[];
+  /** true (impresión / PDF): una sola hoja A4 — si el contenido no cabe, se reduce para que todo quede en ella.
+   *  false (pantalla): la hoja crece a lo alto, el contenido se mantiene legible. */
+  ajustar?: boolean;
 }
 
 const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function StatusReport(
-  { data, renderResp, renderMotivo, renderAlcance, actividadesDe }, ref,
+  { data, renderResp, renderMotivo, renderAlcance, actividadesDe, ajustar = true }, ref,
 ) {
   // Entregable abierto: solo uno a la vez (abrir otro cierra el anterior) para que la línea de tiempo siga legible.
   const [abiertoId, setAbiertoId] = useState<string | null>(null);
+  // Al imprimir se cierran todos los acordeones (la hoja que sale es la copia ajustada, sin ellos).
+  useEffect(() => {
+    const cerrar = () => setAbiertoId(null);
+    window.addEventListener("beforeprint", cerrar);
+    return () => window.removeEventListener("beforeprint", cerrar);
+  }, []);
   // Auto-ajuste vertical: si el contenido (fases + causas de atraso) no cabe en
   // la hoja, se reduce con un scale uniforme para que TODO se vea y no pise el
   // footer. Se re-mide si el contenido cambia de alto (p. ej. al editar Motivo).
@@ -445,11 +459,11 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
   const [fit, setFit] = useState(1);
   useLayoutEffect(() => {
     const el = bodyRef.current;
-    if (!el) return;
+    if (!el || !ajustar) { setFit(1); return; }
     let raf = 0;
     const measure = () => {
       const h = el.scrollHeight; // alto de layout — el transform:scale no lo altera
-      setFit(h > BODY_MAX_PX ? Math.max(BODY_MAX_PX / h, 0.62) : 1);
+      setFit(h > BODY_MAX_PX ? Math.max(BODY_MAX_PX / h, 0.5) : 1);
     };
     measure();
     const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measure); });
@@ -457,7 +471,17 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
     const fonts = document.fonts;
     if (fonts && fonts.status !== "loaded") fonts.ready.then(measure).catch(() => {});
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [data]);
+  }, [data, ajustar]);
+
+  // Ancho de la columna de nombres: lo que ocupa el más largo de los entregables y actividades de la Fase 3 hasta un
+  // máximo de 100 caracteres por renglón (después hace salto de línea); sin nombres largos se queda en 280 px. El ancho se
+  // calcula con TODAS las actividades (abiertas o no) para que la línea de tiempo no se mueva al desplegar un entregable.
+  const nombresLargos = data.phases.flatMap((r) => [
+    ...(r.indent >= 1 ? [r.name] : []),
+    ...(r.itemId && actividadesDe ? actividadesDe(r.itemId).map((a) => a.name) : []),
+  ]);
+  const masLargo = Math.min(100, Math.max(0, ...nombresLargos.map((n) => n.length)));
+  const labelPx = Math.round(Math.min(600, Math.max(280, masLargo * 5.2 + 110)));
 
   const tlStart = parseDate(data.timeline_start);
   const tlEnd = parseDate(data.timeline_end);
@@ -475,7 +499,7 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
   }
 
   return (
-    <div className="pmo-report" ref={ref}>
+    <div className={ajustar ? "pmo-report" : "pmo-report pmo-libre"} ref={ref}>
       {/* React 19 hoista y deduplica <style> con href+precedence → un solo tag en <head> */}
       <style href="pmo-status-report" precedence="default">{CSS}</style>
 
@@ -519,7 +543,7 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
         <Kpis data={data} />
 
         <div className="section-title"><h2>Línea de tiempo del proyecto</h2><span className="hint">{data.timeline_hint}</span></div>
-        <div className="gantt">
+        <div className="gantt" style={{ "--lw": `${labelPx}px` } as React.CSSProperties}>
           <div className="g-months">
             {months.map((mm, i) => <div key={i} className="g-month" style={{ left: `${f3(mm.x)}%` }}><span>{mm.label}</span></div>)}
           </div>
@@ -530,7 +554,7 @@ const StatusReport = forwardRef<HTMLDivElement, StatusReportProps>(function Stat
               <div className="g-planline" style={{ left: `${f3(pct(planDate))}%` }} />
             </div>
             {data.phases.map((r, i) => {
-              const expandible = !!(r.itemId && actividadesDe);
+              const expandible = !!(r.itemId && actividadesDe && tieneAcordeon(r.name));
               const abierto = expandible && abiertoId === r.itemId;
               return (
                 <Fragment key={i}>
