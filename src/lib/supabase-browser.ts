@@ -14,7 +14,11 @@ export function getSupabaseBrowser(): SupabaseClient {
   if (!url || !key) {
     throw new Error("Supabase sin configurar: define NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY en .env.local");
   }
-  // La sesión se guarda en localStorage y se renueva sola antes de vencer.
-  cached = createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } });
+  // La sesión se guarda en localStorage y se renueva sola antes de vencer. PKCE: al volver de
+  // Google llega un `?code=` de un solo uso que el cliente canjea solo (detectSessionInUrl), en
+  // vez de los tokens en la URL.
+  cached = createClient(url, key, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce" },
+  });
   return cached;
 }

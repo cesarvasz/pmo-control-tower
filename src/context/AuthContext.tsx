@@ -32,9 +32,15 @@ interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  /** Redirige a Google y vuelve a /login con la sesión. Si el correo ya tenía cuenta (con
+   *  contraseña o migrada), Supabase la une a esa misma cuenta: conserva su rol. Una cuenta
+   *  nueva entra EN ESPERA, igual que con el registro por correo. */
+  signInWithGoogle: () => Promise<void>;
   /** Crea la cuenta e inicia sesión. Queda EN ESPERA hasta que un Admin le asigne un rol. */
   signUp: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Correo de una sesión que se cerró por no ser del dominio permitido (p. ej. Google personal). */
+  rechazado: string | null;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -42,6 +48,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [rechazado, setRechazado] = useState<string | null>(null);
 
   useEffect(() => {
     const auth = getSupabaseBrowser().auth;
@@ -52,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // auth desde dentro de onAuthStateChange puede trabar el cliente.)
       if (u && !isAllowed(u.email)) {
         setTimeout(() => void auth.signOut(), 0);
+        setRechazado(u.email);
         setUser(null);
       } else {
         // Mismo uid → mismo objeto: la renovación del token no dispara recargas en los contextos.
@@ -65,6 +73,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (email: string, password: string) => {
     if (!isAllowed(email)) throw new Error("domain-not-allowed");
     const { error } = await getSupabaseBrowser().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    if (error) throw new Error(error.code ?? error.message);
+  };
+
+  const signInWithGoogle = async () => {
+    setRechazado(null);
+    const { error } = await getSupabaseBrowser().auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/login`,
+        // hd = sugerencia a Google de mostrar solo cuentas del dominio (no es una garantía: el
+        // dominio lo exigen este contexto y el servidor). select_account = siempre deja elegir.
+        queryParams: { prompt: "select_account", ...(ALLOWED_DOMAIN ? { hd: ALLOWED_DOMAIN } : {}) },
+      },
+    });
     if (error) throw new Error(error.code ?? error.message);
   };
 
@@ -88,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, logout }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signInWithGoogle, signUp, logout, rechazado }}>
       {children}
     </AuthContext.Provider>
   );
