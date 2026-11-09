@@ -249,7 +249,7 @@ export interface StatusReportInput {
   valorProyecto: number | null;
   roi: number | null;
   payback: number | null;
-  /** Texto libre de "Alcance" del proyecto (Firestore, ver BoardAlcance) — línea
+  /** Texto libre de "Alcance" del proyecto (Supabase, ver BoardAlcance) — línea
    *  del header debajo de PM/Sponsor/CKU/Estrategia. "" si aún no se documenta. */
   alcance?: string;
   /** "hoy" fijado (Date.now del montaje) — para que el reporte no cambie entre renders. */

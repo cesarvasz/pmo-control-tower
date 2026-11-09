@@ -64,7 +64,7 @@ export default function ReporteImplementacion({ rows }: { rows: ImplementacionRo
     () => serieMensual(rows).filter((p) => p.clave !== SIN_FECHA), [rows]);
 
   // Metas (Vol y CM1 por cliente, igual para todos los meses; y el % a alcanzar de cada
-  // mes): viven en Firestore, no en la hoja. Si no cargan, la tabla sigue funcionando —
+  // mes): viven en Supabase, no en la hoja. Si no cargan, la tabla sigue funcionando —
   // solo faltan las columnas de meta y de % de meta.
   const { me } = useMe();
   const puedeEditarMetas = hasAction(me?.permissions, "edit_implementacion_metas");

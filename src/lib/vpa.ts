@@ -6,15 +6,15 @@
 // indicador sin calificar queda vacío. El total del mes es la suma ponderada por el peso de
 // cada indicador (los pesos suman 100), así que con todo calificado es una nota de 0 a 100.
 //
-// Se guarda en Firestore (`vpa_califs`), un doc por mes con clave `YYYY-MM` y un mapa
-// `notas` (clave del indicador → nota). Solo se persiste lo que el Admin califica.
+// Se guarda en la tabla `vpa_califs` (Supabase), una fila por mes (`YYYY-MM`) e indicador
+// con su nota. Solo se persiste lo que el Admin califica.
 
 import { today } from "@/lib/business";
 import { mesDe, mesesDesde } from "@/lib/metodologia";
 import type { VpaCalifMes } from "@/types";
 
 export interface IndicadorVpa {
-  /** Clave estable (la que se guarda en Firestore): no cambiarla aunque se renombre el indicador. */
+  /** Clave estable (la que se guarda en la base): no cambiarla aunque se renombre el indicador. */
   key: string;
   objetivo: string;
   indicador: string;
@@ -59,7 +59,7 @@ export function normalizarNotaVpa(v: unknown): number | null {
   return Math.round(v * 100) / 100;
 }
 
-/** Lo guardado en Firestore para un mes → su calificación, sin lo ilegible ni los indicadores que ya no existen. */
+/** Lo guardado para un mes ({ notas, by, at }) → su calificación, sin lo ilegible ni los indicadores que ya no existen. */
 export function leerCalifVpa(d: unknown): VpaCalifMes {
   const o = (d ?? {}) as { notas?: unknown; by?: unknown; at?: unknown };
   const notas: VpaNotas = {};

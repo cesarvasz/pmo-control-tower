@@ -45,7 +45,7 @@ import type { BoardAlcance, ProjBoard, ProjItem, ProjItemBaseline } from "@/type
 const STATUS_LABEL_ES: Record<HealthStatus, string> = { "on-track": "Sano", "in-risk": "En Riesgo", "off-track": "Crítico" };
 
 /** "Alcance" de la tabla general = el campo editable del Status Card
- *  (Firestore `board_alcance`, ver components/AlcanceInlineEdit.tsx),
+ *  (tabla `board_alcance`, ver components/AlcanceInlineEdit.tsx),
  *  recortado a `maxWords` para que quepa en la celda. Sin dato → "N/D"
  *  (regla: nunca inventar). */
 function truncateWords(text: string | undefined, maxWords = 10): string {

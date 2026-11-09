@@ -366,7 +366,7 @@ export function metaDelMes(idx: IndiceMetas, cliente: string, mes: string): Meta
   return m && metaAplica(m, mes) ? m : undefined;
 }
 
-/** Lo guardado en Firestore → metas por cliente y % a alcanzar por mes. Lee también los
+/** Lo guardado → metas por cliente y % a alcanzar por mes. Lee también los
  *  dos formatos anteriores: una meta por cliente sin mes (valía para todos los meses) y
  *  una meta por cliente Y mes con su propio Vol, CM1 y %. Del segundo se toma, por
  *  cliente, el Vol y CM1 del mes más reciente, y por mes el primer % que aparezca. El
@@ -409,7 +409,7 @@ export type ResultadoMetas = { ok: true; metas: MetaCliente[] } | { ok: false; e
 /** Valida lo que llega del popup antes de guardarlo: lista de {cliente, vol, cm1, desde?},
  *  números finitos y no negativos, sin clientes repetidos, `desde` un mes «yyyy-MM» o
  *  vacío. El CM1 se redondea a centavos. Devuelve las metas ordenadas por cliente
- *  (guardado estable). Sin `desde` la llave no se guarda (Firestore no acepta undefined). */
+ *  (guardado estable). Sin `desde` la llave no se guarda (no se guarda undefined). */
 export function normalizarMetas(input: unknown): ResultadoMetas {
   if (!Array.isArray(input)) return { ok: false, error: "metas debe ser una lista" };
   if (input.length > METAS_MAX) return { ok: false, error: `Máximo ${METAS_MAX} metas` };

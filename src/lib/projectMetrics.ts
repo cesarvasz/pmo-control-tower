@@ -9,7 +9,7 @@
 // calculaba distinto en proj.ts y en statusReportData.ts, y el CPI tenía tres
 // fórmulas distintas según la escala. Acá hay una sola de cada una.
 //
-// Módulo PURO (cliente + servidor): sin React, sin red, sin Firestore.
+// Módulo PURO (cliente + servidor): sin React, sin red, sin base de datos.
 //
 // ── CONTRATO (definido por negocio, 2026-09-23) ──────────────────────
 //

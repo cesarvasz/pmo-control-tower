@@ -126,7 +126,7 @@ export function mondayOfWeek(date: Date): Date {
 }
 
 /** Formatea una fecha como "YYYY-MM-DD" (día local) — llave estable para
- *  documentos de Firestore indexados por fecha. */
+ *  registros indexados por fecha. */
 export function ymd(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");

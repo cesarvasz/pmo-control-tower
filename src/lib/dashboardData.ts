@@ -1,5 +1,5 @@
 // src/lib/dashboardData.ts
-// Transforma el payload crudo de /api/dashboard (Monday + Firestore) en el
+// Transforma el payload crudo de /api/dashboard (Monday + Supabase) en el
 // DashboardData procesado que consume el resto de la app. Extraído de
 // DataContext.tsx (donde vivía inline) para reusarlo también server-side —
 // el cron del histórico semanal (weeklySnapshot.ts) necesita el mismo

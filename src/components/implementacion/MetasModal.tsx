@@ -7,7 +7,7 @@
 //     dice a partir de qué mes cuenta (vacío = todos): los meses anteriores quedan sin meta.
 //  2. El % a alcanzar de cada mes: qué parte de esa meta hay que lograr para darla por
 //     cumplida (vacío = 100 %). Es uno por mes, igual para todos los clientes.
-// Se guardan juntos en Firestore (PUT .../metas); quien no tiene la acción
+// Se guardan juntos en Supabase (PUT .../metas); quien no tiene la acción
 // "edit_implementacion_metas" lo ve en solo lectura.
 //
 // El padre lo monta solo mientras está abierto (`{abierto && <MetasModal/>}`), así

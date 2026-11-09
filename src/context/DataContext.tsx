@@ -134,7 +134,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [refreshingBoards, setRefreshingBoards] = useState<Set<string>>(new Set());
 
   // Refresca UN SOLO board: 1 fetch a /api/dashboard/board/[id] (Monday +
-  // Firestore, resincroniza solo sus baselines) y mergea el resultado en
+  // Supabase, resincroniza solo sus baselines) y mergea el resultado en
   // `data.proj`/`data.projBoards`/`data.projItemBaselines`. Todo lo demás
   // (Iniciativas, PML, calendario, NPS, otros boards) queda intacto — las
   // páginas ya son funciones puras de `data`, así que Control Tower, el

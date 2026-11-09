@@ -20,7 +20,7 @@ export async function POST(request: Request) {
 
     const body = (await request.json().catch(() => null)) as { id?: unknown; clase?: unknown } | null;
     const id = typeof body?.id === "string" ? body.id.trim() : "";
-    // El id es el nombre de un campo de Firestore: sin «.» ni «/», que lo partirían en otra ruta.
+    // Ids con forma de id de Monday (board o item): sin «.» ni «/».
     if (!id || id.length > ID_MAX || /[./]/.test(id) || !esClaseAsignable(body?.clase)) {
       return NextResponse.json({ error: "Parámetros inválidos" }, { status: 400 });
     }

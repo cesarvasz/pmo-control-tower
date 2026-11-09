@@ -334,7 +334,7 @@ describe("metas por cliente y % a alcanzar por mes", () => {
     expect(objetivoDe(idx, "2026-03")).toBe(100);
   });
 
-  describe("leerDocMetas (lo guardado en Firestore)", () => {
+  describe("leerDocMetas (lo guardado en la base)", () => {
     it("lee el formato actual: metas por cliente y % por mes, ordenados", () => {
       const r = leerDocMetas({
         metas: [meta("B", 5, 4), meta("A", 10, 20)],

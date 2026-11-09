@@ -5,7 +5,7 @@
 // una sola vez (aplicarOnHold, igual que scopeToSponsor) en vez de tocar cada fórmula,
 // así que cualquier cálculo que consuma `data` queda cubierto sin enterarse. Las páginas
 // que tienen que MOSTRAR lo pausado (Proyectos, PML, el card de cada PM) leen el dashboard
-// completo y usan enOnHold(). Módulo PURO: sin React ni Firestore.
+// completo y usan enOnHold(). Módulo PURO: sin React ni base de datos.
 
 import { calcNpsFromRecords } from "@/lib/nps";
 import { estaFueraDeMedicion, itemsMedibles } from "@/lib/proj";
@@ -35,7 +35,7 @@ export function normalizarMotivoOnHold(m: unknown): string | null {
   return t.length <= MOTIVO_ON_HOLD_MAX ? t : null;
 }
 
-/** Id válido de board o item de Monday (se usa como llave del documento en Firestore). */
+/** Id válido de board o item de Monday (se usa como llave en la base). */
 export function normalizarIdOnHold(id: unknown): string | null {
   return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
 }
@@ -59,7 +59,7 @@ function leerMapa(raw: unknown): Record<string, OnHoldEntry> {
   return out;
 }
 
-/** Lee el documento tal como está en Firestore. Tolerante: lo que falte o venga mal es "nada en On Hold". */
+/** Lee el documento { proyectos, pml }. Tolerante: lo que falte o venga mal es "nada en On Hold". */
 export function leerOnHold(raw: unknown): OnHoldDoc {
   const d = (raw && typeof raw === "object" ? raw : {}) as { proyectos?: unknown; pml?: unknown };
   return { proyectos: leerMapa(d.proyectos), pml: leerMapa(d.pml) };

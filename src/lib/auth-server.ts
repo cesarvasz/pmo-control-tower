@@ -1,6 +1,5 @@
 // src/lib/auth-server.ts
-// SOLO SERVIDOR. Verificación del token de sesión de Supabase Auth (antes: ID token de
-// Firebase con el Admin SDK). Solo establece QUIÉN es; si puede o no entrar (cuenta en
+// SOLO SERVIDOR. Verificación del token de sesión de Supabase Auth. Solo establece QUIÉN es; si puede o no entrar (cuenta en
 // espera, permisos) lo decide users.ts (requireSession / requireAction / requirePage).
 
 import { getSupabaseAdmin } from "@/lib/supabase-admin";

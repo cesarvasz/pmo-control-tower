@@ -40,7 +40,7 @@ export interface MeIdentity {
 
 /** ¿Alguno de los nombres en `pmText` (columna PM — puede traer varias
  *  personas separadas por coma) es el usuario logueado? El login no da un
- *  nombre confiable (el displayName de Firebase puede venir vacío o no
+ *  nombre confiable (el displayName de la cuenta puede venir vacío o no
  *  calzar con Monday) — por eso el email de la sesión se resuelve PRIMERO a
  *  un nombre real vía el Directorio RH, y ES ESE nombre el que se compara
  *  contra los de `pmText`. Solo si el email no aparece en el directorio

@@ -1,6 +1,6 @@
 // src/lib/store.ts
-// SOLO SERVIDOR. Datos propios de la app en Supabase (antes en Firestore, en firebase-admin.ts).
-// Mismos nombres y firmas que tenían esas funciones: los Route Handlers no cambian.
+// SOLO SERVIDOR. Datos propios de la app en Supabase. Conservan los nombres y
+// firmas de cuando estaban en Firestore, así que los Route Handlers no dependen de la base.
 // La traducción fila → tipo vive en storeRows.ts (puro, con tests).
 
 import type {
@@ -244,7 +244,7 @@ export async function setBuenasNoticiasSuplente(semana: string, nombre: string |
   } else {
     unwrap(await db().from("buenas_noticias_suplentes").delete().eq("semana", semana));
   }
-  // Se podan las semanas de hace más de ~2 meses, como antes en Firestore.
+  // Se podan las semanas de hace más de ~2 meses, para que la tabla no crezca sin fin.
   const corte = new Date(); corte.setDate(corte.getDate() - 60);
   const limite = `${corte.getFullYear()}-${String(corte.getMonth() + 1).padStart(2, "0")}-${String(corte.getDate()).padStart(2, "0")}`;
   unwrap(await db().from("buenas_noticias_suplentes").delete().lt("semana", limite));

@@ -754,7 +754,7 @@ export function shortPhaseName(grupo: string): string {
  *  no unidades propias. Ver calcItemCalidad para cómo se calcula `recuperado` — la
  *  nota final (0/50/100) se arma aparte, en calcItemNota, con el responsable asignado. */
 export interface CalidadUnit {
-  id: string;                        // p.id — clave de atribución/Firestore
+  id: string;                        // p.id — clave de atribución en la base
   kind: "step";
   name: string;
   pm: string;

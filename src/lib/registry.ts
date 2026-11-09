@@ -6,7 +6,7 @@
 //   La página aparecerá en el editor de grupos y en el gating automáticamente.
 // ▸ Para AGREGAR UNA ACCIÓN nueva: añade una entrada a ACTIONS.
 //
-// Los GRUPOS son DINÁMICOS (Firestore). La resolución/armado del menú recibe la
+// Los GRUPOS son DINÁMICOS (Supabase). La resolución/armado del menú recibe la
 // lista de grupos como parámetro (módulo PURO cliente+servidor).
 
 import type { Group, Permissions, Role } from "@/lib/permissions";

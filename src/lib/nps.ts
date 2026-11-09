@@ -1,5 +1,5 @@
 // src/lib/nps.ts
-// NPS de la encuesta PMO (Google Forms / Firestore). Funciones puras.
+// NPS de la encuesta PMO (Google Forms / Supabase). Funciones puras.
 
 import { SURVEY_QUESTIONS } from "@/lib/survey";
 import type { NpsData, NpsRecord, NpsResponse, SheetRow } from "@/types";
@@ -93,7 +93,7 @@ export function calcNps(rows: SheetRow[]): NpsData {
 }
 
 /**
- * NPS calculado desde las respuestas de Firestore (fuente única). MISMAS fórmulas
+ * NPS calculado desde las respuestas guardadas en Supabase (fuente única). MISMAS fórmulas
  * que `calcNps` (promotores 9-10, pasivos 7-8, detractores 0-6; Likert 20%/nivel).
  * - Excluye respuestas invalidadas (equivalente al flag "Columna 5 = X" del Sheet).
  * - Si se pasa `pm`, calcula el NPS personal de ese PM (filtra por PM).

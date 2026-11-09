@@ -187,8 +187,8 @@ export interface ObjetivoMes {
   objetivo: number;
 }
 
-/** Documento de Firestore `implementacion_metas/actual`: todas las metas juntas
- *  (una sola lectura para cargar la pestaña). */
+/** Todas las metas de Implementación juntas (tablas implementacion_metas_cliente e
+ *  implementacion_objetivos; se guardan siempre juntas). */
 export interface MetasImplementacionDoc {
   metas: MetaCliente[];
   objetivos: ObjetivoMes[];
@@ -197,14 +197,14 @@ export interface MetasImplementacionDoc {
   at: string;
 }
 
-/** Costo planificado de un REQ guardado en Firestore (baseline para EV/CPI). */
+/** Costo planificado de un REQ guardado en Supabase (baseline para EV/CPI). */
 export interface ReqBaseline {
   costRH: number;
   costSft: number;
   savedAt: string;
 }
 
-/** Costo planificado de un item de Proyecto guardado en Firestore (baseline para EV). */
+/** Costo planificado de un item de Proyecto guardado en Supabase (baseline para EV). */
 export interface ProjItemBaseline {
   boardId: string;
   cost: number;
@@ -222,7 +222,7 @@ export interface DelayAttribution {
   by?: string;  // correo del admin que la asignó
   at?: string;  // ISO timestamp
 }
-/** Tipos de atribución persistidos por ítem, cada uno en su colección Firestore. Los «-cku» son los responsables
+/** Tipos de atribución persistidos por ítem, en la tabla responsible_attributions (columna kind). Los «-cku» son los responsables
  *  que un Admin elige para un Incumplido en la medición de un CKU (Players); solo afectan a su Player, no a los PM. */
 export type AttributionKind = "delay" | "reproceso" | "delay-cku" | "reproceso-cku";
 
@@ -283,7 +283,7 @@ export interface BoardAlcance {
 }
 
 /** Clase (A, B o C) que se le asignó a un Proyecto o PML en la pestaña Clasificación de
- *  Calidad & Cumplimiento (ver lib/claseProyecto.ts). Vive en Firestore (`clasificacion/actual`),
+ *  Calidad & Cumplimiento (ver lib/claseProyecto.ts). Vive en la tabla `clasificacion` (Supabase),
  *  un mapa por id (de board para un Proyecto, de item para un PML). */
 export interface ClaseEntry {
   clase: "A" | "B" | "C";
@@ -299,7 +299,7 @@ export interface OnHoldEntry {
 }
 
 /** Proyectos (por id de board) y PML (por id del item) en On Hold: no cuentan en ninguna
- *  métrica (ver lib/onHold.ts). Vive en Firestore (`on_hold/actual`). */
+ *  métrica (ver lib/onHold.ts). Vive en la tabla `on_hold` (Supabase). */
 export interface OnHoldDoc {
   proyectos: Record<string, OnHoldEntry>;
   pml: Record<string, OnHoldEntry>;
@@ -329,16 +329,16 @@ export interface DashboardRaw {
   sheetRows: SheetRow[];
   baselines: Record<string, ReqBaseline>;
   projItemBaselines: Record<string, ProjItemBaseline>;
-  npsRecords: NpsRecord[]; // respuestas de encuestas (Firestore) para el NPS
-  delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Firestore)
-  reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Firestore)
-  ckuDelayAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Cumplimiento → responsable elegido para el CKU (Firestore)
-  ckuReprocesoAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Calidad → responsable elegido para el CKU (Firestore)
-  metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR (Firestore)
-  atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Firestore) — tabla Atrasos
-  boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto (Firestore) — Status Card
-  onHold: OnHoldDoc; // Proyectos y PML en On Hold (Firestore) — fuera de toda métrica
-  clases: Record<string, ClaseEntry>; // id (board o PML) → Clase A/B/C asignada a mano (Firestore) — pestaña Clasificación
+  npsRecords: NpsRecord[]; // respuestas de encuestas (Supabase) para el NPS
+  delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso (Supabase)
+  reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso (Supabase)
+  ckuDelayAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Cumplimiento → responsable elegido para el CKU (Supabase)
+  ckuReprocesoAttributions?: Record<string, DelayAttribution>; // id de un Incumplido de Calidad → responsable elegido para el CKU (Supabase)
+  metodologiaCalifs: Record<string, MetodologiaCalif>; // "YYYY-MM::Persona" → nota 0-100 de Metodología VALOR (Supabase)
+  atrasoDetalles: Record<string, AtrasoDetalle>; // itemId → detalle del atraso (Supabase) — tabla Atrasos
+  boardAlcance: Record<string, BoardAlcance>; // boardId → Alcance del proyecto (Supabase) — Status Card
+  onHold: OnHoldDoc; // Proyectos y PML en On Hold (Supabase) — fuera de toda métrica
+  clases: Record<string, ClaseEntry>; // id (board o PML) → Clase A/B/C asignada a mano (Supabase) — pestaña Clasificación
   reminderLog: ReminderEnvio[]; // registro de correos "Sin Valor Def" enviados por Apps Script
   fetchedAt: string;
 }
@@ -540,7 +540,7 @@ export interface NpsQuestionAvg {
   count: number;  // respuestas dadas a esta pregunta
 }
 
-/** Respuesta cruda de encuesta (Firestore) lista para el cálculo de NPS.
+/** Respuesta cruda de encuesta (Supabase) lista para el cálculo de NPS.
  *  `answers` viene indexado por id de pregunta (nps, razon, G1…H2). */
 export interface NpsRecord {
   answers: Record<string, string | number>;
@@ -594,7 +594,7 @@ export interface DashboardData {
   projBoards: ProjBoard[];
   projItemBaselines: Record<string, ProjItemBaseline>;
   calMap: CalMap;
-  nps: NpsData;                // NPS global (fuente: Firestore)
+  nps: NpsData;                // NPS global (fuente: Supabase)
   npsRecords: NpsRecord[];     // respuestas crudas para NPS por PM
   delayAttributions: Record<string, DelayAttribution>; // itemId → responsable del atraso
   reprocesoAttributions: Record<string, DelayAttribution>; // itemId → responsable del reproceso

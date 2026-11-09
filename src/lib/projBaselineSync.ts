@@ -25,8 +25,8 @@ export function decideBaselineUpdates(
   return toSave;
 }
 
-/** Sincroniza en Firestore el baseline de los items de UN board — solo lee/
- *  escribe lo de ESE board (getAll por id, no toda la colección). Devuelve el
+/** Sincroniza en Supabase el baseline de los items de UN board — solo lee/
+ *  escribe lo de ESE board (por id, no toda la tabla). Devuelve el
  *  mapa de baselines ya actualizado, listo para el cliente. */
 export async function syncBoardBaselines(
   boardId: string, items: MondayItem[],

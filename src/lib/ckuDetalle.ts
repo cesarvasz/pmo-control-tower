@@ -302,7 +302,7 @@ function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean):
 /** Detalle de Cumplimiento de Entrega. `s.cku` es el CKU medido: en Proyectos solo cuentan (y se
  *  listan) los entregables a su cargo y, dentro de ellos, las actividades a su cargo. `delays` es el
  *  mapa con PM ↔ CKU ya intercambiado (el que decide qué penaliza, igual que el scoreboard);
- *  `delaysOriginal`, el de Firestore tal cual, solo para mostrar el responsable con su etiqueta real. */
+ *  `delaysOriginal`, el guardado tal cual, solo para mostrar el responsable con su etiqueta real. */
 export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap, delaysOriginal: DelayMap = delays, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
   // PML e Iniciativas: una unidad cada uno. Un atraso excusado sale de la cuenta (ver calcEntregaStats).
   const unidades = buildEntregaRows(s.req, [], s.projBoards, s.ini).map((r): UnidadMedida => {

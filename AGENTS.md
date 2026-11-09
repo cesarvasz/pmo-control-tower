@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # PMO Control Tower — guía para agentes
 
-Dashboard interno del PMO de C807 (portafolio de iniciativas, requerimientos y proyectos bajo la metodología **VALOR**). Lee datos de **Monday.com** y de varias hojas de **Google Sheets / Calendar** expuestas por Apps Script, y guarda lo propio de la app (usuarios, roles, baselines, encuestas, snapshots) en **Firestore**.
+Dashboard interno del PMO de C807 (portafolio de iniciativas, requerimientos y proyectos bajo la metodología **VALOR**). Lee datos de **Monday.com** y de varias hojas de **Google Sheets / Calendar** expuestas por Apps Script, y guarda lo propio de la app (usuarios, roles, baselines, encuestas, snapshots) en **Supabase** (Postgres).
 
 Todo el producto está en español: UI, comentarios, nombres de dominio (`esPlantillaLite`, `calcConfirmacionRoi`, `atrasoDetalle`) y mensajes de commit. Mantén ese idioma.
 
@@ -14,7 +14,7 @@ Todo el producto está en español: UI, comentarios, nombres de dominio (`esPlan
 
 - Next.js **16** (App Router, Turbopack, `output: "standalone"`), React 19, TypeScript estricto
 - Tailwind CSS v4 + variables CSS de tema en [src/app/globals.css](src/app/globals.css)
-- Firebase Auth (cliente) + Firebase Admin SDK / Firestore (solo servidor)
+- Supabase: Auth en el cliente (Google + correo/contraseña) y Postgres solo desde el servidor (secret key). Esquema en [supabase/migrations/](supabase/migrations/)
 - Recharts para gráficas; jsPDF + html2canvas para exportar reportes
 - Vitest (entorno Node, sin DOM) para la lógica pura
 - Deploy: Vercel (con cron en [vercel.json](vercel.json)); alternativa Docker en [Dockerfile](Dockerfile) / [compose.yml](compose.yml)
@@ -38,7 +38,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) corre **lint → typec
 src/
 ├─ app/
 │  ├─ (app)/      páginas protegidas con Sidebar + Topbar (layout hace el gating por permisos)
-│  ├─ api/        Route Handlers — único lugar que habla con Monday, Sheets y Firestore
+│  ├─ api/        Route Handlers — único lugar que habla con Monday, Sheets y Supabase
 │  ├─ login/      fuera del shell
 │  └─ encuesta/[token]/   encuesta NPS pública (sin login, por token)
 ├─ components/    UI; subcarpetas por reporte (clonacion/, implementacion/, tramites/)
@@ -48,12 +48,12 @@ src/
 apps-script/      código .gs de los WebApps de Google (se pega a mano en script.google.com)
 ```
 
-**Flujo de datos (Single Fetch):** `DataContext` llama una vez a `/api/dashboard` → el handler hace `Promise.all` a Monday (boards INI, REQ, carpeta de Proyectos), Calendar y Firestore → `buildDashboardData()` ([src/lib/dashboardData.ts](src/lib/dashboardData.ts)) arma el modelo → las páginas leen con `useData()` y navegan como SPA. El botón "Actualizar" del Topbar llama `refresh()`. Las fuentes de ROI (003, Tiempo 0/Clonación, Implementación) tienen endpoints propios bajo `/api/roi/*`.
+**Flujo de datos (Single Fetch):** `DataContext` llama una vez a `/api/dashboard` → el handler hace `Promise.all` a Monday (boards INI, REQ, carpeta de Proyectos), Calendar y Supabase → `buildDashboardData()` ([src/lib/dashboardData.ts](src/lib/dashboardData.ts)) arma el modelo → las páginas leen con `useData()` y navegan como SPA. El botón "Actualizar" del Topbar llama `refresh()`. Las fuentes de ROI (003, Tiempo 0/Clonación, Implementación) tienen endpoints propios bajo `/api/roi/*`.
 
 **Separación servidor / cliente — no la rompas:**
 
-- Solo servidor: [src/lib/monday.ts](src/lib/monday.ts), [src/lib/firebase-admin.ts](src/lib/firebase-admin.ts), `users.ts`, `roles.ts`, `groups.ts`, `surveys.ts`. Nunca los importes desde un componente `"use client"`.
-- Los secretos (`MONDAY_API_KEY`, `FIREBASE_ADMIN_*`, URLs de WebApps, `CRON_SECRET`) **no** llevan prefijo `NEXT_PUBLIC_`. Solo la config web de Firebase y `NEXT_PUBLIC_ALLOWED_DOMAIN` son públicas.
+- Solo servidor: [src/lib/monday.ts](src/lib/monday.ts), [src/lib/supabase-admin.ts](src/lib/supabase-admin.ts), [src/lib/store.ts](src/lib/store.ts), `auth-server.ts`, `users.ts`, `roles.ts`, `groups.ts`, `surveys.ts`. Nunca los importes desde un componente `"use client"`.
+- Los secretos (`MONDAY_API_KEY`, `SUPABASE_SECRET_KEY`, URLs de WebApps, `CRON_SECRET`) **no** llevan prefijo `NEXT_PUBLIC_`. Solo la URL y la publishable key de Supabase y `NEXT_PUBLIC_ALLOWED_DOMAIN` son públicas. En Vercel la URL y la publishable key se llaman `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` (sin prefijo) y [next.config.ts](next.config.ts) las incrusta en el build.
 - La mayoría de los módulos de `lib/` son **puros** (sin I/O) y se usan en cliente y servidor; ahí va la lógica de negocio y ahí van los tests.
 
 ## Patrones a seguir
@@ -76,12 +76,12 @@ export async function POST(request: Request) {
 
 Errores de dominio nuevos: lanza `new Error("codigo-kebab")` y agrega el caso en [src/lib/api-errors.ts](src/lib/api-errors.ts).
 
-**Llamadas desde el cliente:** usa `authedFetch()` de [src/lib/api.ts](src/lib/api.ts) (adjunta el ID token de Firebase). No uses `fetch` directo a `/api/*`.
+**Llamadas desde el cliente:** usa `authedFetch()` de [src/lib/api.ts](src/lib/api.ts) (adjunta el access token de Supabase Auth). No uses `fetch` directo a `/api/*`.
 
 **Permisos:** todo pasa por el catálogo de [src/lib/registry.ts](src/lib/registry.ts).
 - Página nueva → una entrada en `PAGES` (y la carpeta en `app/(app)/`). Aparece sola en sidebar, editor de roles y gating.
 - Capacidad nueva (escribir en Monday, editar metas…) → una entrada en `ACTIONS` y `requireAction` en el handler. Admin la tiene siempre; a otros roles se les otorga desde `/roles`.
-- Roles y grupos del menú son **dinámicos** (Firestore), no se definen en código. `resolvePermissions(stored, groups)` y `buildNav(perms, groups)` siempre reciben la lista de grupos.
+- Roles y grupos del menú son **dinámicos** (Supabase), no se definen en código. `resolvePermissions(stored, groups)` y `buildNav(perms, groups)` siempre reciben la lista de grupos.
 
 **UI:** reutiliza [src/components/ui.tsx](src/components/ui.tsx) (`Loader`, `ErrorBox`, `StatCard`, `Pill`, `EstadoPill`, `SectionHeader`, `FilterReset`, …) y [src/components/Modal.tsx](src/components/Modal.tsx). Colores siempre con variables de tema (`var(--text-muted)`, `var(--ok)`, `var(--warn)`, `var(--bad)`, `var(--accent)`…), nunca hex sueltos, para que funcionen tema claro y oscuro. La paleta de reportes ejecutivos/PDF vive en [src/lib/reportTheme.ts](src/lib/reportTheme.ts).
 
@@ -100,8 +100,9 @@ Errores de dominio nuevos: lanza `new Error("codigo-kebab")` y agrega el caso en
 ## Seguridad
 
 - `.env.local` nunca se versiona (está en `.gitignore`); la plantilla es `.env.example`. Si agregas una variable, agrégala ahí con un comentario.
-- Auth: el servidor verifica el ID token con Admin SDK y exige el dominio `@c807.com`. No agregues endpoints sin `requireAction` / `requirePage` / `verifyRequest`, salvo los de encuesta pública por token y el cron (protegido por `CRON_SECRET`).
-- Firestore solo se toca desde el servidor (Admin SDK); el cliente no tiene acceso directo.
+- Auth: el servidor verifica el access token de Supabase (`verifyRequest` en [src/lib/auth-server.ts](src/lib/auth-server.ts), con `auth.getClaims`) y exige el dominio `@c807.com`. Para datos usa `requireSession` / `requireAction` / `requirePage` (rechazan cuentas en espera); `verifyRequest` a secas solo en `/api/me` y `GET /api/groups`. Excepciones sin sesión: la encuesta pública por token y el cron (protegido por `CRON_SECRET`).
+- La base solo se toca desde el servidor (`getSupabaseAdmin()`, secret key). Todas las tablas tienen RLS sin políticas y sin permisos para `anon`/`authenticated`: con la publishable key no se lee nada. Tabla nueva → migración en `supabase/migrations/` con el mismo patrón (RLS + revoke), regenerar [src/types/supabase.ts](src/types/supabase.ts) y su lectura/escritura en `store.ts` (traducción fila → tipo en `storeRows.ts`, con tests).
+- Cuentas: registro abierto pero **En espera** (sin rol) hasta que un Admin asigna uno; `requireSession` lo bloquea en el servidor (`pending-approval`).
 
 ## Git
 

@@ -19,7 +19,8 @@ Todo lo del proyecto (stack, arquitectura, patrones, dominio, git) está en `AGE
   ```
 - Si tras tocar `next.config.ts` todas las rutas fallan (`ComponentMod.handler is not a function`), el caché quedó corrupto: borra `.next/` y reinicia.
 - Las variables `NEXT_PUBLIC_*` se leen al arrancar: si cambias `.env.local`, reinicia el dev server.
-- `auth/configuration-not-found` al iniciar sesión con Google = el proveedor no está habilitado en la consola de Firebase, no es un problema del `.env`.
+- «El inicio de sesión con Google aún no está activado» (`provider_disabled`) = el proveedor Google está apagado en Supabase (Authentication → Sign In / Providers). El Client ID/Secret de Google viven allá, no en `.env`. Si tras volver de Google cae en otra URL, falta esa URL en Authentication → URL Configuration → Redirect URLs.
+- Scripts sueltos contra la base (`tsx`, `node`): cargan `.env.local` con `process.loadEnvFile`; nunca imprimas valores de llaves.
 
 ## Recursos del workspace
 

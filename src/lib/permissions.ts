@@ -20,7 +20,7 @@ export interface Role {
   updatedAt?: string;
 }
 
-/** Grupo de páginas creado dinámicamente (Firestore). Organiza el sidebar y
+/** Grupo de páginas creado dinámicamente (Supabase). Organiza el sidebar y
  *  puede concederse completo a un rol (otorga todas sus páginas, incl. futuras). */
 export interface Group {
   id: string;

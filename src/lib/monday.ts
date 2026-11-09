@@ -244,16 +244,16 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     projRaw,
     calData: webApp.calData,
     sheetRows: webApp.sheetRows,
-    baselines: {},          // el route handler inyecta los baselines de REQ desde Firestore
-    projItemBaselines: {}, // el route handler inyecta los baselines de Proyectos desde Firestore
-    npsRecords: [],        // el route handler inyecta las respuestas de encuestas desde Firestore
-    delayAttributions: {}, // el route handler inyecta los responsables de atraso desde Firestore
-    reprocesoAttributions: {}, // el route handler inyecta los responsables de reproceso desde Firestore
-    metodologiaCalifs: {}, // el route handler inyecta las notas de Metodología VALOR desde Firestore
-    atrasoDetalles: {},     // el route handler inyecta el detalle de atrasos desde Firestore
-    boardAlcance: {},       // el route handler inyecta el Alcance de proyectos desde Firestore
-    onHold: { proyectos: {}, pml: {} }, // el route handler inyecta los Proyectos y PML en On Hold desde Firestore
-    clases: {},             // el route handler inyecta la Clase A/B/C de Proyectos y PML desde Firestore
+    baselines: {},          // el route handler inyecta los baselines de REQ desde Supabase
+    projItemBaselines: {}, // el route handler inyecta los baselines de Proyectos desde Supabase
+    npsRecords: [],        // el route handler inyecta las respuestas de encuestas desde Supabase
+    delayAttributions: {}, // el route handler inyecta los responsables de atraso desde Supabase
+    reprocesoAttributions: {}, // el route handler inyecta los responsables de reproceso desde Supabase
+    metodologiaCalifs: {}, // el route handler inyecta las notas de Metodología VALOR desde Supabase
+    atrasoDetalles: {},     // el route handler inyecta el detalle de atrasos desde Supabase
+    boardAlcance: {},       // el route handler inyecta el Alcance de proyectos desde Supabase
+    onHold: { proyectos: {}, pml: {} }, // el route handler inyecta los Proyectos y PML en On Hold desde Supabase
+    clases: {},             // el route handler inyecta la Clase A/B/C de Proyectos y PML desde Supabase
     reminderLog,
     fetchedAt: new Date().toISOString(),
   };

@@ -162,7 +162,7 @@ export interface CrossRisk { title: string; detail: string; severity: "high" | "
  *  2) Un responsable de atraso que concentra una porción dominante de los
  *     atrasos atribuidos en TODO el portafolio (ver delay.ts countByResponsible;
  *     responsibleCounts se calcula en la página con los itemIds atrasados de
- *     todos los boards + delayAttributions de Firestore).
+ *     todos los boards + delayAttributions de Supabase).
  *  3) Un PM cuya mayoría de proyectos asignados está En Riesgo u Off Track.
  */
 export function buildCrossRisks(

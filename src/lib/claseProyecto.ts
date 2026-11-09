@@ -43,7 +43,7 @@ export const PROYECTO_SIN_ID = {
 
 // ── Clase asignada a mano (pestaña Clasificación de Calidad & Cumplimiento) ──
 // Un Admin (o quien tenga la acción "edit_clasificacion") le pone Clase A, B o C a cada Proyecto y
-// PML con un dropdown; se guarda en Firestore por id (de board o de PML). Lo que NO tiene clase
+// PML con un dropdown; se guarda en Supabase por id (de board o de PML). Lo que NO tiene clase
 // asignada usa la de siempre: la tabla de arriba para un proyecto, y Clase C para un PML.
 
 /** Las clases que se pueden asignar (no existe asignar «Sin clasificar»). */
@@ -53,7 +53,7 @@ export const CLASES_ASIGNABLES: readonly ClaseAsignable[] = ["A", "B", "C"];
 export const esClaseAsignable = (v: unknown): v is ClaseAsignable =>
   typeof v === "string" && (CLASES_ASIGNABLES as readonly string[]).includes(v);
 
-/** Lo que llega de Firestore, depurado: solo las entradas con una clase válida. */
+/** Lo que llega de la base, depurado: solo las entradas con una clase válida. */
 export function leerClases(raw: unknown): Record<string, ClaseEntry> {
   const out: Record<string, ClaseEntry> = {};
   if (!raw || typeof raw !== "object") return out;

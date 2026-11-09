@@ -25,9 +25,6 @@ const nextConfig: NextConfig = {
   // Empaqueta en .next/standalone solo los archivos que el servidor necesita,
   // incluido un subconjunto de node_modules. Requerido por el Dockerfile.
   output: "standalone",
-  // firebase-admin usa require() dinámicos y deps nativas: no debe empaquetarse,
-  // se carga como módulo externo de Node en el servidor.
-  serverExternalPackages: ["firebase-admin"],
 };
 
 export default nextConfig;

@@ -240,7 +240,7 @@ export function calcBoardMetrics(
   for (const item of allBoardItems) {
     const isDone   = item.status === "Done";
     const behind   = isOffTrack(item.status, item.estado, item.deadline);
-    // EV y PV usan el costo planificado (baseline de Firestore); si aún no hay baseline
+    // EV y PV usan el costo planificado (baseline guardado en Supabase); si aún no hay baseline
     // se usa el costo actual de Monday como fallback.
     const baseCost = projItemBaselines[item.id]?.cost ?? item.cost;
 

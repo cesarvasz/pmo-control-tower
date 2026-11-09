@@ -1,6 +1,6 @@
 // src/app/api/dashboard/route.ts
 // Route Handler: hace el Single Fetch seguro a Monday/Calendar en el servidor.
-// Protegido: exige un ID token de Firebase válido y correo del dominio permitido.
+// Protegido: exige un access token de Supabase válido y correo del dominio permitido.
 
 import { NextResponse } from "next/server";
 import { fetchDashboardRaw } from "@/lib/monday";
@@ -97,7 +97,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: code }, { status: 500 });
   }
 
-  // 2. Single Fetch a Monday + sync baselines en Firestore.
+  // 2. Single Fetch a Monday + sync baselines en Supabase.
   try {
     const data = await fetchDashboardRaw();
     const [baselines, projItemBaselines, npsRecords, delayAttributions, reprocesoAttributions, ckuDelayAttributions, ckuReprocesoAttributions, metodologiaCalifs, atrasoDetalles, boardAlcance, onHold, clases] = await Promise.all([

@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  // 3. Sobreescribir baselines en Firestore.
+  // 3. Sobreescribir baselines en Supabase.
   try {
     await Promise.all(
       items.map(({ id, cost }) => saveProjItemBaseline(id, { boardId, cost }))

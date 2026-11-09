@@ -55,7 +55,7 @@ COPY --from=builder --chown=node:node /app/public ./public
 USER node
 EXPOSE 3000
 
-# /login es una página estática prerenderizada: no toca Firebase ni Monday,
+# /login es una página estática prerenderizada: no toca Supabase ni Monday,
 # así que sirve como sonda barata de "el proceso responde HTTP".
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

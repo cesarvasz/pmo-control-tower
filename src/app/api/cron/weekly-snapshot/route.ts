@@ -4,7 +4,7 @@
 // sin horario de verano). Recalcula EVM/Beneficio $ Confirmado/Calidad de
 // Entregas/Cumplimiento de Entrega/NPS del portafolio COMPLETO (mismos
 // números que las tarjetas de Control Tower, ver lib/weeklySnapshot.ts) y
-// los guarda como un snapshot semanal en Firestore para el histórico.
+// los guarda como un snapshot semanal en Supabase para el histórico.
 //
 // Protegido con CRON_SECRET (convención de Vercel Cron: si la variable de
 // entorno existe, Vercel manda "Authorization: Bearer $CRON_SECRET" en cada

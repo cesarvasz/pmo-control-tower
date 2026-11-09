@@ -5,8 +5,8 @@
 // mano durante el mes en /calidad-cumplimiento → Metodología. El KPI del PM usa
 // la nota MÁS RECIENTE: la del mes en curso (guardada, o el 100% por defecto).
 //
-// Se guarda en Firestore (`metodologia_califs`), un doc por persona y mes, con
-// clave `YYYY-MM::Nombre`. Sin doc = 100%: solo se persiste lo que el Admin cambia.
+// Se guarda en la tabla `metodologia_califs` (Supabase), una fila por persona y mes,
+// con clave `YYYY-MM::Nombre`. Sin fila = 100%: solo se persiste lo que el Admin cambia.
 
 import { today } from "@/lib/business";
 import type { MetodologiaCalif } from "@/types";
