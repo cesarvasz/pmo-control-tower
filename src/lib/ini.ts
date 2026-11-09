@@ -293,6 +293,17 @@ export function calcIniPMHealth(pm: string, iniData: IniItem[], calMap?: CalMap)
   return { status, index, onTrack, inRisk, offTrack, total };
 }
 
+/** Las iniciativas que cuentan en la salud del PM (las mismas de calcIniPMHealth), una por una: su estado y su valor
+ *  en el índice (on track 100 %, in risk 90 %, off track 0 %). Para listarlas en la tarjeta del PM. */
+export function iniSaludDelPM(pm: string, iniData: IniItem[], calMap?: CalMap): { id: string; name: string; estado: HealthStatus; indice: number }[] {
+  return iniData
+    .filter((r) => r.pm === pm && (INI_ACTIVE_STS.has(r.status) || r.estado === "POR_DEFINIR"))
+    .map((r) => {
+      const estado: HealthStatus = r.estado === "POR_DEFINIR" ? porDefinirStatus(r) : iniItemStatus(r, calMap);
+      return { id: r.id, name: r.name, estado, indice: estado === "on-track" ? 1 : estado === "in-risk" ? 0.9 : 0 };
+    });
+}
+
 /** Iniciativas en Plan Futuro del PM cuya fecha Plan Futuro ya es hoy o ya pasó. */
 export function countPlanFuturoDue(pm: string, iniData: IniItem[]): number {
   const t = today();
