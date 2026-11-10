@@ -7,10 +7,9 @@ import type { ReactNode } from "react";
 import { TIPOS_COLUMNA } from "../dominio/tipos-columna";
 import { ROLES_COLUMNA } from "../dominio/roles";
 import { CATEGORIAS_STATUS } from "../dominio/estados";
-import { CATEGORIAS_TABLERO } from "../dominio/categorias";
+import { CATEGORIAS_TABLERO, textoRolRequerido } from "../dominio/categorias";
 import { ACCIONES_TABLEROS } from "../dominio/acciones";
 import { tipoColumna } from "../dominio/tipos-columna";
-import { rolColumna } from "../dominio/roles";
 import { Tarjeta } from "./comun";
 
 function Tabla({ cabeceras, children }: { cabeceras: string[]; children: ReactNode }) {
@@ -102,7 +101,7 @@ export default function CatalogoTab() {
               <td className="pm-name">{c.etiqueta}</td>
               <td>{clave(c.clave)}</td>
               <td style={{ color: "var(--text-secondary)" }}>{c.descripcion}</td>
-              <td style={{ fontSize: ".8rem" }}>{c.rolesRequeridos.map((r) => rolColumna(r)?.etiqueta ?? r).join(", ") || "—"}</td>
+              <td style={{ fontSize: ".8rem" }}>{c.rolesRequeridos.map(textoRolRequerido).join(", ") || "—"}</td>
             </tr>
           ))}
         </Tabla>

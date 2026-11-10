@@ -20,6 +20,7 @@ export function useCarga<T>(url: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!url) return; // "" = todavía no se pide
     let vivo = true;
     pedir<T>(url)
       .then((d) => { if (vivo) { setData(d); setError(null); } })

@@ -16,7 +16,7 @@ import { usuarioTableros } from "./puerta";
 export function aTablero(r: Tables<"tableros">): Tablero {
   return {
     id: r.id, nombre: r.nombre, codigo: r.codigo, categoria: r.categoria, descripcion: r.descripcion,
-    plantillaId: r.plantilla_id, actualizadoAt: r.actualizado_at,
+    plantillaId: r.plantilla_id, mondayBoardId: r.monday_board_id, actualizadoAt: r.actualizado_at,
   };
 }
 
@@ -36,7 +36,7 @@ export function aElemento(r: Tables<"elementos">): Elemento {
   return {
     id: r.id, grupoId: r.grupo_id, parentId: r.parent_id, nombre: r.nombre, orden: r.orden,
     valores: (r.valores && typeof r.valores === "object" && !Array.isArray(r.valores) ? r.valores : {}) as Record<string, unknown>,
-    responsables: r.responsables, actualizadoAt: r.actualizado_at,
+    responsables: r.responsables, mondayItemId: r.monday_item_id, actualizadoAt: r.actualizado_at,
   };
 }
 

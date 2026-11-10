@@ -6,7 +6,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { ErrorBox, Loader } from "@/components/ui";
-import { CATEGORIAS_TABLERO, categoriaTablero, rolesFaltantes } from "../../dominio/categorias";
+import { CATEGORIAS_TABLERO, categoriaTablero, rolesFaltantes, textoRolRequerido } from "../../dominio/categorias";
 import { rolColumna } from "../../dominio/roles";
 import { tipoColumna } from "../../dominio/tipos-columna";
 import { puede, reglaQueAplica, type ReglaPermiso, type UsuarioTableros } from "../../dominio/permisos";
@@ -15,7 +15,11 @@ import { Boton, enviar, estiloControl, Nota, useCarga } from "../comun";
 import { Celda, type PersonaCorta } from "../celdas";
 import ColumnaEditor, { type CambiosColumna } from "../columnas/ColumnaEditor";
 import ElementoPanel from "./ElementoPanel";
+import CompararModal from "./CompararModal";
+import GuardarPlantillaModal from "./GuardarPlantillaModal";
 import { botonMini, NuevoElemento, TextoEditable } from "./piezas";
+import { useMe } from "@/context/PermissionsContext";
+import { tieneAccionTableros } from "../../dominio/acciones";
 
 interface Datos extends TableroCompleto {
   personas: PersonaCorta[];
@@ -34,6 +38,8 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
   const [busca, setBusca] = useState("");
+  const [modal, setModal] = useState<"comparar" | "plantilla" | null>(null);
+  const { me } = useMe();
 
   const alternar = (set: Set<string>, id: string) => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
 
@@ -206,6 +212,10 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
           </select>
         ) : <span className="text-[0.8rem] text-[var(--text-secondary)]">{categoriaTablero(tablero.categoria)?.etiqueta ?? tablero.categoria}</span>}
         <span className="flex-1" />
+        {puedeAdmin && tablero.mondayBoardId && <Boton onClick={() => setModal("comparar")}>Comparar con Monday</Boton>}
+        {puedeAdmin && tieneAccionTableros(me?.permissions, "plantillas_administrar") && (
+          <Boton onClick={() => setModal("plantilla")}>Guardar como plantilla</Boton>
+        )}
         {puedeAdmin && (
           <Boton onClick={async () => { if (confirm(`¿Archivar el tablero «${tablero.nombre}»?`)) { await op({ op: "tablero.archivar" }).catch(() => {}); onVolver(); } }}>
             Archivar tablero
@@ -216,7 +226,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       {faltan.length > 0 && (
         <Nota>
           Para medirse como <strong>{categoriaTablero(tablero.categoria)?.etiqueta}</strong> le faltan columnas con rol:{" "}
-          {faltan.map((r) => rolColumna(r)?.etiqueta ?? r).join(", ")}.
+          {faltan.map(textoRolRequerido).join(", ")}.
         </Nota>
       )}
       {soloLoMio && <Nota>Solo ves los elementos donde eres responsable (y su contexto).</Nota>}
@@ -337,6 +347,15 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
           onGuardar={guardarColumna}
           onArchivar={editorCol.columna ? async () => { await op({ op: "columna.archivar", columnaId: editorCol.columna!.id }); } : undefined}
           onCerrar={() => setEditorCol(null)}
+        />
+      )}
+
+      {modal === "comparar" && <CompararModal tableroId={tablero.id} onCerrar={() => setModal(null)} />}
+      {modal === "plantilla" && (
+        <GuardarPlantillaModal
+          nombreInicial={tablero.nombre}
+          onGuardar={async (d) => { await enviar(url, "POST", { op: "tablero.guardar_plantilla", ...d }); }}
+          onCerrar={() => setModal(null)}
         />
       )}
 

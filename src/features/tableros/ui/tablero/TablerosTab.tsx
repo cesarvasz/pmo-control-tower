@@ -11,6 +11,8 @@ import { rolColumna } from "../../dominio/roles";
 import type { TableroResumen } from "../../datos/tableros";
 import { Boton, enviar, estiloControl, Nota, Tarjeta, useCarga } from "../comun";
 import TableroVista from "./TableroVista";
+import ImportarMonday from "./ImportarMonday";
+import type { PlantillaResumen } from "../../datos/plantillas";
 
 const URL_API = "/api/tableros/tableros";
 const fmtFecha = (iso: string) => new Date(iso).toLocaleDateString("es-GT", { day: "2-digit", month: "short", year: "numeric" });
@@ -25,6 +27,8 @@ export default function TablerosTab() {
   const [codigo, setCodigo] = useState("");
   const [categoria, setCategoria] = useState(CATEGORIA_DEFECTO);
   const [fallo, setFallo] = useState<string | null>(null);
+  const [plantillaId, setPlantillaId] = useState("");
+  const plantillas = useCarga<{ plantillas: PlantillaResumen[] }>(puedeCrear ? "/api/tableros/plantillas" : "").data?.plantillas ?? [];
 
   if (abierto) return <TableroVista id={abierto} onVolver={() => { setAbierto(null); void recargar(); }} />;
   if (!data) return error ? <ErrorBox msg={error} /> : <Loader />;
@@ -33,7 +37,7 @@ export default function TablerosTab() {
     if (!nombre.trim()) { setFallo("El tablero necesita un nombre."); return; }
     setCreando(true); setFallo(null);
     try {
-      const { id } = await enviar<{ id: string }>(URL_API, "POST", { nombre, codigo, categoria });
+      const { id } = await enviar<{ id: string }>(URL_API, "POST", { nombre, codigo, categoria, plantillaId: plantillaId || undefined });
       setNombre(""); setCodigo("");
       setAbierto(id);
     } catch (e) {
@@ -43,7 +47,8 @@ export default function TablerosTab() {
     }
   }
 
-  const pide = categoriaTablero(categoria)?.rolesRequeridos ?? [];
+  const pide = categoriaTablero(categoria)?.columnasIniciales ?? [];
+  const plantilla = plantillas.find((p) => p.id === plantillaId);
 
   return (
     <div className="flex flex-col gap-4">
@@ -66,15 +71,29 @@ export default function TablerosTab() {
                 {CATEGORIAS_TABLERO.map((c) => <option key={c.clave} value={c.clave}>{c.etiqueta}</option>)}
               </select>
             </label>
+            {plantillas.length > 0 && (
+              <label className="flex flex-col gap-1 text-[0.72rem] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Desde plantilla
+                <select
+                  value={plantillaId} {...estiloControl} className={`${estiloControl.className} py-1.5`}
+                  onChange={(e) => { setPlantillaId(e.target.value); const p = plantillas.find((x) => x.id === e.target.value); if (p) setCategoria(p.categoria); }}
+                >
+                  <option value="">— En blanco —</option>
+                  {plantillas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </label>
+            )}
             <Boton primario onClick={crear} disabled={creando}>{creando ? "Creando…" : "Crear tablero"}</Boton>
           </div>
           <p className="mt-2 text-[0.75rem] text-[var(--text-muted)]">
-            Nace con un grupo y las columnas {pide.length ? "que su categoría necesita para medirse" : "básicas"}:{" "}
-            {(pide.length ? pide : ["responsable", "status", "fecha_limite"]).map((r) => rolColumna(r)?.etiqueta ?? r).join(", ")}.
+            {plantilla
+              ? <>Nace igual que la plantilla: {plantilla.resumen.grupos} grupos, {plantilla.resumen.columnas + plantilla.resumen.columnasSub} columnas{plantilla.resumen.elementos ? `, ${plantilla.resumen.elementos} elementos y ${plantilla.resumen.subelementos} subelementos` : ""}.</>
+              : <>Nace con un grupo{pide.length ? <> y las columnas {pide.map((r) => rolColumna(r)?.etiqueta ?? r).join(", ")}</> : ""}.</>}
           </p>
           {fallo && <div className="mt-2"><Nota tono="mal">{fallo}</Nota></div>}
         </Tarjeta>
       )}
+
+      {puedeCrear && <ImportarMonday onAbrir={setAbierto} onImportado={() => { void recargar(); }} />}
 
       {data.tableros.length === 0 ? <EmptyRow msg="Todavía no hay tableros." /> : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

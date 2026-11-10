@@ -9,7 +9,7 @@ const col = (id: string, tipo: string, rol: string | null = null, nivel: "item" 
   ({ id, nivel, titulo: id, tipo, rol, config, orden: 0, ancho: null, oculta: false });
 
 const el = (id: string, parentId: string | null, responsables: string[] = []): Elemento =>
-  ({ id, grupoId: parentId ? null : "g", parentId, nombre: id, orden: 0, valores: {}, responsables, actualizadoAt: "" });
+  ({ id, grupoId: parentId ? null : "g", parentId, nombre: id, orden: 0, valores: {}, responsables, mondayItemId: null, actualizadoAt: "" });
 
 describe("columnas", () => {
   it("un tablero de Proyecto nace con las columnas que su categoría pide para medirse", () => {

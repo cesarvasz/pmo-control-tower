@@ -28,7 +28,9 @@ describe("registros", () => {
   it("cada rol acepta solo tipos registrados y cada categoría pide roles registrados", () => {
     for (const r of ROLES_COLUMNA) for (const t of r.tipos) expect(tipoColumna(t), `${r.clave} → ${t}`).toBeDefined();
     const roles = new Set(ROLES_COLUMNA.map((r) => r.clave));
-    for (const c of CATEGORIAS_TABLERO) for (const r of c.rolesRequeridos) expect(roles.has(r), `${c.clave} → ${r}`).toBe(true);
+    for (const c of CATEGORIAS_TABLERO) {
+      for (const r of [...c.rolesRequeridos.flat(), ...c.columnasIniciales]) expect(roles.has(r), `${c.clave} → ${r}`).toBe(true);
+    }
   });
 
   it("la config por defecto de cada tipo es válida", () => {
@@ -38,7 +40,8 @@ describe("registros", () => {
   it("rolesParaTipo y rolesFaltantes", () => {
     expect(rolesParaTipo("fecha").map((r) => r.clave)).toEqual(["fecha_limite", "nueva_fecha_limite", "fin_real"]);
     expect(rolesFaltantes("pml", [{ rol: "status" }, { rol: "fin_real" }, { rol: "responsable", nivel: "sub" }]))
-      .toEqual(["responsable", "fecha_limite"]);
+      .toEqual(["responsable", ["fecha_limite", "plan"]]);
+    expect(rolesFaltantes("proyecto", ["status", "responsable", "plan", "fin_real", "esfuerzo_real"].map((rol) => ({ rol })))).toEqual([]);
     expect(rolesFaltantes("libre", [])).toEqual([]);
   });
 });

@@ -12,8 +12,10 @@ import {
   COLORES_GRUPO, errorColumna, FASES_VALOR, limpiarTexto, MAX_NOMBRE, MAX_TITULO, normalizarColumnaNueva, siguienteOrden,
   validarValor, valoresIniciales, vecino, categoriaValida, type Tablero,
 } from "../dominio/tablero";
-import { aColumna, aElemento, aGrupo, type Acceso } from "./tableros";
+import { tieneAccionTableros } from "../dominio/acciones";
+import { aColumna, aElemento, aGrupo, leerTablero, type Acceso } from "./tableros";
 import { ErrorTablero } from "./errores";
+import { guardarComoPlantilla } from "./plantillas";
 
 interface Ctx {
   me: AppUser;
@@ -117,6 +119,17 @@ const OPERACIONES: OperacionDef[] = [
       exigir(ctx, "administrar");
       unwrap(await db().from("tableros").update({ archivado_at: ahora() }).eq("id", ctx.tablero.id));
       await historial(ctx, null, "archivado", null, { tablero: ctx.tablero.nombre });
+    },
+  },
+
+  {
+    clave: "tablero.guardar_plantilla",
+    async ejecutar(ctx, d) {
+      exigir(ctx, "administrar");
+      if (!tieneAccionTableros(ctx.me.permissions, "plantillas_administrar")) throw new ErrorTablero(403, "No puedes administrar plantillas");
+      const completo = await leerTablero(ctx.tablero.id, ctx.acceso);
+      if (!completo) throw new ErrorTablero(404, "Tablero no encontrado");
+      return { id: await guardarComoPlantilla(completo, d, ctx.me) };
     },
   },
 

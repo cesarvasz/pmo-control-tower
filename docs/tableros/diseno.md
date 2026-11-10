@@ -166,7 +166,13 @@ Ejemplo — rol Developer en categoría "proyecto": `editar valores`, columnas =
 ## 5. Métricas: un solo adaptador
 
 `dominio/metricas.ts` convierte un tablero al mismo `ProjItem` que hoy produce `projProcess`
-(leyendo por rol). Así Control Tower, Players, Portafolio, EVM y reportes **no cambian** y
+(leyendo por rol). Cómo (hecho en Fase 2): el tablero se pasa a la forma de Monday (`MondayItem[]`)
+emitiendo cada rol con el título que espera `projProcess` ("Limit Date", "Cost $", "CPM"…), las
+etiquetas de status propias por su categoría ("Listo" → "Done") y conservando los ids de Monday en
+lo importado (bases del EVM y atribuciones están guardadas por ese id); luego se usa el MISMO
+`projProcess`. Igual que hoy, la fecha límite sale del fin del Plan si no hay columna propia y el
+costo de Esfuerzo real × 9, por eso la categoría Proyecto acepta esos roles como alternativa.
+`dominio/paridad.ts` compara ProjItem por ProjItem; en la app: botón "Comparar con Monday". Así Control Tower, Players, Portafolio, EVM y reportes **no cambian** y
 funcionan a la vez con proyectos que siguen en Monday y con tableros de la app durante la
 transición. Cuando ya no quede nada en Monday se retira `projProcess` y `monday-cols.ts`.
 
@@ -193,7 +199,7 @@ uso se pasan al evaluador propio. Tras importar, el board de Monday queda de sol
 |---|---|---|
 | **0 · Base** ✓ | Registros, tablas, motor de permisos, `personas` importado del Directorio RH y ligado a usuarios. Página `/tableros` con pestañas Directorio, Permisos, Catálogo y Plan | tests del dominio + `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/personas.integration.test.ts` (84 personas, 10 ligadas, 2ª corrida sin cambios) |
 | **1 · Tablero** ✓ | Vista Tabla editable (pestaña Tableros): grupos, subitems, tipos básicos (texto, número, fecha, timeline, status, dropdown, persona, checkbox), crear/editar columnas y grupos, roles, historial (`tablero_historial`, función `tablero_cambiar_valor`). Todo cambio entra por el registro `datos/operaciones.ts`; los permisos por columna y "solo lo mío" ya se aplican en la puerta | `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/tableros.integration.test.ts` (crea un tablero, lo usa y lo borra) |
-| **2 · Plantillas + piloto** | Guardar como plantilla / crear desde plantilla; importar 1 proyecto piloto; adaptador de métricas | las métricas del piloto dan igual en Monday y en la app |
+| **2 · Plantillas + piloto** ✓ | Guardar como plantilla / crear desde plantilla (pestaña Plantillas); importar de Monday (`dominio/importar-monday.ts`, piloto PM-013: 31 elementos, 123 subelementos); adaptador de métricas y "Comparar con Monday" | `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/piloto.integration.test.ts`: 0 diferencias en todos los ProjItem; EVM, salud y entregas idénticos |
 | **3 · Completo** | Permisos por columna y "solo lo mío", bitácora, archivos, fórmulas, relación y espejo | un Developer actualiza solo lo suyo |
 | **4 · Migración** | Importar los 19 proyectos, PML, Iniciativas, Estrategia; vista Gantt | paridad de métricas en todo el portafolio |
 | **5 · Corte** | Monday solo lectura → exportación final → se apaga la copia | — |

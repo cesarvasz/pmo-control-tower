@@ -17,6 +17,8 @@ export interface Tablero {
   categoria: string;
   descripcion: string | null;
   plantillaId: string | null;
+  /** Board de Monday del que se importó (null si nació en la app). */
+  mondayBoardId: string | null;
   actualizadoAt: string;
 }
 
@@ -48,6 +50,8 @@ export interface Elemento {
   orden: number;
   valores: Record<string, unknown>;
   responsables: string[];
+  /** Item de Monday del que se importó (null si nació en la app). */
+  mondayItemId: string | null;
   actualizadoAt: string;
 }
 
@@ -125,11 +129,9 @@ export function normalizarColumnaNueva(v: unknown): ColumnaNueva | null {
   return { nivel, titulo, tipo: tipo.clave, rol, config: tipo.config.validar(o.config ?? tipo.config.defecto) };
 }
 
-/** Columnas con que nace un tablero: las que su categoría necesita para medirse (o unas básicas). */
+/** Columnas con que nace un tablero (las de su categoría). */
 export function columnasPorDefecto(categoria: string): ColumnaNueva[] {
-  const pedidas = categoriaTablero(categoria)?.rolesRequeridos ?? [];
-  const roles = pedidas.length ? pedidas : ["responsable", "status", "fecha_limite"];
-  return roles.flatMap((clave) => {
+  return (categoriaTablero(categoria)?.columnasIniciales ?? []).flatMap((clave) => {
     const rol = rolColumna(clave);
     const tipo = rol ? tipoColumna(rol.tipos[0]) : undefined;
     return rol && tipo ? [{ nivel: "item" as const, titulo: rol.etiqueta, tipo: tipo.clave, rol: rol.clave, config: tipo.config.defecto }] : [];
