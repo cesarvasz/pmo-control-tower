@@ -9,6 +9,7 @@ import type {
 } from "@/types";
 import type { Tables } from "@/types/supabase";
 import type { SurveyAnswers, SurveyDoc, SurveyResponseDoc } from "@/lib/survey";
+import type { CkuAnswers, CkuSurveyDoc, CkuSurveyResponseDoc } from "@/lib/surveyCku";
 import { leerDocMetas } from "@/lib/implementaciones";
 import { leerOnHold } from "@/lib/onHold";
 import { esMesValido } from "@/lib/metodologia";
@@ -222,4 +223,46 @@ export function npsRecordsDe(responses: Tables<"survey_responses">[], surveys: T
       token: r.token,
     };
   });
+}
+
+// ── Encuestas NPS de un CKU (cku_surveys / cku_survey_responses) ─────────────
+
+export function ckuSurveyDe(r: Tables<"cku_surveys">, respuestas = 0): CkuSurveyDoc {
+  return {
+    token: r.token, cku: r.cku, ckuEmail: r.cku_email, nombre: r.nombre,
+    createdByEmail: r.created_by_email, createdAt: iso(r.created_at), respuestas,
+  };
+}
+
+export function ckuSurveyResponseDe(r: Tables<"cku_survey_responses">): CkuSurveyResponseDoc {
+  return {
+    id: r.id, surveyToken: r.survey_token, respondentName: r.respondent_name, respondentEmail: r.respondent_email,
+    answers: (r.answers ?? {}) as CkuAnswers, invalidated: r.invalidated, submittedAt: iso(r.submitted_at),
+  };
+}
+
+/** Las respuestas de las encuestas de CKU como NpsRecord, para el NPS del Player de ese CKU. `pm` va vacío y `cku` lleva
+ *  el nombre del dueño: así NO entran al NPS de PM, de proyecto ni global (ver calcNpsFromRecords). Si la encuesta ya no
+ *  existe (no debería: FK en cascada) la respuesta se ignora. */
+export function ckuNpsRecordsDe(responses: Tables<"cku_survey_responses">[], surveys: Tables<"cku_surveys">[]): NpsRecord[] {
+  const porToken = new Map(surveys.map((s) => [s.token, s]));
+  const out: NpsRecord[] = [];
+  for (const r of responses) {
+    const s = porToken.get(r.survey_token);
+    if (!s) continue;
+    out.push({
+      answers: (r.answers ?? {}) as NpsRecord["answers"],
+      pm: "",
+      invalidated: r.invalidated,
+      respondentEmail: r.respondent_email,
+      respondentName: r.respondent_name,
+      submittedAt: iso(r.submitted_at),
+      reqCode: "",
+      reqId: "",
+      cku: s.cku,
+      token: s.token,
+      ckuEncuesta: true,
+    });
+  }
+  return out;
 }

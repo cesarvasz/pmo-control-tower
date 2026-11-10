@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { authedFetch, getAccessToken } from "@/lib/api";
 import { useMe } from "@/context/PermissionsContext";
 import { useData } from "@/context/DataContext";
-import { hasAction } from "@/lib/permissions";
+import { esRolCku, hasAction } from "@/lib/permissions";
 import type { SurveyDoc } from "@/lib/survey";
 import { listPMs } from "@/lib/players";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import SurveyResultModal from "@/components/SurveyResultModal";
+import EncuestasCkuPanel from "@/components/EncuestasCkuPanel";
 import NpsCommentsReport from "@/components/NpsCommentsReport";
 import NpsDimensionsChart from "@/components/NpsDimensionsChart";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
@@ -21,9 +22,12 @@ export default function EncuestasPage() {
   const [busyToken, setBusyToken] = useState<string | null>(null);
   const [tab, setTab] = useState<"enviadas" | "comentarios" | "dimensiones">("enviadas");
   const [pmFilter, setPmFilter] = useState(""); // "" = todos los PM
+  // Encuestas de PM o de CKU (dos vistas separadas, cada una con su color). Un CKU solo ve las suyas.
+  const [vista, setVista] = useState<"pm" | "cku">("pm");
 
   const { me } = useMe();
   const isAdmin = hasAction(me?.permissions, "manage_roles");
+  const esCku = esRolCku(me?.roleName);
   const { data } = useData();
   const allPMs = data ? listPMs(data.ini, data.req) : [];
   const npsFiltered = data ? calcNpsFromRecords(data.npsRecords, pmFilter || undefined) : null;
@@ -44,8 +48,9 @@ export default function EncuestasPage() {
     }
   }, []);
 
+  // A un CKU no se le cargan las encuestas de PM: solo ve las suyas (ver EncuestasCkuPanel).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial (sistema externo)
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (me && !esCku) load(); }, [load, me, esCku]);
 
   const patch = async (token: string, body: { invalidated?: boolean; reopen?: boolean }) => {
     setBusyToken(token);
@@ -72,6 +77,23 @@ export default function EncuestasPage() {
     setBusyToken(null);
   };
 
+  const selector = (
+    <div className="mb-6 inline-flex rounded-xl border p-1" style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}>
+      {([["pm", "Encuestas PM", "var(--accent)"], ["cku", "Encuestas CKU", "var(--info)"]] as const).map(([key, label, color]) => (
+        <button
+          key={key} onClick={() => setVista(key)}
+          className="rounded-lg px-4 py-1.5 text-[0.82rem] font-semibold transition-colors"
+          style={vista === key ? { background: color, color: "#fff" } : { color: "var(--text-secondary)" }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+  // Un CKU: solo las suyas. Un Admin: puede cambiar entre las de PM y las de CKU.
+  if (esCku) return <div><EncuestasCkuPanel puedeGestionar /></div>;
+  if (isAdmin && vista === "cku") return <div>{selector}<EncuestasCkuPanel puedeGestionar /></div>;
+
   if (error) return <ErrorBox msg={error} />;
   if (!surveys) return <Loader />;
 
@@ -97,6 +119,7 @@ export default function EncuestasPage() {
 
   return (
     <div>
+      {isAdmin && selector}
       {/* Tabs: Enviadas (gestión de encuestas) · Comentarios (reporte NPS) */}
       <div className="mb-6 flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
         {([["enviadas", "Enviadas"], ["comentarios", "Comentarios NPS"], ["dimensiones", "Dimensiones"]] as const).map(([key, label]) => (

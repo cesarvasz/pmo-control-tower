@@ -18,6 +18,8 @@ export function apiError(err: unknown): NextResponse {
       return NextResponse.json({ error: "La contraseña no cumple los requisitos (mínimo 8 caracteres, con letras y números)" }, { status: 400 });
     case "already-answered":
       return NextResponse.json({ error: "Esta encuesta ya fue contestada" }, { status: 409 });
+    case "cku-already-answered":
+      return NextResponse.json({ error: "Ya contestaste esta encuesta con ese correo." }, { status: 409 });
     case "survey-answered":
       return NextResponse.json({ error: "No se puede cancelar una encuesta ya contestada; usa Invalidar." }, { status: 409 });
     case "survey-not-found":

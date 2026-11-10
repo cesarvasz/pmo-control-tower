@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { DbError, getSupabaseAdmin, PG, selectAll, unwrap, unwrapOne } from "@/lib/supabase-admin";
 import { npsRecordsDe, surveyDe, surveyResponseDe } from "@/lib/storeRows";
+import { listCkuNpsRecords } from "@/lib/surveysCku";
 import type { SurveyAnswers, SurveyDoc, SurveyResponseDoc } from "@/lib/survey";
 import type { NpsRecord } from "@/types";
 import type { Json } from "@/types/supabase";
@@ -111,7 +112,8 @@ export async function listNpsRecords(): Promise<NpsRecord[]> {
     selectAll((a, b) => db().from("survey_responses").select("*").order("token").range(a, b)),
     selectAll((a, b) => db().from("surveys").select("*").order("token").range(a, b)),
   ]);
-  return npsRecordsDe(responses, surveys);
+  // Las encuestas de un CKU (tablas aparte) también son respuestas NPS: cuentan solo en el Player de su CKU.
+  return [...npsRecordsDe(responses, surveys), ...(await listCkuNpsRecords())];
 }
 
 export async function getResponse(token: string): Promise<SurveyResponseDoc | null> {

@@ -131,6 +131,71 @@ export type Database = {
         }
         Relationships: []
       }
+      cku_survey_responses: {
+        Row: {
+          answers: Json
+          id: string
+          invalidated: boolean
+          respondent_email: string
+          respondent_name: string
+          submitted_at: string
+          survey_token: string
+        }
+        Insert: {
+          answers?: Json
+          id?: string
+          invalidated?: boolean
+          respondent_email: string
+          respondent_name: string
+          submitted_at?: string
+          survey_token: string
+        }
+        Update: {
+          answers?: Json
+          id?: string
+          invalidated?: boolean
+          respondent_email?: string
+          respondent_name?: string
+          submitted_at?: string
+          survey_token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cku_survey_responses_survey_token_fkey"
+            columns: ["survey_token"]
+            isOneToOne: false
+            referencedRelation: "cku_surveys"
+            referencedColumns: ["token"]
+          },
+        ]
+      }
+      cku_surveys: {
+        Row: {
+          cku: string
+          cku_email: string
+          created_at: string
+          created_by_email: string
+          nombre: string
+          token: string
+        }
+        Insert: {
+          cku: string
+          cku_email?: string
+          created_at?: string
+          created_by_email?: string
+          nombre: string
+          token: string
+        }
+        Update: {
+          cku?: string
+          cku_email?: string
+          created_at?: string
+          created_by_email?: string
+          nombre?: string
+          token?: string
+        }
+        Relationships: []
+      }
       clasificacion: {
         Row: {
           clase: string

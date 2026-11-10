@@ -110,8 +110,9 @@ export function buildCkuScope(
   const surveyIds = npsStepIds(proj);
   req.forEach((r) => surveyIds.add(r.id));
   // NPS propio: solo encuestas ENVIADAS POR ESTE CKU sobre sus PML/proyectos (las de los PM no cuentan).
+  // Más las encuestas NPS que el propio CKU creó desde /players (ckuEncuesta): esas no dependen de un PML o proyecto.
   const npsRecords = data.npsRecords
-    .filter((r) => mine(r.cku) && r.reqId && surveyIds.has(r.reqId))
+    .filter((r) => mine(r.cku) && (r.ckuEncuesta || (r.reqId && surveyIds.has(r.reqId))))
     .map((r) => ({ ...r, pm: cku, cku }));
 
   return { cku, ini, req, proj, projBoards, npsRecords };
@@ -165,6 +166,20 @@ export function swapPmCku(map: DelayMap): DelayMap {
       : a;
   }
   return out;
+}
+
+/** Nombre canónico (el de PLAYER_CKUS) de un nombre del Directorio, o el mismo nombre si no es un player. */
+export const nombreCkuCanonico = (nombre: string): string => PLAYER_CKUS.find((c) => sameCku(nombre, c)) ?? nombre;
+
+/** Correo (en minúsculas) de la persona con ese nombre en el Directorio RH, o "" si no está. Sirve para que el correo del CKU
+ *  quede en una encuesta que crea un Admin por él. */
+export function emailDeCkuPorNombre(hrItems: MondayItem[], nombre: string): string {
+  for (const it of hrItems) {
+    if (!sameCku(it.name, nombre)) continue;
+    const mail = it.column_values.find((c) => c.id === RH_EMAIL_COL)?.text ?? "";
+    if (mail.trim()) return mail.trim().toLowerCase();
+  }
+  return "";
 }
 
 /** Nombre del CKU dueño de este correo según el Directorio RH (Role incluye "CKU"), o

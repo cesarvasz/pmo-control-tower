@@ -2,6 +2,7 @@
 // NPS de la encuesta PMO (Google Forms / Supabase). Funciones puras.
 
 import { SURVEY_QUESTIONS } from "@/lib/survey";
+import { CKU_ABIERTA_ID, CKU_SURVEY_QUESTIONS } from "@/lib/surveyCku";
 import type { NpsData, NpsRecord, NpsResponse, SheetRow } from "@/types";
 
 // Normaliza texto (sin acentos, minúsculas) para localizar columnas por pista.
@@ -124,9 +125,10 @@ export function calcNpsFromRecords(records: NpsRecord[], pm?: string): NpsData {
       else detractors++;
     }
 
-    // Dimensiones Likert (por id G1…H2), etiquetadas con el texto de la pregunta.
+    // Dimensiones Likert (por id G1…H2), etiquetadas con el texto de la pregunta. La encuesta de un CKU tiene sus propias
+    // preguntas (mismos códigos, otro texto) y su respuesta abierta va con otro id.
     const answers: { question: string; value: string }[] = [];
-    for (const q of SURVEY_QUESTIONS) {
+    for (const q of rec.ckuEncuesta ? CKU_SURVEY_QUESTIONS : SURVEY_QUESTIONS) {
       if (q.type !== "likert") continue;
       const value = String(a[q.id] ?? "").trim();
       if (!value) continue;
@@ -143,7 +145,7 @@ export function calcNpsFromRecords(records: NpsRecord[], pm?: string): NpsData {
       email: rec.respondentEmail,
       score: validScore ? score : null,
       category,
-      reason: String(a["razon"] ?? ""),
+      reason: String(a[rec.ckuEncuesta ? CKU_ABIERTA_ID : "razon"] ?? ""),
       answers,
     });
   }

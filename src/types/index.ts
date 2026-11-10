@@ -559,6 +559,11 @@ export interface NpsRecord {
   /** token de la encuesta (SurveyDoc.token) — une 1:1 con su fila en /encuestas. Ausente en
    *  respuestas importadas del Sheet (no tienen SurveyDoc). */
   token?: string;
+  /** Respuesta a una encuesta NPS de un CKU (lib/surveyCku.ts): sus preguntas son otras y cuenta solo en el Player de
+   *  `cku`. `token` es el de la encuesta del CKU (CkuSurveyDoc.token). */
+  ckuEncuesta?: boolean;
+  /** Nombre de quien contestó (solo en las encuestas de CKU, donde cada persona lo escribe). */
+  respondentName?: string;
 }
 
 /** Resultado del NPS (encuesta PMO). */

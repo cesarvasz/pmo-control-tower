@@ -10,13 +10,14 @@ import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
 import { calcPmMetrics, confirmacionRoiPorCku, entregablesDelCku, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import { KPI_W_CKU, type DucafastKpi } from "@/lib/kpi";
-import { esRolCku } from "@/lib/permissions";
+import { esRolCku, hasAction } from "@/lib/permissions";
 import { buildBoardMaps, buildCkuScope, ckuDeEmail, CKU_CON_IMPLEMENTACION, claveMesDe, cuentaEnPlayers, etiquetaMesLargo, mesesConActividades, PLAYER_CKUS, proyectosDelMes, sameCku, swapPmCku, type CkuScope } from "@/lib/players";
 import { implementacionDelMes, type ResumenImplementacionCku } from "@/lib/implementaciones";
 import type { MetaDucafastMesa2 } from "@/lib/ducafastMesa2";
 import { today } from "@/lib/business";
 import { ErrorBox, Loader } from "@/components/ui";
 import CkuMedicion from "@/components/CkuMedicion";
+import CkuNpsSurveyModal from "@/components/CkuNpsSurveyModal";
 import PmScoreboard from "@/components/PmScoreboard";
 import type { DashboardData } from "@/types";
 
@@ -41,6 +42,9 @@ function Players({ data }: { data: DashboardData }) {
   // le muestran los demás por omisión). Los demás roles ven a todos los CKUs.
   const { me } = useMe();
   const soloMio = esRolCku(me?.roleName);
+  // El botón de la encuesta NPS: un Admin lo ve en todos los CKUs; un CKU, en el suyo (solo ve el suyo).
+  const puedeEncuestaNps = hasAction(me?.permissions, "manage_roles") || soloMio;
+  const [encuestaCku, setEncuestaCku] = useState<string | null>(null);
   const miCku = useMemo(() => (soloMio ? ckuDeEmail(directorio, me?.email ?? "") : null), [soloMio, directorio, me?.email]);
   const ckus = useMemo(() => (soloMio ? (miCku ? [miCku] : []) : PLAYER_CKUS), [soloMio, miCku]);
 
@@ -201,6 +205,7 @@ function Players({ data }: { data: DashboardData }) {
             nIni={ini.filter((r) => sameCku(r.cku, cku) && cuentaEnPlayers(r)).length}
             nReq={req.filter((r) => sameCku(r.cku, cku)).length}
             nProj={projBoards.filter((b) => sameCku(b.cku, cku)).length}
+            onEncuestaNps={puedeEncuestaNps ? () => setEncuestaCku(cku) : undefined}
           >
             <CkuMedicion
               scope={scopesMes.get(cku)!}
@@ -213,13 +218,16 @@ function Players({ data }: { data: DashboardData }) {
         ))}
       </div>
       </>)}
+      {encuestaCku && <CkuNpsSurveyModal cku={encuestaCku} onClose={() => setEncuestaCku(null)} />}
     </div>
   );
 }
 
 // Tarjeta de un CKU: su nombre, cuántas Iniciativas, PML y Proyectos maneja, y el detalle de qué se mide.
-function CkuPortfolio({ cku, nIni, nReq, nProj, children }: {
+function CkuPortfolio({ cku, nIni, nReq, nProj, onEncuestaNps, children }: {
   cku: string; nIni: number; nReq: number; nProj: number;
+  /** Abre las encuestas NPS del CKU (solo para un Admin o el propio CKU). */
+  onEncuestaNps?: () => void;
   /** El detalle de qué se mide (CkuMedicion). */
   children?: React.ReactNode;
 }) {
@@ -230,6 +238,16 @@ function CkuPortfolio({ cku, nIni, nReq, nProj, children }: {
         <span className="text-[0.75rem] text-[var(--text-muted)]">
           {nIni} Iniciativas · {nReq} PML · {nProj} Proyectos
         </span>
+        {onEncuestaNps && (
+          <button
+            type="button" onClick={onEncuestaNps}
+            className="ml-auto rounded-md border px-2.5 py-1 text-[0.72rem] font-semibold text-[var(--accent-light)] hover:bg-[var(--bg-hover)]"
+            style={{ borderColor: "var(--border)" }}
+            title="Crear una encuesta NPS para este CKU y ver sus enlaces"
+          >
+            Encuesta NPS
+          </button>
+        )}
       </div>
       {children}
     </div>

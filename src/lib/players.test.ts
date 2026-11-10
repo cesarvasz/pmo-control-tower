@@ -226,3 +226,31 @@ describe("filtro por mes de los Players (por el Limit Date de cada actividad)", 
     });
   });
 });
+
+describe("encuesta NPS creada por el CKU (/players): cuenta en su Player y en ningún otro NPS", () => {
+  // Respuesta de la encuesta de CKU: su dueño en `cku`, sin PML/proyecto (reqId vacío) y otras preguntas.
+  const cku = (dueno: string, nps: number, extra: object = {}) =>
+    rec({ pm: "", reqId: "", cku: dueno, ckuEncuesta: true, answers: { nps, mejora: "más tiempo", G1: "De acuerdo" }, ...extra });
+  const base = { ini: [], proj: [], projBoards: [], req: [] } as never as Parameters<typeof buildCkuScope>[1];
+
+  it("entra al scope de su CKU aunque no dependa de un PML", () => {
+    const s = buildCkuScope("Javier Juarez", { ...base, npsRecords: [cku("Javier Juarez", 10), cku("Victoria Escobar", 3)] });
+    expect(s.npsRecords).toHaveLength(1);
+    expect(calcNpsFromRecords(s.npsRecords, "Javier Juarez").nps).toBe(100);
+  });
+  it("no entra al NPS global ni al de un PM", () => {
+    const records = [cku("Javier Juarez", 10), rec({ pm: "PM1", reqId: "r1" })];
+    expect(calcNpsFromRecords(records).total).toBe(1);
+    expect(calcNpsFromRecords(records, "PM1").total).toBe(1);
+  });
+  it("las invalidadas no cuentan", () => {
+    const s = buildCkuScope("Javier Juarez", { ...base, npsRecords: [cku("Javier Juarez", 10), cku("Javier Juarez", 0, { invalidated: true })] });
+    expect(calcNpsFromRecords(s.npsRecords, "Javier Juarez").total).toBe(1);
+  });
+  it("sus dimensiones y su respuesta abierta usan las preguntas del CKU", () => {
+    const s = buildCkuScope("Javier Juarez", { ...base, npsRecords: [cku("Javier Juarez", 9)] });
+    const r = calcNpsFromRecords(s.npsRecords, "Javier Juarez");
+    expect(r.responses[0].reason).toBe("más tiempo");
+    expect(r.questions[0].question).toMatch(/CKU me ayuda a entender/);
+  });
+});
