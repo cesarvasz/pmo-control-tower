@@ -12,7 +12,11 @@ import { tipoColumna } from "../../dominio/tipos-columna";
 import { puede, reglaQueAplica, type ReglaPermiso, type UsuarioTableros } from "../../dominio/permisos";
 import { columnasDe, FASES_VALOR, type Columna, type Elemento, type Grupo, type Nivel, type TableroCompleto } from "../../dominio/tablero";
 import { Boton, enviar, estiloControl, Nota, useCarga } from "../comun";
-import { Celda, type PersonaCorta } from "../celdas";
+import { Celda, type EntornoCelda, type PersonaCorta } from "../celdas";
+import type { ArchivoCelda } from "../celdas/comun";
+import { calcularTablero, valorDeCelda, type PersonaCalc, type TableroLigado } from "../../dominio/calculos";
+import { esCalculado } from "../../dominio/tipos-columna";
+import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import ColumnaEditor, { type CambiosColumna } from "../columnas/ColumnaEditor";
 import ElementoPanel from "./ElementoPanel";
 import CompararModal from "./CompararModal";
@@ -22,8 +26,12 @@ import { useMe } from "@/context/PermissionsContext";
 import { tieneAccionTableros } from "../../dominio/acciones";
 
 interface Datos extends TableroCompleto {
-  personas: PersonaCorta[];
+  personas: (PersonaCorta & PersonaCalc)[];
   acceso: { usuario: UsuarioTableros; reglas: ReglaPermiso[] };
+  ligados: Record<string, TableroLigado>;
+  archivos: ArchivoCelda[];
+  /** elementoId → cuántas actualizaciones tiene en la bitácora */
+  comentarios: Record<string, number>;
 }
 
 const tdCelda = { padding: 0, borderLeft: "1px solid var(--border-subtle)" } as const;
@@ -74,13 +82,53 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       .catch((err) => { setFallo(err instanceof Error ? err.message : "Error"); void recargar(); });
   }
 
+  // Fórmulas, espejos y archivos: se calculan aquí con el mismo código que usan las métricas.
+  const calc = useMemo(() => (data ? calcularTablero(data, {
+    personas: new Map(data.personas.map((p) => [p.id, p])), ligados: data.ligados, archivos: data.archivos,
+  }) : null), [data]);
+  const tablerosLista = useCarga<{ tableros: { id: string; nombre: string }[] }>(editorCol ? "/api/tableros/tableros" : "").data?.tableros ?? [];
+  const [traidos, setTraidos] = useState<string | null>(null);
+
   const subsPorPadre = useMemo(() => {
     const m = new Map<string, Elemento[]>();
     for (const e of data?.elementos ?? []) if (e.parentId) m.set(e.parentId, [...(m.get(e.parentId) ?? []), e]);
     return m;
   }, [data]);
 
-  if (!data) return error ? <ErrorBox msg={error} /> : <Loader />;
+  if (!data || !calc) return error ? <ErrorBox msg={error} /> : <Loader />;
+
+  const entorno: EntornoCelda = {
+    ligados: data.ligados,
+    archivos: data.archivos,
+    errores: calc.errores,
+    async subir(elementoId, columnaId, archivo) {
+      const p = await enviar<{ archivoId: string; ruta: string; token: string }>(url, "POST", {
+        op: "archivo.preparar", elementoId, columnaId, nombre: archivo.name, tamano: archivo.size, tipoMime: archivo.type,
+      });
+      const r = await getSupabaseBrowser().storage.from("tableros").uploadToSignedUrl(p.ruta, p.token, archivo, { contentType: archivo.type || undefined });
+      if (r.error) throw new Error(r.error.message);
+      await enviar(url, "POST", { op: "archivo.confirmar", archivoId: p.archivoId });
+      await recargar();
+    },
+    async descargar(archivoId) {
+      try {
+        const { url: firmada } = await enviar<{ url: string }>(url, "POST", { op: "archivo.descargar", archivoId });
+        window.open(firmada, "_blank", "noopener");
+      } catch (e) { setFallo(e instanceof Error ? e.message : "Error"); }
+    },
+    async borrarArchivo(archivoId) { await op({ op: "archivo.borrar", archivoId }).catch(() => {}); },
+  };
+
+  async function traerDeMonday() {
+    setFallo(null); setTraidos("Trayendo de Monday…");
+    try {
+      const r = await enviar<{ comentarios: number; comentariosNuevos: number; archivos: number; archivosNuevos: number; errores: string[] }>(`${url}/traer-de-monday`, "POST");
+      setTraidos(`Bitácora: ${r.comentariosNuevos} nuevas de ${r.comentarios} · Archivos: ${r.archivosNuevos} nuevos de ${r.archivos}${r.errores.length ? ` · No se pudieron traer: ${r.errores.join("; ")}` : ""}`);
+      await recargar();
+    } catch (e) {
+      setTraidos(null); setFallo(e instanceof Error ? e.message : "Error");
+    }
+  }
 
   const { tablero, grupos, columnas, elementos, personas, acceso } = data;
   const u = acceso.usuario;
@@ -135,7 +183,9 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
     return (
       <div className="flex items-center gap-1">
         <TextoEditable valor={e.nombre} editable={editable} className="flex-1 truncate text-[0.84rem]" onGuardar={(n) => hacer({ op: "elemento.renombrar", elementoId: e.id, nombre: n })} />
-        <button type="button" className={botonMini} onClick={() => setPanel(e.id)} title="Detalle e historial" aria-label="Detalle e historial">↗</button>
+        <button type="button" className={botonMini} onClick={() => setPanel(e.id)} title="Bitácora e historial" aria-label="Bitácora e historial">
+          {data!.comentarios[e.id] ? <span className="text-[0.72rem]">💬 {data!.comentarios[e.id]}</span> : "↗"}
+        </button>
       </div>
     );
   }
@@ -146,8 +196,9 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         {cols.map((c) => (
           <td key={c.id} style={tdCelda}>
             <Celda
-              columna={c} valor={e.valores[c.id]} personas={personas}
-              editable={puede(u, "editar_valor", tablero, R, { columna: c, elemento: e })}
+              columna={c} valor={valorDeCelda(calc!, e, c)} personas={personas} elementoId={e.id} entorno={entorno}
+              // Fórmula y espejo se calculan solos; los archivos sí se suben (si puede editar).
+              editable={(c.tipo === "archivo" || !esCalculado(c.tipo)) && puede(u, "editar_valor", tablero, R, { columna: c, elemento: e })}
               onCambiar={(v) => cambiarValor(e, c, v)}
             />
           </td>
@@ -213,6 +264,11 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         ) : <span className="text-[0.8rem] text-[var(--text-secondary)]">{categoriaTablero(tablero.categoria)?.etiqueta ?? tablero.categoria}</span>}
         <span className="flex-1" />
         {puedeAdmin && tablero.mondayBoardId && <Boton onClick={() => setModal("comparar")}>Comparar con Monday</Boton>}
+        {puedeAdmin && tablero.mondayBoardId && tieneAccionTableros(me?.permissions, "tableros_crear") && (
+          <Boton onClick={traerDeMonday} disabled={traidos === "Trayendo de Monday…"} title="Bitácora (Updates) y archivos; solo agrega lo nuevo">
+            Traer bitácora y archivos
+          </Boton>
+        )}
         {puedeAdmin && tieneAccionTableros(me?.permissions, "plantillas_administrar") && (
           <Boton onClick={() => setModal("plantilla")}>Guardar como plantilla</Boton>
         )}
@@ -231,6 +287,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       )}
       {soloLoMio && <Nota>Solo ves los elementos donde eres responsable (y su contexto).</Nota>}
       {fallo && <Nota tono="mal">{fallo}</Nota>}
+      {traidos && <Nota tono="ok">{traidos}</Nota>}
 
       {/* Barra */}
       <div className="flex flex-wrap items-center gap-2">
@@ -344,6 +401,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       {editorCol && (
         <ColumnaEditor
           columna={editorCol.columna} nivel={editorCol.nivel} columnas={columnas}
+          tableros={tablerosLista} ligados={data.ligados}
           onGuardar={guardarColumna}
           onArchivar={editorCol.columna ? async () => { await op({ op: "columna.archivar", columnaId: editorCol.columna!.id }); } : undefined}
           onCerrar={() => setEditorCol(null)}
@@ -362,7 +420,8 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       {elementoPanel && (
         <ElementoPanel
           tableroId={tablero.id} elemento={elementoPanel} grupos={grupos} columnas={columnas} personas={personas}
-          puedeEditar={puede(u, "editar_valor", tablero, R, { elemento: elementoPanel })}
+          puedeEditar={puede(u, "editar_valor", tablero, R, { elemento: elementoPanel })} esAdmin={u.esAdmin}
+          onCambio={() => { void recargar(); }}
           onMover={async (grupoId) => { await op({ op: "elemento.mover", elementoId: elementoPanel.id, grupoId }).catch(() => {}); }}
           onArchivar={async () => { await op({ op: "elemento.archivar", elementoId: elementoPanel.id }).catch(() => {}); }}
           onCerrar={() => setPanel(null)}

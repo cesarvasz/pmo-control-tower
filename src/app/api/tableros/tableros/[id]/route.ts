@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { exigirAccion } from "@/features/tableros/datos/puerta";
-import { accesoDe, leerTablero, leerTableroFila, listarPersonasCorto } from "@/features/tableros/datos/tableros";
+import { accesoDe, leerExtras, leerTablero, leerTableroFila, listarPersonasCorto } from "@/features/tableros/datos/tableros";
 import { ejecutarOperacion } from "@/features/tableros/datos/operaciones";
 import { ErrorTablero, respuestaDeError } from "@/features/tableros/datos/errores";
 import { puede } from "@/features/tableros/dominio/permisos";
@@ -27,7 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const acceso = await accesoDe(me);
     const [completo, personas] = await Promise.all([leerTablero(await idDe(params), acceso), listarPersonasCorto()]);
     if (!completo) throw new ErrorTablero(404, "Tablero no encontrado");
-    return NextResponse.json({ ...completo, personas, acceso });
+    return NextResponse.json({ ...completo, ...(await leerExtras(completo, acceso)), personas, acceso });
   } catch (err) {
     return respuestaDeError(err);
   }

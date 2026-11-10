@@ -40,11 +40,22 @@ export async function crearDesdeDefinicion(def: DefinicionTablero, datos: DatosT
       id: grupoId.get(g.clave)!, tablero_id: tableroId, titulo: g.titulo, color: g.color, fase: g.fase, orden: i,
     }))));
 
+    // Fórmulas y espejos apuntan a otras columnas por su clave: pasan a los ids nuevos.
+    const conIds = (tipo: string, config: unknown): unknown => {
+      const cfg = { ...(tipoColumna(tipo)?.config.validar(config) as Record<string, unknown> ?? {}) };
+      if (tipo === "formula" && typeof cfg.expresion === "string") {
+        cfg.expresion = cfg.expresion.replace(/\{([^}#]+)(#[^}]*)?\}/g, (m: string, ref: string, parte = "") =>
+          (columnaId.has(ref) ? `{${columnaId.get(ref)}${parte}}` : m));
+      }
+      if (tipo === "espejo" && typeof cfg.columna === "string") cfg.columna = columnaId.get(cfg.columna) ?? "";
+      return cfg;
+    };
+
     const ordenPorNivel = { item: 0, sub: 0 };
     if (def.columnas.length) {
       unwrap(await db.from("tablero_columnas").insert(def.columnas.map((c) => ({
         id: columnaId.get(c.clave)!, tablero_id: tableroId, nivel: c.nivel, titulo: c.titulo, tipo: c.tipo, rol: c.rol,
-        config: (tipoColumna(c.tipo)?.config.validar(c.config) ?? c.config) as Json, orden: ordenPorNivel[c.nivel]++,
+        config: conIds(c.tipo, c.config) as Json, orden: ordenPorNivel[c.nivel]++,
         oculta: c.oculta, ancho: c.ancho, monday_column_id: c.mondayColumnId ?? null,
       }))));
     }

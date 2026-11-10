@@ -1,7 +1,7 @@
 // SOLO SERVIDOR. Importar un board de Proyectos de Monday como tablero de la app (tal cual, con
 // roles asignados) desde la copia monday_boards / monday_items, y compararlo con Monday.
 
-import { getSupabaseAdmin, selectAll, unwrap } from "@/lib/supabase-admin";
+import { enTrozos, getSupabaseAdmin, selectAll, unwrap } from "@/lib/supabase-admin";
 import type { AppUser } from "@/lib/permissions";
 import { leerBoardsEspejo } from "@/lib/mondayMirrorRead";
 import { sincronizarBoard } from "@/lib/mondayMirrorSync";
@@ -13,6 +13,7 @@ import { tableroAProjItems, type PersonaMetricas } from "../dominio/metricas";
 import { diferenciasProjItems, resumenMetricas, type ResumenMetricas } from "../dominio/paridad";
 import type { TableroCompleto } from "../dominio/tablero";
 import { crearDesdeDefinicion } from "./materializar";
+import { listarPersonasCorto } from "./tableros";
 import { ErrorTablero } from "./errores";
 
 export interface BoardImportable {
@@ -34,13 +35,11 @@ export async function listarBoardsImportables(): Promise<BoardImportable[]> {
 
 /** Personas del directorio, para ligar nombres (sin acentos ni mayúsculas) y para las métricas. */
 async function directorio() {
-  const db = getSupabaseAdmin();
-  const filas = await selectAll<{ id: string; nombre: string; tld: string | null; activo: boolean }>((d, h) =>
-    db.from("personas").select("id, nombre, tld, activo").order("id").range(d, h));
+  const filas = await listarPersonasCorto();
   const porNombre = new Map<string, string>();
   // Las activas ganan si hay dos con el mismo nombre.
   for (const p of [...filas].sort((a, b) => Number(a.activo) - Number(b.activo))) porNombre.set(claveNombre(p.nombre), p.id);
-  const metricas = new Map<string, PersonaMetricas>(filas.map((p) => [p.id, { nombre: p.nombre, tld: p.tld }]));
+  const metricas = new Map<string, PersonaMetricas>(filas.map((p) => [p.id, p]));
   return { porNombre, metricas };
 }
 
@@ -70,8 +69,9 @@ export async function importarBoard(
     }
   }
 
-  const [subBoard, filas, dir] = await Promise.all([
+  const [subBoard, rhBoard, filas, dir] = await Promise.all([
     unwrap(await db.from("monday_boards").select("columnas").eq("padre_board_id", mondayBoardId).limit(1).maybeSingle()),
+    unwrap(await db.from("monday_boards").select("columnas").eq("tipo", "rh").eq("activo", true).limit(1).maybeSingle()),
     selectAll<FilaMonday>((d, h) => db.from("monday_items")
       .select("id, parent_id, orden, nombre, grupo, column_values").eq("board_id", mondayBoardId).is("deleted_at", null)
       .order("id").range(d, h) as unknown as PromiseLike<{ data: FilaMonday[] | null; error: null }>),
@@ -83,11 +83,17 @@ export async function importarBoard(
     columnasSub: (subBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>,
     filas,
     rhBoardId: process.env.MONDAY_RH_BOARD_ID ?? null,
+    rhColumnas: (rhBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>,
     personaPorNombre: (n) => dir.porNombre.get(claveNombre(n)),
   });
 
   // Reemplazar: el tablero anterior se borra (el monday_board_id es único).
-  if (previo) unwrap(await db.from("tableros").delete().eq("id", previo.id));
+  if (previo) {
+    // Sus archivos en Storage no se borran en cascada: se quitan antes.
+    const rutas = (unwrap(await db.from("elemento_archivos").select("ruta").eq("tablero_id", previo.id)) ?? []).map((a) => a.ruta);
+    for (const lote of enTrozos(rutas, 100)) await db.storage.from("tableros").remove(lote);
+    unwrap(await db.from("tableros").delete().eq("id", previo.id));
+  }
   const { code, name } = splitBoardName(board.nombre);
   const tableroId = await crearDesdeDefinicion(definicion, {
     nombre: name || board.nombre, codigo: code || null, categoria: "proyecto", mondayBoardId,

@@ -11,8 +11,10 @@ import type { ConfigNumero } from "../../dominio/tipos-columna/numero";
 import type { ConfigTexto } from "../../dominio/tipos-columna/texto";
 import type { ConfigPersona } from "../../dominio/tipos-columna/persona";
 import { estiloControl } from "../comun";
+import { ConfigEspejoEd, ConfigFormulaEd, ConfigRelacionEd, type ContextoConfig } from "./configCalculadas";
 
-interface PropsConfig<C> { config: C; onCambiar(c: C): void }
+/** `contexto` solo lo usan los que miran otras columnas o tableros (fórmula, espejo, relación). */
+interface PropsConfig<C> { config: C; onCambiar(c: C): void; contexto: ContextoConfig }
 
 const nuevoId = (ids: string[]) => String(ids.reduce((m, id) => Math.max(m, Number(id) || 0), 0) + 1);
 const quitar = "rounded px-1.5 text-[0.85rem] text-[var(--text-muted)] hover:text-[#ef4444]";
@@ -104,6 +106,9 @@ export const EDITORES_CONFIG: Record<string, ComponentType<PropsConfig<never>>> 
   numero: ConfigNumeroEd,
   texto: ConfigTextoEd,
   persona: ConfigPersonaEd,
+  formula: ConfigFormulaEd,
+  espejo: ConfigEspejoEd,
+  relacion: ConfigRelacionEd,
 } as Record<string, ComponentType<PropsConfig<never>>>;
 
 export type { PropsConfig };

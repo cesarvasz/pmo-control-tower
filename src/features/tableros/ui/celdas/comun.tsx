@@ -7,7 +7,23 @@ import type { Columna } from "../../dominio/tablero";
 
 export interface PersonaCorta { id: string; nombre: string; activo: boolean }
 
+export interface ArchivoCelda { id: string; elementoId: string; columnaId: string | null; nombre: string; tamano: number | null }
+
+/** Lo que necesitan las celdas que miran fuera de su elemento (relaciones, archivos, errores). */
+export interface EntornoCelda {
+  ligados: Record<string, { nombre: string; elementos: { id: string; nombre: string }[] }>;
+  archivos: ArchivoCelda[];
+  /** columnaId → error de su fórmula */
+  errores: Map<string, string>;
+  subir(elementoId: string, columnaId: string, archivo: File): Promise<void>;
+  descargar(archivoId: string): Promise<void>;
+  borrarArchivo(archivoId: string): Promise<void>;
+}
+
 export interface PropsCelda<V = unknown, C = unknown> {
+  /** Elemento al que pertenece la celda. */
+  elementoId?: string;
+  entorno?: EntornoCelda;
   columna: Columna;
   /** Config ya validada por el tipo. */
   config: C;

@@ -12,6 +12,7 @@ import { projProcess } from "@/lib/proj";
 import { tipoColumna } from "./tipos-columna";
 import { etiquetaStatus, type ConfigStatus } from "./tipos-columna/status";
 import { porOrden, type Columna, type Elemento, type Nivel, type TableroCompleto } from "./tablero";
+import { calcularTablero, valorDeCelda, type Calculados, type ContextoCalculo, type PersonaCalc } from "./calculos";
 
 /** Título que projProcess espera para cada rol (por nivel cuando difiere). */
 const TITULO_POR_ROL: Record<string, string | Record<Nivel, string>> = {
@@ -48,10 +49,10 @@ export function textoStatusParaMetricas(texto: string, categoria: string): strin
   return STATUS_CONOCIDOS.has(texto.trim().toLowerCase()) ? texto : STATUS_POR_CATEGORIA[categoria] ?? texto;
 }
 
-export interface PersonaMetricas { nombre: string; tld: string | null }
+export type PersonaMetricas = PersonaCalc;
 
 /** Texto de una celda tal como Monday lo daría en `text` (fechas AAAA-MM-DD, rango "a - b"…). */
-function textoMonday(c: Columna, valor: unknown, personas: Map<string, PersonaMetricas>): string | null {
+function textoMonday(c: Columna, valor: unknown, personas: Map<string, PersonaMetricas>, ctx: ContextoCalculo): string | null {
   const tipo = tipoColumna(c.tipo);
   if (!tipo || valor === undefined || valor === null) return null;
   const config = tipo.config.validar(c.config);
@@ -67,6 +68,14 @@ function textoMonday(c: Columna, valor: unknown, personas: Map<string, PersonaMe
     case "fecha": return v as string;
     case "timeline": { const r = v as { desde: string; hasta: string }; return `${r.desde} - ${r.hasta}`; }
     case "checkbox": return "v";
+    // Una fórmula sale como Monday daría su valor: fecha AAAA-MM-DD, número sin formato.
+    case "formula": return String(v);
+    case "espejo": return String(v);
+    case "relacion": {
+      const ligado = ctx.ligados?.[(config as { tableroId?: string }).tableroId ?? ""];
+      return (v as string[]).map((id) => ligado?.elementos.find((x) => x.id === id)?.nombre ?? "").filter(Boolean).join(", ") || null;
+    }
+    case "archivo": return (v as string[]).map((id) => ctx.archivos?.find((a) => a.id === id)?.nombre ?? "").filter(Boolean).join(", ") || null;
     default: return tipo.valor.texto(v, config);
   }
 }
@@ -78,16 +87,17 @@ function settingsStatus(c: Columna): string {
   return JSON.stringify({ labels });
 }
 
-function valoresMonday(e: Elemento, cols: Columna[], personas: Map<string, PersonaMetricas>): MondayColumnValue[] {
+function valoresMonday(e: Elemento, cols: Columna[], personas: Map<string, PersonaMetricas>, ctx: ContextoCalculo, calc: Calculados): MondayColumnValue[] {
   // Una columna sin rol no puede tapar el título que usa un rol.
   const titulosDeRol = new Set(cols.filter((c) => c.rol).map(tituloParaMetricas));
   const out: MondayColumnValue[] = [];
   for (const c of cols) {
     const title = tituloParaMetricas(c);
     if (!c.rol && titulosDeRol.has(title)) continue;
-    const text = textoMonday(c, e.valores[c.id], personas);
+    const text = textoMonday(c, valorDeCelda(calc, e, c), personas, ctx);
     const cv: MondayColumnValue = { id: c.id, text, column: { title, settings_str: c.tipo === "status" ? settingsStatus(c) : "{}" } };
-    if (c.tipo === "persona") cv.display_value = text; // como una relación al Directorio RH
+    // Como una relación o un espejo de Monday: el valor también va en display_value.
+    if (["persona", "relacion", "espejo"].includes(c.tipo)) cv.display_value = text;
     out.push(cv);
   }
   // TLD: en Monday es un espejo del TLD de la persona Responsable. Si el tablero no tiene una
@@ -107,7 +117,11 @@ export function nombreBoard(t: TableroCompleto["tablero"]): string {
 
 /** Tablero → items con la forma de Monday. Los ids de Monday se conservan en lo importado (las
  *  bases del EVM, las atribuciones de atraso, etc. están guardadas por ese id). */
-export function tableroAMondayItems(t: TableroCompleto, personas: Map<string, PersonaMetricas>): MondayItem[] {
+export function tableroAMondayItems(
+  t: TableroCompleto, personas: Map<string, PersonaMetricas>, extra: Omit<ContextoCalculo, "personas"> = {},
+): MondayItem[] {
+  const ctx: ContextoCalculo = { ...extra, personas };
+  const calc = calcularTablero(t, ctx);
   const cols = (nivel: Nivel) => t.columnas.filter((c) => c.nivel === nivel).sort(porOrden);
   const colsItem = cols("item");
   const colsSub = cols("sub");
@@ -124,18 +138,20 @@ export function tableroAMondayItems(t: TableroCompleto, personas: Map<string, Pe
     name: e.nombre,
     email: null,
     group: { title: titulo.get(e.grupoId ?? "") ?? "" },
-    column_values: valoresMonday(e, colsItem, personas),
+    column_values: valoresMonday(e, colsItem, personas, ctx, calc),
     subitems: subs.filter((s) => s.parentId === e.id).map((s) => ({
       id: s.mondayItemId ?? s.id,
       name: s.nombre,
       email: null,
       board: { id: boardId },
-      column_values: valoresMonday(s, colsSub, personas),
+      column_values: valoresMonday(s, colsSub, personas, ctx, calc),
     })),
   }));
 }
 
 /** Tablero → ProjItem[] con el mismo projProcess de siempre. */
-export function tableroAProjItems(t: TableroCompleto, personas: Map<string, PersonaMetricas>): ProjItem[] {
-  return projProcess(nombreBoard(t.tablero), t.tablero.mondayBoardId ?? t.tablero.id, tableroAMondayItems(t, personas));
+export function tableroAProjItems(
+  t: TableroCompleto, personas: Map<string, PersonaMetricas>, extra: Omit<ContextoCalculo, "personas"> = {},
+): ProjItem[] {
+  return projProcess(nombreBoard(t.tablero), t.tablero.mondayBoardId ?? t.tablero.id, tableroAMondayItems(t, personas, extra));
 }

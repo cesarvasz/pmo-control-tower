@@ -3,7 +3,7 @@
 
 import { tipoColumna, type ContextoValor } from "./tipos-columna";
 import { categoriaTablero, CATEGORIA_DEFECTO, CATEGORIAS_TABLERO } from "./categorias";
-import { rolColumna } from "./roles";
+import { formatoDeRol, rolColumna, rolesParaTipo } from "./roles";
 import { puede, type ReglaPermiso, type TableroRef, type UsuarioTableros } from "./permisos";
 
 export type Nivel = "item" | "sub";
@@ -105,13 +105,16 @@ export function columnaConRol(columnas: Columna[], nivel: Nivel, rol: string): C
 export interface ColumnaNueva { nivel: Nivel; titulo: string; tipo: string; rol: string | null; config: unknown }
 
 /** Valida una columna nueva (o los cambios a una existente). Devuelve el error, o null si está bien. */
-export function errorColumna(c: { tipo: string; rol: string | null; nivel: Nivel; id?: string }, existentes: Columna[]): string | null {
+export function errorColumna(c: { tipo: string; rol: string | null; nivel: Nivel; id?: string; config?: unknown }, existentes: Columna[]): string | null {
   const tipo = tipoColumna(c.tipo);
   if (!tipo) return "Tipo de columna desconocido.";
   if (c.rol) {
     const rol = rolColumna(c.rol);
     if (!rol) return "Rol desconocido.";
     if (!rol.tipos.includes(c.tipo)) return `El rol «${rol.etiqueta}» no se puede poner en una columna de tipo ${tipo.etiqueta}.`;
+    if (!rolesParaTipo(c.tipo, tipo.config.validar(c.config)).some((r) => r.clave === c.rol)) {
+      return `Para el rol «${rol.etiqueta}» la fórmula tiene que devolver ${formatoDeRol(rol) === "fecha" ? "una fecha" : "un número"}.`;
+    }
     const otra = existentes.find((x) => x.nivel === c.nivel && x.rol === c.rol && x.id !== c.id);
     if (otra) return `Ya hay una columna con el rol «${rol.etiqueta}» (${otra.titulo}).`;
   }

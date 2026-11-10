@@ -4,7 +4,7 @@
 // y se avisa. Lógica PURA.
 
 import { tipoColumna } from "./tipos-columna";
-import { rolColumna, ROLES_COLUMNA } from "./roles";
+import { rolesParaTipo, ROLES_COLUMNA } from "./roles";
 import { claveNombre } from "./personas";
 import { COLORES_GRUPO, type FaseValor, type Nivel } from "./tablero";
 import type { ColumnaDef, DefinicionTablero, ElementoDef, GrupoDef } from "./definicion";
@@ -73,11 +73,35 @@ function unidadDeNumero(settings: string | undefined): { unidad: string; unidadA
 }
 
 /** Pasa las columnas de un nivel. Devuelve las importables (con su tipo de la app) y las omitidas. */
+/** Campo del directorio por el TÍTULO de la columna del Directorio RH (para los espejos). */
+const CAMPO_RH: Record<string, string> = { email: "email", "hrs mes": "hrsMes", role: "rol", tld: "tld", name: "nombre", status: "" };
+
+/** Fórmula de Monday → fórmula de la app: {colId} pasa a la clave de la columna importada. */
+export function traducirFormula(expr: string, nivel: Nivel, importables: Set<string>): { expresion: string; formato: "numero" | "fecha" | "texto" } {
+  const expresion = expr.replace(/\{([^}#]+)(#[^}]*)?\}/g, (_m, id: string, parte = "") => {
+    const ref = id.trim();
+    if (ref === "name") return `{nombre${parte}}`;
+    return importables.has(ref) ? `{${nivel}:${ref}${parte}}` : `{?${ref}${parte}}`;
+  });
+  const formato = /FORMAT_DATE\s*\(/i.test(expr) ? "fecha" : /"/.test(expr) ? "texto" : "numero";
+  return { expresion, formato };
+}
+
 function columnasDeNivel(
-  mapa: Record<string, ColumnaMonday>, nivel: Nivel, rhBoardId: string | null,
+  mapa: Record<string, ColumnaMonday>, nivel: Nivel, rhBoardId: string | null, rhColumnas: Record<string, ColumnaMonday>,
 ): { columnas: (ColumnaDef & { tipoMonday: string })[]; omitidas: ResultadoImportacionMonday["omitidas"] } {
   const columnas: (ColumnaDef & { tipoMonday: string })[] = [];
   const omitidas: ResultadoImportacionMonday["omitidas"] = [];
+  const esRelacionRh = (id: string) => {
+    const destino = (parseJson(mapa[id]?.settings_str) as { boardIds?: (string | number)[] } | undefined)?.boardIds ?? [];
+    return tipoMonday(id) === "relacion" && !!rhBoardId && destino.map(String).includes(rhBoardId);
+  };
+  // Columnas que sí se importan (para traducir las referencias de las fórmulas).
+  const importables = new Set(Object.keys(mapa).filter((id) => {
+    const tm = tipoMonday(id);
+    return !["nombre", "subelementos", "dependencia", "registro", "id", "boton", "enlace", "desconocido"].includes(tm)
+      && (tm !== "relacion" || esRelacionRh(id));
+  }));
   for (const [id, c] of Object.entries(mapa)) {
     const tm = tipoMonday(id);
     if (tm === "nombre" || tm === "subelementos") continue; // el nombre es del elemento; los subitems ya vienen aparte
@@ -92,9 +116,22 @@ function columnasDeNivel(
     else if (tm === "texto" || tm === "email") tipo = "texto";
     else if (tm === "texto_largo") { tipo = "texto"; config = { multilinea: true }; }
     else if (tm === "personas") tipo = "persona";
-    else if (tm === "relacion") {
-      const destino = (parseJson(c.settings_str) as { boardIds?: (string | number)[] } | undefined)?.boardIds ?? [];
-      if (rhBoardId && destino.map(String).includes(rhBoardId)) tipo = "persona"; // relación al Directorio RH = persona
+    else if (tm === "relacion") { if (esRelacionRh(id)) tipo = "persona"; } // relación al Directorio RH = persona
+    else if (tm === "archivo") tipo = "archivo"; // los archivos se traen aparte (datos/importar.ts)
+    else if (tm === "formula") {
+      const expr = (parseJson(c.settings_str) as { formula?: string } | undefined)?.formula;
+      if (expr) {
+        tipo = "formula";
+        const dinero = c.title.includes("$");
+        config = { ...traducirFormula(expr, nivel, importables), decimales: 2, unidad: dinero ? "$" : "", unidadAntes: dinero };
+      }
+    } else if (tm === "espejo") {
+      // Espejo de una relación al Directorio RH → espejo de la columna Persona sobre el directorio.
+      const s = parseJson(c.settings_str) as { relation_column?: Record<string, boolean>; displayed_linked_columns?: Record<string, string[]> } | undefined;
+      const relacion = Object.keys(s?.relation_column ?? {}).find(esRelacionRh);
+      const linked = rhBoardId ? s?.displayed_linked_columns?.[rhBoardId]?.[0] : undefined;
+      const campo = linked ? CAMPO_RH[(rhColumnas[linked]?.title ?? "").trim().toLowerCase()] : undefined;
+      if (relacion && campo) { tipo = "espejo"; config = { columna: `${nivel}:${relacion}`, campo }; }
     }
     if (!tipo) { omitidas.push({ nivel, titulo: c.title, tipo: tm === "relacion" ? "relación a otro tablero" : tm }); continue; }
     const def = tipoColumna(tipo)!;
@@ -109,7 +146,7 @@ function columnasDeNivel(
   const prioridad = (c: { tipoMonday: string }) => (c.tipoMonday === "relacion" ? 0 : 1);
   for (const c of [...columnas].sort((a, b) => prioridad(a) - prioridad(b))) {
     const rol = ROL_POR_TITULO[c.titulo.trim().toLowerCase()];
-    if (rol && rolColumna(rol)?.tipos.includes(c.tipo) && !columnas.some((x) => x.rol === rol)) c.rol = rol;
+    if (rol && rolesParaTipo(c.tipo, c.config).some((r) => r.clave === rol) && !columnas.some((x) => x.rol === rol)) c.rol = rol;
   }
 
   // Orden: primero las que tienen rol (en el orden del registro de roles), luego el resto por título.
@@ -123,10 +160,12 @@ export function mondayADefinicion(entrada: {
   columnasSub: Record<string, ColumnaMonday>;
   filas: FilaMonday[];
   rhBoardId: string | null;
+  /** Columnas del Directorio RH (para traducir sus espejos: TLD, Role…). */
+  rhColumnas?: Record<string, ColumnaMonday>;
   personaPorNombre: (nombre: string) => string | undefined;
 }): ResultadoImportacionMonday {
-  const item = columnasDeNivel(entrada.columnas, "item", entrada.rhBoardId);
-  const sub = columnasDeNivel(entrada.columnasSub, "sub", entrada.rhBoardId);
+  const item = columnasDeNivel(entrada.columnas, "item", entrada.rhBoardId, entrada.rhColumnas ?? {});
+  const sub = columnasDeNivel(entrada.columnasSub, "sub", entrada.rhBoardId, entrada.rhColumnas ?? {});
   const noEncontradas = new Set<string>();
   const ctx = {
     personaPorNombre: (n: string) => {

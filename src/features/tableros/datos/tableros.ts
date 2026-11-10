@@ -96,11 +96,50 @@ export async function leerTablero(id: string, acceso: Acceso): Promise<TableroCo
   };
 }
 
-export async function listarPersonasCorto(): Promise<{ id: string; nombre: string; activo: boolean }[]> {
+export interface PersonaTablero {
+  id: string; nombre: string; activo: boolean;
+  tld: string | null; rol: string | null; email: string | null; grupo: string | null; hrsMes: number | null;
+}
+
+/** El directorio con lo que necesitan las celdas Persona y los Espejos (TLD, rol…). */
+export async function listarPersonasCorto(): Promise<PersonaTablero[]> {
   const db = getSupabaseAdmin();
-  const filas = await selectAll<{ id: string; nombre: string; activo: boolean }>((d, h) =>
-    db.from("personas").select("id, nombre, activo").order("id").range(d, h));
-  return filas.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  const filas = await selectAll<Tables<"personas">>((d, h) => db.from("personas").select("*").order("id").range(d, h));
+  return filas
+    .map((p) => ({ id: p.id, nombre: p.nombre, activo: p.activo, tld: p.tld, rol: p.rol, email: p.email, grupo: p.grupo, hrsMes: p.hrs_mes === null ? null : Number(p.hrs_mes) }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+
+export interface ArchivoTablero { id: string; elementoId: string; columnaId: string | null; nombre: string; tamano: number | null; tipoMime: string | null; creadoAt: string }
+
+/** Lo que acompaña al tablero para mostrarlo: tableros ligados (Relación), archivos y cuántos comentarios tiene cada elemento. */
+export async function leerExtras(t: TableroCompleto, acceso: Acceso) {
+  const db = getSupabaseAdmin();
+  const destinos = [...new Set(t.columnas.filter((c) => c.tipo === "relacion")
+    .map((c) => (c.config as { tableroId?: string } | null)?.tableroId).filter((x): x is string => !!x && x !== t.tablero.id))];
+  const [ligadosLista, archivos, comentarios] = await Promise.all([
+    Promise.all(destinos.map(async (id) => [id, await leerTablero(id, acceso)] as const)),
+    selectAll<Tables<"elemento_archivos">>((d, h) => db.from("elemento_archivos").select("*")
+      .eq("tablero_id", t.tablero.id).eq("estado", "listo").is("borrado_at", null).order("id").range(d, h)),
+    selectAll<{ elemento_id: string }>((d, h) => db.from("elemento_comentarios").select("elemento_id")
+      .eq("tablero_id", t.tablero.id).is("borrado_at", null).order("id").range(d, h)),
+  ]);
+  const visibles = new Set(t.elementos.map((e) => e.id));
+  const conteo: Record<string, number> = {};
+  for (const c of comentarios) if (visibles.has(c.elemento_id)) conteo[c.elemento_id] = (conteo[c.elemento_id] ?? 0) + 1;
+  // Un tablero ligado a sí mismo usa sus propios elementos.
+  const ligados: Record<string, { nombre: string; columnas: Columna[]; elementos: { id: string; nombre: string; valores: Record<string, unknown> }[] }> = {};
+  for (const [id, l] of ligadosLista) if (l) ligados[id] = { nombre: l.tablero.nombre, columnas: l.columnas, elementos: l.elementos.map((e) => ({ id: e.id, nombre: e.nombre, valores: e.valores })) };
+  if (t.columnas.some((c) => c.tipo === "relacion" && (c.config as { tableroId?: string } | null)?.tableroId === t.tablero.id)) {
+    ligados[t.tablero.id] = { nombre: t.tablero.nombre, columnas: t.columnas, elementos: t.elementos.map((e) => ({ id: e.id, nombre: e.nombre, valores: e.valores })) };
+  }
+  return {
+    ligados,
+    archivos: archivos.filter((a) => visibles.has(a.elemento_id)).map((a): ArchivoTablero => ({
+      id: a.id, elementoId: a.elemento_id, columnaId: a.columna_id, nombre: a.nombre, tamano: a.tamano, tipoMime: a.tipo_mime, creadoAt: a.creado_at,
+    })),
+    comentarios: conteo,
+  };
 }
 
 export async function leerHistorial(tableroId: string, elementoId: string) {

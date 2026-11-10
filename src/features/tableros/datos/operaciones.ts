@@ -6,11 +6,14 @@
 import { getSupabaseAdmin, unwrap } from "@/lib/supabase-admin";
 import type { AppUser } from "@/lib/permissions";
 import type { Json, Tables } from "@/types/supabase";
-import { tipoColumna } from "../dominio/tipos-columna";
+import { randomUUID } from "node:crypto";
+import { esCalculado, tipoColumna } from "../dominio/tipos-columna";
+import { errorFormula } from "../dominio/calculos";
+import { normalizarTextoComentario } from "../dominio/bitacora";
 import { evaluar, reglaQueAplica, type ColumnaRef, type ElementoRef, type Operacion } from "../dominio/permisos";
 import {
   COLORES_GRUPO, errorColumna, FASES_VALOR, limpiarTexto, MAX_NOMBRE, MAX_TITULO, normalizarColumnaNueva, siguienteOrden,
-  validarValor, valoresIniciales, vecino, categoriaValida, type Tablero,
+  validarValor, valoresIniciales, vecino, categoriaValida, type Columna, type Tablero,
 } from "../dominio/tablero";
 import { tieneAccionTableros } from "../dominio/acciones";
 import { aColumna, aElemento, aGrupo, leerTablero, type Acceso } from "./tableros";
@@ -91,6 +94,44 @@ async function recalcularResponsables(ctx: Ctx) {
 async function intercambiar(tabla: "tablero_grupos" | "tablero_columnas", a: { id: string; orden: number }, b: { id: string; orden: number }) {
   unwrap(await db().from(tabla).update({ orden: b.orden }).eq("id", a.id));
   unwrap(await db().from(tabla).update({ orden: a.orden }).eq("id", b.id));
+}
+
+/** Lo que la config de fórmulas, espejos y relaciones necesita para tener sentido. */
+async function errorConfigEspecial(tipo: string, nivel: "item" | "sub", config: unknown, existentes: Columna[], columnaId?: string): Promise<string | null> {
+  const cfg = (config ?? {}) as Record<string, unknown>;
+  if (tipo === "formula") {
+    const expr = typeof cfg.expresion === "string" ? cfg.expresion : "";
+    if (!expr.trim()) return "Escribe la fórmula";
+    return errorFormula(expr, nivel, existentes, columnaId);
+  }
+  if (tipo === "espejo") {
+    const origen = existentes.find((c) => c.id === cfg.columna && c.nivel === nivel && (c.tipo === "persona" || c.tipo === "relacion"));
+    if (!origen) return "Elige la columna Persona o Relación de la que se lee";
+    if (!cfg.campo) return "Elige qué dato mostrar";
+  }
+  if (tipo === "relacion") {
+    const destino = typeof cfg.tableroId === "string" ? cfg.tableroId : "";
+    if (!destino) return "Elige el tablero que se liga";
+    const t = unwrap(await db().from("tableros").select("id").eq("id", destino).is("archivado_at", null).maybeSingle());
+    if (!t) return "Ese tablero ya no existe";
+  }
+  return null;
+}
+
+/** Nombre seguro para la ruta en Storage (el nombre original se guarda aparte). */
+const nombreSeguro = (n: string) => n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.-]+/g, "_").slice(-120) || "archivo";
+const MAX_ARCHIVO = 50 * 1024 * 1024;
+
+async function comentario(ctx: Ctx, comentarioId: string) {
+  const r = unwrap(await db().from("elemento_comentarios").select("*").eq("id", comentarioId).eq("tablero_id", ctx.tablero.id).is("borrado_at", null).maybeSingle());
+  if (!r) throw new ErrorTablero(404, "El comentario ya no existe");
+  return r;
+}
+
+async function archivoFila(ctx: Ctx, archivoId: string) {
+  const r = unwrap(await db().from("elemento_archivos").select("*").eq("id", archivoId).eq("tablero_id", ctx.tablero.id).is("borrado_at", null).maybeSingle());
+  if (!r) throw new ErrorTablero(404, "El archivo ya no existe");
+  return r;
 }
 
 // ── Operaciones ──────────────────────────────────────────────────────────────
@@ -204,7 +245,7 @@ const OPERACIONES: OperacionDef[] = [
       const nueva = normalizarColumnaNueva(d);
       if (!nueva) throw new ErrorTablero(400, "La columna necesita título y tipo");
       const existentes = await columnas(ctx);
-      const error = errorColumna(nueva, existentes);
+      const error = errorColumna(nueva, existentes) ?? await errorConfigEspecial(nueva.tipo, nueva.nivel, nueva.config, existentes);
       if (error) throw new ErrorTablero(400, error);
       unwrap(await db().from("tablero_columnas").insert({
         tablero_id: ctx.tablero.id, nivel: nueva.nivel, titulo: nueva.titulo, tipo: nueva.tipo, rol: nueva.rol,
@@ -228,13 +269,16 @@ const OPERACIONES: OperacionDef[] = [
         if (!t) throw new ErrorTablero(400, "La columna necesita un título");
         cambios.titulo = t;
       }
-      if ("rol" in d) {
-        const rol = typeof d.rol === "string" && d.rol ? d.rol : null;
-        const error = errorColumna({ ...c, rol }, existentes);
+      const config = "config" in d && tipo ? tipo.config.validar(d.config) : c.config;
+      if ("config" in d) {
+        const error = await errorConfigEspecial(c.tipo, c.nivel, config, existentes, c.id);
         if (error) throw new ErrorTablero(400, error);
-        cambios.rol = rol;
+        cambios.config = config as Json;
       }
-      if ("config" in d && tipo) cambios.config = tipo.config.validar(d.config) as Json;
+      const rol = "rol" in d ? (typeof d.rol === "string" && d.rol ? d.rol : null) : c.rol;
+      const errorRol = errorColumna({ ...c, rol, config }, existentes);
+      if (errorRol) throw new ErrorTablero(400, errorRol);
+      if ("rol" in d) cambios.rol = rol;
       if ("oculta" in d) cambios.oculta = d.oculta === true;
       if ("ancho" in d) cambios.ancho = typeof d.ancho === "number" ? Math.min(600, Math.max(60, Math.round(d.ancho))) : null;
       unwrap(await db().from("tablero_columnas").update(cambios).eq("id", c.id));
@@ -342,12 +386,104 @@ const OPERACIONES: OperacionDef[] = [
       const c = await columna(ctx, id(d, "columnaId"));
       if (c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "La columna no es de ese nivel");
       exigir(ctx, "editar_valor", { elemento: e, columna: c });
+      if (esCalculado(c.tipo)) throw new ErrorTablero(400, "Esa columna se calcula sola");
       const valor = validarValor(c, d.valor);
       if (valor === undefined) throw new ErrorTablero(400, "Tipo de columna desconocido");
       unwrap(await db().rpc("tablero_cambiar_valor", {
         p_elemento: e.id, p_columna: c.id, p_valor: valor as Json, p_usuario: ctx.me.uid, p_email: ctx.me.email,
       }));
       return { valor };
+    },
+  },
+
+  // Bitácora (comentarios). Comenta quien puede editar el elemento; edita o borra el autor (o el Admin).
+  {
+    clave: "comentario.crear",
+    async ejecutar(ctx, d) {
+      const e = await elemento(ctx, id(d, "elementoId"));
+      exigir(ctx, "editar_valor", { elemento: e });
+      const texto = normalizarTextoComentario(d.texto);
+      if (!texto) throw new ErrorTablero(400, "Escribe el comentario");
+      const r = unwrap(await db().from("elemento_comentarios").insert({
+        tablero_id: ctx.tablero.id, elemento_id: e.id, autor_id: ctx.me.uid, autor_email: ctx.me.email,
+        autor_nombre: ctx.me.displayName || ctx.me.email, texto,
+      }).select("id").single())!;
+      return { id: r.id };
+    },
+  },
+  {
+    clave: "comentario.editar",
+    async ejecutar(ctx, d) {
+      const c = await comentario(ctx, id(d, "comentarioId"));
+      if (c.autor_id !== ctx.me.uid) throw new ErrorTablero(403, "Solo quien lo escribió puede editarlo");
+      const texto = normalizarTextoComentario(d.texto);
+      if (!texto) throw new ErrorTablero(400, "Escribe el comentario");
+      unwrap(await db().from("elemento_comentarios").update({ texto, editado_at: ahora() }).eq("id", c.id));
+    },
+  },
+  {
+    clave: "comentario.borrar",
+    async ejecutar(ctx, d) {
+      const c = await comentario(ctx, id(d, "comentarioId"));
+      if (c.autor_id !== ctx.me.uid && !ctx.acceso.usuario.esAdmin) throw new ErrorTablero(403, "Solo quien lo escribió (o un Admin) puede borrarlo");
+      unwrap(await db().from("elemento_comentarios").update({ borrado_at: ahora() }).eq("id", c.id));
+    },
+  },
+
+  // Archivos: el navegador sube directo a Storage con una URL firmada (sin pasar por el servidor de
+  // la app, que en Vercel limita el tamaño); luego se confirma.
+  {
+    clave: "archivo.preparar",
+    async ejecutar(ctx, d) {
+      const e = await elemento(ctx, id(d, "elementoId"));
+      const c = await columna(ctx, id(d, "columnaId"));
+      if (c.tipo !== "archivo" || c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "Esa columna no es de archivos");
+      exigir(ctx, "editar_valor", { elemento: e, columna: c });
+      const nombre = limpiarTexto(d.nombre, 255);
+      const tamano = typeof d.tamano === "number" ? d.tamano : 0;
+      if (!nombre) throw new ErrorTablero(400, "Falta el nombre del archivo");
+      if (tamano > MAX_ARCHIVO) throw new ErrorTablero(400, "El archivo pasa de 50 MB");
+      const ruta = `${ctx.tablero.id}/${e.id}/${randomUUID()}/${nombreSeguro(nombre)}`;
+      const firmada = await db().storage.from("tableros").createSignedUploadUrl(ruta);
+      if (firmada.error) throw new Error(firmada.error.message);
+      const r = unwrap(await db().from("elemento_archivos").insert({
+        tablero_id: ctx.tablero.id, elemento_id: e.id, columna_id: c.id, ruta, nombre, tamano,
+        tipo_mime: typeof d.tipoMime === "string" ? d.tipoMime.slice(0, 120) : null, subido_por: ctx.me.uid, subido_email: ctx.me.email,
+      }).select("id").single())!;
+      return { archivoId: r.id, ruta, token: firmada.data.token };
+    },
+  },
+  {
+    clave: "archivo.confirmar",
+    async ejecutar(ctx, d) {
+      const a = await archivoFila(ctx, id(d, "archivoId"));
+      if (a.subido_por !== ctx.me.uid) throw new ErrorTablero(403, "Ese archivo lo está subiendo otra persona");
+      const carpeta = a.ruta.slice(0, a.ruta.lastIndexOf("/"));
+      const lista = await db().storage.from("tableros").list(carpeta);
+      if (lista.error || !lista.data?.length) throw new ErrorTablero(400, "El archivo no llegó a guardarse; vuelve a intentarlo");
+      unwrap(await db().from("elemento_archivos").update({ estado: "listo" }).eq("id", a.id));
+      await historial(ctx, a.elemento_id, "archivo", null, { nombre: a.nombre });
+    },
+  },
+  {
+    clave: "archivo.borrar",
+    async ejecutar(ctx, d) {
+      const a = await archivoFila(ctx, id(d, "archivoId"));
+      const e = await elemento(ctx, a.elemento_id);
+      exigir(ctx, "editar_valor", { elemento: e, columna: a.columna_id ? await columna(ctx, a.columna_id) : undefined });
+      unwrap(await db().from("elemento_archivos").update({ borrado_at: ahora() }).eq("id", a.id));
+      await db().storage.from("tableros").remove([a.ruta]);
+      await historial(ctx, e.id, "archivo_borrado", { nombre: a.nombre }, null);
+    },
+  },
+  {
+    clave: "archivo.descargar",
+    async ejecutar(ctx, d) {
+      const a = await archivoFila(ctx, id(d, "archivoId"));
+      exigir(ctx, "ver", { elemento: await elemento(ctx, a.elemento_id) });
+      const firmada = await db().storage.from("tableros").createSignedUrl(a.ruta, 120, { download: a.nombre });
+      if (firmada.error) throw new Error(firmada.error.message);
+      return { url: firmada.data.signedUrl };
     },
   },
 ];

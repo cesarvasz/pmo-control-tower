@@ -8,6 +8,10 @@ export interface ContextoValor {
   nombrePersona?: (id: string) => string | undefined;
   /** nombre (como lo escribe Monday) → persona.id */
   personaPorNombre?: (nombre: string) => string | undefined;
+  /** elemento.id de otro tablero (columna Relación) → su nombre */
+  nombreElemento?: (id: string) => string | undefined;
+  /** archivo.id → su nombre */
+  nombreArchivo?: (id: string) => string | undefined;
 }
 
 export interface TipoColumna<V = unknown, C = unknown> {
@@ -16,6 +20,8 @@ export interface TipoColumna<V = unknown, C = unknown> {
   etiqueta: string;
   icono: string;
   descripcion: string;
+  /** true = la app lo calcula (fórmula, espejo, archivos): no se guarda en `valores` ni se edita a mano. */
+  calculado?: boolean;
   config: {
     defecto: C;
     /** Normaliza una config cualquiera (de la BD o de un formulario) a una válida. */

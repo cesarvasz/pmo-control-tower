@@ -152,6 +152,136 @@ export type Database = {
         }
         Relationships: []
       }
+      elemento_archivos: {
+        Row: {
+          borrado_at: string | null
+          columna_id: string | null
+          creado_at: string
+          elemento_id: string
+          estado: string
+          id: string
+          monday_asset_id: string | null
+          nombre: string
+          ruta: string
+          subido_email: string | null
+          subido_por: string | null
+          tablero_id: string
+          tamano: number | null
+          tipo_mime: string | null
+        }
+        Insert: {
+          borrado_at?: string | null
+          columna_id?: string | null
+          creado_at?: string
+          elemento_id: string
+          estado?: string
+          id?: string
+          monday_asset_id?: string | null
+          nombre: string
+          ruta: string
+          subido_email?: string | null
+          subido_por?: string | null
+          tablero_id: string
+          tamano?: number | null
+          tipo_mime?: string | null
+        }
+        Update: {
+          borrado_at?: string | null
+          columna_id?: string | null
+          creado_at?: string
+          elemento_id?: string
+          estado?: string
+          id?: string
+          monday_asset_id?: string | null
+          nombre?: string
+          ruta?: string
+          subido_email?: string | null
+          subido_por?: string | null
+          tablero_id?: string
+          tamano?: number | null
+          tipo_mime?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "elemento_archivos_columna_id_fkey"
+            columns: ["columna_id"]
+            isOneToOne: false
+            referencedRelation: "tablero_columnas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elemento_archivos_elemento_id_fkey"
+            columns: ["elemento_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elemento_archivos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      elemento_comentarios: {
+        Row: {
+          autor_email: string | null
+          autor_id: string | null
+          autor_nombre: string
+          borrado_at: string | null
+          creado_at: string
+          editado_at: string | null
+          elemento_id: string
+          id: string
+          monday_update_id: string | null
+          tablero_id: string
+          texto: string
+        }
+        Insert: {
+          autor_email?: string | null
+          autor_id?: string | null
+          autor_nombre?: string
+          borrado_at?: string | null
+          creado_at?: string
+          editado_at?: string | null
+          elemento_id: string
+          id?: string
+          monday_update_id?: string | null
+          tablero_id: string
+          texto: string
+        }
+        Update: {
+          autor_email?: string | null
+          autor_id?: string | null
+          autor_nombre?: string
+          borrado_at?: string | null
+          creado_at?: string
+          editado_at?: string | null
+          elemento_id?: string
+          id?: string
+          monday_update_id?: string | null
+          tablero_id?: string
+          texto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "elemento_comentarios_elemento_id_fkey"
+            columns: ["elemento_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elemento_comentarios_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       elementos: {
         Row: {
           actualizado_at: string
