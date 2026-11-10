@@ -192,7 +192,7 @@ uso se pasan al evaluador propio. Tras importar, el board de Monday queda de sol
 | Fase | Entrega | Cómo se valida |
 |---|---|---|
 | **0 · Base** ✓ | Registros, tablas, motor de permisos, `personas` importado del Directorio RH y ligado a usuarios. Página `/tableros` con pestañas Directorio, Permisos, Catálogo y Plan | tests del dominio + `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/personas.integration.test.ts` (84 personas, 10 ligadas, 2ª corrida sin cambios) |
-| **1 · Tablero** | Vista Tabla editable: grupos, subitems, tipos básicos (texto, número, fecha, timeline, status, dropdown, persona, checkbox), crear/editar columnas y grupos, roles, historial | crear un tablero de prueba de punta a punta |
+| **1 · Tablero** ✓ | Vista Tabla editable (pestaña Tableros): grupos, subitems, tipos básicos (texto, número, fecha, timeline, status, dropdown, persona, checkbox), crear/editar columnas y grupos, roles, historial (`tablero_historial`, función `tablero_cambiar_valor`). Todo cambio entra por el registro `datos/operaciones.ts`; los permisos por columna y "solo lo mío" ya se aplican en la puerta | `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/tableros.integration.test.ts` (crea un tablero, lo usa y lo borra) |
 | **2 · Plantillas + piloto** | Guardar como plantilla / crear desde plantilla; importar 1 proyecto piloto; adaptador de métricas | las métricas del piloto dan igual en Monday y en la app |
 | **3 · Completo** | Permisos por columna y "solo lo mío", bitácora, archivos, fórmulas, relación y espejo | un Developer actualiza solo lo suyo |
 | **4 · Migración** | Importar los 19 proyectos, PML, Iniciativas, Estrategia; vista Gantt | paridad de métricas en todo el portafolio |

@@ -3,6 +3,7 @@
 // `accion`: la acción de Tableros que hace falta para ver la pestaña (ver dominio/acciones.ts).
 
 import type { ComponentType } from "react";
+import TablerosTab from "./tablero/TablerosTab";
 import DirectorioTab from "./DirectorioTab";
 import PermisosTab from "./PermisosTab";
 import CatalogoTab from "./CatalogoTab";
@@ -16,6 +17,7 @@ export interface Pestana {
 }
 
 export const PESTANAS: Pestana[] = [
+  { clave: "tableros", etiqueta: "Tableros", accion: "tableros_ver", Componente: TablerosTab },
   { clave: "directorio", etiqueta: "Directorio", accion: "tableros_ver", Componente: DirectorioTab },
   { clave: "permisos", etiqueta: "Permisos", accion: "tableros_ver", Componente: PermisosTab },
   { clave: "catalogo", etiqueta: "Catálogo", accion: "tableros_ver", Componente: CatalogoTab },

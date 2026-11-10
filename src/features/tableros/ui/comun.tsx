@@ -36,7 +36,7 @@ export function useCarga<T>(url: string) {
     }
   }, [url]);
 
-  return { data, error, cargando: data === null && error === null, recargar };
+  return { data, error, cargando: data === null && error === null, recargar, setData };
 }
 
 /** Envía JSON y devuelve la respuesta; lanza con el mensaje del servidor si falla. */

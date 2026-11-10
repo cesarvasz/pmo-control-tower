@@ -10,7 +10,7 @@ type Estado = "hecha" | "en_curso" | "pendiente";
 
 const FASES: { nombre: string; entrega: string; valida: string; estado: Estado }[] = [
   { nombre: "0 · Base", entrega: "Registros (tipos, roles, categorías, acciones), tablas en Supabase, motor de permisos y directorio de personas importado del Directorio RH y ligado a los usuarios.", valida: "Tests del dominio; directorio visible aquí.", estado: "hecha" },
-  { nombre: "1 · Tablero", entrega: "Vista Tabla editable: grupos, subitems, tipos básicos, crear y editar columnas y grupos, roles e historial de cambios.", valida: "Crear un tablero de prueba de punta a punta.", estado: "pendiente" },
+  { nombre: "1 · Tablero", entrega: "Vista Tabla editable: grupos, subitems, tipos básicos, crear y editar columnas y grupos, roles e historial de cambios. Los permisos (por columna y «solo lo mío») ya se aplican.", valida: "Crear un tablero de prueba de punta a punta.", estado: "hecha" },
   { nombre: "2 · Plantillas + piloto", entrega: "Guardar como plantilla y crear desde plantilla; importar 1 proyecto piloto; adaptador de métricas.", valida: "Las métricas del piloto dan igual en Monday y en la app.", estado: "pendiente" },
   { nombre: "3 · Completo", entrega: "Permisos por columna y «solo lo mío» en el tablero, bitácora, archivos, fórmulas, relación y espejo.", valida: "Un Developer actualiza solo lo suyo.", estado: "pendiente" },
   { nombre: "4 · Migración", entrega: "Importar los 19 proyectos, PML, Iniciativas y Estrategia; vista Gantt.", valida: "Paridad de métricas en todo el portafolio.", estado: "pendiente" },

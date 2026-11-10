@@ -852,6 +852,67 @@ export type Database = {
           },
         ]
       }
+      tablero_historial: {
+        Row: {
+          antes: Json | null
+          campo: string
+          columna_id: string | null
+          creado_at: string
+          despues: Json | null
+          elemento_id: string | null
+          id: number
+          tablero_id: string
+          usuario_email: string | null
+          usuario_id: string | null
+        }
+        Insert: {
+          antes?: Json | null
+          campo: string
+          columna_id?: string | null
+          creado_at?: string
+          despues?: Json | null
+          elemento_id?: string | null
+          id?: never
+          tablero_id: string
+          usuario_email?: string | null
+          usuario_id?: string | null
+        }
+        Update: {
+          antes?: Json | null
+          campo?: string
+          columna_id?: string | null
+          creado_at?: string
+          despues?: Json | null
+          elemento_id?: string | null
+          id?: never
+          tablero_id?: string
+          usuario_email?: string | null
+          usuario_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_historial_columna_id_fkey"
+            columns: ["columna_id"]
+            isOneToOne: false
+            referencedRelation: "tablero_columnas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tablero_historial_elemento_id_fkey"
+            columns: ["elemento_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tablero_historial_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tablero_permisos: {
         Row: {
           actualizado_at: string
@@ -1033,6 +1094,21 @@ export type Database = {
       responder_encuesta: {
         Args: { p_answers: Json; p_respondent_email: string; p_token: string }
         Returns: undefined
+      }
+      tablero_cambiar_valor: {
+        Args: {
+          p_columna: string
+          p_elemento: string
+          p_email: string
+          p_usuario: string
+          p_valor: Json
+        }
+        Returns: boolean
+      }
+      tablero_ids_persona: { Args: { p: Json }; Returns: string[] }
+      tablero_recalcular_responsables: {
+        Args: { p_tablero: string }
+        Returns: number
       }
     }
     Enums: {
