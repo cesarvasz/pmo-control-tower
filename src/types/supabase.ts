@@ -152,6 +152,76 @@ export type Database = {
         }
         Relationships: []
       }
+      elementos: {
+        Row: {
+          actualizado_at: string
+          archivado_at: string | null
+          creado_at: string
+          creado_por: string | null
+          grupo_id: string | null
+          id: string
+          monday_item_id: string | null
+          nombre: string
+          orden: number
+          parent_id: string | null
+          responsables: string[]
+          tablero_id: string
+          valores: Json
+        }
+        Insert: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          grupo_id?: string | null
+          id?: string
+          monday_item_id?: string | null
+          nombre?: string
+          orden?: number
+          parent_id?: string | null
+          responsables?: string[]
+          tablero_id: string
+          valores?: Json
+        }
+        Update: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          grupo_id?: string | null
+          id?: string
+          monday_item_id?: string | null
+          nombre?: string
+          orden?: number
+          parent_id?: string | null
+          responsables?: string[]
+          tablero_id?: string
+          valores?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "elementos_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "tablero_grupos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elementos_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elementos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       implementacion_metas_cliente: {
         Row: {
           cliente: string
@@ -405,6 +475,109 @@ export type Database = {
         }
         Relationships: []
       }
+      personas: {
+        Row: {
+          activo: boolean
+          actualizado_at: string
+          app_user_id: string | null
+          creado_at: string
+          email: string | null
+          grupo: string | null
+          hrs_mes: number | null
+          id: string
+          monday_item_id: string | null
+          nombre: string
+          rol: string | null
+          tld: string | null
+        }
+        Insert: {
+          activo?: boolean
+          actualizado_at?: string
+          app_user_id?: string | null
+          creado_at?: string
+          email?: string | null
+          grupo?: string | null
+          hrs_mes?: number | null
+          id?: string
+          monday_item_id?: string | null
+          nombre: string
+          rol?: string | null
+          tld?: string | null
+        }
+        Update: {
+          activo?: boolean
+          actualizado_at?: string
+          app_user_id?: string | null
+          creado_at?: string
+          email?: string | null
+          grupo?: string | null
+          hrs_mes?: number | null
+          id?: string
+          monday_item_id?: string | null
+          nombre?: string
+          rol?: string | null
+          tld?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "personas_app_user_id_fkey"
+            columns: ["app_user_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plantillas: {
+        Row: {
+          actualizado_at: string
+          archivada_at: string | null
+          categoria: string
+          creado_at: string
+          creado_por: string | null
+          definicion: Json
+          descripcion: string | null
+          id: string
+          nombre: string
+          tablero_origen_id: string | null
+          version: number
+        }
+        Insert: {
+          actualizado_at?: string
+          archivada_at?: string | null
+          categoria?: string
+          creado_at?: string
+          creado_por?: string | null
+          definicion?: Json
+          descripcion?: string | null
+          id?: string
+          nombre: string
+          tablero_origen_id?: string | null
+          version?: number
+        }
+        Update: {
+          actualizado_at?: string
+          archivada_at?: string | null
+          categoria?: string
+          creado_at?: string
+          creado_por?: string | null
+          definicion?: Json
+          descripcion?: string | null
+          id?: string
+          nombre?: string
+          tablero_origen_id?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plantillas_tablero_origen_fk"
+            columns: ["tablero_origen_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       preprod_restore_dates: {
         Row: {
           fecha: string
@@ -584,6 +757,201 @@ export type Database = {
           token?: string
         }
         Relationships: []
+      }
+      tablero_columnas: {
+        Row: {
+          ancho: number | null
+          archivada_at: string | null
+          config: Json
+          id: string
+          monday_column_id: string | null
+          nivel: string
+          oculta: boolean
+          orden: number
+          rol: string | null
+          tablero_id: string
+          tipo: string
+          titulo: string
+        }
+        Insert: {
+          ancho?: number | null
+          archivada_at?: string | null
+          config?: Json
+          id?: string
+          monday_column_id?: string | null
+          nivel?: string
+          oculta?: boolean
+          orden?: number
+          rol?: string | null
+          tablero_id: string
+          tipo: string
+          titulo: string
+        }
+        Update: {
+          ancho?: number | null
+          archivada_at?: string | null
+          config?: Json
+          id?: string
+          monday_column_id?: string | null
+          nivel?: string
+          oculta?: boolean
+          orden?: number
+          rol?: string | null
+          tablero_id?: string
+          tipo?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_columnas_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tablero_grupos: {
+        Row: {
+          archivado_at: string | null
+          color: string | null
+          fase: string | null
+          id: string
+          monday_group_id: string | null
+          orden: number
+          tablero_id: string
+          titulo: string
+        }
+        Insert: {
+          archivado_at?: string | null
+          color?: string | null
+          fase?: string | null
+          id?: string
+          monday_group_id?: string | null
+          orden?: number
+          tablero_id: string
+          titulo: string
+        }
+        Update: {
+          archivado_at?: string | null
+          color?: string | null
+          fase?: string | null
+          id?: string
+          monday_group_id?: string | null
+          orden?: number
+          tablero_id?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_grupos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tablero_permisos: {
+        Row: {
+          actualizado_at: string
+          actualizado_por: string | null
+          categoria: string | null
+          columnas_editables: string[]
+          id: string
+          nivel: string
+          rol_id: string
+          solo_lo_mio: boolean
+          tablero_id: string | null
+        }
+        Insert: {
+          actualizado_at?: string
+          actualizado_por?: string | null
+          categoria?: string | null
+          columnas_editables?: string[]
+          id?: string
+          nivel: string
+          rol_id: string
+          solo_lo_mio?: boolean
+          tablero_id?: string | null
+        }
+        Update: {
+          actualizado_at?: string
+          actualizado_por?: string | null
+          categoria?: string | null
+          columnas_editables?: string[]
+          id?: string
+          nivel?: string
+          rol_id?: string
+          solo_lo_mio?: boolean
+          tablero_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_permisos_rol_id_fkey"
+            columns: ["rol_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tablero_permisos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tableros: {
+        Row: {
+          actualizado_at: string
+          archivado_at: string | null
+          categoria: string
+          codigo: string | null
+          creado_at: string
+          creado_por: string | null
+          descripcion: string | null
+          id: string
+          monday_board_id: string | null
+          nombre: string
+          plantilla_id: string | null
+        }
+        Insert: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          categoria?: string
+          codigo?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          id?: string
+          monday_board_id?: string | null
+          nombre: string
+          plantilla_id?: string | null
+        }
+        Update: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          categoria?: string
+          codigo?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          id?: string
+          monday_board_id?: string | null
+          nombre?: string
+          plantilla_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tableros_plantilla_id_fkey"
+            columns: ["plantilla_id"]
+            isOneToOne: false
+            referencedRelation: "plantillas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vpa_califs: {
         Row: {

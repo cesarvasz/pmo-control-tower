@@ -17,6 +17,12 @@ Decisiones tomadas (2026-11-10):
 5. **Extensible**: agregar o quitar funcionalidades (tipos de columna, roles, vistas, acciones)
    debe ser agregar o quitar un módulo, sin tocar el resto.
 
+6. **Todo en una sola página de prueba** (instrucción del 2026-11-10): mientras se construye,
+   Tableros vive solo en `/tableros`, con una pestaña por funcionalidad, **sin tocar la estructura
+   de la app**. No está en el menú (`registry.ts`), sus acciones no están en `ACTIONS` (las tiene
+   quien tiene `manage_roles`, ver `dominio/acciones.ts`) y no cambia ninguna métrica. Las
+   pestañas salen del registro `ui/pestanas.ts`. Al terminar se conecta al menú y a las métricas.
+
 ---
 
 ## 1. Lo que hay hoy en Monday (estudio del 2026-11-10)
@@ -70,10 +76,11 @@ src/features/tableros/
     importar-monday.ts     ← copia de Monday → tablero
   datos/                   ← SOLO SERVIDOR: lectura/escritura en Supabase
   ui/
+    pestanas.ts            ← registro de pestañas de /tableros (una por funcionalidad)
     vistas/  index.ts (registro VISTAS)  tabla/  gantt/
     celdas/  (un editor por tipo de columna, registrado junto al tipo)
-src/app/(app)/tableros/    ← páginas
-src/app/api/tableros/      ← rutas del servidor (una puerta de permisos para todas)
+src/app/(app)/tableros/    ← la página de prueba (solo arma las pestañas)
+src/app/api/tableros/      ← rutas del servidor (todas pasan por datos/puerta.ts)
 ```
 
 Cada tipo de columna es un objeto con la misma forma:
@@ -184,7 +191,7 @@ uso se pasan al evaluador propio. Tras importar, el board de Monday queda de sol
 
 | Fase | Entrega | Cómo se valida |
 |---|---|---|
-| **0 · Base** | Registros, tablas, motor de permisos, `personas` importado del Directorio RH y ligado a usuarios | tests del dominio; directorio visible en la app |
+| **0 · Base** ✓ | Registros, tablas, motor de permisos, `personas` importado del Directorio RH y ligado a usuarios. Página `/tableros` con pestañas Directorio, Permisos, Catálogo y Plan | tests del dominio + `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/personas.integration.test.ts` (84 personas, 10 ligadas, 2ª corrida sin cambios) |
 | **1 · Tablero** | Vista Tabla editable: grupos, subitems, tipos básicos (texto, número, fecha, timeline, status, dropdown, persona, checkbox), crear/editar columnas y grupos, roles, historial | crear un tablero de prueba de punta a punta |
 | **2 · Plantillas + piloto** | Guardar como plantilla / crear desde plantilla; importar 1 proyecto piloto; adaptador de métricas | las métricas del piloto dan igual en Monday y en la app |
 | **3 · Completo** | Permisos por columna y "solo lo mío", bitácora, archivos, fórmulas, relación y espejo | un Developer actualiza solo lo suyo |
