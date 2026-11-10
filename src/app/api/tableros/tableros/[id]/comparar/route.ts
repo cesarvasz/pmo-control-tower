@@ -23,7 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!t) throw new ErrorTablero(404, "Tablero no encontrado");
     // Con "solo lo mío" la comparación saldría incompleta: se pide el nivel de administrar.
     if (!puede(acceso.usuario, "administrar", t.tablero, acceso.reglas)) throw new ErrorTablero(403, "Necesitas administrar el tablero para compararlo");
-    return NextResponse.json(await compararConMonday(t));
+    return NextResponse.json(await compararConMonday(t, acceso));
   } catch (err) {
     return respuestaDeError(err);
   }

@@ -16,18 +16,21 @@ export interface DatosTableroNuevo {
   categoria?: unknown;
   plantillaId?: string | null;
   mondayBoardId?: string | null;
+  /** Al volver a importar: los mismos ids de antes (por clave), para que lo que apunta a este
+   *  tablero desde otros (relaciones, espejos, permisos) siga funcionando. */
+  idsFijos?: { tableroId: string; columnas: Map<string, string>; elementos: Map<string, string> };
 }
 
 export async function crearDesdeDefinicion(def: DefinicionTablero, datos: DatosTableroNuevo, me: AppUser): Promise<string> {
   const nombre = limpiarTexto(datos.nombre, MAX_NOMBRE);
   if (!nombre) throw new Error("tablero-sin-nombre");
   const db = getSupabaseAdmin();
-  const tableroId = randomUUID();
+  const tableroId = datos.idsFijos?.tableroId ?? randomUUID();
   const ahora = new Date().toISOString();
 
   const grupoId = new Map(def.grupos.map((g) => [g.clave, randomUUID()]));
-  const columnaId = new Map(def.columnas.map((c) => [c.clave, randomUUID()]));
-  const elementoId = new Map(def.elementos.map((e) => [e.clave, randomUUID()]));
+  const columnaId = new Map(def.columnas.map((c) => [c.clave, datos.idsFijos?.columnas.get(c.clave) ?? randomUUID()]));
+  const elementoId = new Map(def.elementos.map((e) => [e.clave, datos.idsFijos?.elementos.get(e.clave) ?? randomUUID()]));
   const nivelDe = new Map(def.columnas.map((c) => [c.clave, c.nivel]));
 
   unwrap(await db.from("tableros").insert({

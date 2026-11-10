@@ -8,6 +8,8 @@ export interface ContextoValor {
   nombrePersona?: (id: string) => string | undefined;
   /** nombre (como lo escribe Monday) → persona.id */
   personaPorNombre?: (nombre: string) => string | undefined;
+  /** nombre (como lo da Monday) → elemento.id del tablero ligado (importación de una Relación) */
+  elementoPorNombre?: (nombre: string) => string | undefined;
   /** elemento.id de otro tablero (columna Relación) → su nombre */
   nombreElemento?: (id: string) => string | undefined;
   /** archivo.id → su nombre */
@@ -22,6 +24,8 @@ export interface TipoColumna<V = unknown, C = unknown> {
   descripcion: string;
   /** true = la app lo calcula (fórmula, espejo, archivos): no se guarda en `valores` ni se edita a mano. */
   calculado?: boolean;
+  /** true = se guarda, pero lo pone la app (ID automático, fecha de creación): nadie lo edita. */
+  automatico?: boolean;
   config: {
     defecto: C;
     /** Normaliza una config cualquiera (de la BD o de un formulario) a una válida. */

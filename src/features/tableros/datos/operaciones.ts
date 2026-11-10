@@ -7,7 +7,9 @@ import { getSupabaseAdmin, unwrap } from "@/lib/supabase-admin";
 import type { AppUser } from "@/lib/permissions";
 import type { Json, Tables } from "@/types/supabase";
 import { randomUUID } from "node:crypto";
-import { esCalculado, tipoColumna } from "../dominio/tipos-columna";
+import { esCalculado, esEditable, tipoColumna } from "../dominio/tipos-columna";
+import { siguienteAutonumero, type ConfigAutonumero } from "../dominio/tipos-columna/autonumero";
+import { marcaCreacion } from "../dominio/tipos-columna/creacion";
 import { errorFormula } from "../dominio/calculos";
 import { normalizarTextoComentario } from "../dominio/bitacora";
 import { evaluar, reglaQueAplica, type ColumnaRef, type ElementoRef, type Operacion } from "../dominio/permisos";
@@ -330,8 +332,18 @@ const OPERACIONES: OperacionDef[] = [
         : db().from("elementos").select("orden").eq("grupo_id", grupoId!).is("parent_id", null))) ?? [];
       // Con "solo lo mío", quien lo crea queda de responsable (si no, dejaría de verlo).
       const regla = reglaQueAplica(ctx.acceso.usuario, ctx.tablero, ctx.acceso.reglas);
-      const valores = regla?.soloLoMio && !ctx.acceso.usuario.esAdmin
-        ? valoresIniciales(await columnas(ctx), nivel, ctx.acceso.usuario.personaId) : {};
+      const cols = await columnas(ctx);
+      const valores: Record<string, unknown> = regla?.soloLoMio && !ctx.acceso.usuario.esAdmin
+        ? valoresIniciales(cols, nivel, ctx.acceso.usuario.personaId) : {};
+      // Columnas que llena la app: ID automático (siguiente número) y fecha de creación.
+      for (const c of cols.filter((x) => x.nivel === nivel)) {
+        if (c.tipo === "creacion") valores[c.id] = marcaCreacion();
+        if (c.tipo === "autonumero") {
+          const usados = unwrap(await db().from("elementos").select("valores").eq("tablero_id", ctx.tablero.id)) ?? [];
+          valores[c.id] = siguienteAutonumero(tipoColumna("autonumero")!.config.validar(c.config) as ConfigAutonumero,
+            usados.map((u) => (u.valores as Record<string, unknown> | null)?.[c.id]));
+        }
+      }
       const responsables = Object.values(valores).flat() as string[];
       const nuevo = unwrap(await db().from("elementos").insert({
         tablero_id: ctx.tablero.id, grupo_id: grupoId, parent_id: parentId, nombre, orden: siguienteOrden(hermanos),
@@ -386,7 +398,7 @@ const OPERACIONES: OperacionDef[] = [
       const c = await columna(ctx, id(d, "columnaId"));
       if (c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "La columna no es de ese nivel");
       exigir(ctx, "editar_valor", { elemento: e, columna: c });
-      if (esCalculado(c.tipo)) throw new ErrorTablero(400, "Esa columna se calcula sola");
+      if (!esEditable(c.tipo)) throw new ErrorTablero(400, esCalculado(c.tipo) ? "Esa columna se calcula sola" : "Esa columna la llena la app");
       const valor = validarValor(c, d.valor);
       if (valor === undefined) throw new ErrorTablero(400, "Tipo de columna desconocido");
       unwrap(await db().rpc("tablero_cambiar_valor", {

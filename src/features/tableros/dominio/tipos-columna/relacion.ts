@@ -28,7 +28,7 @@ export const relacion = definirTipo<string[], ConfigRelacion>({
     texto: (v, _c, ctx) => v.map((id) => ctx?.nombreElemento?.(id) ?? "¿?").join(", "),
     comparar: (a, b) => a.join(",").localeCompare(b.join(",")),
     desdeMonday: (t, c, ctx) => {
-      const ids = partirTextoMonday(t).map((n) => ctx?.personaPorNombre?.(n)).filter((x): x is string => !!x);
+      const ids = partirTextoMonday(t).map((n) => ctx?.elementoPorNombre?.(n)).filter((x): x is string => !!x);
       return validarValor(ids, c);
     },
   },

@@ -5,6 +5,7 @@
 import type { ComponentType } from "react";
 import TablerosTab from "./tablero/TablerosTab";
 import PlantillasTab from "./PlantillasTab";
+import MigracionTab from "./MigracionTab";
 import DirectorioTab from "./DirectorioTab";
 import PermisosTab from "./PermisosTab";
 import CatalogoTab from "./CatalogoTab";
@@ -20,6 +21,7 @@ export interface Pestana {
 export const PESTANAS: Pestana[] = [
   { clave: "tableros", etiqueta: "Tableros", accion: "tableros_ver", Componente: TablerosTab },
   { clave: "plantillas", etiqueta: "Plantillas", accion: "tableros_ver", Componente: PlantillasTab },
+  { clave: "migracion", etiqueta: "Migración", accion: "tableros_crear", Componente: MigracionTab },
   { clave: "directorio", etiqueta: "Directorio", accion: "tableros_ver", Componente: DirectorioTab },
   { clave: "permisos", etiqueta: "Permisos", accion: "tableros_ver", Componente: PermisosTab },
   { clave: "catalogo", etiqueta: "Catálogo", accion: "tableros_ver", Componente: CatalogoTab },

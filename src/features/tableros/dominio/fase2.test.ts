@@ -67,6 +67,8 @@ const tablero: TableroCompleto = {
     col("s", "item", "Avance", "status", "status", estado), col("p", "item", "Fechas", "timeline", "plan"),
     col("r", "item", "Dueño", "persona", "responsable"), col("c", "item", "Presupuesto", "numero", "costo"),
     col("x", "item", "Start Date", "fecha", null), col("ss", "sub", "Avance", "status", "status", estado), col("rs", "sub", "Dueño", "persona", "responsable"),
+    // El TLD es un Espejo del directorio sobre el Responsable (como el lookup de Monday).
+    col("tld", "sub", "TLD", "espejo", null, { columna: "rs", campo: "tld" }),
   ],
   elementos: [
     el("i1", "g", null, { s: "1", p: { desde: "2026-01-01", hasta: "2026-01-31" }, r: [ANA], c: 100, x: "2026-01-02" }, "900"),
@@ -115,7 +117,7 @@ describe("plantillas", () => {
   it("tablero → plantilla: estructura y, si se pide, nombres sin personas, fechas ni avances", () => {
     const sin = tableroADefinicion(tablero, false);
     expect(sin.elementos).toEqual([]);
-    expect(sin.columnas).toHaveLength(7);
+    expect(sin.columnas).toHaveLength(8);
     const con = tableroADefinicion(tablero, true);
     expect(con.elementos.map((e) => [e.nombre, e.valores])).toEqual([["i1", { c: 100 }], ["s1", {}]]);
   });

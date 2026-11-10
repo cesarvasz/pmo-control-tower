@@ -39,12 +39,11 @@ describe.skipIf(!ACTIVO)(`Tableros · piloto ${PILOTO} mide igual que Monday (in
 
     console.log("Fórmulas:", t.columnas.filter((c) => c.tipo === "formula").map((c) => `${c.nivel}/${c.titulo} = ${(c.config as { expresion: string }).expresion}`).join(" · "));
 
-    const cmp = await compararConMonday(t);
-    console.log("Monday:", cmp.monday);
-    console.log("App:   ", cmp.app);
+    const cmp = await compararConMonday(t, { usuario: { rolId: "admin", esAdmin: true, personaId: null }, reglas: [] });
+    console.log("Métricas:", cmp.filas.map((f) => `${f.etiqueta}: ${f.monday} / ${f.app}`).join(" · "));
     if (cmp.diferencias.length) console.log(cmp.diferencias.slice(0, 40).join("\n"));
     expect(cmp.diferencias).toEqual([]);
-    expect(cmp.app).toEqual(cmp.monday);
+    expect(cmp.filas.filter((f) => JSON.stringify(f.monday) !== JSON.stringify(f.app))).toEqual([]);
 
     // Las fórmulas se calculan de verdad (si dieran vacío, projProcess usaría su respaldo y la
     // paridad pasaría igual): Limit Date = fin del Plan, Cost $ = esfuerzo × 9, Value $ = beneficio − costo.
@@ -72,8 +71,8 @@ describe.skipIf(!ACTIVO)(`Tableros · piloto ${PILOTO} mide igual que Monday (in
     const tld = t.columnas.find((c) => c.tipo === "espejo")!;
     expect(t.elementos.filter((e) => e.parentId).some((e) => calc.valores.get(e.id)![tld.id] === "JA")).toBe(true);
 
-    // Fase 3: ya no falta nada que use el proyecto (solo Dependent On, sin uso, y el registro de creación).
-    expect(r.omitidas.map((o) => o.tipo).sort()).toEqual(["dependencia", "registro"]);
+    // Ya no falta nada que use el proyecto: solo «Dependent On», sin uso en todo el portafolio.
+    expect(r.omitidas.map((o) => o.tipo)).toEqual(["dependencia"]);
 
     // Bitácora y archivos (dos veces: la segunda no trae nada nuevo).
     const ex = await traerBitacoraYArchivos(r.tableroId);

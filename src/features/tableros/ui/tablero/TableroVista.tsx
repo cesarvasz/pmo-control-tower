@@ -15,13 +15,14 @@ import { Boton, enviar, estiloControl, Nota, useCarga } from "../comun";
 import { Celda, type EntornoCelda, type PersonaCorta } from "../celdas";
 import type { ArchivoCelda } from "../celdas/comun";
 import { calcularTablero, valorDeCelda, type PersonaCalc, type TableroLigado } from "../../dominio/calculos";
-import { esCalculado } from "../../dominio/tipos-columna";
+import { esEditable } from "../../dominio/tipos-columna";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import ColumnaEditor, { type CambiosColumna } from "../columnas/ColumnaEditor";
 import ElementoPanel from "./ElementoPanel";
 import CompararModal from "./CompararModal";
 import GuardarPlantillaModal from "./GuardarPlantillaModal";
 import { botonMini, NuevoElemento, TextoEditable } from "./piezas";
+import { VISTAS } from "../vistas";
 import { useMe } from "@/context/PermissionsContext";
 import { tieneAccionTableros } from "../../dominio/acciones";
 
@@ -46,6 +47,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
   const [busca, setBusca] = useState("");
+  const [vistaClave, setVistaClave] = useState(VISTAS[0].clave);
   const [modal, setModal] = useState<"comparar" | "plantilla" | null>(null);
   const { me } = useMe();
 
@@ -96,6 +98,8 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
   }, [data]);
 
   if (!data || !calc) return error ? <ErrorBox msg={error} /> : <Loader />;
+
+  const VistaElegida = VISTAS.find((v) => v.clave === vistaClave)?.Componente;
 
   const entorno: EntornoCelda = {
     ligados: data.ligados,
@@ -198,7 +202,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
             <Celda
               columna={c} valor={valorDeCelda(calc!, e, c)} personas={personas} elementoId={e.id} entorno={entorno}
               // Fórmula y espejo se calculan solos; los archivos sí se suben (si puede editar).
-              editable={(c.tipo === "archivo" || !esCalculado(c.tipo)) && puede(u, "editar_valor", tablero, R, { columna: c, elemento: e })}
+              editable={(c.tipo === "archivo" || esEditable(c.tipo)) && puede(u, "editar_valor", tablero, R, { columna: c, elemento: e })}
               onCambiar={(v) => cambiarValor(e, c, v)}
             />
           </td>
@@ -291,6 +295,15 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
 
       {/* Barra */}
       <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }} role="tablist" aria-label="Vista">
+          {VISTAS.map((v) => (
+            <button key={v.clave} type="button" role="tab" aria-selected={vistaClave === v.clave} onClick={() => setVistaClave(v.clave)}
+              className="rounded-md px-3 py-1 text-[0.8rem] font-bold"
+              style={vistaClave === v.clave ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-muted)" }}>
+              {v.etiqueta}
+            </button>
+          ))}
+        </div>
         {puedeEstructura && <Boton onClick={() => hacer({ op: "grupo.crear" })}>+ Grupo</Boton>}
         {puedeEstructura && <Boton onClick={() => setEditorCol({ columna: null, nivel: "item" })}>+ Columna</Boton>}
         <input
@@ -302,8 +315,9 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         </span>
       </div>
 
-      {/* Grupos */}
-      {grupos.map((g, gi) => {
+      {/* Otra vista (Gantt…), o la tabla editable */}
+      {VistaElegida && <VistaElegida datos={data} calc={calc} busca={busca} onAbrir={setPanel} />}
+      {!VistaElegida && grupos.map((g, gi) => {
         const items = itemsDe(g);
         const plegado = plegados.has(g.id);
         const color = g.color ?? "var(--accent)";

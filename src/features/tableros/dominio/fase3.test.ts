@@ -136,3 +136,73 @@ describe("columnas calculadas", () => {
     expect(normalizarTextoComentario(5)).toBeNull();
   });
 });
+
+describe("fase 4: columnas automáticas y comparación", async () => {
+  const { siguienteAutonumero, prefijoDe, autonumero } = await import("./tipos-columna/autonumero");
+  const { marcaCreacion, creacion } = await import("./tipos-columna/creacion");
+  const { diferenciasProfundas, diferenciasPorId, separarPersonasFuera } = await import("./paridad");
+  const { esEditable } = await import("./tipos-columna");
+
+  it("ID automático y fecha de creación (formato del Creation log de Monday)", () => {
+    expect(siguienteAutonumero({ prefijo: "IN-" }, ["IN-127", "IN-9", null, "x"])).toBe("IN-128");
+    expect(siguienteAutonumero({ prefijo: "" }, [])).toBe("1");
+    expect(prefijoDe("PML-031")).toBe("PML-");
+    expect(autonumero.valor.desdeMonday!("IN-5", { prefijo: "IN-" })).toBe("IN-5");
+    expect(marcaCreacion(new Date("2026-08-10T20:34:26.123Z"))).toBe("2026-08-10 20:34:26 UTC");
+    expect(creacion.valor.validar("2026-08-10 20:34:26 UTC", {})).toBe("2026-08-10 20:34:26 UTC");
+    expect(creacion.valor.validar("ayer", {})).toBeNull();
+    expect(["texto", "formula", "autonumero", "creacion", "archivo"].map(esEditable)).toEqual([true, false, false, false, false]);
+  });
+
+  it("comparación genérica: fechas por valor, nombres sin acentos, vacíos iguales", () => {
+    const a = { id: "1", name: "A", fecha: new Date(2026, 0, 2), pm: "César Vásquez", nota: "", n: 1 };
+    expect(diferenciasProfundas("x", a, { ...a, fecha: new Date(2026, 0, 2), pm: "Cesar Vasquez", nota: null })).toEqual([]);
+    expect(diferenciasProfundas("x", a, { ...a, n: 2 })).toEqual(["x.n: Monday 1 ≠ app 2"]);
+    expect(diferenciasPorId([a], [])).toEqual(["1 elementos en Monday vs 0 en la app", "«A»: falta en la app"]);
+  });
+
+  it("las personas fuera del directorio son aviso, no diferencia", () => {
+    const r = separarPersonasFuera(
+      ['«x».resp: Monday "JC Rodas" ≠ app ""', '«x».cost: Monday 9 ≠ app 273', '«y».resp: Monday "Ana López" ≠ app ""'],
+      (n) => n === "Ana López",
+    );
+    expect(r.avisos).toEqual(['«x».resp: Monday "JC Rodas" ≠ app ""']);
+    expect(r.diferencias).toHaveLength(2);
+  });
+});
+
+describe("gantt", async () => {
+  const { barrasGantt, rangoGantt, mesesEnRango, diasEntre } = await import("./gantt");
+  const estado = { etiquetas: [{ id: "1", texto: "Listo", color: "#00c875", categoria: "hecho" }, { id: "2", texto: "En curso", color: "#fdab3d", categoria: "en_curso" }] };
+  const cols = [
+    col("st", "status", estado, { rol: "status" }), col("plan", "timeline", {}, { rol: "plan" }),
+    col("lim", "formula", formula("FIN({plan})", "fecha"), { rol: "fecha_limite" }), col("fr", "fecha", {}, { rol: "fin_real" }),
+    { ...col("lims", "fecha", {}, { rol: "fecha_limite" }), nivel: "sub" as const },
+  ];
+  const t = {
+    tablero: { id: "t", nombre: "T", codigo: null, categoria: "proyecto", descripcion: null, plantillaId: null, mondayBoardId: null, actualizadoAt: "" },
+    grupos: [{ id: "g", titulo: "G", color: null, orden: 0, fase: null }],
+    columnas: cols,
+    elementos: [
+      el("1", { st: "2", plan: { desde: "2026-10-01", hasta: "2026-10-31" } }),
+      el("2", { st: "1", plan: { desde: "2026-09-01", hasta: "2026-09-15" }, fr: "2026-09-20" }),
+      el("s", { lims: "2026-11-20" }, "1"),
+    ],
+  };
+
+  it("barras por Plan, hito por Fecha límite, color y atraso por la categoría del status", () => {
+    const calc = calcularTablero(t, { personas: new Map(), hoy: HOY });
+    const b = barrasGantt(t, calc, HOY);
+    expect(b.map((x) => [x.id, x.desde, x.hasta, x.hito, x.atrasado])).toEqual([
+      ["1", "2026-10-01", "2026-10-31", false, true], ["s", "2026-11-20", "2026-11-20", true, false],
+      ["2", "2026-09-01", "2026-09-15", false, false],
+    ]);
+    expect(b[0].color).toBe("#fdab3d");
+    expect(b[2]).toMatchObject({ hecho: true, finReal: "2026-09-20" });
+    expect(rangoGantt(b, HOY, 0)).toEqual({ desde: "2026-09-01", hasta: "2026-11-20" });
+    expect(rangoGantt([], HOY)).toBeNull();
+    // El mes en que empieza el rango también lleva encabezado (pegado al borde izquierdo).
+    expect(mesesEnRango("2026-09-15", "2026-11-02")).toEqual(["2026-09-01", "2026-10-01", "2026-11-01"]);
+    expect(diasEntre("2026-12-30", "2027-01-02")).toBe(3);
+  });
+});

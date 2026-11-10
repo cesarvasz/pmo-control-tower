@@ -28,7 +28,7 @@ export function aGrupo(r: Tables<"tablero_grupos">): Grupo {
 export function aColumna(r: Tables<"tablero_columnas">): Columna {
   return {
     id: r.id, nivel: r.nivel === "sub" ? "sub" : "item", titulo: r.titulo, tipo: r.tipo, rol: r.rol, config: r.config,
-    orden: r.orden, ancho: r.ancho, oculta: r.oculta,
+    orden: r.orden, ancho: r.ancho, oculta: r.oculta, mondayColumnId: r.monday_column_id,
   };
 }
 

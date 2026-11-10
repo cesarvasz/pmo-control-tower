@@ -61,13 +61,14 @@ function textoMonday(c: Columna, valor: unknown, personas: Map<string, PersonaMe
   switch (c.tipo) {
     case "status": {
       const e = etiquetaStatus(config as ConfigStatus, v as string);
-      return e ? textoStatusParaMetricas(e.texto, e.categoria) : null;
+      return e ? textoStatus(c, e) : null;
     }
     case "persona": return (v as string[]).map((id) => personas.get(id)?.nombre ?? "").filter(Boolean).join(", ") || null;
     case "numero": return String(v);
     case "fecha": return v as string;
     case "timeline": { const r = v as { desde: string; hasta: string }; return `${r.desde} - ${r.hasta}`; }
     case "checkbox": return "v";
+    case "autonumero": case "creacion": return String(v); // tal cual (Iniciativas y PML leen el ID y el Creation log)
     // Una fórmula sale como Monday daría su valor: fecha AAAA-MM-DD, número sin formato.
     case "formula": return String(v);
     case "espejo": return String(v);
@@ -81,9 +82,15 @@ function textoMonday(c: Columna, valor: unknown, personas: Map<string, PersonaMe
 }
 
 /** settings_str de la columna Status como Monday ({labels:{"0":"Done",…}}), para statusOptions. */
+/** Una columna de status importada de Monday conserva sus textos (Iniciativas y PML usan los suyos:
+ *  "Meeting 1", "Go Live"…); las etiquetas propias de la app se traducen por su categoría. */
+function textoStatus(c: Columna, e: { texto: string; categoria: string }): string {
+  return c.mondayColumnId ? e.texto : textoStatusParaMetricas(e.texto, e.categoria);
+}
+
 function settingsStatus(c: Columna): string {
   const config = tipoColumna("status")!.config.validar(c.config) as ConfigStatus;
-  const labels = Object.fromEntries(config.etiquetas.map((e, i) => [String(i), textoStatusParaMetricas(e.texto, e.categoria)]));
+  const labels = Object.fromEntries(config.etiquetas.map((e, i) => [String(i), textoStatus(c, e)]));
   return JSON.stringify({ labels });
 }
 
@@ -95,18 +102,11 @@ function valoresMonday(e: Elemento, cols: Columna[], personas: Map<string, Perso
     const title = tituloParaMetricas(c);
     if (!c.rol && titulosDeRol.has(title)) continue;
     const text = textoMonday(c, valorDeCelda(calc, e, c), personas, ctx);
-    const cv: MondayColumnValue = { id: c.id, text, column: { title, settings_str: c.tipo === "status" ? settingsStatus(c) : "{}" } };
+    // Lo importado conserva el id de columna de Monday: Iniciativas y PML se procesan leyendo por id.
+    const cv: MondayColumnValue = { id: c.mondayColumnId ?? c.id, text, column: { title, settings_str: c.tipo === "status" ? settingsStatus(c) : "{}" } };
     // Como una relación o un espejo de Monday: el valor también va en display_value.
     if (["persona", "relacion", "espejo"].includes(c.tipo)) cv.display_value = text;
     out.push(cv);
-  }
-  // TLD: en Monday es un espejo del TLD de la persona Responsable. Si el tablero no tiene una
-  // columna "TLD", se calcula del directorio.
-  const resp = cols.find((c) => c.rol === "responsable");
-  if (resp && !cols.some((c) => c.titulo.trim().toLowerCase() === "tld")) {
-    const ids = Array.isArray(e.valores[resp.id]) ? (e.valores[resp.id] as string[]) : [];
-    const tld = ids.map((id) => personas.get(id)?.tld ?? "").filter(Boolean).join(", ");
-    out.push({ id: "tld", text: null, display_value: tld, column: { title: "TLD", settings_str: "{}" } });
   }
   return out;
 }

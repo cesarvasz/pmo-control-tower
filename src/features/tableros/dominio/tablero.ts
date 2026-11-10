@@ -40,6 +40,8 @@ export interface Columna {
   orden: number;
   ancho: number | null;
   oculta: boolean;
+  /** Columna de Monday de la que se importó (los procesadores de Iniciativas y PML leen por ese id). */
+  mondayColumnId?: string | null;
 }
 
 export interface Elemento {

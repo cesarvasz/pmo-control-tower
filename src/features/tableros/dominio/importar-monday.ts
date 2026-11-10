@@ -9,6 +9,7 @@ import { claveNombre } from "./personas";
 import { COLORES_GRUPO, type FaseValor, type Nivel } from "./tablero";
 import type { ColumnaDef, DefinicionTablero, ElementoDef, GrupoDef } from "./definicion";
 import { parseJson } from "./tipos-columna/tipo";
+import { prefijoDe } from "./tipos-columna/autonumero";
 
 /** Tipo de columna de Monday según el prefijo de su id (Monday arma el id con el tipo). */
 const PREFIJOS: [string, string][] = [
@@ -16,8 +17,9 @@ const PREFIJOS: [string, string][] = [
   ["people", "personas"], ["status", "status"], ["color", "status"], ["dropdown", "dropdown"], ["timerange", "timeline"],
   ["timeline", "timeline"], ["date", "fecha"], ["numeric", "numero"], ["numbers", "numero"], ["boolean", "checkbox"],
   ["checkbox", "checkbox"], ["check", "checkbox"], ["long_text", "texto_largo"], ["text", "texto"], ["email", "email"],
-  ["formula", "formula"], ["lookup", "espejo"], ["mirror", "espejo"], ["file", "archivo"], ["pulse_log", "registro"],
-  ["pulse_id", "id"], ["item_id", "id"], ["dependent_on", "dependencia"], ["dependency", "dependencia"],
+  ["formula", "formula"], ["lookup", "espejo"], ["mirror", "espejo"], ["file", "archivo"], ["pulse_log", "creacion"],
+  ["pulse_id", "autonumero"], ["item_id", "autonumero"], ["dependent_on", "dependencia"], ["dependency", "dependencia"],
+  ["labor_budget", "numero"], ["hour", "texto"],
   ["subtasks", "subelementos"], ["name", "nombre"], ["button", "boton"], ["link", "enlace"],
 ];
 
@@ -62,6 +64,16 @@ export interface ResultadoImportacionMonday {
   omitidas: { nivel: Nivel; titulo: string; tipo: string }[];
   /** Nombres que no se encontraron en el directorio (y quedaron vacíos). */
   personasNoEncontradas: string[];
+  /** Elementos ligados (relación a otro tablero) que no se encontraron por nombre. */
+  ligadosNoEncontrados: string[];
+}
+
+/** Un board de Monday que YA se importó: a él apuntan las relaciones del board que se importa. */
+export interface RelacionImportada {
+  tableroId: string;
+  elementoPorNombre(nombre: string): string | undefined;
+  /** id de columna de Monday → id de la columna importada (para los espejos). */
+  columnaPorMondayId(id: string): string | undefined;
 }
 
 function unidadDeNumero(settings: string | undefined): { unidad: string; unidadAntes: boolean } {
@@ -72,7 +84,6 @@ function unidadDeNumero(settings: string | undefined): { unidad: string; unidadA
   return { unidad, unidadAntes: u.direction === "left" };
 }
 
-/** Pasa las columnas de un nivel. Devuelve las importables (con su tipo de la app) y las omitidas. */
 /** Campo del directorio por el TÍTULO de la columna del Directorio RH (para los espejos). */
 const CAMPO_RH: Record<string, string> = { email: "email", "hrs mes": "hrsMes", role: "rol", tld: "tld", name: "nombre", status: "" };
 
@@ -87,20 +98,23 @@ export function traducirFormula(expr: string, nivel: Nivel, importables: Set<str
   return { expresion, formato };
 }
 
+/** Pasa las columnas de un nivel. Devuelve las importables (con su tipo de la app) y las omitidas. */
 function columnasDeNivel(
   mapa: Record<string, ColumnaMonday>, nivel: Nivel, rhBoardId: string | null, rhColumnas: Record<string, ColumnaMonday>,
-): { columnas: (ColumnaDef & { tipoMonday: string })[]; omitidas: ResultadoImportacionMonday["omitidas"] } {
+  relaciones: Record<string, RelacionImportada>,
+): { columnas: (ColumnaDef & { tipoMonday: string })[]; omitidas: ResultadoImportacionMonday["omitidas"]; relacionDe: Map<string, RelacionImportada> } {
   const columnas: (ColumnaDef & { tipoMonday: string })[] = [];
   const omitidas: ResultadoImportacionMonday["omitidas"] = [];
-  const esRelacionRh = (id: string) => {
-    const destino = (parseJson(mapa[id]?.settings_str) as { boardIds?: (string | number)[] } | undefined)?.boardIds ?? [];
-    return tipoMonday(id) === "relacion" && !!rhBoardId && destino.map(String).includes(rhBoardId);
-  };
+  const relacionDe = new Map<string, RelacionImportada>();
+  const destinos = (id: string) => ((parseJson(mapa[id]?.settings_str) as { boardIds?: (string | number)[] } | undefined)?.boardIds ?? []).map(String);
+  const esRelacionRh = (id: string) => tipoMonday(id) === "relacion" && !!rhBoardId && destinos(id).includes(rhBoardId);
+  /** Board ya importado al que apunta una relación (el primero que lo esté). */
+  const destinoImportado = (id: string) => (tipoMonday(id) === "relacion" ? destinos(id).find((b) => relaciones[b]) : undefined);
   // Columnas que sí se importan (para traducir las referencias de las fórmulas).
   const importables = new Set(Object.keys(mapa).filter((id) => {
     const tm = tipoMonday(id);
-    return !["nombre", "subelementos", "dependencia", "registro", "id", "boton", "enlace", "desconocido"].includes(tm)
-      && (tm !== "relacion" || esRelacionRh(id));
+    return !["nombre", "subelementos", "dependencia", "boton", "enlace", "desconocido"].includes(tm)
+      && (tm !== "relacion" || esRelacionRh(id) || !!destinoImportado(id));
   }));
   for (const [id, c] of Object.entries(mapa)) {
     const tm = tipoMonday(id);
@@ -116,8 +130,18 @@ function columnasDeNivel(
     else if (tm === "texto" || tm === "email") tipo = "texto";
     else if (tm === "texto_largo") { tipo = "texto"; config = { multilinea: true }; }
     else if (tm === "personas") tipo = "persona";
-    else if (tm === "relacion") { if (esRelacionRh(id)) tipo = "persona"; } // relación al Directorio RH = persona
+    else if (tm === "relacion") {
+      const destino = destinoImportado(id);
+      if (esRelacionRh(id)) tipo = "persona"; // relación al Directorio RH = persona
+      else if (destino) {
+        tipo = "relacion";
+        config = { tableroId: relaciones[destino].tableroId, multiple: true };
+        relacionDe.set(`${nivel}:${id}`, relaciones[destino]);
+      }
+    }
     else if (tm === "archivo") tipo = "archivo"; // los archivos se traen aparte (datos/importar.ts)
+    else if (tm === "autonumero") tipo = "autonumero"; // el prefijo se toma de los valores (abajo)
+    else if (tm === "creacion") tipo = "creacion";
     else if (tm === "formula") {
       const expr = (parseJson(c.settings_str) as { formula?: string } | undefined)?.formula;
       if (expr) {
@@ -128,10 +152,16 @@ function columnasDeNivel(
     } else if (tm === "espejo") {
       // Espejo de una relación al Directorio RH → espejo de la columna Persona sobre el directorio.
       const s = parseJson(c.settings_str) as { relation_column?: Record<string, boolean>; displayed_linked_columns?: Record<string, string[]> } | undefined;
-      const relacion = Object.keys(s?.relation_column ?? {}).find(esRelacionRh);
-      const linked = rhBoardId ? s?.displayed_linked_columns?.[rhBoardId]?.[0] : undefined;
-      const campo = linked ? CAMPO_RH[(rhColumnas[linked]?.title ?? "").trim().toLowerCase()] : undefined;
-      if (relacion && campo) { tipo = "espejo"; config = { columna: `${nivel}:${relacion}`, campo }; }
+      const relacionRh = Object.keys(s?.relation_column ?? {}).find(esRelacionRh);
+      const linkedRh = rhBoardId ? s?.displayed_linked_columns?.[rhBoardId]?.[0] : undefined;
+      const campoRh = linkedRh ? CAMPO_RH[(rhColumnas[linkedRh]?.title ?? "").trim().toLowerCase()] : undefined;
+      // …o de una relación a un tablero ya importado (p. ej. el Sponsor o la U Neg de la Estrategia).
+      const relacionOtra = Object.keys(s?.relation_column ?? {}).find((r) => !!destinoImportado(r));
+      const destino = relacionOtra ? destinoImportado(relacionOtra)! : undefined;
+      const linkedOtra = destino ? s?.displayed_linked_columns?.[destino]?.[0] : undefined;
+      const campoOtra = linkedOtra === "name" ? "nombre" : linkedOtra && destino ? relaciones[destino].columnaPorMondayId(linkedOtra) : undefined;
+      if (relacionRh && campoRh) { tipo = "espejo"; config = { columna: `${nivel}:${relacionRh}`, campo: campoRh }; }
+      else if (relacionOtra && campoOtra) { tipo = "espejo"; config = { columna: `${nivel}:${relacionOtra}`, campo: campoOtra }; }
     }
     if (!tipo) { omitidas.push({ nivel, titulo: c.title, tipo: tm === "relacion" ? "relación a otro tablero" : tm }); continue; }
     const def = tipoColumna(tipo)!;
@@ -152,7 +182,7 @@ function columnasDeNivel(
   // Orden: primero las que tienen rol (en el orden del registro de roles), luego el resto por título.
   const ordenRol = (r: string | null) => (r ? ROLES_COLUMNA.findIndex((x) => x.clave === r) : 99);
   columnas.sort((a, b) => ordenRol(a.rol) - ordenRol(b.rol) || a.titulo.localeCompare(b.titulo, "es"));
-  return { columnas, omitidas };
+  return { columnas, omitidas, relacionDe };
 }
 
 export function mondayADefinicion(entrada: {
@@ -163,9 +193,13 @@ export function mondayADefinicion(entrada: {
   /** Columnas del Directorio RH (para traducir sus espejos: TLD, Role…). */
   rhColumnas?: Record<string, ColumnaMonday>;
   personaPorNombre: (nombre: string) => string | undefined;
+  /** Boards ya importados, por id de board de Monday (Estrategia antes que Iniciativas, PML…). */
+  relaciones?: Record<string, RelacionImportada>;
 }): ResultadoImportacionMonday {
-  const item = columnasDeNivel(entrada.columnas, "item", entrada.rhBoardId, entrada.rhColumnas ?? {});
-  const sub = columnasDeNivel(entrada.columnasSub, "sub", entrada.rhBoardId, entrada.rhColumnas ?? {});
+  const item = columnasDeNivel(entrada.columnas, "item", entrada.rhBoardId, entrada.rhColumnas ?? {}, entrada.relaciones ?? {});
+  const sub = columnasDeNivel(entrada.columnasSub, "sub", entrada.rhBoardId, entrada.rhColumnas ?? {}, entrada.relaciones ?? {});
+  const relacionDe = new Map([...item.relacionDe, ...sub.relacionDe]);
+  const ligadosNoEncontrados = new Set<string>();
   const noEncontradas = new Set<string>();
   const ctx = {
     personaPorNombre: (n: string) => {
@@ -197,7 +231,12 @@ export function mondayADefinicion(entrada: {
       // Relaciones y espejos traen el valor en display_value; el resto en text.
       const texto = (v.display_value ?? "") || (v.text ?? "");
       const tipo = tipoColumna(c.tipo)!;
-      const valor = tipo.valor.desdeMonday?.(texto || null, tipo.config.validar(c.config), ctx) ?? null;
+      const rel = relacionDe.get(c.clave);
+      const ctxCol = rel ? {
+        ...ctx,
+        elementoPorNombre: (n: string) => { const id = rel.elementoPorNombre(n); if (!id) ligadosNoEncontrados.add(n); return id; },
+      } : ctx;
+      const valor = tipo.valor.desdeMonday?.(texto || null, tipo.config.validar(c.config), ctxCol) ?? null;
       if (valor !== null) out[c.clave] = valor;
     }
     return out;
@@ -211,10 +250,18 @@ export function mondayADefinicion(entrada: {
     ...subs.map((f) => ({ clave: f.id, grupo: null, padre: f.parent_id, nombre: f.nombre, valores: valores(f, sub.columnas), mondayItemId: f.id })),
   ];
 
+  // ID automático: el prefijo sale de los valores que ya tiene ("IN-127" → "IN-").
+  for (const c of [...item.columnas, ...sub.columnas]) {
+    if (c.tipo !== "autonumero") continue;
+    const ejemplo = elementos.map((e) => e.valores[c.clave]).find((v): v is string => typeof v === "string");
+    c.config = { prefijo: ejemplo ? prefijoDe(ejemplo) : "" };
+  }
+
   const limpiar = ({ tipoMonday: _t, ...c }: ColumnaDef & { tipoMonday: string }): ColumnaDef => { void _t; return c; };
   return {
     definicion: { version: 1, grupos, columnas: [...item.columnas, ...sub.columnas].map(limpiar), elementos },
     omitidas: [...item.omitidas, ...sub.omitidas],
     personasNoEncontradas: [...noEncontradas].sort(),
+    ligadosNoEncontrados: [...ligadosNoEncontrados].sort(),
   };
 }

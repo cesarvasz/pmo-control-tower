@@ -11,7 +11,6 @@ import { rolColumna } from "../../dominio/roles";
 import type { TableroResumen } from "../../datos/tableros";
 import { Boton, enviar, estiloControl, Nota, Tarjeta, useCarga } from "../comun";
 import TableroVista from "./TableroVista";
-import ImportarMonday from "./ImportarMonday";
 import type { PlantillaResumen } from "../../datos/plantillas";
 
 const URL_API = "/api/tableros/tableros";
@@ -93,7 +92,6 @@ export default function TablerosTab() {
         </Tarjeta>
       )}
 
-      {puedeCrear && <ImportarMonday onAbrir={setAbierto} onImportado={() => { void recargar(); }} />}
 
       {data.tableros.length === 0 ? <EmptyRow msg="Todavía no hay tableros." /> : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

@@ -1,35 +1,17 @@
 "use client";
 
-// "Comparar con Monday": mide el tablero y su board de Monday con la MISMA lógica de la app y
-// muestra las métricas lado a lado, más cualquier diferencia elemento por elemento.
+// "Comparar con Monday": mide el tablero y su board de Monday con la MISMA lógica de la app
+// (Proyectos: EVM y entregas; Iniciativas, PML, Estrategia: su procesador) y muestra las
+// métricas lado a lado, cualquier diferencia elemento por elemento y los avisos.
 
 import Modal from "@/components/Modal";
 import { ErrorBox, Loader, Pill } from "@/components/ui";
-import type { ResumenMetricas } from "../../dominio/paridad";
 import { Nota, useCarga } from "../comun";
 
-interface Comparacion { diferencias: string[]; monday: ResumenMetricas; app: ResumenMetricas; copiaDel: string | null }
+export interface FilaComparacion { etiqueta: string; monday: unknown; app: unknown; formato?: "dinero" | "pct" | "indice" }
+export interface Comparacion { tipo: string; diferencias: string[]; avisos: string[]; filas: FilaComparacion[]; copiaDel: string | null }
 
-const FILAS: { clave: keyof ResumenMetricas; etiqueta: string; formato?: "dinero" | "pct" | "indice" }[] = [
-  { clave: "elementos", etiqueta: "Elementos" },
-  { clave: "subelementos", etiqueta: "Subelementos" },
-  { clave: "hechos", etiqueta: "Hechos (Done)" },
-  { clave: "atrasados", etiqueta: "Atrasados" },
-  { clave: "entregasATiempo", etiqueta: "Entregas a tiempo" },
-  { clave: "entregasTarde", etiqueta: "Entregas tarde" },
-  { clave: "costo", etiqueta: "Costo", formato: "dinero" },
-  { clave: "beneficio", etiqueta: "Beneficio", formato: "dinero" },
-  { clave: "ev", etiqueta: "EV (valor ganado)", formato: "dinero" },
-  { clave: "pv", etiqueta: "PV (valor planeado)", formato: "dinero" },
-  { clave: "ac", etiqueta: "AC (costo real)", formato: "dinero" },
-  { clave: "spi", etiqueta: "SPI", formato: "indice" },
-  { clave: "cpi", etiqueta: "CPI", formato: "indice" },
-  { clave: "scope", etiqueta: "Alcance", formato: "pct" },
-  { clave: "healthIndex", etiqueta: "Índice de salud (EVM)", formato: "indice" },
-  { clave: "healthStatus", etiqueta: "Salud" },
-];
-
-function fmt(v: unknown, formato?: string): string {
+export function fmtValor(v: unknown, formato?: string): string {
   if (v === null || v === undefined) return "—";
   if (typeof v !== "number") return String(v);
   if (formato === "dinero") return `$${v.toLocaleString("es-GT", { maximumFractionDigits: 2 })}`;
@@ -38,9 +20,11 @@ function fmt(v: unknown, formato?: string): string {
   return v.toLocaleString("es-GT");
 }
 
+export const filaIgual = (f: FilaComparacion) => JSON.stringify(f.monday) === JSON.stringify(f.app);
+
 export default function CompararModal({ tableroId, onCerrar }: { tableroId: string; onCerrar(): void }) {
   const { data, error } = useCarga<Comparacion>(`/api/tableros/tableros/${tableroId}/comparar`);
-  const iguales = data && data.diferencias.length === 0;
+  const distintas = data ? data.diferencias.length + data.filas.filter((f) => !filaIgual(f)).length : 0;
   return (
     <Modal open onClose={onCerrar} width={680} label="Comparar con Monday">
       <div className="flex flex-col gap-4 p-5">
@@ -49,37 +33,39 @@ export default function CompararModal({ tableroId, onCerrar }: { tableroId: stri
         {!data && !error && <Loader />}
         {data && (
           <>
-            {iguales
-              ? <Nota tono="ok">Mide igual que Monday: todos los elementos y subelementos dan exactamente lo mismo en todas las métricas.</Nota>
-              : <Nota tono="mal">Hay {data.diferencias.length} diferencia{data.diferencias.length === 1 ? "" : "s"} con Monday (abajo). Es normal si se editó el tablero después de importarlo.</Nota>}
+            {distintas === 0
+              ? <Nota tono="ok">Mide igual que Monday: todos los elementos dan exactamente lo mismo con la lógica de la app.</Nota>
+              : <Nota tono="mal">Hay {distintas} diferencia{distintas === 1 ? "" : "s"} con Monday (abajo). Es normal si se editó el tablero después de importarlo.</Nota>}
+            {data.avisos.length > 0 && (
+              <Nota>
+                {data.avisos.length} valor{data.avisos.length === 1 ? "" : "es"} de Monday con personas que no están en el directorio (en la app
+                quedan vacíos). Agrégalas al directorio y vuelve a importar si importan.
+              </Nota>
+            )}
             <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>
               <table className="pmo">
                 <thead><tr><th>Métrica</th><th style={{ textAlign: "right" }}>Monday</th><th style={{ textAlign: "right" }}>App</th><th /></tr></thead>
                 <tbody>
-                  {FILAS.map((f) => {
-                    const a = data.monday[f.clave];
-                    const b = data.app[f.clave];
-                    const igual = JSON.stringify(a) === JSON.stringify(b);
-                    return (
-                      <tr key={f.clave}>
-                        <td>{f.etiqueta}</td>
-                        <td style={{ textAlign: "right" }}>{fmt(a, f.formato)}</td>
-                        <td style={{ textAlign: "right" }}>{fmt(b, f.formato)}</td>
-                        <td>{igual ? <Pill tone="ok" small>✓</Pill> : <Pill tone="bad" small>≠</Pill>}</td>
-                      </tr>
-                    );
-                  })}
+                  {data.filas.map((f) => (
+                    <tr key={f.etiqueta}>
+                      <td>{f.etiqueta}</td>
+                      <td style={{ textAlign: "right" }}>{fmtValor(f.monday, f.formato)}</td>
+                      <td style={{ textAlign: "right" }}>{fmtValor(f.app, f.formato)}</td>
+                      <td>{filaIgual(f) ? <Pill tone="ok" small>✓</Pill> : <Pill tone="bad" small>≠</Pill>}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-            {data.diferencias.length > 0 && (
+            {(data.diferencias.length > 0 || data.avisos.length > 0) && (
               <ul className="max-h-48 overflow-y-auto rounded-lg border p-3 text-[0.78rem] text-[var(--text-secondary)]" style={{ borderColor: "var(--border)" }}>
-                {data.diferencias.slice(0, 200).map((d, i) => <li key={i}>{d}</li>)}
+                {data.diferencias.slice(0, 200).map((d, i) => <li key={`d${i}`}>{d}</li>)}
+                {data.avisos.slice(0, 50).map((d, i) => <li key={`a${i}`} className="text-[var(--text-muted)]">(persona fuera del directorio) {d}</li>)}
               </ul>
             )}
             <p className="text-[0.72rem] text-[var(--text-muted)]">
               Monday se lee de la copia en Supabase{data.copiaDel ? ` (actualizada ${new Date(data.copiaDel).toLocaleString("es-GT")})` : ""}.
-              Ambos lados se miden con el mismo código que usan hoy Control Tower, Players y Portafolio.
+              Ambos lados se procesan con el mismo código que usan hoy Control Tower, Players y Portafolio.
             </p>
           </>
         )}
