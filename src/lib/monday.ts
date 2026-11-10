@@ -25,7 +25,8 @@ interface MondayResponse<T> {
   errors?: { message: string }[];
 }
 
-async function mondayFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+/** Exportada para la copia de Monday en Supabase (lib/mondayMirrorSync.ts). */
+export async function mondayFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const res = await fetch(MONDAY_URL, {
     method: "POST",
     headers: {

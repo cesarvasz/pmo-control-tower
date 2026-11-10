@@ -254,6 +254,133 @@ export type Database = {
         }
         Relationships: []
       }
+      monday_boards: {
+        Row: {
+          activo: boolean
+          columnas: Json
+          id: string
+          nombre: string
+          padre_board_id: string | null
+          synced_at: string | null
+          tipo: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          activo?: boolean
+          columnas?: Json
+          id: string
+          nombre: string
+          padre_board_id?: string | null
+          synced_at?: string | null
+          tipo: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          activo?: boolean
+          columnas?: Json
+          id?: string
+          nombre?: string
+          padre_board_id?: string | null
+          synced_at?: string | null
+          tipo?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monday_boards_padre_board_id_fkey"
+            columns: ["padre_board_id"]
+            isOneToOne: false
+            referencedRelation: "monday_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monday_items: {
+        Row: {
+          board_id: string
+          column_values: Json
+          deleted_at: string | null
+          email: string | null
+          grupo: string | null
+          id: string
+          nombre: string
+          orden: number
+          parent_id: string | null
+          sub_board_id: string | null
+          synced_at: string
+        }
+        Insert: {
+          board_id: string
+          column_values?: Json
+          deleted_at?: string | null
+          email?: string | null
+          grupo?: string | null
+          id: string
+          nombre: string
+          orden: number
+          parent_id?: string | null
+          sub_board_id?: string | null
+          synced_at?: string
+        }
+        Update: {
+          board_id?: string
+          column_values?: Json
+          deleted_at?: string | null
+          email?: string | null
+          grupo?: string | null
+          id?: string
+          nombre?: string
+          orden?: number
+          parent_id?: string | null
+          sub_board_id?: string | null
+          synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monday_items_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "monday_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monday_sync_runs: {
+        Row: {
+          detalle: Json
+          error: string | null
+          finished_at: string | null
+          id: number
+          ok: boolean | null
+          origen: string
+          started_at: string
+          tipo: string
+        }
+        Insert: {
+          detalle?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: never
+          ok?: boolean | null
+          origen: string
+          started_at?: string
+          tipo: string
+        }
+        Update: {
+          detalle?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: never
+          ok?: boolean | null
+          origen?: string
+          started_at?: string
+          tipo?: string
+        }
+        Relationships: []
+      }
       on_hold: {
         Row: {
           created_at: string
@@ -525,6 +652,14 @@ export type Database = {
       guardar_metas_implementacion: {
         Args: { p_by: string; p_metas: Json; p_objetivos: Json }
         Returns: undefined
+      }
+      mirror_desactivar_boards: {
+        Args: { p_tipo: string; p_vigentes: string[] }
+        Returns: number
+      }
+      mirror_guardar_board: {
+        Args: { p_board: Json; p_items: Json }
+        Returns: Json
       }
       reabrir_encuesta: { Args: { p_token: string }; Returns: undefined }
       responder_encuesta: {
