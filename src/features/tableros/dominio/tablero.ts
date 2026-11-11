@@ -19,6 +19,8 @@ export interface Tablero {
   plantillaId: string | null;
   /** Board de Monday del que se importó (null si nació en la app). */
   mondayBoardId: string | null;
+  /** Convivencia con Monday (Fase 5): cada hora se trae lo de Monday y sus datos no se editan aquí. */
+  sincronizaMonday?: boolean;
   actualizadoAt: string;
 }
 
@@ -28,6 +30,8 @@ export interface Grupo {
   color: string | null;
   orden: number;
   fase: FaseValor | null;
+  /** Grupo de Monday del que viene (su título allá); con él se reconoce aunque se renombre aquí. */
+  mondayGrupo?: string | null;
 }
 
 export interface Columna {
@@ -63,6 +67,23 @@ export interface TableroCompleto {
   columnas: Columna[];
   elementos: Elemento[];
 }
+
+// ── Convivencia con Monday ───────────────────────────────────────────────────
+
+/**
+ * ¿Ese dato viene de Monday y por eso no se edita en la app? Mientras el tablero se sincroniza,
+ * Monday manda en los datos: los elementos que vienen de allá (nombre, grupo, archivado) y sus
+ * valores en las columnas ligadas a Monday. Sin `columna`, pregunta por el elemento mismo. Las
+ * columnas propias de la app (sin id de Monday) y los elementos creados aquí sí se editan.
+ */
+export function esDatoDeMonday(
+  tablero: Pick<Tablero, "sincronizaMonday">, elemento: Pick<Elemento, "mondayItemId">, columna?: Pick<Columna, "mondayColumnId">,
+): boolean {
+  if (!tablero.sincronizaMonday || !elemento.mondayItemId) return false;
+  return columna ? !!columna.mondayColumnId : true;
+}
+
+export const MENSAJE_DATO_DE_MONDAY = "Este dato viene de Monday: se cambia en Monday y llega aquí con la sincronización.";
 
 // ── Límites y textos ─────────────────────────────────────────────────────────
 

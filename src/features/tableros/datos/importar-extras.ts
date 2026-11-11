@@ -1,6 +1,7 @@
 // SOLO SERVIDOR. Trae de Monday lo que la copia no tiene: la bitácora (Updates) y los archivos de
 // las columnas de archivo, para un tablero ya importado. Idempotente: casa por monday_update_id y
-// monday_asset_id, así que se puede correr otra vez para traer lo nuevo. Los archivos se descargan
+// monday_asset_id, así que se puede correr otra vez para traer lo nuevo (y el texto de las
+// actualizaciones que se editaron en Monday). Los archivos se descargan
 // a Supabase Storage (los enlaces de Monday vencen).
 
 import { randomUUID } from "node:crypto";
@@ -53,6 +54,8 @@ const nombreSeguro = (n: string) => n.normalize("NFD").replace(/[̀-ͯ]/g, "").r
 export interface ResultadoExtras {
   comentarios: number;
   comentariosNuevos: number;
+  /** Actualizaciones que se editaron en Monday (se trae el texto nuevo). */
+  comentariosEditados: number;
   archivos: number;
   archivosNuevos: number;
   /** Archivos adjuntos en la bitácora de Monday (no en una columna): no se traen. */
@@ -70,19 +73,20 @@ export async function traerBitacoraYArchivos(tableroId: string): Promise<Resulta
     selectAll<{ id: string; monday_item_id: string | null; parent_id: string | null }>((d, h) =>
       db.from("elementos").select("id, monday_item_id, parent_id").eq("tablero_id", tableroId).not("monday_item_id", "is", null).order("id").range(d, h)),
     unwrap(await db.from("tablero_columnas").select("id, nivel, monday_column_id").eq("tablero_id", tableroId).eq("tipo", "archivo").is("archivada_at", null)) ?? [],
-    selectAll<{ monday_update_id: string | null }>((d, h) =>
-      db.from("elemento_comentarios").select("monday_update_id").eq("tablero_id", tableroId).not("monday_update_id", "is", null).order("id").range(d, h)),
+    selectAll<{ id: string; monday_update_id: string | null; texto: string }>((d, h) =>
+      db.from("elemento_comentarios").select("id, monday_update_id, texto").eq("tablero_id", tableroId).not("monday_update_id", "is", null).order("id").range(d, h)),
     selectAll<{ monday_asset_id: string | null }>((d, h) =>
       db.from("elemento_archivos").select("monday_asset_id").eq("tablero_id", tableroId).not("monday_asset_id", "is", null).is("borrado_at", null).order("id").range(d, h)),
   ]);
   const elementoDe = new Map(elementos.map((e) => [e.monday_item_id!, e]));
   const columnaDe = (nivel: string, mondayCol: string) => columnas.find((c) => c.nivel === nivel && c.monday_column_id === mondayCol)?.id;
-  const comentariosPrevios = new Set(yaComentarios.map((c) => c.monday_update_id));
+  const comentariosPrevios = new Map(yaComentarios.map((c) => [c.monday_update_id, c]));
   const archivosPrevios = new Set(yaArchivos.map((a) => a.monday_asset_id));
 
-  const res: ResultadoExtras = { comentarios: 0, comentariosNuevos: 0, archivos: 0, archivosNuevos: 0, archivosSinColumna: 0, errores: [] };
+  const res: ResultadoExtras = { comentarios: 0, comentariosNuevos: 0, comentariosEditados: 0, archivos: 0, archivosNuevos: 0, archivosSinColumna: 0, errores: [] };
   const comentarios: { tablero_id: string; elemento_id: string; autor_nombre: string; autor_email: string | null; texto: string; creado_at: string; monday_update_id: string }[] = [];
   const pendientes: { asset: AssetMonday; elementoId: string; columnaId: string }[] = [];
+  const editados: { id: string; texto: string }[] = [];
 
   const procesar = (it: Omit<ItemMonday, "subitems">, nivel: "item" | "sub") => {
     const e = elementoDe.get(it.id);
@@ -91,7 +95,11 @@ export async function traerBitacoraYArchivos(tableroId: string): Promise<Resulta
       const texto = normalizarTextoComentario(u.text_body);
       if (!texto) continue;
       res.comentarios++;
-      if (comentariosPrevios.has(u.id)) continue;
+      const previo = comentariosPrevios.get(u.id);
+      if (previo) {
+        if (previo.texto !== texto) editados.push({ id: previo.id, texto }); // se editó en Monday
+        continue;
+      }
       comentarios.push({
         tablero_id: tableroId, elemento_id: e.id, autor_nombre: u.creator?.name ?? "Monday", autor_email: u.creator?.email ?? null,
         texto, creado_at: u.created_at, monday_update_id: u.id,
@@ -115,6 +123,8 @@ export async function traerBitacoraYArchivos(tableroId: string): Promise<Resulta
     unwrap(await db.from("elemento_comentarios").upsert(lote, { onConflict: "monday_update_id", ignoreDuplicates: true }));
   }
   res.comentariosNuevos = comentarios.length;
+  for (const c of editados) unwrap(await db.from("elemento_comentarios").update({ texto: c.texto, editado_at: new Date().toISOString() }).eq("id", c.id));
+  res.comentariosEditados = editados.length;
 
   for (const p of pendientes) {
     try {

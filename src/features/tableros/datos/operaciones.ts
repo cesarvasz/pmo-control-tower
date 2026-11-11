@@ -15,7 +15,7 @@ import { normalizarTextoComentario } from "../dominio/bitacora";
 import { evaluar, reglaQueAplica, type ColumnaRef, type ElementoRef, type Operacion } from "../dominio/permisos";
 import {
   COLORES_GRUPO, errorColumna, FASES_VALOR, limpiarTexto, MAX_NOMBRE, MAX_TITULO, normalizarColumnaNueva, siguienteOrden,
-  validarValor, valoresIniciales, vecino, categoriaValida, type Columna, type Tablero,
+  validarValor, valoresIniciales, vecino, categoriaValida, esDatoDeMonday, MENSAJE_DATO_DE_MONDAY, type Columna, type Elemento, type Tablero,
 } from "../dominio/tablero";
 import { tieneAccionTableros } from "../dominio/acciones";
 import { aColumna, aElemento, aGrupo, leerTablero, type Acceso } from "./tableros";
@@ -55,6 +55,11 @@ function direccion(datos: Datos): -1 | 1 {
 function exigir(ctx: Ctx, op: Operacion, donde: { columna?: ColumnaRef; elemento?: ElementoRef } = {}): void {
   const r = evaluar(ctx.acceso.usuario, op, ctx.tablero, ctx.acceso.reglas, donde);
   if (!r.permitido) throw new ErrorTablero(403, r.motivo);
+}
+
+/** Convivencia con Monday: lo que viene de Monday no se cambia aquí (llega con la sincronización). */
+function noDeMonday(ctx: Ctx, e: Pick<Elemento, "mondayItemId">, c?: Pick<Columna, "mondayColumnId">): void {
+  if (esDatoDeMonday(ctx.tablero, e, c)) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
 }
 
 async function grupos(ctx: Ctx) {
@@ -146,6 +151,9 @@ const OPERACIONES: OperacionDef[] = [
       const cambios: Partial<Tables<"tableros">> = {};
       if ("categoria" in d) { exigir(ctx, "administrar"); cambios.categoria = categoriaValida(d.categoria); }
       else exigir(ctx, "editar_estructura");
+      if (ctx.tablero.sincronizaMonday && ("nombre" in d || "codigo" in d)) {
+        throw new ErrorTablero(409, "El nombre y el código vienen de Monday: se cambian en Monday y llegan con la sincronización.");
+      }
       if ("nombre" in d) {
         const n = limpiarTexto(d.nombre, MAX_NOMBRE);
         if (!n) throw new ErrorTablero(400, "El tablero necesita un nombre");
@@ -229,7 +237,11 @@ const OPERACIONES: OperacionDef[] = [
       if (lista.length === 1) throw new ErrorTablero(400, "El tablero necesita al menos un grupo");
       const t = ahora();
       // Sus items y los subitems de esos items se archivan con él.
-      const items = (unwrap(await db().from("elementos").select("id").eq("grupo_id", grupoId).is("archivado_at", null)) ?? []).map((x) => x.id);
+      const filas = unwrap(await db().from("elementos").select("id, monday_item_id").eq("grupo_id", grupoId).is("archivado_at", null)) ?? [];
+      if (ctx.tablero.sincronizaMonday && filas.some((x) => x.monday_item_id)) {
+        throw new ErrorTablero(409, "Este grupo tiene elementos que vienen de Monday: se archivan en Monday y llegan aquí con la sincronización.");
+      }
+      const items = filas.map((x) => x.id);
       if (items.length) {
         unwrap(await db().from("elementos").update({ archivado_at: t }).in("parent_id", items).is("archivado_at", null));
         unwrap(await db().from("elementos").update({ archivado_at: t }).in("id", items));
@@ -358,6 +370,7 @@ const OPERACIONES: OperacionDef[] = [
     async ejecutar(ctx, d) {
       const e = await elemento(ctx, id(d, "elementoId"));
       exigir(ctx, "editar_valor", { elemento: e, columna: { id: "nombre", rol: "nombre" } });
+      noDeMonday(ctx, e);
       const nombre = limpiarTexto(d.nombre, MAX_NOMBRE) ?? "";
       if (nombre === e.nombre) return;
       unwrap(await db().from("elementos").update({ nombre, actualizado_at: ahora() }).eq("id", e.id));
@@ -369,6 +382,7 @@ const OPERACIONES: OperacionDef[] = [
     async ejecutar(ctx, d) {
       const e = await elemento(ctx, id(d, "elementoId"));
       exigir(ctx, "editar_valor", { elemento: e });
+      noDeMonday(ctx, e);
       if (e.parentId) throw new ErrorTablero(400, "Los subelementos se mueven con su elemento");
       const grupoId = id(d, "grupoId");
       const lista = await grupos(ctx);
@@ -385,6 +399,7 @@ const OPERACIONES: OperacionDef[] = [
     async ejecutar(ctx, d) {
       const e = await elemento(ctx, id(d, "elementoId"));
       exigir(ctx, "editar_valor", { elemento: e });
+      noDeMonday(ctx, e);
       const t = ahora();
       unwrap(await db().from("elementos").update({ archivado_at: t }).eq("parent_id", e.id).is("archivado_at", null));
       unwrap(await db().from("elementos").update({ archivado_at: t }).eq("id", e.id));
@@ -398,6 +413,7 @@ const OPERACIONES: OperacionDef[] = [
       const c = await columna(ctx, id(d, "columnaId"));
       if (c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "La columna no es de ese nivel");
       exigir(ctx, "editar_valor", { elemento: e, columna: c });
+      noDeMonday(ctx, e, c);
       if (!esEditable(c.tipo)) throw new ErrorTablero(400, esCalculado(c.tipo) ? "Esa columna se calcula sola" : "Esa columna la llena la app");
       const valor = validarValor(c, d.valor);
       if (valor === undefined) throw new ErrorTablero(400, "Tipo de columna desconocido");
@@ -437,6 +453,7 @@ const OPERACIONES: OperacionDef[] = [
     clave: "comentario.borrar",
     async ejecutar(ctx, d) {
       const c = await comentario(ctx, id(d, "comentarioId"));
+      if (ctx.tablero.sincronizaMonday && c.monday_update_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
       if (c.autor_id !== ctx.me.uid && !ctx.acceso.usuario.esAdmin) throw new ErrorTablero(403, "Solo quien lo escribió (o un Admin) puede borrarlo");
       unwrap(await db().from("elemento_comentarios").update({ borrado_at: ahora() }).eq("id", c.id));
     },
@@ -451,6 +468,7 @@ const OPERACIONES: OperacionDef[] = [
       const c = await columna(ctx, id(d, "columnaId"));
       if (c.tipo !== "archivo" || c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "Esa columna no es de archivos");
       exigir(ctx, "editar_valor", { elemento: e, columna: c });
+      noDeMonday(ctx, e, c);
       const nombre = limpiarTexto(d.nombre, 255);
       const tamano = typeof d.tamano === "number" ? d.tamano : 0;
       if (!nombre) throw new ErrorTablero(400, "Falta el nombre del archivo");
@@ -481,6 +499,7 @@ const OPERACIONES: OperacionDef[] = [
     clave: "archivo.borrar",
     async ejecutar(ctx, d) {
       const a = await archivoFila(ctx, id(d, "archivoId"));
+      if (ctx.tablero.sincronizaMonday && a.monday_asset_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
       const e = await elemento(ctx, a.elemento_id);
       exigir(ctx, "editar_valor", { elemento: e, columna: a.columna_id ? await columna(ctx, a.columna_id) : undefined });
       unwrap(await db().from("elemento_archivos").update({ borrado_at: ahora() }).eq("id", a.id));

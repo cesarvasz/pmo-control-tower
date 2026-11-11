@@ -1094,6 +1094,36 @@ export type Database = {
           },
         ]
       }
+      tablero_sincronizaciones: {
+        Row: {
+          error: string | null
+          estado: string
+          fin: string | null
+          id: number
+          inicio: string
+          origen: string
+          resumen: Json
+        }
+        Insert: {
+          error?: string | null
+          estado?: string
+          fin?: string | null
+          id?: never
+          inicio?: string
+          origen: string
+          resumen?: Json
+        }
+        Update: {
+          error?: string | null
+          estado?: string
+          fin?: string | null
+          id?: never
+          inicio?: string
+          origen?: string
+          resumen?: Json
+        }
+        Relationships: []
+      }
       tableros: {
         Row: {
           actualizado_at: string
@@ -1107,6 +1137,7 @@ export type Database = {
           monday_board_id: string | null
           nombre: string
           plantilla_id: string | null
+          sincroniza_monday: boolean
         }
         Insert: {
           actualizado_at?: string
@@ -1120,6 +1151,7 @@ export type Database = {
           monday_board_id?: string | null
           nombre: string
           plantilla_id?: string | null
+          sincroniza_monday?: boolean
         }
         Update: {
           actualizado_at?: string
@@ -1133,6 +1165,7 @@ export type Database = {
           monday_board_id?: string | null
           nombre?: string
           plantilla_id?: string | null
+          sincroniza_monday?: boolean
         }
         Relationships: [
           {

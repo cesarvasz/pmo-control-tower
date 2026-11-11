@@ -16,13 +16,13 @@ import { usuarioTableros } from "./puerta";
 export function aTablero(r: Tables<"tableros">): Tablero {
   return {
     id: r.id, nombre: r.nombre, codigo: r.codigo, categoria: r.categoria, descripcion: r.descripcion,
-    plantillaId: r.plantilla_id, mondayBoardId: r.monday_board_id, actualizadoAt: r.actualizado_at,
+    plantillaId: r.plantilla_id, mondayBoardId: r.monday_board_id, sincronizaMonday: r.sincroniza_monday, actualizadoAt: r.actualizado_at,
   };
 }
 
 export function aGrupo(r: Tables<"tablero_grupos">): Grupo {
   const fase = (FASES_VALOR as readonly string[]).includes(r.fase ?? "") ? (r.fase as FaseValor) : null;
-  return { id: r.id, titulo: r.titulo, color: r.color, orden: r.orden, fase };
+  return { id: r.id, titulo: r.titulo, color: r.color, orden: r.orden, fase, mondayGrupo: r.monday_group_id };
 }
 
 export function aColumna(r: Tables<"tablero_columnas">): Columna {

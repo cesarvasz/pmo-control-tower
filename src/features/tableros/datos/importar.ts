@@ -18,7 +18,7 @@ import { claveNombre } from "../dominio/personas";
 import { mondayADefinicion, type ColumnaMonday, type FilaMonday, type RelacionImportada } from "../dominio/importar-monday";
 import { tableroAMondayItems, tableroAProjItems, type PersonaMetricas } from "../dominio/metricas";
 import { diferenciasPorId, diferenciasProfundas, diferenciasProjItems, resumenMetricas, separarPersonasFuera } from "../dominio/paridad";
-import type { TableroCompleto } from "../dominio/tablero";
+import { limpiarTexto, MAX_NOMBRE, type TableroCompleto } from "../dominio/tablero";
 import { crearDesdeDefinicion } from "./materializar";
 import { leerExtras, listarPersonasCorto, type Acceso } from "./tableros";
 import { ErrorTablero } from "./errores";
@@ -104,6 +104,44 @@ async function relacionesImportadas(excepto: string, destinos: string[]): Promis
   return out;
 }
 
+/** Nombre y código del tablero según el nombre del board en Monday ("PM-013 | TDP ADU" → código PM-013),
+ *  limpios como los guarda la app (sin espacios dobles), para que comparar con lo guardado no dé falsos cambios. */
+export function nombreYCodigo(nombreBoard: string, tipo: TipoBoard): { nombre: string; codigo: string | null } {
+  const limpio = (x: string) => limpiarTexto(x, MAX_NOMBRE) ?? x;
+  if (tipo !== "proj") return { nombre: limpio(nombreBoard), codigo: null };
+  const { code, name } = splitBoardName(nombreBoard);
+  return { nombre: limpio(name || nombreBoard), codigo: limpiarTexto(code, 30) };
+}
+
+/** Lo que hay HOY en la copia de Monday de un board, pasado a definición de tablero (sin escribir nada).
+ *  Lo usan importar (crear el tablero) y sincronizar (fusionarlo con el que ya existe). */
+export async function definicionDesdeLaCopia(mondayBoardId: string) {
+  const db = getSupabaseAdmin();
+  const board = unwrap(await db.from("monday_boards").select("id, nombre, tipo, columnas").eq("id", mondayBoardId).in("tipo", TIPOS_IMPORTABLES).maybeSingle());
+  if (!board) throw new ErrorTablero(404, "Ese board no está en la copia de Monday (o no se importa)");
+  const subBoard = unwrap(await db.from("monday_boards").select("columnas").eq("padre_board_id", mondayBoardId).limit(1).maybeSingle());
+  const destinos = destinosDeRelaciones(board.columnas as unknown as Record<string, ColumnaMonday>, (subBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>);
+  const [rhBoard, filas, dir, relaciones] = await Promise.all([
+    unwrap(await db.from("monday_boards").select("columnas").eq("tipo", "rh").eq("activo", true).limit(1).maybeSingle()),
+    selectAll<FilaMonday>((d, h) => db.from("monday_items")
+      .select("id, parent_id, orden, nombre, grupo, column_values").eq("board_id", mondayBoardId).is("deleted_at", null)
+      .order("id").range(d, h) as unknown as PromiseLike<{ data: FilaMonday[] | null; error: null }>),
+    directorio(),
+    relacionesImportadas(mondayBoardId, destinos),
+  ]);
+  const personaPorNombre = (n: string) => dir.porNombre.get(n.includes("@") ? n.trim().toLowerCase() : claveNombre(n));
+  const resultado = mondayADefinicion({
+    columnas: board.columnas as unknown as Record<string, ColumnaMonday>,
+    columnasSub: (subBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>,
+    filas,
+    rhBoardId: process.env.MONDAY_RH_BOARD_ID ?? null,
+    rhColumnas: (rhBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>,
+    personaPorNombre,
+    relaciones,
+  });
+  return { board: { id: board.id, nombre: board.nombre, tipo: board.tipo as TipoBoard }, filas, personaPorNombre, ...resultado };
+}
+
 export interface ResultadoImportarBoard {
   tableroId: string;
   elementos: number;
@@ -118,9 +156,9 @@ export async function importarBoard(
   mondayBoardId: string, opciones: { refrescar: boolean; reemplazar: boolean }, me: AppUser,
 ): Promise<ResultadoImportarBoard> {
   const db = getSupabaseAdmin();
-  const board = unwrap(await db.from("monday_boards").select("id, nombre, tipo, columnas").eq("id", mondayBoardId).in("tipo", TIPOS_IMPORTABLES).maybeSingle());
-  if (!board) throw new ErrorTablero(404, "Ese board no está en la copia de Monday (o no se importa)");
-  const tipo = board.tipo as TipoBoard;
+  const fila = unwrap(await db.from("monday_boards").select("id, tipo").eq("id", mondayBoardId).in("tipo", TIPOS_IMPORTABLES).maybeSingle());
+  if (!fila) throw new ErrorTablero(404, "Ese board no está en la copia de Monday (o no se importa)");
+  const tipo = fila.tipo as TipoBoard;
   const categoria = CATEGORIA_POR_TIPO.find(([t]) => t === tipo)![1];
 
   const previo = unwrap(await db.from("tableros").select("id").eq("monday_board_id", mondayBoardId).maybeSingle());
@@ -133,26 +171,7 @@ export async function importarBoard(
     }
   }
 
-  const subBoard = unwrap(await db.from("monday_boards").select("columnas").eq("padre_board_id", mondayBoardId).limit(1).maybeSingle());
-  const destinos = destinosDeRelaciones(board.columnas as unknown as Record<string, ColumnaMonday>, (subBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>);
-  const [rhBoard, filas, dir, relaciones] = await Promise.all([
-    unwrap(await db.from("monday_boards").select("columnas").eq("tipo", "rh").eq("activo", true).limit(1).maybeSingle()),
-    selectAll<FilaMonday>((d, h) => db.from("monday_items")
-      .select("id, parent_id, orden, nombre, grupo, column_values").eq("board_id", mondayBoardId).is("deleted_at", null)
-      .order("id").range(d, h) as unknown as PromiseLike<{ data: FilaMonday[] | null; error: null }>),
-    directorio(),
-    relacionesImportadas(mondayBoardId, destinos),
-  ]);
-
-  const { definicion, omitidas, personasNoEncontradas, ligadosNoEncontrados } = mondayADefinicion({
-    columnas: board.columnas as unknown as Record<string, ColumnaMonday>,
-    columnasSub: (subBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>,
-    filas,
-    rhBoardId: process.env.MONDAY_RH_BOARD_ID ?? null,
-    rhColumnas: (rhBoard?.columnas ?? {}) as unknown as Record<string, ColumnaMonday>,
-    personaPorNombre: (n) => dir.porNombre.get(n.includes("@") ? n.trim().toLowerCase() : claveNombre(n)),
-    relaciones,
-  });
+  const { board, definicion, omitidas, personasNoEncontradas, ligadosNoEncontrados } = await definicionDesdeLaCopia(mondayBoardId);
 
   // Reemplazar: se borra el anterior y se crea con LOS MISMOS ids (tablero, columnas, elementos),
   // para no romper lo que apunta a él desde otros tableros; sus reglas de permisos se conservan.
@@ -176,9 +195,8 @@ export async function importarBoard(
     for (const lote of enTrozos(rutas.map((a) => a.ruta), 100)) await db.storage.from("tableros").remove(lote);
     unwrap(await db.from("tableros").delete().eq("id", previo.id));
   }
-  const { code, name } = splitBoardName(board.nombre);
   const tableroId = await crearDesdeDefinicion(definicion, {
-    nombre: tipo === "proj" ? name || board.nombre : board.nombre, codigo: tipo === "proj" ? code || null : null,
+    ...nombreYCodigo(board.nombre, tipo),
     categoria, mondayBoardId, idsFijos,
   }, me);
   if (permisos.length) unwrap(await db.from("tablero_permisos").insert(permisos as never));

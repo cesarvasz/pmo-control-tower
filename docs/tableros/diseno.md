@@ -189,7 +189,8 @@ la copia se completa con lo que falta:
 
 Importar = un tablero de la app por cada board, con sus mismas columnas y grupos, más roles
 asignados por un mapa por generación (revisable a mano antes de confirmar). Las 5 fórmulas en
-uso se pasan al evaluador propio. Tras importar, el board de Monday queda de solo lectura.
+uso se pasan al evaluador propio. Monday **no** queda de solo lectura al importar: sigue vivo
+durante la convivencia (Fase 5, sección 8) y solo se congela en el corte (Fase 7).
 
 ---
 
@@ -202,4 +203,61 @@ uso se pasan al evaluador propio. Tras importar, el board de Monday queda de sol
 | **2 · Plantillas + piloto** ✓ | Guardar como plantilla / crear desde plantilla (pestaña Plantillas); importar de Monday (`dominio/importar-monday.ts`, piloto PM-013: 31 elementos, 123 subelementos); adaptador de métricas y "Comparar con Monday" | `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/piloto.integration.test.ts`: 0 diferencias en todos los ProjItem; EVM, salud y entregas idénticos |
 | **3 · Completo** ✓ | Fórmulas (`dominio/formulas.ts`: parser propio, sintaxis de Monday + español; `dominio/calculos.ts` calcula fórmula/espejo/archivo y detecta ciclos; una fórmula puede tener rol si devuelve lo que el rol pide), espejo (dato del directorio o de un tablero ligado), relación entre tableros, bitácora (`elemento_comentarios`) y archivos (`elemento_archivos` + bucket privado `tableros`, subida directa con URL firmada). Importar trae fórmulas y espejos; "Traer bitácora y archivos" trae Updates y documentos de Monday (`datos/importar-extras.ts`) | piloto PM-013: 0 diferencias, fórmulas verificadas en 128 elementos, 68 actualizaciones y 9 archivos; prueba de punta a punta con un archivo real en Storage |
 | **4 · Migración** ✓ | Pestaña Migración: Estrategia → Iniciativas → PML → 19 proyectos (orden por las relaciones); relaciones a tableros importados y espejos sobre ellas; tipos automáticos ID (autonumérico con prefijo, el "Item ID") y Creado (el "Creation log"); volver a importar conserva ids, permisos y lo que apunta al tablero; las columnas importadas conservan su id de Monday (Iniciativas y PML se procesan por id); personas fuera del directorio = aviso. Vista Gantt (registro `ui/vistas`) | `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/portafolio.integration.test.ts`: 22 boards con 0 diferencias salvo una explicada (PM-018: Cost $ = esfuerzo × 9 + Costo adicional; la app de hoy ignora el adicional) |
-| **5 · Corte** | Monday solo lectura → exportación final → se apaga la copia | — |
+| **5 · Convivencia** | Monday sigue vivo. Cada hora se trae todo de Monday a los tableros ya creados **sin rehacerlos** (sección 8): Monday manda en los datos, la app en el modelo. Bitácora, archivos, directorio y boards nuevos incluidos. Registro de corridas, «Sincronizar ahora» y paridad diaria en la pestaña Migración. Primero corre en local; en producción, con pg_cron + pg_net cuando se autorice subir. También se cierran huecos: adjuntos dentro de la bitácora, personas que faltan en el directorio | una semana de corridas sin errores; lo modelado en la app sobrevive a las sincronizaciones; la paridad diaria solo muestra las diferencias que se buscan a propósito al modelar |
+| **6 · Conectar la app** | Interruptor `FUENTE_DATOS=monday\|tableros`: la app lee las métricas de los tableros (datos de hasta 1 h, o al momento con «Sincronizar ahora»). Mientras dure la convivencia, lo que la app escribe (status, actualizaciones) sigue yendo a Monday y dispara la sincronización de ese board. Menú y acciones en `ACTIONS`/roles (toca la estructura de la app: requiere el visto bueno) | comparación del dashboard completo con las dos fuentes (EVM, salud, Control Tower, Players, CKUs, Portafolio) |
+| **7 · Corte** | Cuando el modelo esté listo: se detiene la sincronización, se desbloquean los valores ligados, las escrituras van a los tableros, Monday solo lectura → exportación final a Storage → se apagan la copia, el cron y la clave de Monday | paridad final 0; respaldo semanal de la base y de Storage |
+
+---
+
+## 8. Convivencia con Monday (Fase 5)
+
+Decisión del 2026-11-11: Monday **no** se apaga todavía. Mientras se modela la data en la app, cada
+hora se trae todo de Monday a la estructura ya creada. Cuando el modelo quede como se quiere, se
+desconecta Monday (Fase 7). Regla general: **Monday es dueño de los datos; la app es dueña del modelo.**
+
+"Volver a importar" (Fase 4) no sirve para esto: borra el tablero y lo rehace, así que perdería lo
+modelado, la bitácora y los archivos. La sincronización **fusiona**:
+
+| Lo trae de Monday (Monday manda) | No lo toca (la app manda) |
+|---|---|
+| Elementos y subelementos, por id de Monday: los nuevos se crean; nombre, grupo y padre se actualizan; los borrados o archivados en Monday se **archivan** (no se borran) | Columnas creadas en la app, y las fórmulas, espejos y relaciones (aunque vengan de Monday, vale la expresión que se deje en la app) |
+| Valores de las columnas ligadas (las que tienen id de Monday), convertidos por el **tipo que tenga la columna en la app** (si un Texto se cambia a Persona, el valor de Monday se convierte a Persona) | Título, rol, tipo, orden y configuración de cada columna; nombres y orden de los grupos; categoría, permisos y plantillas |
+| Etiquetas nuevas de status/dropdown (se agregan; las ya modeladas no cambian) | Columnas ligadas que se archiven en la app: no vuelven |
+| Columnas nuevas en Monday: se agregan al final, sin rol (la corrida las lista en Migración para decidir qué hacer con ellas) | Elementos creados en la app (sin id de Monday) |
+| Bitácora y archivos nuevos (solo lo que falta; una actualización editada en Monday se actualiza) | Comentarios y archivos agregados en la app |
+| Directorio RH → `personas` (sin deshacer los ligados a mano) | |
+| Boards nuevos en Monday (p. ej. PM-020): se importan solos y aparecen en Migración | |
+
+- **Sin conflictos:** mientras dure la convivencia (`tableros.sincroniza_monday`), lo que viene de
+  Monday es de solo lectura en la app: valores de las columnas ligadas (marca **M** en el encabezado),
+  nombre, grupo y archivado de sus elementos, sus archivos y actualizaciones, y archivar un grupo con
+  elementos de Monday. Lo decide `esDatoDeMonday` (dominio/tablero.ts): la UI lo usa para no ofrecer
+  la edición y `datos/operaciones.ts` lo exige (409). Las columnas propias de la app y los elementos
+  creados aquí sí se editan. Lo que entra de Monday queda en el historial como «Monday
+  (sincronización)», solo cuando el valor cambió.
+- **Cómo funciona:** `dominio/sincronizar.ts` (puro, con tests en `fase5.test.ts`) compara lo que hay
+  hoy en la copia `monday_*` (pasado a definición por `importar-monday.ts`, igual que al importar)
+  con el tablero, CON lo archivado, y devuelve un plan; `datos/sincronizar.ts` lo aplica. Los grupos
+  se reconocen por su clave de Monday (`tablero_grupos.monday_group_id` = su título allá), así que
+  renombrarlos aquí no los duplica; las etiquetas de Status/Lista van por id (renombrarlas aquí se
+  respeta). Los valores se comparan en forma canónica (jsonb reordena las llaves), así que una
+  corrida sin cambios en Monday no escribe nada.
+- **La corrida** (`correrSincronizacion`): copia de Monday completa (`sincronizarTodo`, ~25 s) →
+  directorio → cada board en orden (Estrategia → Iniciativas → PML → Proyectos; los nuevos se
+  importan) → bitácora y archivos (solo lo nuevo, más el texto de las actualizaciones editadas) →
+  comparación con el procesador real. Un board que falla no frena a los demás. La comparación es un
+  reporte: al modelar, las diferencias buscadas a propósito son esperadas.
+- **Registro:** tabla `tablero_sincronizaciones` (origen manual/programada, inicio, fin, estado y el
+  resultado por board en `resumen`). Un índice único parcial deja **una sola corrida en curso**; una
+  que se cortó hace más de 2 h se marca como fallida. La pestaña Migración muestra la última corrida
+  (y su avance mientras corre), las anteriores, el resultado por board y «Sincronizar ahora».
+  «Rehacer desde cero» (la reimportación de la Fase 4) queda por board, con confirmación, porque
+  borra lo modelado.
+- **Dónde corre (decisión 2026-11-11: solo local):** `npm run tableros:sincronizar`
+  (`scripts/tableros-sincronizar.mjs`, carga el TypeScript con jiti; no necesita el servidor de
+  desarrollo) y el Programador de tareas de Windows lo corre cada hora con
+  `scripts/tableros-sincronizar.cmd` (bitácora en `%TEMP%\pmo-tableros-sync.log`); solo con la PC
+  encendida. «Sincronizar ahora» (POST `/api/tableros/sincronizar`) la corre en el servidor local y
+  en Vercel se rechaza. Si algún día se lleva a producción: pg_cron + pg_net cada hora hacia una ruta
+  con `CRON_SECRET` (el plan Hobby de Vercel solo permite crons diarios), por tandas para no pasar el
+  límite de tiempo de la función.

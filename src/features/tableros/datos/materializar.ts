@@ -36,11 +36,14 @@ export async function crearDesdeDefinicion(def: DefinicionTablero, datos: DatosT
   unwrap(await db.from("tableros").insert({
     id: tableroId, nombre, codigo: limpiarTexto(datos.codigo, 30), categoria: categoriaValida(datos.categoria),
     plantilla_id: datos.plantillaId ?? null, monday_board_id: datos.mondayBoardId ?? null, creado_por: me.uid,
+    // Lo importado de Monday se sincroniza con Monday hasta el corte (Fase 7).
+    sincroniza_monday: !!datos.mondayBoardId,
   }));
 
   try {
     unwrap(await db.from("tablero_grupos").insert(def.grupos.map((g, i) => ({
       id: grupoId.get(g.clave)!, tablero_id: tableroId, titulo: g.titulo, color: g.color, fase: g.fase, orden: i,
+      monday_group_id: g.mondayGrupo ?? null,
     }))));
 
     // Fórmulas y espejos apuntan a otras columnas por su clave: pasan a los ids nuevos.

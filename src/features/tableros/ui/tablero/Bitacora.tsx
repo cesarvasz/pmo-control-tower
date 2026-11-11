@@ -9,11 +9,13 @@ import { Boton, enviar, estiloControl, Nota, useCarga } from "../comun";
 
 const fmtFecha = (iso: string) => new Date(iso).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" });
 
-export default function Bitacora({ tableroId, elementoId, puedeComentar, esAdmin, onCambio }: {
+export default function Bitacora({ tableroId, elementoId, puedeComentar, esAdmin, bloquearDeMonday = false, onCambio }: {
   tableroId: string;
   elementoId: string;
   puedeComentar: boolean;
   esAdmin: boolean;
+  /** Convivencia con Monday: las actualizaciones que vienen de Monday no se borran aquí. */
+  bloquearDeMonday?: boolean;
   onCambio(): void;
 }) {
   const url = `/api/tableros/tableros/${tableroId}`;
@@ -69,7 +71,7 @@ export default function Bitacora({ tableroId, elementoId, puedeComentar, esAdmin
                 <span>{fmtFecha(c.creadoAt)}{c.editadoAt ? " · editado" : ""}{c.deMonday ? " · de Monday" : ""}</span>
                 <span className="flex-1" />
                 {mio && editando?.id !== c.id && <button type="button" className="hover:underline" onClick={() => setEditando({ id: c.id, texto: c.texto })}>Editar</button>}
-                {(mio || esAdmin) && (
+                {(mio || esAdmin) && !(bloquearDeMonday && c.deMonday) && (
                   <button type="button" className="hover:text-[#ef4444] hover:underline"
                     onClick={() => { if (confirm("¿Borrar esta actualización?")) void op({ op: "comentario.borrar", comentarioId: c.id }); }}>
                     Borrar

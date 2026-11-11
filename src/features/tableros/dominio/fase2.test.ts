@@ -38,7 +38,7 @@ describe("importar de Monday", () => {
       personaPorNombre: (n) => (n.toLowerCase().replace("ó", "o") === "ana lopez" ? ANA : undefined),
     });
     const d = r.definicion;
-    expect(d.grupos).toEqual([{ clave: "g1", titulo: "L | Launch", color: expect.any(String), fase: "L" }]);
+    expect(d.grupos).toEqual([{ clave: "g1", titulo: "L | Launch", color: expect.any(String), fase: "L", mondayGrupo: "L | Launch" }]);
     expect(d.columnas.map((c) => [c.nivel, c.titulo, c.tipo, c.rol])).toEqual([
       ["item", "Status", "status", "status"], ["item", "Responsible", "persona", "responsable"], ["item", "CPM", "timeline", "plan"],
       ["item", "Effort Spent", "numero", "esfuerzo_real"], ["item", "Resp", "persona", null],

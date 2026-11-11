@@ -8,7 +8,11 @@
 import { tipoColumna } from "./tipos-columna";
 import { FASES_VALOR, porOrden, type FaseValor, type Nivel, type TableroCompleto } from "./tablero";
 
-export interface GrupoDef { clave: string; titulo: string; color: string | null; fase: FaseValor | null }
+export interface GrupoDef {
+  clave: string; titulo: string; color: string | null; fase: FaseValor | null;
+  /** Grupo de Monday (su título allá), solo al importar. */
+  mondayGrupo?: string | null;
+}
 
 export interface ColumnaDef {
   clave: string;

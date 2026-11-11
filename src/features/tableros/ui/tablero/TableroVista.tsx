@@ -10,7 +10,7 @@ import { CATEGORIAS_TABLERO, categoriaTablero, rolesFaltantes, textoRolRequerido
 import { rolColumna } from "../../dominio/roles";
 import { tipoColumna } from "../../dominio/tipos-columna";
 import { puede, reglaQueAplica, type ReglaPermiso, type UsuarioTableros } from "../../dominio/permisos";
-import { columnasDe, FASES_VALOR, type Columna, type Elemento, type Grupo, type Nivel, type TableroCompleto } from "../../dominio/tablero";
+import { columnasDe, esDatoDeMonday, FASES_VALOR, type Columna, type Elemento, type Grupo, type Nivel, type TableroCompleto } from "../../dominio/tablero";
 import { Boton, enviar, estiloControl, Nota, useCarga } from "../comun";
 import { Celda, type EntornoCelda, type PersonaCorta } from "../celdas";
 import type { ArchivoCelda } from "../celdas/comun";
@@ -172,6 +172,9 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
           </button>
         ) : <span className="truncate">{c.titulo}</span>}
         {rol && <span className="rounded-full px-1.5 text-[0.62rem] font-semibold" style={{ background: "var(--bg-accent-soft)", color: "var(--accent)" }} title={`Rol: ${rol.etiqueta}`}>{rol.etiqueta}</span>}
+        {tablero.sincronizaMonday && c.mondayColumnId && (
+          <span className="rounded px-1 text-[0.6rem] font-bold text-[var(--text-muted)]" style={{ border: "1px solid var(--border)" }} title="Viene de Monday: sus valores se cambian en Monday y llegan con la sincronización">M</span>
+        )}
         {puedeEstructura && (
           <span className="ml-auto hidden gap-0.5 group-hover:flex">
             <button type="button" className={botonMini} disabled={i === 0} onClick={() => hacer({ op: "columna.mover", columnaId: c.id, direccion: -1 })} aria-label="Mover a la izquierda">◂</button>
@@ -183,7 +186,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
   }
 
   function nombreElemento(e: Elemento) {
-    const editable = puede(u, "editar_valor", tablero, R, { elemento: e, columna: NOMBRE });
+    const editable = puede(u, "editar_valor", tablero, R, { elemento: e, columna: NOMBRE }) && !esDatoDeMonday(tablero, e);
     return (
       <div className="flex items-center gap-1">
         <TextoEditable valor={e.nombre} editable={editable} className="flex-1 truncate text-[0.84rem]" onGuardar={(n) => hacer({ op: "elemento.renombrar", elementoId: e.id, nombre: n })} />
@@ -202,7 +205,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
             <Celda
               columna={c} valor={valorDeCelda(calc!, e, c)} personas={personas} elementoId={e.id} entorno={entorno}
               // Fórmula y espejo se calculan solos; los archivos sí se suben (si puede editar).
-              editable={(c.tipo === "archivo" || esEditable(c.tipo)) && puede(u, "editar_valor", tablero, R, { columna: c, elemento: e })}
+              editable={(c.tipo === "archivo" || esEditable(c.tipo)) && !esDatoDeMonday(tablero, e, c) && puede(u, "editar_valor", tablero, R, { columna: c, elemento: e })}
               onCambiar={(v) => cambiarValor(e, c, v)}
             />
           </td>
@@ -254,11 +257,11 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       <div className="flex flex-wrap items-center gap-3">
         <Boton onClick={onVolver}>← Tableros</Boton>
         <TextoEditable
-          valor={tablero.nombre} editable={puedeEstructura} className="text-lg font-bold text-[var(--text-primary)]"
+          valor={tablero.nombre} editable={puedeEstructura && !tablero.sincronizaMonday} className="text-lg font-bold text-[var(--text-primary)]"
           onGuardar={(nombre) => { if (nombre) hacer({ op: "tablero.editar", nombre }); }}
         />
         <TextoEditable
-          valor={tablero.codigo ?? ""} editable={puedeEstructura} placeholder="(sin código)" max={30}
+          valor={tablero.codigo ?? ""} editable={puedeEstructura && !tablero.sincronizaMonday} placeholder="(sin código)" max={30}
           className="text-[0.8rem] text-[var(--text-muted)]" onGuardar={(codigo) => hacer({ op: "tablero.editar", codigo })}
         />
         {puedeAdmin ? (
@@ -287,6 +290,12 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         <Nota>
           Para medirse como <strong>{categoriaTablero(tablero.categoria)?.etiqueta}</strong> le faltan columnas con rol:{" "}
           {faltan.map(textoRolRequerido).join(", ")}.
+        </Nota>
+      )}
+      {tablero.sincronizaMonday && (
+        <Nota>
+          Este tablero se sincroniza con Monday. Los datos que vienen de allá (columnas marcadas <strong>M</strong>, nombres, grupos de los elementos
+          y archivado) se cambian en Monday y llegan con la sincronización. Aquí puedes modelar: columnas propias, títulos, roles, tipos, fórmulas y grupos.
         </Nota>
       )}
       {soloLoMio && <Nota>Solo ves los elementos donde eres responsable (y su contexto).</Nota>}
@@ -435,6 +444,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         <ElementoPanel
           tableroId={tablero.id} elemento={elementoPanel} grupos={grupos} columnas={columnas} personas={personas}
           puedeEditar={puede(u, "editar_valor", tablero, R, { elemento: elementoPanel })} esAdmin={u.esAdmin}
+          deMonday={esDatoDeMonday(tablero, elementoPanel)}
           onCambio={() => { void recargar(); }}
           onMover={async (grupoId) => { await op({ op: "elemento.mover", elementoId: elementoPanel.id, grupoId }).catch(() => {}); }}
           onArchivar={async () => { await op({ op: "elemento.archivar", elementoId: elementoPanel.id }).catch(() => {}); }}

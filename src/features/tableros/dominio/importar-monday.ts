@@ -219,7 +219,7 @@ export function mondayADefinicion(entrada: {
   for (const f of items) {
     const titulo = f.grupo?.trim() || "Sin grupo";
     if (!grupos.some((g) => g.titulo === titulo)) {
-      grupos.push({ clave: `g${grupos.length + 1}`, titulo, color: COLORES_GRUPO[grupos.length % COLORES_GRUPO.length], fase: faseDeGrupo(titulo) });
+      grupos.push({ clave: `g${grupos.length + 1}`, titulo, color: COLORES_GRUPO[grupos.length % COLORES_GRUPO.length], fase: faseDeGrupo(titulo), mondayGrupo: titulo });
     }
   }
 

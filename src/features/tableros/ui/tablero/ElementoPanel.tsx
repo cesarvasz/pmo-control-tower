@@ -60,7 +60,7 @@ function Historial({ tableroId, elementoId, columnas, personas }: { tableroId: s
   );
 }
 
-export default function ElementoPanel({ tableroId, elemento, grupos, columnas, personas, puedeEditar, esAdmin, onMover, onArchivar, onCambio, onCerrar }: {
+export default function ElementoPanel({ tableroId, elemento, grupos, columnas, personas, puedeEditar, esAdmin, deMonday = false, onMover, onArchivar, onCambio, onCerrar }: {
   tableroId: string;
   elemento: Elemento;
   grupos: Grupo[];
@@ -68,6 +68,8 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
   personas: PersonaCorta[];
   puedeEditar: boolean;
   esAdmin: boolean;
+  /** Viene de Monday (convivencia): su grupo y su archivado se cambian en Monday. */
+  deMonday?: boolean;
   onMover(grupoId: string): Promise<void>;
   onArchivar(): Promise<void>;
   /** Algo cambió en la bitácora (para refrescar el contador). */
@@ -79,7 +81,10 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
     <Modal open onClose={onCerrar} width={600} label={`Detalle de ${elemento.nombre}`}>
       <div className="flex flex-col gap-4 p-5">
         <h2 className="text-base font-semibold text-[var(--text-primary)]">{elemento.nombre || "(sin nombre)"}</h2>
-        {puedeEditar && (
+        {puedeEditar && deMonday && (
+          <p className="text-[0.78rem] text-[var(--text-muted)]">Viene de Monday: su grupo y su archivado se cambian en Monday. Aquí sí puedes comentar.</p>
+        )}
+        {puedeEditar && !deMonday && (
           <div className="flex flex-wrap items-center gap-2">
             {!elemento.parentId && (
               <label className="flex items-center gap-1.5 text-[0.8rem] text-[var(--text-secondary)]">Grupo
@@ -104,7 +109,7 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
           ))}
         </div>
         {pestana === "bitacora"
-          ? <Bitacora tableroId={tableroId} elementoId={elemento.id} puedeComentar={puedeEditar} esAdmin={esAdmin} onCambio={onCambio} />
+          ? <Bitacora tableroId={tableroId} elementoId={elemento.id} puedeComentar={puedeEditar} esAdmin={esAdmin} bloquearDeMonday={deMonday} onCambio={onCambio} />
           : <Historial tableroId={tableroId} elementoId={elemento.id} columnas={columnas} personas={personas} />}
       </div>
     </Modal>
