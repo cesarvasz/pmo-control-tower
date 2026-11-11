@@ -52,49 +52,61 @@ export function CkuEncuestasProvider({ children }: { children: ReactNode }) {
 }
 
 /** El botón junto a un entregable (item de la Fase 3) o un PML: solo si ya está completado (Done / CERRADO) y la persona puede
- *  mandar encuestas. `itemId` es el id del item o del PML (una encuesta por cada uno). */
+ *  mandar encuestas. `itemId` es el id del item o del PML (una encuesta por cada uno). El pop-up se abre al instante, con el
+ *  nombre del entregable; si la encuesta aún no existe, el enlace aparece en cuanto el servidor la crea. */
 export function BotonEncuestaEntregable({ cku, itemId, nombre, completado }: { cku: string; itemId: string; nombre: string; completado: boolean }) {
   const ctx = useContext(EncuestasCtx);
+  const [abierto, setAbierto] = useState(false);
   const [token, setToken] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   if (!ctx || !completado) return null;
 
   const existente = ctx.de(cku, itemId);
-  const abrir = async () => {
+  const generar = async () => {
     setErr("");
-    if (existente) { setToken(existente.token); return; }
-    setBusy(true);
     try {
       setToken((await ctx.crear(cku, itemId, nombre)).token);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "No se pudo crear la encuesta");
     }
-    setBusy(false);
+  };
+  const abrir = () => {
+    setAbierto(true);
+    if (existente) { setErr(""); setToken(existente.token); return; }
+    setToken(null);
+    generar();
   };
 
   return (
     <>
       <button
-        type="button" onClick={abrir} disabled={busy}
-        className="rounded-md border px-2 py-0.5 text-[0.65rem] font-semibold whitespace-nowrap text-[var(--accent-light)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+        type="button" onClick={abrir}
+        className="rounded-md border px-2 py-0.5 text-[0.65rem] font-semibold whitespace-nowrap text-[var(--accent-light)] hover:bg-[var(--bg-hover)]"
         style={{ borderColor: "var(--border)" }}
         title={existente ? "Ver el enlace de la encuesta NPS de este entregable" : "Crear la encuesta NPS de este entregable y obtener su enlace"}
       >
-        {busy ? "…" : existente ? "Ver encuesta NPS" : "Encuesta NPS"}
+        {existente ? "Ver encuesta NPS" : "Encuesta NPS"}
       </button>
-      {err && <span className="ml-1 text-[0.62rem]" style={{ color: "var(--bad)" }}>{err}</span>}
-      {token && <EncuestaEntregableModal token={token} ctx={ctx} cku={cku} itemId={itemId} onClose={() => setToken(null)} />}
+      {abierto && (
+        <EncuestaEntregableModal
+          cku={cku} nombre={existente?.nombre ?? nombre} token={token} err={err} respuestas={existente?.respuestas ?? 0}
+          onReintentar={generar} onClose={() => setAbierto(false)}
+        />
+      )}
     </>
   );
 }
 
-function EncuestaEntregableModal({ token, ctx, cku, itemId, onClose }: { token: string; ctx: Ctx; cku: string; itemId: string; onClose: () => void }) {
+function EncuestaEntregableModal({ cku, nombre, token, err, respuestas, onReintentar, onClose }: {
+  cku: string; nombre: string;
+  /** null mientras el servidor crea la encuesta. */
+  token: string | null; err: string; respuestas: number;
+  onReintentar: () => void; onClose: () => void;
+}) {
   const [copiado, setCopiado] = useState(false);
-  // La lista del proveedor trae el nombre y las respuestas (la recién creada, con 0).
-  const s = ctx.de(cku, itemId);
-  const enlace = enlaceEncuestaCku(typeof window === "undefined" ? "" : window.location.origin, token);
+  const enlace = token ? enlaceEncuestaCku(typeof window === "undefined" ? "" : window.location.origin, token) : "";
   const copiar = async () => {
+    if (!enlace) return;
     try {
       await navigator.clipboard.writeText(enlace);
       setCopiado(true);
@@ -107,29 +119,45 @@ function EncuestaEntregableModal({ token, ctx, cku, itemId, onClose }: { token: 
       <div className="flex items-start justify-between gap-3 border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
         <div className="min-w-0">
           <div className="text-[0.66rem] uppercase tracking-widest text-[var(--text-muted)]">Encuesta NPS · {cku}</div>
-          <div className="mt-0.5 text-[1.05rem] font-bold text-[var(--text-primary)]">{s?.nombre ?? "Entregable"}</div>
+          <div className="mt-0.5 text-[1.05rem] font-bold text-[var(--text-primary)]">{nombre}</div>
         </div>
         <button onClick={onClose} className="shrink-0 rounded-lg px-2 py-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]">✕</button>
       </div>
       <div className="px-6 py-5">
         <label className="mb-1.5 block text-[0.72rem] font-bold uppercase tracking-wide text-[var(--text-muted)]">Enlace para contestar</label>
-        <div className="flex items-center gap-2">
-          <input
-            readOnly value={enlace} onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 rounded-lg border bg-[var(--bg-hover)] px-3 py-2 text-[0.8rem] text-[var(--text-secondary)]"
-            style={{ borderColor: "var(--border)" }}
-          />
-          <button
-            onClick={copiar}
-            className="shrink-0 rounded-lg px-4 py-2 text-[0.85rem] font-semibold text-white"
-            style={{ background: "var(--accent)" }}
-          >
-            {copiado ? "¡Copiado!" : "Copiar"}
-          </button>
-        </div>
+        {err ? (
+          <div className="flex items-center gap-3 rounded-lg border px-3 py-2 text-[0.8rem]" style={{ borderColor: "var(--border)", color: "var(--bad)" }}>
+            <span className="min-w-0 flex-1">{err}</span>
+            <button onClick={onReintentar} className="shrink-0 rounded-md border px-2.5 py-1 text-[0.72rem] font-semibold text-[var(--accent-light)]" style={{ borderColor: "var(--border)" }}>
+              Reintentar
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            {token ? (
+              <input
+                readOnly value={enlace} onFocus={(e) => e.currentTarget.select()}
+                className="min-w-0 flex-1 rounded-lg border bg-[var(--bg-hover)] px-3 py-2 text-[0.8rem] text-[var(--text-secondary)]"
+                style={{ borderColor: "var(--border)" }}
+              />
+            ) : (
+              <div role="status" className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border bg-[var(--bg-hover)] px-3 py-2 text-[0.8rem] text-[var(--text-muted)]" style={{ borderColor: "var(--border)" }}>
+                <span className="skeleton h-3 w-40 rounded-md" aria-hidden />
+                Generando enlace…
+              </div>
+            )}
+            <button
+              onClick={copiar} disabled={!token}
+              className="shrink-0 rounded-lg px-4 py-2 text-[0.85rem] font-semibold text-white disabled:opacity-50"
+              style={{ background: "var(--accent)" }}
+            >
+              {copiado ? "¡Copiado!" : "Copiar"}
+            </button>
+          </div>
+        )}
         <p className="mt-3 text-[0.75rem] text-[var(--text-muted)]">
           Cualquier persona con el enlace puede contestar: pide su nombre y correo, y cada correo contesta una sola vez.
-          {s ? ` Lleva ${s.respuestas} respuesta${s.respuestas === 1 ? "" : "s"}.` : ""}{" "}
+          {token ? ` Lleva ${respuestas} respuesta${respuestas === 1 ? "" : "s"}.` : ""}{" "}
           Las respuestas se ven en <Link href="/encuestas" className="font-semibold text-[var(--accent-light)] hover:underline">Encuestas</Link>.
         </p>
       </div>

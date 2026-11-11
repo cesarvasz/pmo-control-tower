@@ -22,8 +22,8 @@ export default function CkuSurveyResultModal({ token, puedeGestionar, onClose, o
   token: string;
   /** Invalidar / validar respuestas: un Admin o el CKU dueño de la encuesta. */
   puedeGestionar: boolean; onClose: () => void;
-  /** Se llama tras invalidar o validar una respuesta (para refrescar los números de afuera). */
-  onChanged?: () => void;
+  /** Se llama tras invalidar o validar una respuesta (para actualizar los números de afuera sin recargar). */
+  onChanged?: (r: CkuSurveyResponseDoc) => void;
 }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [survey, setSurvey] = useState<CkuSurveyDoc | null>(null);
@@ -52,7 +52,12 @@ export default function CkuSurveyResultModal({ token, puedeGestionar, onClose, o
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ responseId: r.id, invalidated: !r.invalidated }),
       });
-      if (res.ok) { await load(); onChanged?.(); }
+      if (res.ok) {
+        // Solo cambia esa respuesta: se actualiza aquí mismo, sin volver a pedir la encuesta.
+        const nueva = { ...r, invalidated: !r.invalidated };
+        setResponses((rs) => rs.map((x) => (x.id === r.id ? nueva : x)));
+        onChanged?.(nueva);
+      }
     } catch { /* noop */ }
     setBusyId(null);
   };

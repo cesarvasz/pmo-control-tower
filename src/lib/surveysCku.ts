@@ -19,12 +19,11 @@ export async function findCkuSurveyPorEntregable(cku: string, entregableId: stri
 }
 
 /** Crea la encuesta de un entregable. Si ese entregable ya tiene una (también ante dos clics a la vez: lo garantiza el
- *  índice único), devuelve la existente en vez de crear otra: `creada` dice cuál de las dos pasó. */
+ *  índice único), devuelve la existente en vez de crear otra: `creada` dice cuál de las dos pasó. Se intenta insertar
+ *  primero (una sola ida a la base en el caso normal) y solo si choca con el índice se busca la que ya existe. */
 export async function createCkuSurvey(input: {
   cku: string; ckuEmail: string; nombre: string; entregableId: string; createdByEmail: string;
 }): Promise<{ survey: CkuSurveyDoc; creada: boolean }> {
-  const existente = await findCkuSurveyPorEntregable(input.cku, input.entregableId);
-  if (existente) return { survey: existente, creada: false };
   try {
     const row = unwrapOne(await db().from("cku_surveys").insert({
       token: randomUUID(),

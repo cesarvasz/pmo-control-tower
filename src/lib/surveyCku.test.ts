@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { CKU_SURVEY_QUESTIONS, ckuIsComplete, enlaceEncuestaCku, entregableCompletado, esCorreoValido } from "@/lib/surveyCku";
+import { CKU_SURVEY_QUESTIONS, ckuIsComplete, conRespuestaCkuInvalidada, enlaceEncuestaCku, entregableCompletado, esCorreoValido, sinEncuestaCku } from "@/lib/surveyCku";
+import type { NpsRecord } from "@/types";
 import { ckuNpsRecordsDe, ckuSurveyResponseDe } from "@/lib/storeRows";
 import { emailDeCkuPorNombre, nombreCkuCanonico } from "@/lib/players";
 
@@ -50,5 +51,22 @@ describe("CKU en el Directorio RH", () => {
   it("correo de un CKU por su nombre", () => {
     expect(emailDeCkuPorNombre(hr, "Javier Juarez")).toBe("javier@c807.com");
     expect(emailDeCkuPorNombre(hr, "Nadie")).toBe("");
+  });
+});
+
+describe("cambios locales a las respuestas (sin recargar el dashboard)", () => {
+  const rec = (token: string, email: string, extra: Partial<NpsRecord> = {}) =>
+    ({ answers: { nps: 9 }, pm: "", invalidated: false, respondentEmail: email, submittedAt: "", reqCode: "", reqId: "", token, ckuEncuesta: true, ...extra }) as NpsRecord;
+  // Una respuesta de PM con el mismo token NO se toca (solo las de encuestas de CKU).
+  const recs = [rec("t1", "ana@x.com"), rec("t1", "beto@x.com"), rec("t2", "ana@x.com"), rec("t1", "ana@x.com", { ckuEncuesta: undefined, pm: "Luis" })];
+
+  it("eliminar una encuesta quita solo sus respuestas de CKU", () => {
+    expect(sinEncuestaCku(recs, "t1").map((r) => [r.token, r.respondentEmail, r.pm])).toEqual([["t2", "ana@x.com", ""], ["t1", "ana@x.com", "Luis"]]);
+  });
+
+  it("invalidar marca solo la respuesta de ese correo en esa encuesta (sin importar mayúsculas)", () => {
+    const out = conRespuestaCkuInvalidada(recs, "t1", " ANA@x.com ", true);
+    expect(out.map((r) => r.invalidated)).toEqual([true, false, false, false]);
+    expect(conRespuestaCkuInvalidada(out, "t1", "ana@x.com", false).every((r) => !r.invalidated)).toBe(true);
   });
 });

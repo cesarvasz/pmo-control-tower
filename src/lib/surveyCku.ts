@@ -5,6 +5,7 @@
 // Sus resultados cuentan en el NPS del Player de ese CKU.
 
 import type { SurveyQuestion } from "@/lib/survey";
+import type { NpsRecord } from "@/types";
 
 /** Id de la respuesta abierta (la «razón» de la encuesta de PM). */
 export const CKU_ABIERTA_ID = "mejora";
@@ -44,6 +45,20 @@ export interface CkuSurveyDoc {
 /** ¿Está completado un entregable? Su Status en Monday es «Done» (sin importar mayúsculas ni espacios): solo entonces se
  *  puede mandar la encuesta NPS. */
 export const entregableCompletado = (status: string | null | undefined): boolean => (status ?? "").trim().toLowerCase() === "done";
+
+// ── Cambios locales a las respuestas del dashboard (data.npsRecords), sin volver a pedir todo ─────────────
+// Las respuestas de una encuesta de CKU llegan como NpsRecord con ckuEncuesta y token = el de su encuesta; dentro de
+// una encuesta, el correo de quien contestó es único.
+
+/** Las respuestas sin las de esa encuesta de CKU (se eliminó). */
+export const sinEncuestaCku = (recs: NpsRecord[], token: string): NpsRecord[] =>
+  recs.filter((r) => !(r.ckuEncuesta && r.token === token));
+
+/** Las respuestas con la de ese correo, en esa encuesta de CKU, invalidada (o devuelta a las métricas). */
+export const conRespuestaCkuInvalidada = (recs: NpsRecord[], token: string, email: string, invalidated: boolean): NpsRecord[] => {
+  const correo = email.trim().toLowerCase();
+  return recs.map((r) => (r.ckuEncuesta && r.token === token && (r.respondentEmail ?? "").toLowerCase() === correo ? { ...r, invalidated } : r));
+};
 
 /** Lo único que ve quien abre el enlace (sin correos ni respuestas). */
 export interface PublicCkuSurvey {

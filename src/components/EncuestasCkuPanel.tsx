@@ -15,7 +15,7 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
   /** Invalidar respuestas y eliminar encuestas: un Admin (todas) o un CKU (las suyas; el servidor lo valida). */
   puedeGestionar: boolean;
 }) {
-  const { data, refresh } = useData();
+  const { data, quitarEncuestaCku, marcarRespuestaCku } = useData();
   const [surveys, setSurveys] = useState<CkuSurveyDoc[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resultToken, setResultToken] = useState<string | null>(null);
@@ -76,7 +76,11 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
     setBusyToken(token);
     try {
       const res = await authedFetch(`/api/surveys-cku/${token}`, { method: "DELETE" });
-      if (res.ok) { await load(); refresh(); }
+      // Sin recargar nada: se quita de la tabla y sus respuestas salen de los NPS (aquí y en el Player) al instante.
+      if (res.ok) {
+        setSurveys((l) => l?.filter((x) => x.token !== token) ?? l);
+        quitarEncuestaCku(token);
+      }
     } catch { /* noop */ }
     setBusyToken(null);
   };
@@ -166,7 +170,7 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
         <CkuSurveyResultModal
           token={resultToken} puedeGestionar={puedeGestionar}
           onClose={() => setResultToken(null)}
-          onChanged={() => { load(); refresh(); }}
+          onChanged={(r) => marcarRespuestaCku(r.surveyToken, r.respondentEmail, r.invalidated)}
         />
       )}
     </div>

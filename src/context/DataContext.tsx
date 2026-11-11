@@ -19,6 +19,7 @@ import { buildDashboardData } from "@/lib/dashboardData";
 import type { ClaseAsignable } from "@/lib/claseProyecto";
 import { aplicarOnHold, conMotivoOnHold, conOnHold, enOnHold, type EnOnHold, type OnHoldTipo } from "@/lib/onHold";
 import { nombreDeEmail, scopeToSponsor } from "@/lib/sponsorScope";
+import { conRespuestaCkuInvalidada, sinEncuestaCku } from "@/lib/surveyCku";
 import type { BoardRefreshResponse } from "@/app/api/dashboard/board/[boardId]/route";
 import type { AtrasoReparto, AttributionKind, DashboardData, DashboardRaw, DelayResponsible, ProjItem } from "@/types";
 
@@ -75,6 +76,10 @@ interface DataContextValue {
   /** Asigna (optimista) la Clase A/B/C de un Proyecto (id de board) o PML (id del item). La
    *  persistencia la hace el caller vía POST /api/clasificacion (ver ClasificacionTab). */
   setClase: (id: string, clase: ClaseAsignable, by?: string) => void;
+  /** Quita (local) las respuestas de una encuesta NPS de CKU que se eliminó, sin volver a pedir todo el dashboard. */
+  quitarEncuestaCku: (token: string) => void;
+  /** Marca (local) una respuesta de una encuesta NPS de CKU como invalidada o la devuelve a las métricas. */
+  marcarRespuestaCku: (token: string, email: string, invalidated: boolean) => void;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -258,6 +263,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setData((prev) => (prev ? { ...prev, clases: { ...prev.clases, [id]: { clase, by, at: new Date().toISOString() } } } : prev));
   }, []);
 
+  // Encuestas NPS de CKU (/encuestas): eliminar una o invalidar una respuesta solo toca sus NpsRecord; evita el refetch
+  // completo (que tapa la pantalla con el loader mientras vuelve a leer Monday).
+  const quitarEncuestaCku = useCallback((token: string) => {
+    setData((prev) => (prev ? { ...prev, npsRecords: sinEncuestaCku(prev.npsRecords, token) } : prev));
+  }, []);
+  const marcarRespuestaCku = useCallback((token: string, email: string, invalidated: boolean) => {
+    setData((prev) => (prev ? { ...prev, npsRecords: conRespuestaCkuInvalidada(prev.npsRecords, token, email, invalidated) } : prev));
+  }, []);
+
   // Carga inicial una sola vez, cuando hay sesión Y la cuenta puede ver datos (aprobada y sin
   // contraseña temporal pendiente; si no, el servidor respondería 403). Los datos NO se refrescan
   // solos: solo al entrar/recargar la página o con el botón "Actualizar" del Topbar.
@@ -276,7 +290,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user, puedeCargar, refresh]);
 
   return (
-    <DataContext.Provider value={{ data, dataTodo, dataCompleto, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold, setClase }}>
+    <DataContext.Provider value={{ data, dataTodo, dataCompleto, enPausa, alcance, loading, error, refresh, refreshBoard, refreshingBoards, setProjStatus, setAttribution, setMetodologiaCalif, setAtrasoDetalle, setBoardAlcance, setOnHold, setMotivoOnHold, setClase, quitarEncuestaCku, marcarRespuestaCku }}>
       {children}
     </DataContext.Provider>
   );

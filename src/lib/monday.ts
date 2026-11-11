@@ -138,12 +138,32 @@ export async function fetchIniAndHrRaw(): Promise<{ iniItems: MondayItem[]; hrIt
   };
 }
 
-/** Solo el Directorio RH (para saber el Role de quien envía una encuesta). */
+// El Directorio RH cambia poco y se consulta en cada acción de encuestas (¿quién es CKU?, su correo): se guarda unos
+// minutos en memoria, con una sola consulta en vuelo a la vez y, ante un fallo transitorio, la última copia buena.
+const HR_TTL_MS = 5 * 60_000;
+let hrCache: { items: MondayItem[]; at: number } | null = null;
+let hrInflight: Promise<MondayItem[]> | null = null;
+
+/** Solo el Directorio RH (para saber el Role de quien envía una encuesta). Con caché de HR_TTL_MS. */
 export async function fetchHrItems(): Promise<MondayItem[]> {
-  const data = await mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(
-    boardItemsQuery(env("MONDAY_RH_BOARD_ID")),
-  );
-  return data.boards[0]?.items_page.items ?? [];
+  if (hrCache && Date.now() - hrCache.at < HR_TTL_MS) return hrCache.items;
+  if (hrInflight) return hrInflight;
+  hrInflight = (async () => {
+    try {
+      const data = await mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(
+        boardItemsQuery(env("MONDAY_RH_BOARD_ID")),
+      );
+      const items = data.boards[0]?.items_page.items ?? [];
+      hrCache = { items, at: Date.now() };
+      return items;
+    } catch (err) {
+      if (hrCache) return hrCache.items;
+      throw err;
+    } finally {
+      hrInflight = null;
+    }
+  })();
+  return hrInflight;
 }
 
 // ── Caché en memoria (TTL) + single-flight ───────────────────────────────
