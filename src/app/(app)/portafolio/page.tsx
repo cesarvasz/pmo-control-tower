@@ -1,7 +1,7 @@
 "use client";
 
 // Dashboard de Portafolio: la salud, el avance, los hitos y los atrasos de todos los Proyectos y PML
-// en una sola vista, filtrable por Tipo, PM, Clase y Unidad de Negocio. Toda la cuenta vive en
+// en una sola vista, filtrable por Tipo, PM, Clase, Unidad de Negocio y País. Toda la cuenta vive en
 // lib/portafolio.ts (pura, con pruebas); la salud de cada proyecto es la del Control Tower
 // (buildBoardMaps) y, sin filtros, el EVM es exactamente el «EVM · PMO» de allá. Lo que está en
 // On Hold no cuenta (`data` ya viene sin eso); solo se muestra cuántos hay.
@@ -82,8 +82,8 @@ function Portafolio({ data, dataTodo, enPausa }: { data: DashboardData; dataTodo
   const gravedad = conteoGravedad(atrasos);
   const nOnHold = pausados.filter((e) => pasaFiltros(e, filtros)).length;
 
-  // Iniciativas no tienen Tipo, Clase ni Unidad de Negocio: con esos filtros el EVM es solo de Proyectos y PML.
-  const iniAplica = filtros.tipo === "todos" && !filtros.clase.length && !filtros.uNeg.length;
+  // Iniciativas no tienen Tipo, Clase, Unidad de Negocio ni País: con esos filtros el EVM es solo de Proyectos y PML.
+  const iniAplica = filtros.tipo === "todos" && !filtros.clase.length && !filtros.uNeg.length && !filtros.pais.length;
   const ini = iniAplica ? saludIniciativas(filtros.pm.length ? filtros.pm : listPMs(data.ini, data.req), data.ini, data.calMap) : null;
   const partes = partesEvmPortafolio(ini, visibles);
   const evm = weightedEvm(partes);
@@ -132,6 +132,7 @@ function Portafolio({ data, dataTodo, enPausa }: { data: DashboardData; dataTodo
         <MultiSelect label="PM" options={opciones("pm")} selected={filtros.pm} onToggle={toggle("pm")} onToggleAll={limpiar("pm")} />
         <MultiSelect label="Clase" options={opciones("clase")} selected={filtros.clase} onToggle={toggle("clase")} onToggleAll={limpiar("clase")} />
         <MultiSelect label="Unidad de Negocio" options={opciones("uNeg")} selected={filtros.uNeg} onToggle={toggle("uNeg")} onToggleAll={limpiar("uNeg")} />
+        <MultiSelect label="País" options={opciones("pais")} selected={filtros.pais} onToggle={toggle("pais")} onToggleAll={limpiar("pais")} />
         {hayFiltro && <FilterReset onClick={() => setFiltros(SIN_FILTROS_PORTAFOLIO)} />}
       </div>
 

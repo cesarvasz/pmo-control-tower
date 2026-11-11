@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { fmtMoney, fmtMoneyShort, today } from "@/lib/business";
 import { calcPmMetrics, type ConfirmacionRoiPm } from "@/lib/dashboard";
 import type { DelayMap } from "@/lib/delay";
-import { healthStatusFromIndex, EVM_PESOS_TXT, HEALTH_CFG } from "@/lib/health";
+import { EVM_PESOS_TXT } from "@/lib/health";
 import { npsCfg } from "@/lib/nps";
 import { kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion, KPI_W, type KpiWeights, colorIndicadorCku } from "@/lib/kpi";
 
@@ -109,14 +109,13 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
         <tbody>
           {rows.map((r, i) => {
             const player = playerPalette(r.kpiPct);
-            const evmStatus = healthStatusFromIndex(r.evmRaw);
-            // Indicadores de un CKU (Players): 100 % verde · 95–99 amarillo · menos de 95 rojo, y ninguno pasa de 100 %.
-            // En el Control Tower (PM) se conservan las escalas de siempre. El Player y el NPS no cambian.
+            // Indicadores (de un CKU en Players y de un PM en el Control Tower): 100 % verde · 95–99 amarillo · menos de 95 rojo.
+            // El tope de 100 % en lo mostrado solo aplica a los CKUs. El Player y el NPS conservan sus escalas.
             const cku = ponderadoPorFuente;
-            const evmColor = cku && r.evmPct !== null ? colorIndicadorCku(r.evmPct) : evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
+            const evmColor = r.evmPct !== null ? colorIndicadorCku(r.evmPct) : "#6b7280";
             const npsColor = npsCfg(r.nps.nps)?.color ?? "#6b7280";
-            const entColor = r.entPct === null ? "#6b7280" : cku ? colorIndicadorCku(r.entPct) : r.entPct >= 90 ? "var(--ok)" : r.entPct >= 75 ? "var(--warn)" : "var(--bad)";
-            const repColor = r.reprocesoPct === null ? "#6b7280" : cku ? colorIndicadorCku(r.reprocesoPct) : r.reprocesoPct >= 90 ? "var(--ok)" : r.reprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+            const entColor = r.entPct === null ? "#6b7280" : colorIndicadorCku(r.entPct);
+            const repColor = r.reprocesoPct === null ? "#6b7280" : colorIndicadorCku(r.reprocesoPct);
             const tope = (p: number) => (cku ? Math.min(p, 100) : p);
             // Peso ganado por cada métrica = logro × peso (aporte al KPI del PM).
             const pts = (key: string) => {
@@ -181,7 +180,7 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                       >
                         {/* Validado arriba (negro) y Confirmado abajo (semáforo vs. meta a meses terminados). En un CKU: su meta arriba y lo cumplido abajo (semáforo vs. esa meta). */}
                         <span style={{ color: "var(--text-primary)" }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.metaTotal : r.benefit)}</span>
-                        <span style={{ color: r.beneficioCku ? colorIndicadorCku(Math.round(r.beneficioCku.logro * 100)) : kpiColorFor(ratioConfirmacion(r.pmValueHard.confirmacionBenefit)) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.real : r.pmValueHard.confirmacionBenefit)}</span>
+                        <span style={{ color: r.beneficioCku ? colorIndicadorCku(Math.round(r.beneficioCku.logro * 100)) : colorIndicadorCku(ratioConfirmacion(r.pmValueHard.confirmacionBenefit) * 100) }}>{fmtMoneyShort(r.beneficioCku ? r.beneficioCku.real : r.pmValueHard.confirmacionBenefit)}</span>
                       </button>
                       )}
                       <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("benefit")} pts</div>
@@ -206,7 +205,7 @@ export default function PmScoreboard({ pms, ini, req, proj, projBoards, boardHea
                 {/* Cumplimiento Metodología VALOR — nota vigente del mes en curso (peso 15) */}
                 {weights.metodologia > 0 && (
                   <td className={`${td} text-center`} title={r.metodologiaPct === null ? "Sin medición todavía" : "Nota de Metodología VALOR vigente (la del mes en curso)"}>
-                    <div className="tabular-nums font-bold" style={{ color: r.metodologiaPct === null ? "#6b7280" : cku ? colorIndicadorCku(r.metodologiaPct) : r.metodologiaPct >= 90 ? "var(--ok)" : r.metodologiaPct >= 75 ? "var(--warn)" : "var(--bad)" }}>{r.metodologiaPct !== null ? `${tope(r.metodologiaPct)}%` : "—"}</div>
+                    <div className="tabular-nums font-bold" style={{ color: r.metodologiaPct === null ? "#6b7280" : colorIndicadorCku(r.metodologiaPct) }}>{r.metodologiaPct !== null ? `${tope(r.metodologiaPct)}%` : "—"}</div>
                     {r.metodologiaPct !== null && <div className="text-[0.62rem] font-semibold text-[var(--text-muted)]">{pts("metodologia")} pts</div>}
                   </td>
                 )}

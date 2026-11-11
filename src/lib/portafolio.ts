@@ -32,6 +32,8 @@ export interface ElementoPortafolio {
   clase: Clase;
   /** Unidad de Negocio de su Estrategia; "" si no la tiene. */
   uNeg: string;
+  /** País de su Estrategia; "" si no lo tiene. */
+  pais: string;
   /** Nota EVM (0–1): índice del board o VEM del PML; null si no se puede calcular. */
   healthIndex: number | null;
   salud: HealthStatus | null;
@@ -71,12 +73,13 @@ export interface FiltrosPortafolio {
   pm: string[];
   clase: string[];
   uNeg: string[];
+  pais: string[];
 }
 
-export const SIN_FILTROS_PORTAFOLIO: FiltrosPortafolio = { tipo: "todos", pm: [], clase: [], uNeg: [] };
+export const SIN_FILTROS_PORTAFOLIO: FiltrosPortafolio = { tipo: "todos", pm: [], clase: [], uNeg: [], pais: [] };
 
 export const hayFiltroPortafolio = (f: FiltrosPortafolio) =>
-  f.tipo !== "todos" || f.pm.length > 0 || f.clase.length > 0 || f.uNeg.length > 0;
+  f.tipo !== "todos" || f.pm.length > 0 || f.clase.length > 0 || f.uNeg.length > 0 || f.pais.length > 0;
 
 // ── Elementos y actividades ─────────────────────────────────────────────
 
@@ -99,6 +102,7 @@ export function elementosPortafolio(
       tipo: "proyecto", id: b.id, codigo: code || b.name, nombre: code ? name : "",
       pm: b.pm || "", clase: claseDeBoard(b, data.clases),
       uNeg: lookupEstrategia(data.estrategiaMap, b.estrategia ?? "")?.uNeg || "",
+      pais: (lookupEstrategia(data.estrategiaMap, b.estrategia ?? "")?.pais || "").trim(),
       healthIndex, salud: healthStatusFromIndex(healthIndex),
       fase: completion.isComplete ? "Completado" : idx >= 0 ? sinLetraDeFase(phases[idx].grupo) : "—",
       completo: completion.isComplete,
@@ -111,6 +115,7 @@ export function elementosPortafolio(
       tipo: "pml", id: r.id, codigo: r.id, nombre: r.name,
       pm: r.pm || "", clase: claseDePml(r.id, data.clases),
       uNeg: lookupEstrategia(data.estrategiaMap, r.estrategia)?.uNeg || "",
+      pais: (lookupEstrategia(data.estrategiaMap, r.estrategia)?.pais || "").trim(),
       healthIndex: r.vem, salud: healthStatusFromIndex(r.vem),
       fase: r.grupo, completo: false,
     });
@@ -177,11 +182,11 @@ export function actividadesPortafolio(
 
 // ── Filtros ─────────────────────────────────────────────────────────────
 
-export type DimensionPortafolio = "pm" | "clase" | "uNeg";
+export type DimensionPortafolio = "pm" | "clase" | "uNeg" | "pais";
 
 export function pasaFiltros(e: ElementoPortafolio, f: FiltrosPortafolio, ignorar?: DimensionPortafolio | "tipo"): boolean {
   return (ignorar === "tipo" || f.tipo === "todos" || e.tipo === f.tipo)
-    && (["pm", "clase", "uNeg"] as const).every((d) => ignorar === d || !f[d].length || f[d].includes(e[d]));
+    && (["pm", "clase", "uNeg", "pais"] as const).every((d) => ignorar === d || !f[d].length || f[d].includes(e[d]));
 }
 
 // ── KPI ─────────────────────────────────────────────────────────────────

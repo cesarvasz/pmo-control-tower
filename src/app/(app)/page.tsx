@@ -32,7 +32,7 @@ import PMValueModal from "@/components/PMValueModal";
 import KpiModal from "@/components/KpiModal";
 import ReprocesoDetailModal from "@/components/ReprocesoDetailModal";
 import EntregaDetailModal from "@/components/EntregaDetailModal";
-import { computeKpi, kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion } from "@/lib/kpi";
+import { colorIndicadorCku, computeKpi, kpiColorFor, metaConfirmacionAcumulada, ratioConfirmacion } from "@/lib/kpi";
 import { buildVpaActions } from "@/lib/vpaActions";
 import type { EnOnHold } from "@/lib/onHold";
 import WeeklyProgressChart from "@/components/WeeklyProgressChart";
@@ -858,7 +858,7 @@ function PMPortfolioCard({
   const {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, iniLista, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
-    resumenClases, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
+    resumenClases, ihc, pmEvmPct, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
   } = useMemo(() => {
   // Luis y David: su Confirmación sale de ROI, no de Monday (ver conConfirmacionRoi).
@@ -880,7 +880,7 @@ function PMPortfolioCard({
   const pmProjFiltered = proj.filter((p) => pmBoardIdSet.has(p.boardId));
   const pmIniFiltered = ini.filter((i) => i.pm === pm);
   const { onTime: entOn, late: entLate, total: entTotal, pct: entPct } = calcEntregaStats(pmReqFiltered, pmProjFiltered, delays, pmIniFiltered);
-  const entColor = entPct === null ? "#6b7280" : entPct >= 90 ? "var(--ok)" : entPct >= 75 ? "var(--warn)" : "var(--bad)";
+  const entColor = entPct === null ? "#6b7280" : colorIndicadorCku(entPct);
   const entLateRows = buildLateResponsibleRows(pmReqFiltered, pmProjFiltered, projBoards, delays, pmIniFiltered);
 
   // En vez de PML y Proyectos por separado, la tarjeta se divide por CLASE (A, B, C): los PML activos
@@ -935,7 +935,7 @@ function PMPortfolioCard({
   return {
     pmValueAll, pmValueHard, pmBenefitDisplay, iniHealth, iniLista, planFuturoDue, pmNps, npsColor,
     entOn, entLate, entTotal, entPct, entColor, entLateRows,
-    resumenClases, ihc, pmEvmPct, pmEvmRaw, pmReprocesoPct,
+    resumenClases, ihc, pmEvmPct, pmReprocesoPct,
     pmKpi, pmKpiPct, pmKpiColor, hc,
   };
   }, [pm, ini, req, proj, projBoards, boardHealthMap, boardCompleteMap, calMap, npsRecords, delays, reproceso, metodologia, clases, confirmacionRoi]);
@@ -965,14 +965,14 @@ function PMPortfolioCard({
 
       {/* Fila de métricas (los 5 componentes del KPI): EVM · Beneficio · Calidad · Cumplimiento · NPS */}
       {(() => {
-        const evmStatus = healthStatusFromIndex(pmEvmRaw);
-        const evmColor = evmStatus ? HEALTH_CFG[evmStatus].color : "#6b7280";
-        const repColor = pmReprocesoPct === null ? "#6b7280" : pmReprocesoPct >= 90 ? "var(--ok)" : pmReprocesoPct >= 75 ? "var(--warn)" : "var(--bad)";
+        // Las métricas del PM usan la misma escala que los indicadores de los CKUs: 100 % verde · 95–99 amarillo · menos de 95 rojo.
+        const evmColor = pmEvmPct !== null ? colorIndicadorCku(pmEvmPct) : "#6b7280";
+        const repColor = pmReprocesoPct === null ? "#6b7280" : colorIndicadorCku(pmReprocesoPct);
         const npsLabel = pmNps.nps !== null ? npsCfg(pmNps.nps)?.label : undefined;
         // Confirmado en semáforo contra la meta por PM a meses TERMINADOS
         // ($84K ÷ 12 × meses cerrados; el mes en curso no cuenta).
         const confRatio = ratioConfirmacion(pmValueHard.confirmacionBenefit);
-        const confColor = kpiColorFor(confRatio);
+        const confColor = colorIndicadorCku(confRatio * 100);
         const metrics: { label: string; value: React.ReactNode; color: string; onClick?: () => void; title: string; sub?: string; badge?: { text: string; color: string; bg: string } }[] = [
           // La salud del PM (también el borde de la tarjeta) sale de esta misma nota (umbrales en VEM_THRESHOLDS, lib/health.ts).
           { label: "EVM", value: pmEvmPct !== null ? `${pmEvmPct}%` : "—", color: evmColor, badge: { text: `${hc.icon} ${hc.label}`, color: hc.color, bg: hc.bg }, title: `EVM del PM · ponderado ${EVM_PESOS_TXT} · su salud sale de esta nota: ${VEM_RANGOS_TXT}` },

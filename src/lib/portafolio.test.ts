@@ -81,16 +81,16 @@ describe("elementosPortafolio", () => {
 
   it("proyecto: código, nombre, clase, Unidad de Negocio de su Estrategia, salud y fase", () => {
     expect(el("b1")).toMatchObject({
-      tipo: "proyecto", codigo: "PM-016", nombre: "Segundo", pm: "Luis", clase: "Sin clasificar", uNeg: "Aduanas",
+      tipo: "proyecto", codigo: "PM-016", nombre: "Segundo", pm: "Luis", clase: "Sin clasificar", uNeg: "Aduanas", pais: "GT",
       healthIndex: 0.96, salud: "on-track", fase: "Launch", completo: false,
     });
-    expect(el("b2")).toMatchObject({ clase: "A", salud: "off-track", fase: "Aprobación", uNeg: "" });
+    expect(el("b2")).toMatchObject({ clase: "A", salud: "off-track", fase: "Aprobación", uNeg: "", pais: "" });
     expect(el("b3")).toMatchObject({ completo: true, fase: "Completado" });
   });
 
   it("PML: su VEM es la salud, su grupo la fase y su clase por defecto C", () => {
-    expect(el("PML-10")).toMatchObject({ tipo: "pml", clase: "C", healthIndex: 0.7, salud: "off-track", fase: "Aprobación", uNeg: "Aduanas" });
-    expect(el("PML-2")).toMatchObject({ healthIndex: null, salud: null, uNeg: "" });
+    expect(el("PML-10")).toMatchObject({ tipo: "pml", clase: "C", healthIndex: 0.7, salud: "off-track", fase: "Aprobación", uNeg: "Aduanas", pais: "GT" });
+    expect(el("PML-2")).toMatchObject({ healthIndex: null, salud: null, uNeg: "", pais: "" });
   });
 });
 
@@ -109,7 +109,7 @@ describe("actividadesPortafolio", () => {
 });
 
 describe("filtros", () => {
-  it("sin filtros pasa todo; por tipo, PM, clase y Unidad de Negocio", () => {
+  it("sin filtros pasa todo; por tipo, PM, clase, Unidad de Negocio y País", () => {
     expect(elementos.every((e) => pasaFiltros(e, SIN_FILTROS_PORTAFOLIO))).toBe(true);
     const ids = (f: Partial<typeof SIN_FILTROS_PORTAFOLIO>) =>
       elementos.filter((e) => pasaFiltros(e, { ...SIN_FILTROS_PORTAFOLIO, ...f })).map((e) => e.id);
@@ -117,6 +117,8 @@ describe("filtros", () => {
     expect(ids({ pm: ["David"] })).toEqual(["b2", "PML-2"]);
     expect(ids({ clase: ["A", "C"] })).toEqual(["b2", "PML-2", "PML-10"]);
     expect(ids({ uNeg: ["Aduanas"] })).toEqual(["b1", "PML-10"]);
+    expect(ids({ pais: ["GT"] })).toEqual(["b1", "PML-10"]);
+    expect(ids({ pais: ["SV"] })).toEqual([]);
   });
 
   it("ignorar una dimensión la deja fuera (para contar las opciones de su filtro)", () => {
