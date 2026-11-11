@@ -261,3 +261,34 @@ modelado, la bitácora y los archivos. La sincronización **fusiona**:
   en Vercel se rechaza. Si algún día se lleva a producción: pg_cron + pg_net cada hora hacia una ruta
   con `CRON_SECRET` (el plan Hobby de Vercel solo permite crons diarios), por tandas para no pasar el
   límite de tiempo de la función.
+
+### Bitácora: respuestas y adjuntos (decisión 2026-11-11)
+
+- **Dónde viven los archivos:** todos en Supabase Storage, bucket privado `tableros`, ruta
+  `{tablero}/{elemento}/{id único}/{nombre}`, con su fila en `elemento_archivos`. Esa fila dice si
+  el archivo es de una **columna** (`columna_id`) o de un **comentario** de la bitácora
+  (`comentario_id`; nunca de los dos, hay un check). Se bajan con un enlace firmado de 2 minutos,
+  después de revisar que la persona puede ver el elemento.
+- **Lo que trae de Monday:** las actualizaciones con sus adjuntos (también las que solo tienen
+  archivos, con texto vacío), y las **respuestas** (`elemento_comentarios.respuesta_a`; Monday solo
+  anida un nivel). El tipo `Reply` de Monday no tiene `assets`: los adjuntos de una respuesta salen
+  del `data-asset_id` de las imágenes de su HTML y se piden con `assets(ids:)`. Cada archivo se
+  reconoce por su id de Monday (`monday_asset_id`), así que cada corrida solo baja lo nuevo.
+  Simulacro del 2026-11-11: 1530 actualizaciones, 4 respuestas, 1067 adjuntos (248 MB).
+- **Lo que se sube en la app:** un comentario puede ir solo con archivos; se responde a una
+  actualización (no a otra respuesta); hasta 10 archivos de 50 MB por comentario, subidos directo
+  del navegador a Storage con URL firmada. Solo quien escribió el comentario le adjunta archivos.
+  Quedan solo en la app: la sincronización va de Monday hacia la app, no al revés.
+- **Borrar:** un adjunto lo borra quien lo subió o un Admin; borrar un comentario se lleva sus
+  respuestas y los archivos de todos (también de Storage). Lo que vino de Monday no se borra
+  mientras el tablero se sincroniza.
+- **Después del corte** hay que respaldar Storage aparte: los respaldos de la base no lo incluyen.
+
+### Diferencias decididas con Monday
+
+`dominio/paridad.ts::DIFERENCIAS_EXPLICADAS` lista las diferencias que ya se decidieron; la
+comparación las aparta con su motivo y no las cuenta. Hoy una: **PM-018** — el costo es
+`Effort Spent × 9 + Costo adicional $`. Monday no entrega el resultado de las fórmulas y la
+app de hoy usa un respaldo que ignora el adicional; el tablero aplica la fórmula completa, **como
+se ve en Monday** (decisión del 2026-11-11). Cuando Control Tower lea los tableros (Fase 6), el
+EVM de PM-018 bajará a lo que Monday muestra.

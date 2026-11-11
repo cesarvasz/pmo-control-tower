@@ -8,6 +8,7 @@ import { enTrozos, getSupabaseAdmin, PG, selectAll, unwrap } from "@/lib/supabas
 import type { AppUser } from "@/lib/permissions";
 import type { Json, Tables } from "@/types/supabase";
 import { sincronizarTodo } from "@/lib/mondayMirrorSync";
+import { filaIgual } from "../dominio/paridad";
 import { mismoValor, planSincronizacion, planVacio, type ColumnaActual, type ElementoActual, type GrupoActual } from "../dominio/sincronizar";
 import { aColumna, leerTablero, type Acceso } from "./tableros";
 import { compararConMonday, definicionDesdeLaCopia, importarBoard, listarBoardsImportables, nombreYCodigo } from "./importar";
@@ -182,6 +183,8 @@ export interface ResultadoBoardCorrida {
   cambios?: ResultadoTablero;
   comentariosNuevos?: number;
   archivosNuevos?: number;
+  /** Archivos que Monday ya no entrega (no es un error). */
+  adjuntosSinTraer?: number;
   diferencias?: number;
   avisos?: number;
   error?: string;
@@ -256,13 +259,14 @@ export async function correrSincronizacion(corridaId: number, opciones: { bitaco
             const ex = await traerBitacoraYArchivos(r.tableroId);
             r.comentariosNuevos = ex.comentariosNuevos;
             r.archivosNuevos = ex.archivosNuevos;
+            r.adjuntosSinTraer = ex.adjuntosSinTraer;
             if (ex.errores.length) r.error = `Archivos: ${ex.errores.slice(0, 3).join("; ")}`;
           }
           if (comparar) {
             const completo = await leerTablero(r.tableroId, ACCESO_SISTEMA);
             if (completo) {
               const c = await compararConMonday(completo, ACCESO_SISTEMA);
-              r.diferencias = c.diferencias.length + c.filas.filter((f) => JSON.stringify(f.monday) !== JSON.stringify(f.app)).length;
+              r.diferencias = c.diferencias.length + c.filas.filter((f) => !filaIgual(f)).length;
               r.avisos = c.avisos.length;
             }
           }

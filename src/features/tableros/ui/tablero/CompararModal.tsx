@@ -6,10 +6,15 @@
 
 import Modal from "@/components/Modal";
 import { ErrorBox, Loader, Pill } from "@/components/ui";
+import { filaIgual, type FilaMetrica } from "../../dominio/paridad";
 import { Nota, useCarga } from "../comun";
 
-export interface FilaComparacion { etiqueta: string; monday: unknown; app: unknown; formato?: "dinero" | "pct" | "indice" }
-export interface Comparacion { tipo: string; diferencias: string[]; avisos: string[]; filas: FilaComparacion[]; copiaDel: string | null }
+export { filaIgual };
+export type FilaComparacion = FilaMetrica;
+export interface Comparacion {
+  tipo: string; diferencias: string[]; avisos: string[]; filas: FilaComparacion[]; copiaDel: string | null;
+  explicadas: { motivo: string; cantidad: number }[];
+}
 
 export function fmtValor(v: unknown, formato?: string): string {
   if (v === null || v === undefined) return "—";
@@ -19,8 +24,6 @@ export function fmtValor(v: unknown, formato?: string): string {
   if (formato === "indice") return v.toFixed(3);
   return v.toLocaleString("es-GT");
 }
-
-export const filaIgual = (f: FilaComparacion) => JSON.stringify(f.monday) === JSON.stringify(f.app);
 
 export default function CompararModal({ tableroId, onCerrar }: { tableroId: string; onCerrar(): void }) {
   const { data, error } = useCarga<Comparacion>(`/api/tableros/tableros/${tableroId}/comparar`);
@@ -36,6 +39,11 @@ export default function CompararModal({ tableroId, onCerrar }: { tableroId: stri
             {distintas === 0
               ? <Nota tono="ok">Mide igual que Monday: todos los elementos dan exactamente lo mismo con la lógica de la app.</Nota>
               : <Nota tono="mal">Hay {distintas} diferencia{distintas === 1 ? "" : "s"} con Monday (abajo). Es normal si se editó el tablero después de importarlo.</Nota>}
+            {data.explicadas.map((x) => (
+              <Nota key={x.motivo}>
+                <strong>Diferencia decidida</strong> ({x.cantidad} dato{x.cantidad === 1 ? "" : "s"}, no cuenta como diferencia): {x.motivo}
+              </Nota>
+            ))}
             {data.avisos.length > 0 && (
               <Nota>
                 {data.avisos.length} valor{data.avisos.length === 1 ? "" : "es"} de Monday con personas que no están en el directorio (en la app
@@ -51,7 +59,10 @@ export default function CompararModal({ tableroId, onCerrar }: { tableroId: stri
                       <td>{f.etiqueta}</td>
                       <td style={{ textAlign: "right" }}>{fmtValor(f.monday, f.formato)}</td>
                       <td style={{ textAlign: "right" }}>{fmtValor(f.app, f.formato)}</td>
-                      <td>{filaIgual(f) ? <Pill tone="ok" small>✓</Pill> : <Pill tone="bad" small>≠</Pill>}</td>
+                      <td>
+                        {f.explicada ? <span title={f.explicada}><Pill tone="neutral" small>decidida</Pill></span>
+                          : filaIgual(f) ? <Pill tone="ok" small>✓</Pill> : <Pill tone="bad" small>≠</Pill>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

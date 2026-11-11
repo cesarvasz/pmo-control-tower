@@ -42,6 +42,7 @@ for (const b of r.boards) {
     c && (c.creados || c.actualizados || c.archivados || c.restaurados)
       && `+${c.creados} nuevos, ${c.actualizados} con cambios (${c.valores} valores), ${c.archivados} archivados, ${c.restaurados} restaurados`,
     c?.columnasNuevas.length && `columnas nuevas: ${c.columnasNuevas.join(", ")}`,
+    b.adjuntosSinTraer && `${b.adjuntosSinTraer} archivo(s) que Monday ya no entrega`,
     (b.comentariosNuevos || b.archivosNuevos) && `+${b.comentariosNuevos ?? 0} actualizaciones, +${b.archivosNuevos ?? 0} archivos`,
     b.diferencias ? `${b.diferencias} diferencias con Monday` : null,
     b.error && `ERROR: ${b.error}`,

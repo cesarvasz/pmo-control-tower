@@ -22,7 +22,7 @@ interface CambiosTablero {
 }
 interface BoardCorrida {
   board: string; tipo: string; tableroId: string | null; importado?: boolean; omitido?: string; cambios?: CambiosTablero;
-  comentariosNuevos?: number; archivosNuevos?: number; diferencias?: number; avisos?: number; error?: string;
+  comentariosNuevos?: number; archivosNuevos?: number; adjuntosSinTraer?: number; diferencias?: number; avisos?: number; error?: string;
 }
 interface Corrida {
   id: number; origen: string; inicio: string; fin: string | null; estado: "en_curso" | "ok" | "con_errores" | "fallo"; error: string | null;
@@ -81,6 +81,7 @@ function textoBoard(b: BoardCorrida): string {
     c?.restaurados && `${c.restaurados} restaurados`, c?.columnasNuevas.length && `columnas nuevas: ${c.columnasNuevas.join(", ")}`,
     c?.etiquetasNuevas.length && `etiquetas nuevas: ${c.etiquetasNuevas.join(", ")}`,
     b.comentariosNuevos && `+${b.comentariosNuevos} actualizaciones`, b.archivosNuevos && `+${b.archivosNuevos} archivos`,
+    b.adjuntosSinTraer && `${b.adjuntosSinTraer} archivo${b.adjuntosSinTraer === 1 ? "" : "s"} que Monday ya no entrega`,
   ].filter(Boolean);
   return partes.length ? partes.join(" · ") : "Sin cambios";
 }

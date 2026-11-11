@@ -11,7 +11,7 @@ import { esCalculado, esEditable, tipoColumna } from "../dominio/tipos-columna";
 import { siguienteAutonumero, type ConfigAutonumero } from "../dominio/tipos-columna/autonumero";
 import { marcaCreacion } from "../dominio/tipos-columna/creacion";
 import { errorFormula } from "../dominio/calculos";
-import { normalizarTextoComentario } from "../dominio/bitacora";
+import { MAX_ADJUNTOS_COMENTARIO, normalizarTextoComentario } from "../dominio/bitacora";
 import { evaluar, reglaQueAplica, type ColumnaRef, type ElementoRef, type Operacion } from "../dominio/permisos";
 import {
   COLORES_GRUPO, errorColumna, FASES_VALOR, limpiarTexto, MAX_NOMBRE, MAX_TITULO, normalizarColumnaNueva, siguienteOrden,
@@ -133,6 +133,15 @@ async function comentario(ctx: Ctx, comentarioId: string) {
   const r = unwrap(await db().from("elemento_comentarios").select("*").eq("id", comentarioId).eq("tablero_id", ctx.tablero.id).is("borrado_at", null).maybeSingle());
   if (!r) throw new ErrorTablero(404, "El comentario ya no existe");
   return r;
+}
+
+/** Marca como borrados los archivos adjuntos de unos comentarios y los quita de Storage. */
+async function borrarArchivosDeComentarios(comentarioIds: string[]) {
+  if (!comentarioIds.length) return;
+  const filas = unwrap(await db().from("elemento_archivos").select("id, ruta").in("comentario_id", comentarioIds).is("borrado_at", null)) ?? [];
+  if (!filas.length) return;
+  unwrap(await db().from("elemento_archivos").update({ borrado_at: ahora() }).in("id", filas.map((x) => x.id)));
+  await db().storage.from("tableros").remove(filas.map((x) => x.ruta));
 }
 
 async function archivoFila(ctx: Ctx, archivoId: string) {
@@ -430,11 +439,19 @@ const OPERACIONES: OperacionDef[] = [
     async ejecutar(ctx, d) {
       const e = await elemento(ctx, id(d, "elementoId"));
       exigir(ctx, "editar_valor", { elemento: e });
-      const texto = normalizarTextoComentario(d.texto);
-      if (!texto) throw new ErrorTablero(400, "Escribe el comentario");
+      // Un comentario puede ir sin texto si trae archivos (los sube el navegador enseguida).
+      const texto = normalizarTextoComentario(d.texto) ?? (d.conArchivos === true ? "" : null);
+      if (texto === null) throw new ErrorTablero(400, "Escribe el comentario");
+      let respuestaA: string | null = null;
+      if (d.respuestaA !== undefined && d.respuestaA !== null) {
+        const padre = await comentario(ctx, id(d, "respuestaA"));
+        if (padre.elemento_id !== e.id) throw new ErrorTablero(400, "Esa actualización es de otro elemento");
+        if (padre.respuesta_a) throw new ErrorTablero(400, "Se responde a la actualización, no a otra respuesta");
+        respuestaA = padre.id;
+      }
       const r = unwrap(await db().from("elemento_comentarios").insert({
         tablero_id: ctx.tablero.id, elemento_id: e.id, autor_id: ctx.me.uid, autor_email: ctx.me.email,
-        autor_nombre: ctx.me.displayName || ctx.me.email, texto,
+        autor_nombre: ctx.me.displayName || ctx.me.email, texto, respuesta_a: respuestaA,
       }).select("id").single())!;
       return { id: r.id };
     },
@@ -455,7 +472,11 @@ const OPERACIONES: OperacionDef[] = [
       const c = await comentario(ctx, id(d, "comentarioId"));
       if (ctx.tablero.sincronizaMonday && c.monday_update_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
       if (c.autor_id !== ctx.me.uid && !ctx.acceso.usuario.esAdmin) throw new ErrorTablero(403, "Solo quien lo escribió (o un Admin) puede borrarlo");
-      unwrap(await db().from("elemento_comentarios").update({ borrado_at: ahora() }).eq("id", c.id));
+      // Sus respuestas y los archivos de todos se van con él.
+      const respuestas = (unwrap(await db().from("elemento_comentarios").select("id").eq("respuesta_a", c.id).is("borrado_at", null)) ?? []).map((x) => x.id);
+      const ids = [c.id, ...respuestas];
+      unwrap(await db().from("elemento_comentarios").update({ borrado_at: ahora() }).in("id", ids));
+      await borrarArchivosDeComentarios(ids);
     },
   },
 
@@ -465,10 +486,25 @@ const OPERACIONES: OperacionDef[] = [
     clave: "archivo.preparar",
     async ejecutar(ctx, d) {
       const e = await elemento(ctx, id(d, "elementoId"));
-      const c = await columna(ctx, id(d, "columnaId"));
-      if (c.tipo !== "archivo" || c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "Esa columna no es de archivos");
-      exigir(ctx, "editar_valor", { elemento: e, columna: c });
-      noDeMonday(ctx, e, c);
+      let columnaId: string | null = null;
+      let comentarioId: string | null = null;
+      if (d.comentarioId !== undefined && d.comentarioId !== null) {
+        // Adjunto de la bitácora: lo adjunta quien escribió el comentario.
+        const cm = await comentario(ctx, id(d, "comentarioId"));
+        if (cm.elemento_id !== e.id) throw new ErrorTablero(400, "Ese comentario es de otro elemento");
+        exigir(ctx, "editar_valor", { elemento: e });
+        if (ctx.tablero.sincronizaMonday && cm.monday_update_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
+        if (cm.autor_id !== ctx.me.uid) throw new ErrorTablero(403, "Solo quien escribió el comentario puede adjuntarle archivos");
+        const ya = unwrap(await db().from("elemento_archivos").select("id").eq("comentario_id", cm.id).is("borrado_at", null)) ?? [];
+        if (ya.length >= MAX_ADJUNTOS_COMENTARIO) throw new ErrorTablero(400, `Máximo ${MAX_ADJUNTOS_COMENTARIO} archivos por comentario`);
+        comentarioId = cm.id;
+      } else {
+        const c = await columna(ctx, id(d, "columnaId"));
+        if (c.tipo !== "archivo" || c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "Esa columna no es de archivos");
+        exigir(ctx, "editar_valor", { elemento: e, columna: c });
+        noDeMonday(ctx, e, c);
+        columnaId = c.id;
+      }
       const nombre = limpiarTexto(d.nombre, 255);
       const tamano = typeof d.tamano === "number" ? d.tamano : 0;
       if (!nombre) throw new ErrorTablero(400, "Falta el nombre del archivo");
@@ -477,7 +513,7 @@ const OPERACIONES: OperacionDef[] = [
       const firmada = await db().storage.from("tableros").createSignedUploadUrl(ruta);
       if (firmada.error) throw new Error(firmada.error.message);
       const r = unwrap(await db().from("elemento_archivos").insert({
-        tablero_id: ctx.tablero.id, elemento_id: e.id, columna_id: c.id, ruta, nombre, tamano,
+        tablero_id: ctx.tablero.id, elemento_id: e.id, columna_id: columnaId, comentario_id: comentarioId, ruta, nombre, tamano,
         tipo_mime: typeof d.tipoMime === "string" ? d.tipoMime.slice(0, 120) : null, subido_por: ctx.me.uid, subido_email: ctx.me.email,
       }).select("id").single())!;
       return { archivoId: r.id, ruta, token: firmada.data.token };
@@ -502,6 +538,9 @@ const OPERACIONES: OperacionDef[] = [
       if (ctx.tablero.sincronizaMonday && a.monday_asset_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
       const e = await elemento(ctx, a.elemento_id);
       exigir(ctx, "editar_valor", { elemento: e, columna: a.columna_id ? await columna(ctx, a.columna_id) : undefined });
+      if (a.comentario_id && a.subido_por !== ctx.me.uid && !ctx.acceso.usuario.esAdmin) {
+        throw new ErrorTablero(403, "Solo quien lo subió (o un Admin) puede borrarlo");
+      }
       unwrap(await db().from("elemento_archivos").update({ borrado_at: ahora() }).eq("id", a.id));
       await db().storage.from("tableros").remove([a.ruta]);
       await historial(ctx, e.id, "archivo_borrado", { nombre: a.nombre }, null);

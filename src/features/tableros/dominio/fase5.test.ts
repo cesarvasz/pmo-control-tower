@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { mondayADefinicion, type ColumnaMonday, type FilaMonday } from "./importar-monday";
 import { mismoValor, planSincronizacion, planVacio, type EntradaSincronizar } from "./sincronizar";
 import { esDatoDeMonday } from "./tablero";
+import { armarHilos, assetsDelHtml, tamanoLegible } from "./bitacora";
+import { filaIgual, separarExplicadas, type FilaMetrica } from "./paridad";
 import type { DefinicionTablero } from "./definicion";
 
 // Un board de Monday chico: Status, Notas (texto), Cost $ (número) y Resp (persona).
@@ -179,5 +181,63 @@ describe("sincronizar con Monday · ayudas", () => {
     expect(esDatoDeMonday(sync, { mondayItemId: "1" }, { mondayColumnId: null })).toBe(false); // columna propia
     expect(esDatoDeMonday(sync, { mondayItemId: null })).toBe(false); // elemento creado aquí
     expect(esDatoDeMonday({ sincronizaMonday: false }, { mondayItemId: "1" })).toBe(false); // después del corte
+  });
+});
+
+describe("bitácora · respuestas y adjuntos", () => {
+  const com = (id: string, creadoAt: string, respuestaA: string | null = null) => ({
+    id, autorId: null, autorNombre: "A", autorEmail: null, texto: id, creadoAt, editadoAt: null, deMonday: true, respuestaA, archivos: [],
+  });
+
+  it("armarHilos: actualizaciones nuevas primero y sus respuestas debajo, de la más antigua a la más nueva", () => {
+    const hilos = armarHilos([
+      com("r2", "2026-11-03T10:00:00Z", "u1"), com("u2", "2026-11-05T10:00:00Z"), com("u1", "2026-11-01T10:00:00Z"), com("r1", "2026-11-02T10:00:00Z", "u1"),
+    ]);
+    expect(hilos.map((h) => h.comentario.id)).toEqual(["u2", "u1"]);
+    expect(hilos[1].respuestas.map((r) => r.id)).toEqual(["r1", "r2"]);
+    expect(hilos[0].respuestas).toEqual([]);
+  });
+
+  it("armarHilos: una respuesta huérfana (su actualización se borró) no se pierde", () => {
+    const hilos = armarHilos([com("r1", "2026-11-02T10:00:00Z", "borrada"), com("u1", "2026-11-01T10:00:00Z")]);
+    expect(hilos.map((h) => h.comentario.id)).toEqual(["r1", "u1"]);
+  });
+
+  it("assetsDelHtml: las imágenes de una respuesta de Monday traen su id de archivo", () => {
+    const html = `<p> Se hizo una actualización</p><img src="https://x.monday.com/protected_static/1/resources/3365963346/a.png" data-asset_id="3365963346" ><img data-asset_id="77"><img data-asset_id="77">`;
+    expect(assetsDelHtml(html)).toEqual(["3365963346", "77"]);
+    expect(assetsDelHtml("<p>solo texto</p>")).toEqual([]);
+    expect(assetsDelHtml(null)).toEqual([]);
+  });
+
+  it("tamanoLegible", () => {
+    expect(tamanoLegible(null)).toBe("");
+    expect(tamanoLegible(512)).toBe("512 B");
+    expect(tamanoLegible(2048)).toBe("2 KB");
+    expect(tamanoLegible(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+});
+
+describe("diferencias decididas (PM-018)", () => {
+  const filas: FilaMetrica[] = [
+    { etiqueta: "Elementos", monday: 31, app: 31 },
+    { etiqueta: "Costo", monday: 9, app: 273 },
+    { etiqueta: "CPI", monday: 1, app: 1 },
+    { etiqueta: "Atrasados", monday: 2, app: 3 },
+  ];
+  const dif = ["«Entregable 1».cost: Monday 9 ≠ app 273", "«Entregable 2».status: Monday \"Done\" ≠ app \"Stuck\""];
+
+  it("PM-018: el costo y lo que depende de él se apartan con su motivo; lo demás sigue contando", () => {
+    const r = separarExplicadas("PM-018", dif, filas);
+    expect(r.diferencias).toEqual([dif[1]]);
+    expect(r.filas.find((f) => f.etiqueta === "Costo")!.explicada).toMatch(/Costo adicional/);
+    expect(filaIgual(r.filas.find((f) => f.etiqueta === "Costo")!)).toBe(true);
+    expect(filaIgual(r.filas.find((f) => f.etiqueta === "Atrasados")!)).toBe(false); // esa sí es una diferencia
+    expect(r.explicadas).toEqual([expect.objectContaining({ cantidad: 2 })]); // una diferencia por elemento + una métrica
+  });
+
+  it("otro tablero (o sin código) no aparta nada", () => {
+    expect(separarExplicadas("PM-013", dif, filas)).toEqual({ diferencias: dif, filas, explicadas: [] });
+    expect(separarExplicadas(null, dif, filas).explicadas).toEqual([]);
   });
 });

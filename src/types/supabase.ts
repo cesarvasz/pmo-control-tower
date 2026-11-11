@@ -156,6 +156,7 @@ export type Database = {
         Row: {
           borrado_at: string | null
           columna_id: string | null
+          comentario_id: string | null
           creado_at: string
           elemento_id: string
           estado: string
@@ -172,6 +173,7 @@ export type Database = {
         Insert: {
           borrado_at?: string | null
           columna_id?: string | null
+          comentario_id?: string | null
           creado_at?: string
           elemento_id: string
           estado?: string
@@ -188,6 +190,7 @@ export type Database = {
         Update: {
           borrado_at?: string | null
           columna_id?: string | null
+          comentario_id?: string | null
           creado_at?: string
           elemento_id?: string
           estado?: string
@@ -236,6 +239,7 @@ export type Database = {
           elemento_id: string
           id: string
           monday_update_id: string | null
+          respuesta_a: string | null
           tablero_id: string
           texto: string
         }
@@ -249,6 +253,7 @@ export type Database = {
           elemento_id: string
           id?: string
           monday_update_id?: string | null
+          respuesta_a?: string | null
           tablero_id: string
           texto: string
         }
@@ -262,6 +267,7 @@ export type Database = {
           elemento_id?: string
           id?: string
           monday_update_id?: string | null
+          respuesta_a?: string | null
           tablero_id?: string
           texto?: string
         }

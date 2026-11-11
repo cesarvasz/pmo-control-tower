@@ -17,7 +17,7 @@ import type { TipoBoard } from "@/lib/mondayMirror";
 import { claveNombre } from "../dominio/personas";
 import { mondayADefinicion, type ColumnaMonday, type FilaMonday, type RelacionImportada } from "../dominio/importar-monday";
 import { tableroAMondayItems, tableroAProjItems, type PersonaMetricas } from "../dominio/metricas";
-import { diferenciasPorId, diferenciasProfundas, diferenciasProjItems, resumenMetricas, separarPersonasFuera } from "../dominio/paridad";
+import { diferenciasPorId, diferenciasProfundas, diferenciasProjItems, filaIgual, resumenMetricas, separarExplicadas, separarPersonasFuera, type FilaMetrica } from "../dominio/paridad";
 import { limpiarTexto, MAX_NOMBRE, type TableroCompleto } from "../dominio/tablero";
 import { crearDesdeDefinicion } from "./materializar";
 import { leerExtras, listarPersonasCorto, type Acceso } from "./tableros";
@@ -211,7 +211,7 @@ export async function importarBoard(
 
 // ── Comparar con Monday ──────────────────────────────────────────────────────
 
-export interface FilaComparacion { etiqueta: string; monday: unknown; app: unknown; formato?: "dinero" | "pct" | "indice" }
+export type FilaComparacion = FilaMetrica;
 
 export interface Comparacion {
   tipo: TipoBoard;
@@ -220,6 +220,8 @@ export interface Comparacion {
   avisos: string[];
   filas: FilaComparacion[];
   copiaDel: string | null;
+  /** Diferencias que ya se decidieron (no cuentan): su motivo y cuántas son. */
+  explicadas: { motivo: string; cantidad: number }[];
 }
 
 const FILAS_PROYECTO: { clave: keyof ReturnType<typeof resumenMetricas>; etiqueta: string; formato?: FilaComparacion["formato"] }[] = [
@@ -249,10 +251,12 @@ export async function compararConMonday(t: TableroCompleto, acceso: Acceso): Pro
   const c = await compararCrudo(t, acceso);
   const dir = await directorio();
   const enDirectorio = (n: string) => dir.porNombre.has(n.includes("@") ? n.toLowerCase() : claveNombre(n));
-  return { ...c, ...separarPersonasFuera(c.diferencias, enDirectorio) };
+  const personas = separarPersonasFuera(c.diferencias, enDirectorio);
+  const e = separarExplicadas(t.tablero.codigo, personas.diferencias, c.filas);
+  return { ...c, avisos: personas.avisos, diferencias: e.diferencias, filas: e.filas, explicadas: e.explicadas };
 }
 
-async function compararCrudo(t: TableroCompleto, acceso: Acceso): Promise<Omit<Comparacion, "avisos">> {
+async function compararCrudo(t: TableroCompleto, acceso: Acceso): Promise<Omit<Comparacion, "avisos" | "explicadas">> {
   const mondayId = t.tablero.mondayBoardId;
   if (!mondayId) throw new ErrorTablero(400, "Este tablero no viene de Monday");
   const db = getSupabaseAdmin();
@@ -308,7 +312,7 @@ export type ResumenComparacion = { tableroId: string; diferencias: number; filas
 export function resumirComparacion(tableroId: string, c: Comparacion): ResumenComparacion {
   return {
     tableroId, tipo: c.tipo, diferencias: c.diferencias.length,
-    filasDistintas: c.filas.filter((f) => JSON.stringify(f.monday) !== JSON.stringify(f.app)).length,
+    filasDistintas: c.filas.filter((f) => !filaIgual(f)).length,
     muestra: c.diferencias.slice(0, 5),
   };
 }

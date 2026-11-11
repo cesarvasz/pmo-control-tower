@@ -120,7 +120,7 @@ export async function leerExtras(t: TableroCompleto, acceso: Acceso) {
   const [ligadosLista, archivos, comentarios] = await Promise.all([
     Promise.all(destinos.map(async (id) => [id, await leerTablero(id, acceso)] as const)),
     selectAll<Tables<"elemento_archivos">>((d, h) => db.from("elemento_archivos").select("*")
-      .eq("tablero_id", t.tablero.id).eq("estado", "listo").is("borrado_at", null).order("id").range(d, h)),
+      .eq("tablero_id", t.tablero.id).eq("estado", "listo").is("borrado_at", null).is("comentario_id", null).order("id").range(d, h)),
     selectAll<{ elemento_id: string }>((d, h) => db.from("elemento_comentarios").select("elemento_id")
       .eq("tablero_id", t.tablero.id).is("borrado_at", null).order("id").range(d, h)),
   ]);

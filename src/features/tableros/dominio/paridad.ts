@@ -121,6 +121,58 @@ export function separarPersonasFuera(diferencias: string[], enDirectorio: (nombr
   return { diferencias: resto, avisos };
 }
 
+/**
+ * Diferencias con Monday que YA se decidieron: no son errores de la migración ni del modelo. Se
+ * listan aparte, con su motivo, y no cuentan como diferencia. Agregar una = una entrada aquí.
+ */
+export interface DiferenciaExplicada {
+  /** Código del tablero (PM-018). */
+  codigo: string;
+  /** Qué diferencias son: texto de la diferencia por elemento («…».cost: …) o etiqueta de una métrica. */
+  patron: RegExp;
+  motivo: string;
+}
+
+export const DIFERENCIAS_EXPLICADAS: DiferenciaExplicada[] = [
+  {
+    codigo: "PM-018",
+    // El costo de los elementos y lo que depende de él (EVM y salud del board).
+    patron: /\.(cost|valueNet):|^(Costo|AC \(costo real\)|CPI|SPI|EV \(valor ganado\)|PV \(valor planeado\)|Índice de salud \(EVM\)|Salud):/,
+    motivo: "Cost $ = Effort Spent × 9 + Costo adicional $. Monday no entrega el resultado de las fórmulas y la app de hoy usa un respaldo (esfuerzo × 9) que ignora el costo adicional. Decisión del 2026-11-11: el tablero aplica la fórmula completa, como se ve en Monday.",
+  },
+];
+
+/** Una métrica lado a lado; `explicada` = el motivo, si su diferencia ya está decidida. */
+export interface FilaMetrica { etiqueta: string; monday: unknown; app: unknown; formato?: "dinero" | "pct" | "indice"; explicada?: string }
+
+/** ¿La fila cuenta como igual? (lo es si coincide o si su diferencia está explicada). */
+export function filaIgual(f: Pick<FilaMetrica, "monday" | "app" | "explicada">): boolean {
+  return !!f.explicada || JSON.stringify(f.monday) === JSON.stringify(f.app);
+}
+
+/** Aparta las diferencias ya explicadas del tablero con ese código y marca sus filas. */
+export function separarExplicadas<F extends FilaMetrica>(codigo: string | null, diferencias: string[], filas: F[]): {
+  diferencias: string[]; filas: F[]; explicadas: { motivo: string; cantidad: number }[];
+} {
+  const reglas = DIFERENCIAS_EXPLICADAS.filter((r) => r.codigo === codigo);
+  if (!reglas.length) return { diferencias, filas, explicadas: [] };
+  const cuenta = new Map<string, number>();
+  const sumar = (motivo: string) => cuenta.set(motivo, (cuenta.get(motivo) ?? 0) + 1);
+  const resto = diferencias.filter((d) => {
+    const r = reglas.find((x) => x.patron.test(d));
+    if (r) sumar(r.motivo);
+    return !r;
+  });
+  const marcadas = filas.map((f) => {
+    const distinta = JSON.stringify(f.monday) !== JSON.stringify(f.app);
+    const r = distinta ? reglas.find((x) => x.patron.test(`${f.etiqueta}:`)) : undefined;
+    if (!r) return f;
+    sumar(r.motivo);
+    return { ...f, explicada: r.motivo };
+  });
+  return { diferencias: resto, filas: marcadas, explicadas: [...cuenta].map(([motivo, cantidad]) => ({ motivo, cantidad })) };
+}
+
 export interface ResumenMetricas {
   elementos: number;
   subelementos: number;

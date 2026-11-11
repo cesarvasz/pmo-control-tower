@@ -14,19 +14,12 @@ const SOLO = process.env.TABLEROS_SOLO ? new RegExp(process.env.TABLEROS_SOLO) :
 /** Solo comparar lo ya importado (sin reimportar ni perder su bitácora y archivos): TABLEROS_SOLO_COMPARAR=1 */
 const SOLO_COMPARAR = process.env.TABLEROS_SOLO_COMPARAR === "1";
 
-/** Diferencias explicadas (no son errores de la migración). */
-const CONOCIDAS: { board: RegExp; patron: RegExp; motivo: string }[] = [
-  {
-    board: /^PM-018/,
-    // El costo de los elementos y lo que depende de él (EVM y salud del board).
-    patron: /\.(cost|valueNet):|^(Costo|AC \(costo real\)|CPI|SPI|EV \(valor ganado\)|PV \(valor planeado\)|Índice de salud \(EVM\)|Salud):/,
-    motivo: "Cost $ = Effort Spent × 9 + Costo adicional $. Monday no entrega el resultado de las fórmulas y la app de hoy usa un respaldo (esfuerzo × 9) que ignora el costo adicional; el tablero aplica la fórmula completa, como se ve en Monday.",
-  },
-];
+// Las diferencias ya decididas (p. ej. PM-018) las aparta compararConMonday (dominio/paridad.ts).
 if (ACTIVO && existsSync(".env.local")) process.loadEnvFile(".env.local");
 
 describe.skipIf(!ACTIVO)("Tableros · portafolio completo mide igual que Monday (integración)", { timeout: 2_400_000 }, async () => {
   const { importarBoard, listarBoardsImportables, compararConMonday } = await import("./importar");
+  const { filaIgual } = await import("../dominio/paridad");
   const { leerTablero } = await import("./tableros");
 
   const admin: AppUser = {
@@ -44,17 +37,14 @@ describe.skipIf(!ACTIVO)("Tableros · portafolio completo mide igual que Monday 
         : await importarBoard(b.id, { refrescar: true, reemplazar: true }, admin);
       const t = (await leerTablero(r.tableroId, acceso))!;
       const cmp = await compararConMonday(t, acceso);
-      const filasDistintas = cmp.filas.filter((f) => JSON.stringify(f.monday) !== JSON.stringify(f.app));
+      const filasDistintas = cmp.filas.filter((f) => !filaIgual(f));
       resumen.push({
         board: b.nombre, tipo: b.tipo, elementos: `${r.elementos}+${r.subelementos}`,
         omitidas: r.omitidas.map((o) => `${o.titulo}(${o.tipo})`).join(", "),
         sinLigar: [...r.personasNoEncontradas, ...r.ligadosNoEncontrados].join(", "),
         ...(() => {
-          const todas = [...cmp.diferencias, ...filasDistintas.map((f) => `${f.etiqueta}: ${f.monday} ≠ ${f.app}`)];
-          const conocida = (d: string) => CONOCIDAS.find((k) => k.board.test(b.nombre) && k.patron.test(d));
-          const reales = todas.filter((d) => !conocida(d));
-          const explicadas = [...new Set(todas.map(conocida).filter(Boolean).map((k) => k!.motivo))];
-          return { diferencias: reales.length, muestra: [...reales.slice(0, 8), ...explicadas.map((m) => `(conocida) ${m}`)] };
+          const reales = [...cmp.diferencias, ...filasDistintas.map((f) => `${f.etiqueta}: ${f.monday} ≠ ${f.app}`)];
+          return { diferencias: reales.length, muestra: [...reales.slice(0, 8), ...cmp.explicadas.map((x) => `(decidida, ${x.cantidad}) ${x.motivo}`)] };
         })(),
         avisos: cmp.avisos,
       });

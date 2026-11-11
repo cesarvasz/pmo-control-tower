@@ -166,4 +166,46 @@ describe.skipIf(!ACTIVO)("Tableros · de punta a punta (integración)", { timeou
     expect((await leerExtras(t, accesoAdmin)).archivos).toEqual([]);
     expect((await db().storage.from("tableros").list(prep.ruta.slice(0, prep.ruta.lastIndexOf("/")))).data).toEqual([]);
   });
+
+  it('bitácora: responder y adjuntar archivos a un comentario, y borrarlo todo junto', async () => {
+    const { leerExtras } = await import("./tableros");
+    const id = await crearTablero({ nombre: 'Prueba de bitácora', codigo: 'TEST-B', categoria: 'proyecto' }, admin);
+    otros.push(id);
+    let t = (await leerTablero(id, accesoAdmin))!;
+    const run = (datos: Record<string, unknown>) => ejecutarOperacion(admin, accesoAdmin, t.tablero, datos);
+    const { id: item } = (await run({ op: 'elemento.crear', grupoId: t.grupos[0].id, nombre: 'Entregable' })) as { id: string };
+    const subir = async (comentarioId: string, nombre: string, texto: string) => {
+      const p = (await run({ op: 'archivo.preparar', elementoId: item, comentarioId, nombre, tamano: texto.length, tipoMime: 'text/plain' })) as { archivoId: string; ruta: string; token: string };
+      const r = await db().storage.from('tableros').uploadToSignedUrl(p.ruta, p.token, new Blob([texto], { type: 'text/plain' }));
+      expect(r.error).toBeNull();
+      await run({ op: 'archivo.confirmar', archivoId: p.archivoId });
+      return p;
+    };
+
+    // Una actualización solo con archivos (sin texto) y una respuesta con texto y archivo.
+    await expect(run({ op: 'comentario.crear', elementoId: item, texto: '' })).rejects.toThrow(/Escribe/);
+    const { id: act } = (await run({ op: 'comentario.crear', elementoId: item, texto: '', conArchivos: true })) as { id: string };
+    const a1 = await subir(act, 'Acta ñandú.txt', 'hola!');
+    const { id: resp } = (await run({ op: 'comentario.crear', elementoId: item, texto: 'Gracias', respuestaA: act })) as { id: string };
+    const a2 = await subir(resp, 'Anexo.txt', 'anexo');
+    // Solo se responde a una actualización, no a otra respuesta.
+    await expect(run({ op: 'comentario.crear', elementoId: item, texto: 'x', respuestaA: resp })).rejects.toThrow(/no a otra respuesta/);
+
+    const filas = (await db().from('elemento_comentarios').select('id, texto, respuesta_a').eq('tablero_id', id).is('borrado_at', null)).data!;
+    expect(filas.find((c) => c.id === resp)!.respuesta_a).toBe(act);
+    expect(filas.find((c) => c.id === act)!.texto).toBe('');
+    // Los adjuntos de comentarios no se mezclan con los archivos de columnas.
+    t = (await leerTablero(id, accesoAdmin))!;
+    expect((await leerExtras(t, accesoAdmin)).archivos).toEqual([]);
+    const { url } = (await run({ op: 'archivo.descargar', archivoId: a1.archivoId })) as { url: string };
+    expect(await (await fetch(url)).text()).toBe('hola!');
+
+    // Borrar un adjunto suelto; borrar la actualización se lleva su respuesta y los archivos de las dos.
+    await run({ op: 'archivo.borrar', archivoId: a2.archivoId });
+    expect((await db().from('elemento_archivos').select('id').eq('comentario_id', resp).is('borrado_at', null)).data).toEqual([]);
+    await run({ op: 'comentario.borrar', comentarioId: act });
+    expect((await db().from('elemento_comentarios').select('id').eq('tablero_id', id).is('borrado_at', null)).data).toEqual([]);
+    expect((await db().from('elemento_archivos').select('id').eq('tablero_id', id).is('borrado_at', null)).data).toEqual([]);
+    expect((await db().storage.from('tableros').list(a1.ruta.slice(0, a1.ruta.lastIndexOf('/')))).data).toEqual([]);
+  });
 });
