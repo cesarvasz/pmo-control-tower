@@ -11,6 +11,7 @@ import { ErrorBox, Loader, Pill, StatCard } from "@/components/ui";
 import { tieneAccionTableros } from "../dominio/acciones";
 import { Boton, enviar, Nota, Tarjeta, useCarga } from "./comun";
 import CompararModal, { filaIgual, type Comparacion } from "./tablero/CompararModal";
+import ParidadDashboard from "./ParidadDashboard";
 
 interface BoardImportable { id: string; nombre: string; tipo: "est" | "ini" | "req" | "proj"; tableroId: string | null }
 interface Estado { comparacion?: { diferencias: number; avisos: number }; error?: string; trabajando?: string }
@@ -223,6 +224,8 @@ export default function MigracionTab() {
           </div>
         )}
       </Tarjeta>
+
+      <ParidadDashboard deshabilitado={enCurso} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard value={boards.length} label="Boards en Monday" />

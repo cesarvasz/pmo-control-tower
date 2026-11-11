@@ -292,3 +292,27 @@ comparación las aparta con su motivo y no las cuenta. Hoy una: **PM-018** — e
 app de hoy usa un respaldo que ignora el adicional; el tablero aplica la fórmula completa, **como
 se ve en Monday** (decisión del 2026-11-11). Cuando Control Tower lea los tableros (Fase 6), el
 EVM de PM-018 bajará a lo que Monday muestra.
+
+## 9. Preparación de la Fase 6: el dashboard leído de Supabase
+
+La app arma TODO desde un solo objeto: `fetchDashboardRaw()` (Monday) → `buildDashboardData()` →
+Control Tower, Players, Portafolio, Proyectos… Por eso basta con dar el mismo `DashboardRaw` desde
+Supabase:
+
+- `datos/fuente-dashboard.ts::dashboardRawDesdeTableros()` arma el `DashboardRaw` con los
+  tableros (Estrategia, Iniciativas, PML y los de categoría Proyecto, vía
+  `tableroAMondayItems`) y el directorio (`dominio/dashboard.ts::personasAHrItems`: `personas`
+  con los mismos ids de columna del board Directorio RH). Lo que no viene de Monday (bases del
+  EVM, atribuciones, On Hold, Clase, NPS) se lee igual que hoy. **Todavía no lo usa la app**: en la
+  Fase 6 lo llamaría `fetchDashboardRaw` según el interruptor `FUENTE_DATOS`.
+- `compararDashboardCompleto()` arma el `DashboardData` con la copia de Monday y con los tableros
+  y los compara (`dominio/dashboard.ts::compararDashboard`): Iniciativas, PML, Proyectos (elementos
+  y tableros), Estrategia, Directorio, y los indicadores del Control Tower (EVM, Calidad,
+  Cumplimiento, NPS, los mismos del histórico semanal). Las diferencias decididas (PM-018) y las
+  personas fuera del directorio no cuentan. Botón «Comparar dashboard» en Migración y
+  `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/dashboard.integration.test.ts`.
+- Resultado del 2026-11-11: **sale igual**. EVM 85, Calidad 42, Cumplimiento 64 y NPS 41 con las
+  dos fuentes; 1744 elementos de proyecto, 44 iniciativas, 31 PML, 23 estrategias y 80 personas
+  del directorio idénticos. Avisos: «JC Rodas», «Rafael Toruño» y «Deleted outdated pending user».
+  «Tablero Prueba con Plantilla» (categoría Proyecto, nacido en la app) aparecería como proyecto.
+- No entran el calendario, la hoja ni el ROI (Apps Script y Sheets): no dependen de la fuente.
