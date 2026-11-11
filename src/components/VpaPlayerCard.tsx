@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
 import { authedFetch } from "@/lib/api";
 import { canSeePage, pageByKey } from "@/lib/registry";
-import { kpiColorFor } from "@/lib/kpi";
+import { colorIndicadorCku, kpiColorFor } from "@/lib/kpi";
 import { etiquetaMesLargo } from "@/lib/players";
 import { VPA_INDICADORES, playerVpa, puntosIndicadorVpa, vpaMeses, type VpaCalifs } from "@/lib/vpa";
 import MetricCell from "@/components/MetricCell";
@@ -18,7 +18,8 @@ import { playerPalette } from "@/components/PmScoreboard";
 
 /** 85 → «85», 85.5 → «85.5», 85.25 → «85.3». */
 const num1 = (n: number) => String(Math.round(n * 10) / 10);
-const colorLogro = (logro: number) => (logro >= 0.9 ? "var(--ok)" : logro >= 0.75 ? "var(--warn)" : "var(--bad)");
+/** Color de un indicador (logro = nota ÷ meta, 0–1+): la escala de los indicadores, 100 % verde · 95–99 amarillo · menos de 95 rojo. */
+const colorLogro = (logro: number) => colorIndicadorCku(logro * 100);
 
 export default function VpaPlayerCard() {
   const { me } = useMe();
