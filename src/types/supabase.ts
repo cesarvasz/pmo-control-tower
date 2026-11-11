@@ -175,6 +175,7 @@ export type Database = {
           cku_email: string
           created_at: string
           created_by_email: string
+          entregable_id: string | null
           nombre: string
           token: string
         }
@@ -183,6 +184,7 @@ export type Database = {
           cku_email?: string
           created_at?: string
           created_by_email?: string
+          entregable_id?: string | null
           nombre: string
           token: string
         }
@@ -191,6 +193,7 @@ export type Database = {
           cku_email?: string
           created_at?: string
           created_by_email?: string
+          entregable_id?: string | null
           nombre?: string
           token?: string
         }

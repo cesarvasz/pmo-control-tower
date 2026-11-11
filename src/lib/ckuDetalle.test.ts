@@ -513,3 +513,21 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
     expect(d.pct).toBeNull();
   });
 });
+
+describe("PML cerrado (para mandar su encuesta NPS)", () => {
+  // En Cumplimiento también entra un PML que solo cerró una fase (EN PROCESO con veredicto); solo el CERRADO se marca.
+  const req = [reqE("r1", "on-time"), reqE("r2", "on-time", { estado: "EN PROCESO" })];
+  const s = { req, proj: [], projBoards: [board], ini: [iniE("i1", true)] };
+
+  it("Cumplimiento marca como cerrados solo los PML CERRADO; las Iniciativas no llevan la marca", () => {
+    const u = cumpl(s, {}).unidades;
+    expect(u.find((x) => x.id === "r1")?.cerrado).toBe(true);
+    expect(u.find((x) => x.id === "r2")?.cerrado).toBe(false);
+    expect(u.find((x) => x.id === "i1")?.cerrado).toBeUndefined();
+  });
+
+  it("Calidad marca como cerrados los PML que lista", () => {
+    const d = detalleCalidad({ ...s, cku: CKU }, { r1: { responsible: "PM" } });
+    expect(d.unidades.find((x) => x.id === "r1")?.cerrado).toBe(true);
+  });
+});

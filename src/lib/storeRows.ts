@@ -229,7 +229,7 @@ export function npsRecordsDe(responses: Tables<"survey_responses">[], surveys: T
 
 export function ckuSurveyDe(r: Tables<"cku_surveys">, respuestas = 0): CkuSurveyDoc {
   return {
-    token: r.token, cku: r.cku, ckuEmail: r.cku_email, nombre: r.nombre,
+    token: r.token, cku: r.cku, ckuEmail: r.cku_email, nombre: r.nombre, entregableId: r.entregable_id,
     createdByEmail: r.created_by_email, createdAt: iso(r.created_at), respuestas,
   };
 }

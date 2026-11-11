@@ -31,13 +31,19 @@ export interface CkuSurveyDoc {
   /** Nombre del CKU dueño (el del Player). */
   cku: string;
   ckuEmail: string;
-  /** Lo que el CKU escribe al crearla: qué se está calificando. */
+  /** Qué se califica: el nombre del entregable del que nació (o, en las primeras, lo que el CKU escribió a mano). */
   nombre: string;
+  /** Id del entregable (item de la Fase 3 en Monday) del que nació; null en las primeras, creadas a mano. */
+  entregableId: string | null;
   createdByEmail: string;
   createdAt: string;
   /** Cuántas personas la han contestado (solo en el listado; no cuenta las invalidadas aparte). */
   respuestas: number;
 }
+
+/** ¿Está completado un entregable? Su Status en Monday es «Done» (sin importar mayúsculas ni espacios): solo entonces se
+ *  puede mandar la encuesta NPS. */
+export const entregableCompletado = (status: string | null | undefined): boolean => (status ?? "").trim().toLowerCase() === "done";
 
 /** Lo único que ve quien abre el enlace (sin correos ni respuestas). */
 export interface PublicCkuSurvey {

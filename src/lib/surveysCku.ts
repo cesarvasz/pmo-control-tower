@@ -12,15 +12,36 @@ import type { Json } from "@/types/supabase";
 
 const db = getSupabaseAdmin;
 
-export async function createCkuSurvey(input: { cku: string; ckuEmail: string; nombre: string; createdByEmail: string }): Promise<CkuSurveyDoc> {
-  const row = unwrapOne(await db().from("cku_surveys").insert({
-    token: randomUUID(),
-    cku: input.cku,
-    cku_email: input.ckuEmail.toLowerCase(),
-    nombre: input.nombre.trim(),
-    created_by_email: input.createdByEmail,
-  }).select("*").single());
-  return ckuSurveyDe(row);
+/** La encuesta que ya tiene un entregable de ese CKU, o null. */
+export async function findCkuSurveyPorEntregable(cku: string, entregableId: string): Promise<CkuSurveyDoc | null> {
+  const row = unwrap(await db().from("cku_surveys").select("*").eq("cku", cku).eq("entregable_id", entregableId).maybeSingle());
+  return row ? ckuSurveyDe(row) : null;
+}
+
+/** Crea la encuesta de un entregable. Si ese entregable ya tiene una (también ante dos clics a la vez: lo garantiza el
+ *  índice único), devuelve la existente en vez de crear otra: `creada` dice cuál de las dos pasó. */
+export async function createCkuSurvey(input: {
+  cku: string; ckuEmail: string; nombre: string; entregableId: string; createdByEmail: string;
+}): Promise<{ survey: CkuSurveyDoc; creada: boolean }> {
+  const existente = await findCkuSurveyPorEntregable(input.cku, input.entregableId);
+  if (existente) return { survey: existente, creada: false };
+  try {
+    const row = unwrapOne(await db().from("cku_surveys").insert({
+      token: randomUUID(),
+      cku: input.cku,
+      cku_email: input.ckuEmail.toLowerCase(),
+      nombre: input.nombre.trim(),
+      entregable_id: input.entregableId,
+      created_by_email: input.createdByEmail,
+    }).select("*").single());
+    return { survey: ckuSurveyDe(row), creada: true };
+  } catch (err) {
+    if (err instanceof DbError && err.code === PG.uniqueViolation) {
+      const otra = await findCkuSurveyPorEntregable(input.cku, input.entregableId);
+      if (otra) return { survey: otra, creada: false };
+    }
+    throw err;
+  }
 }
 
 /** Las encuestas (de un CKU, o todas) con cuántas personas las han contestado, más recientes primero. */

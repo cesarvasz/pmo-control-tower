@@ -8,13 +8,17 @@
 // Se lee como un acordeón, todo plegado al inicio: en Proyectos (Cumplimiento y Calidad) proyecto (Fase 3) →
 // items → actividades. Se listan las unidades que ENTRAN en la nota, así que cada etiqueta cuadra con el %
 // de su fuente; en Cumplimiento también se ven las actividades excusadas (con su etiqueta «no cuenta») y,
-// en ambos, cuántas quedan en proceso. Cada estado se lee solo Cumplido / Incumplido (gris = En Proceso).
+// en ambos, cuántas quedan en proceso (y se listan también, con la etiqueta En Proceso). Cada estado se lee solo Cumplido / Incumplido (gris = En Proceso).
+// SOLO en Cumplimiento de Entrega: junto a cada proyecto el botón «Status Card», y junto a cada entregable COMPLETADO (Status
+// Done) y cada PML CERRADO el de la encuesta NPS (ver CkuEntregableEncuesta). Calidad de Entregas no lleva ninguno de los dos.
 
 import { colorIndicadorCku, tonoIndicadorCku } from "@/lib/kpi";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pill, type Tone } from "@/components/ui";
 import CkuResponsableSelect from "@/components/CkuResponsableSelect";
+import { BotonEncuestaEntregable } from "@/components/CkuEntregableEncuesta";
+import { entregableCompletado } from "@/lib/surveyCku";
 import { fmtDate } from "@/lib/business";
 import { contarActividades, contarCalidad, detalleCalidad, detalleCumplimiento, FUENTE_LABEL, fuenteEvmLabel, type ActividadCalidad, type ActividadCumplimiento, type DetalleMedicion, type FuenteMedida, type ItemCalidad, type ItemCumplimiento, type ProyectoCalidadCku, type ProyectoCumplimiento, type UnidadMedida } from "@/lib/ckuDetalle";
 import type { Clase } from "@/lib/claseProyecto";
@@ -42,14 +46,14 @@ export default function CkuMedicion({ scope, delays, delaysOriginal, reproceso, 
 
   return (
     <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-t p-4 lg:grid-cols-2" style={{ borderColor: "var(--border)" }}>
-      <Panel titulo={`Cumplimiento de Entrega${sufijo}`} detalle={cumplimiento} />
-      <Panel titulo={`Calidad de Entregas${sufijo}`} esCalidad detalle={calidad} />
+      <Panel cku={scope.cku} titulo={`Cumplimiento de Entrega${sufijo}`} detalle={cumplimiento} />
+      <Panel cku={scope.cku} titulo={`Calidad de Entregas${sufijo}`} esCalidad detalle={calidad} />
     </div>
   );
 }
 
-function Panel({ titulo, esCalidad = false, detalle }: {
-  titulo: string; esCalidad?: boolean; detalle: DetalleMedicion;
+function Panel({ cku, titulo, esCalidad = false, detalle }: {
+  cku: string; titulo: string; esCalidad?: boolean; detalle: DetalleMedicion;
 }) {
   // Lo que entra en la nota y, en Cumplimiento, los atrasos excusados de PML e Iniciativas: no suman ni restan, pero se
   // listan para poder cambiarles el responsable (si no, al excusarlos desaparecerían y no se podrían revertir).
@@ -95,12 +99,12 @@ function Panel({ titulo, esCalidad = false, detalle }: {
                     : f === "proj" && arbol.length > 0
                     ? arbol.map((p) => (
                       <li key={p.proyecto} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
-                        <ProyectoCumplimientoFila p={p} />
+                        <ProyectoCumplimientoFila p={p} cku={cku} />
                       </li>
                     ))
                     : us.map((u) => (
                       <li key={u.id} className="rounded-md border" style={{ borderColor: "var(--border)" }}>
-                        {esCalidad ? <UnidadCalidad u={u} /> : <UnidadCumplimiento u={u} />}
+                        {esCalidad ? <UnidadCalidad u={u} /> : <UnidadCumplimiento u={u} cku={cku} />}
                       </li>
                     ))}
                 </ul>
@@ -133,8 +137,10 @@ const TAMANO = {
 } as const;
 
 /** Título + línea de detalle + (opcional) el responsable, a la izquierda; el resultado, a la derecha. */
-function Cabecera({ nivel, titulo, detalle, responsable, derecha }: {
+function Cabecera({ nivel, titulo, detalle, lineas, responsable, derecha }: {
   nivel: 0 | 1 | 2; titulo: string; detalle?: string;
+  /** Líneas extra bajo el detalle (p. ej. las fechas, una por fila). */
+  lineas?: ReactNode;
   /** Persona responsable en Monday: `undefined` = no se muestra la línea; `null` = "sin responsable". */
   responsable?: string | null; derecha: ReactNode;
 }) {
@@ -143,6 +149,7 @@ function Cabecera({ nivel, titulo, detalle, responsable, derecha }: {
       <span className="block min-w-0">
         <span className={`block truncate ${TAMANO[nivel].titulo}`} title={titulo}>{titulo}</span>
         {detalle && <span className={`block truncate text-[var(--text-muted)] ${TAMANO[nivel].detalle}`}>{detalle}</span>}
+        {lineas}
         {responsable !== undefined && <Responsable nombre={responsable} />}
       </span>
       <span className="block shrink-0 text-right">{derecha}</span>
@@ -162,6 +169,17 @@ function Responsable({ nombre }: { nombre: string | null }) {
   );
 }
 
+/** Las tres fechas de una actividad, una por fila y en este orden: Limit Date, New Limit Date y Done (cuándo cerró). */
+function FechasActividad({ limite, nueva, cierre }: { limite: Date | null; nueva: Date | null; cierre: Date | null }) {
+  const fila = (nombre: string, d: Date | null) => (
+    <span className="flex gap-1 text-[0.6rem]">
+      <span className="text-[var(--text-muted)]">{nombre}:</span>
+      <span className={d ? "font-semibold text-[var(--text-secondary)]" : "text-[var(--text-disabled)]"}>{d ? fmtDate(d) : "—"}</span>
+    </span>
+  );
+  return <>{fila("Limit Date", limite)}{fila("New Limit Date", nueva)}{fila("Done", cierre)}</>;
+}
+
 /** Una fila del acordeón. Con `hijos` se pliega/despliega (todo parte plegado); sin ellos es una hoja
  *  con el mismo sangrado, para que las columnas queden alineadas. */
 function Fila({ cabecera, hijos, accion }: {
@@ -175,6 +193,7 @@ function Fila({ cabecera, hijos, accion }: {
       <div className="flex items-start gap-1.5 px-2 py-1.5">
         <span className="w-3 shrink-0" aria-hidden />
         <div className="min-w-0 flex-1">{cabecera}</div>
+        {accion && <span className="shrink-0">{accion}</span>}
       </div>
     );
   }
@@ -203,7 +222,7 @@ function Fila({ cabecera, hijos, accion }: {
 // ── Unidades ──────────────────────────────────────────────────────────
 
 /** Un PML o una Iniciativa de Cumplimiento (una sola unidad cada uno; un atraso excusado también se lista, sin contar). */
-function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
+function UnidadCumplimiento({ u, cku }: { u: UnidadMedida; cku: string }) {
   const aTiempo = u.estado === "ok";
   return (
     <Fila
@@ -218,6 +237,7 @@ function UnidadCumplimiento({ u }: { u: UnidadMedida }) {
           </>}
         />
       }
+      accion={u.fuente === "req" ? <BotonEncuestaEntregable cku={cku} itemId={u.id} nombre={u.nombre} completado={!!u.cerrado} /> : undefined}
     />
   );
 }
@@ -237,7 +257,7 @@ function BotonStatusCard({ boardId }: { boardId: string }) {
 }
 
 /** Un proyecto: su % cumplido (solo con las actividades que cuentan) y, al abrirlo, sus items. */
-function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
+function ProyectoCumplimientoFila({ p, cku }: { p: ProyectoCumplimiento; cku: string }) {
   const c = contarActividades(p.items);
   const cuentan = c.ok + c.atraso;
   const pct = cuentan > 0 ? Math.round((c.ok / cuentan) * 100) : null;
@@ -260,17 +280,20 @@ function ProyectoCumplimientoFila({ p }: { p: ProyectoCumplimiento }) {
         />
       }
       accion={<BotonStatusCard boardId={p.boardId} />}
-      hijos={p.items.map((it) => <ItemCumplimientoFila key={it.id} it={it} heredado={p.responsableFase} />)}
+      hijos={p.items.map((it) => <ItemCumplimientoFila key={it.id} it={it} cku={cku} heredado={p.responsableFase} />)}
     />
   );
 }
 
-/** Un item (entregable) de la Fase 3: no es unidad, agrupa sus actividades. Las pendientes no se listan, solo se cuentan. */
-function ItemCumplimientoFila({ it, heredado }: { it: ItemCumplimiento; heredado: string | null }) {
+/** Un item (entregable) de la Fase 3: no es unidad, agrupa sus actividades (todas las suyas, también las que están En Proceso). */
+function ItemCumplimientoFila({ it, cku, heredado }: { it: ItemCumplimiento; cku: string; heredado: string | null }) {
   const c = contarActividades([it]);
   const cuentan = c.ok + c.atraso;
-  const visibles = it.actividades.filter((a) => a.estado !== "pendiente");
-  const resultado = c.atraso > 0 ? <Pill tone="bad" small>Incumplido</Pill>
+  const visibles = it.actividades;
+  // Mientras le quede una actividad en proceso, el entregable entero se lee «En Proceso»: ni Cumplido ni Incumplido hasta que
+  // todas estén medidas (los % de las tarjetas siguen siendo por actividad y no cambian).
+  const resultado = c.pendiente > 0 ? <Pill tone="neutral" small>En Proceso</Pill>
+    : c.atraso > 0 ? <Pill tone="bad" small>Incumplido</Pill>
     : cuentan > 0 ? <Pill tone="ok" small>Cumplido</Pill>
     : c.excusado > 0 ? <Pill tone="warn" small title={NO_CUENTA}>Incumplido</Pill>
     : <Pill tone="neutral" small>En Proceso</Pill>;
@@ -287,6 +310,7 @@ function ItemCumplimientoFila({ it, heredado }: { it: ItemCumplimiento; heredado
           derecha={resultado}
         />
       }
+      accion={<BotonEncuestaEntregable cku={cku} itemId={it.id} nombre={it.nombre} completado={entregableCompletado(it.status)} />}
       hijos={visibles.length > 0 ? visibles.map((a) => <ActividadFila key={a.id} a={a} heredado={heredado} />) : undefined}
     />
   );
@@ -300,8 +324,8 @@ function ActividadFila({ a, heredado }: { a: ActividadCumplimiento; heredado: st
       cabecera={
         <Cabecera
           nivel={2} titulo={a.nombre}
-          detalle={unidos([a.status, a.deadline && `límite ${fmtDate(a.deadline)}`, a.cierre && `cerró ${fmtDate(a.cierre)}`,
-            a.nuevaFecha && `nueva fecha ${fmtDate(a.nuevaFecha)}`, a.porNuevaFecha && "cumple por su nueva fecha", a.ajustada && "ajustada a mano a «cumplida»"])}
+          detalle={unidos([a.status, a.porNuevaFecha && "cumple por su nueva fecha", a.ajustada && "ajustada a mano a «cumplida»"])}
+          lineas={<FechasActividad limite={a.deadline} nueva={a.nuevaFecha} cierre={a.cierre} />}
           responsable={a.responsable}
           derecha={<>
             <Pill tone={tone(a.estado)} small title={a.estado === "excusado" ? NO_CUENTA : undefined}>{txt(a.estado)}</Pill>
@@ -338,18 +362,19 @@ function ProyectoCalidadFila({ p }: { p: ProyectoCalidadCku }) {
           </>}
         />
       }
-      accion={<BotonStatusCard boardId={p.boardId} />}
       hijos={p.items.map((it) => <ItemCalidadFila key={it.id} it={it} />)}
     />
   );
 }
 
-/** Un item (entregable) de la Fase 3: no es unidad, agrupa sus actividades. Las que aún no se miden no se listan, solo se cuentan. */
+/** Un item (entregable) de la Fase 3: no es unidad, agrupa sus actividades (todas las suyas, también las que aún no se miden: En Proceso). */
 function ItemCalidadFila({ it }: { it: ItemCalidad }) {
   const c = contarCalidad([it]);
   const medidas = c.buenas + c.malas;
-  const visibles = it.actividades.filter((a) => a.nota !== null);
-  const resultado = c.malas > 0 ? <Pill tone="bad" small>Incumplido</Pill>
+  const visibles = it.actividades;
+  // Igual que en Cumplimiento: con una actividad aún en proceso, el entregable se lee «En Proceso».
+  const resultado = c.sinMedir > 0 ? <Pill tone="neutral" small>En Proceso</Pill>
+    : c.malas > 0 ? <Pill tone="bad" small>Incumplido</Pill>
     : c.buenas > 0 ? <Pill tone="ok" small>Cumplido</Pill>
     : c.excusadas > 0 ? <Pill tone="warn" small title={NO_CUENTA}>Incumplido</Pill>
     : <Pill tone="neutral" small>En Proceso</Pill>;
@@ -384,10 +409,8 @@ function ActividadCalidadFila({ a }: { a: ActividadCalidad }) {
       cabecera={
         <Cabecera
           nivel={2} titulo={a.nombre}
-          detalle={unidos([
-            a.status, a.deadline && `límite ${fmtDate(a.deadline)}`, a.cierre && `cerró ${fmtDate(a.cierre)}`,
-            a.nuevaFecha && `nueva fecha ${fmtDate(a.nuevaFecha)}`,
-          ])}
+          detalle={a.status}
+          lineas={<FechasActividad limite={a.deadline} nueva={a.nuevaFecha} cierre={a.cierre} />}
           responsable={a.responsable}
           derecha={<>
             <Pill

@@ -25,6 +25,9 @@ const fuenteEvmDe = (source: "REQ" | "Proyecto" | "Iniciativa", id: string, clas
 /** Cómo se llama la fuente del peso de una unidad; null = sin clase. */
 export const fuenteEvmLabel = (f: FuenteEvm | null): string => (f ? FUENTE_EVM_LABEL[f] : "Sin clasificar");
 
+/** Los ids de los PML que ya están CERRADOS en Monday. */
+const pmlCerrados = (req: { id: string; estado: string }[]): Set<string> => new Set(req.filter((r) => r.estado === "CERRADO").map((r) => r.id));
+
 export interface UnidadMedida {
   id: string;
   fuente: FuenteMedida;
@@ -49,6 +52,9 @@ export interface UnidadMedida {
   responsable: string | null;
   /** Solo Proyectos: el proyecto (board) al que pertenece la actividad, p. ej. "PM-013 · TDP ADU". */
   proyecto?: string;
+  /** Solo PML: ya está CERRADO en Monday (de ahí se puede mandar la encuesta NPS). En Cumplimiento también entran los que
+   *  solo cerraron una fase, por eso no basta con que sea una unidad. */
+  cerrado?: boolean;
 }
 
 // ── Cumplimiento de Proyectos: proyecto → item → actividad ───────────────────
@@ -305,11 +311,13 @@ function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean):
  *  `delaysOriginal`, el guardado tal cual, solo para mostrar el responsable con su etiqueta real. */
 export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap, delaysOriginal: DelayMap = delays, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
   // PML e Iniciativas: una unidad cada uno. Un atraso excusado sale de la cuenta (ver calcEntregaStats).
+  const cerrados = pmlCerrados(s.req);
   const unidades = buildEntregaRows(s.req, [], s.projBoards, s.ini).map((r): UnidadMedida => {
     const tarde = r.verdict === "late";
     const base = {
       id: r.id, fuente: fuenteDe(r.source), fuenteEvm: fuenteEvmDe(r.source, r.id, clases),
       nombre: r.name, fase: r.fase, responsable: delaysOriginal[r.id]?.responsible ?? null,
+      ...(r.source === "REQ" && { cerrado: cerrados.has(r.id) }),
     };
     if (!tarde) return { ...base, estado: "ok", cuenta: true, valor: 1 };
     if (lateExcused(r.id, delays)) return { ...base, estado: "excusado", cuenta: false, valor: 0 };
@@ -340,10 +348,12 @@ export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap
  *  fechas (ver calidadActividadCku); las que aún no se miden no son unidades, y las de calidad 0 a las que un
  *  Admin les eligió un responsable ≠ CKU (clave: su id en `reproceso`) quedan excusadas: no cuentan. */
 export function detalleCalidad(s: Scope & { cku: string }, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
+  const cerrados = pmlCerrados(s.req);
   const unidades = buildReprocesoRows(s.req, [], s.projBoards, reproceso, s.ini).map((r): UnidadMedida => {
     const nota = notaCalidadCku(r.id, reproceso);
     return {
       id: r.id, fuente: fuenteDe(r.source), fuenteEvm: fuenteEvmDe(r.source, r.id, clases), nombre: r.name, fase: r.fase,
+      ...(r.source === "REQ" && { cerrado: cerrados.has(r.id) }),
       estado: nota === 100 ? "ok" : "atraso",
       cuenta: true, valor: nota / 100, nota,
       responsable: reprocesoOriginal[r.id]?.responsible ?? null,

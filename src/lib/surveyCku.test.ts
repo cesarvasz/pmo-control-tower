@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CKU_SURVEY_QUESTIONS, ckuIsComplete, enlaceEncuestaCku, esCorreoValido } from "@/lib/surveyCku";
+import { CKU_SURVEY_QUESTIONS, ckuIsComplete, enlaceEncuestaCku, entregableCompletado, esCorreoValido } from "@/lib/surveyCku";
 import { ckuNpsRecordsDe, ckuSurveyResponseDe } from "@/lib/storeRows";
 import { emailDeCkuPorNombre, nombreCkuCanonico } from "@/lib/players";
 
@@ -20,11 +20,15 @@ describe("encuesta de CKU", () => {
     expect(esCorreoValido(" a@b.com ")).toBe(true);
     for (const m of ["", "a", "a@b", "a b@c.com"]) expect(esCorreoValido(m)).toBe(false);
   });
+  it("un entregable está completado solo con Status Done", () => {
+    for (const s of ["Done", " done ", "DONE"]) expect(entregableCompletado(s)).toBe(true);
+    for (const s of ["Working on it", "Future steps", "Stuck", "", null, undefined]) expect(entregableCompletado(s)).toBe(false);
+  });
   it("arma el enlace público", () => expect(enlaceEncuestaCku("https://x.app", "t1")).toBe("https://x.app/encuesta/cku/t1"));
 });
 
 describe("filas de las encuestas de CKU", () => {
-  const s = { token: "t1", cku: "Javier Juarez", cku_email: "j@c807.com", nombre: "Capacitación", created_by_email: "j@c807.com", created_at: "2026-11-10T10:00:00+00:00" };
+  const s = { token: "t1", cku: "Javier Juarez", cku_email: "j@c807.com", nombre: "Capacitación", created_by_email: "j@c807.com", entregable_id: null, created_at: "2026-11-10T10:00:00+00:00" };
   const r = { id: "r1", survey_token: "t1", respondent_name: "Ana", respondent_email: "ana@x.com", answers: { nps: 10 }, invalidated: false, submitted_at: "2026-11-10T11:00:00+00:00" };
 
   it("convierte una respuesta", () => {
