@@ -354,8 +354,26 @@ const OPERACIONES: OperacionDef[] = [
       // Con "solo lo mío", quien lo crea queda de responsable (si no, dejaría de verlo).
       const regla = reglaQueAplica(ctx.acceso.usuario, ctx.tablero, ctx.acceso.reglas);
       const cols = await columnas(ctx);
-      const valores: Record<string, unknown> = regla?.soloLoMio && !ctx.acceso.usuario.esAdmin
-        ? valoresIniciales(cols, nivel, ctx.acceso.usuario.personaId) : {};
+      const soloLoMio = !!regla?.soloLoMio && !ctx.acceso.usuario.esAdmin;
+      const valores: Record<string, unknown> = soloLoMio ? valoresIniciales(cols, nivel, ctx.acceso.usuario.personaId) : {};
+      const colResp = cols.find((x) => x.nivel === nivel && x.rol === "responsable");
+      // Los valores que trae el formulario de alta: cada uno validado y con el permiso de SU columna.
+      const delFormulario = nivel === "item" && d.valores && typeof d.valores === "object" && !Array.isArray(d.valores) ? (d.valores as Record<string, unknown>) : {};
+      for (const [columnaId, bruto] of Object.entries(delFormulario)) {
+        const c = cols.find((x) => x.id === columnaId && x.nivel === nivel);
+        if (!c) throw new ErrorTablero(400, "Una de las columnas ya no existe");
+        if (!esEditable(c.tipo)) throw new ErrorTablero(400, esCalculado(c.tipo) ? "Esa columna se calcula sola" : "Esa columna la llena la app");
+        exigir(ctx, "editar_valor", { columna: c });
+        const v = validarValor(c, bruto);
+        if (v === undefined) throw new ErrorTablero(400, "Tipo de columna desconocido");
+        if (v !== null) valores[c.id] = v;
+      }
+      // Con «solo lo mío», quien lo crea sigue de responsable aunque el formulario ponga a otra persona (si no, dejaría de verlo).
+      const personaId = ctx.acceso.usuario.personaId;
+      if (soloLoMio && personaId && colResp) {
+        const elegidos = Array.isArray(valores[colResp.id]) ? (valores[colResp.id] as string[]) : [];
+        valores[colResp.id] = validarValor(colResp, [personaId, ...elegidos.filter((x) => x !== personaId)]) ?? [personaId];
+      }
       // Columnas que llena la app: ID automático (siguiente número) y fecha de creación.
       for (const c of cols.filter((x) => x.nivel === nivel)) {
         if (c.tipo === "creacion") valores[c.id] = marcaCreacion();
@@ -365,7 +383,9 @@ const OPERACIONES: OperacionDef[] = [
             usados.map((u) => (u.valores as Record<string, unknown> | null)?.[c.id]));
         }
       }
-      const responsables = Object.values(valores).flat() as string[];
+      // Responsables = lo que dice la columna con rol «responsable» (la columna es uuid[]: no cualquier valor sirve).
+      const resp = colResp ? valores[colResp.id] : undefined;
+      const responsables = Array.isArray(resp) ? (resp as unknown[]).filter((x): x is string => typeof x === "string") : [];
       const nuevo = unwrap(await db().from("elementos").insert({
         tablero_id: ctx.tablero.id, grupo_id: grupoId, parent_id: parentId, nombre, orden: siguienteOrden(hermanos),
         valores: valores as Json, responsables, creado_por: ctx.me.uid,

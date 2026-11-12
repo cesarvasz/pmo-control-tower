@@ -16,6 +16,9 @@ export interface CategoriaTablero {
   rolesRequeridos: RolRequerido[];
   /** Roles de las columnas con que nace un tablero nuevo de esta categoría (en este orden). */
   columnasIniciales: string[];
+  /** Si crear un elemento se hace con un FORMULARIO (pop-up) en vez de la fila «+ Agregar»: cómo se llama lo que se
+   *  crea, en qué grupo cae por defecto (por su título) y con qué status nace (por su texto). */
+  altaConFormulario?: { sustantivo: string; grupoInicial: string; statusInicial?: string };
 }
 
 export const CATEGORIAS_TABLERO: CategoriaTablero[] = [
@@ -41,6 +44,7 @@ export const CATEGORIAS_TABLERO: CategoriaTablero[] = [
     descripcion: "Embudo de ideas antes de volverse proyecto.",
     rolesRequeridos: ["status", "responsable"],
     columnasIniciales: ["status", "responsable"],
+    altaConFormulario: { sustantivo: "iniciativa", grupoInicial: "Nuevas Iniciativas", statusInicial: "New" },
   },
   {
     clave: "estrategia",

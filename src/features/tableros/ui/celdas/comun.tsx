@@ -76,7 +76,7 @@ export function Popover({ ancla, onCerrar, children, ancho = 240 }: { ancla: DOM
   return (
     <div
       ref={ref}
-      className="fixed z-[300] rounded-lg border p-2 shadow-lg"
+      className="fixed z-[9500] rounded-lg border p-2 shadow-lg"
       style={{
         width: ancho, left, background: "var(--bg-surface)", borderColor: "var(--border)",
         ...(arriba ? { bottom: window.innerHeight - ancla.top + 4 } : { top: ancla.bottom + 4 }),

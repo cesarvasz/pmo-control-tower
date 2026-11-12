@@ -481,3 +481,31 @@ recordatorios de «Sin Valor Def» (hoy un Apps Script que lee Monday), si la cl
 la Clasificación, y la lista de columnas calculadas por la app (Etapa, plazos, salud, reunión
 agendada, clase aprobada, cumplimiento, calidad, recordatorios). Limpiar los 7 «Project ID»
 repetidos (PM-005 ×2, PM-006, PM-008, PM-009, PM-016, PM-017).
+
+### Alta con formulario y filas compactas (2026-11-12, noche)
+
+Decisión del usuario: crear una Iniciativa NO se hace en la tabla sino en un pop-up con un formulario; las filas
+no deben ser tan largas (solo lo necesario, con un pop-up para ver todo el detalle); por defecto cae en «Nuevas
+Iniciativas»; los grupos se mantienen.
+- **Registro por categoría** (`dominio/categorias.ts · altaConFormulario`): hoy solo `iniciativas` (sustantivo
+  «iniciativa», grupo «Nuevas Iniciativas», status inicial «New»). En esa categoría desaparece la fila «+ Agregar
+  elemento» y salen el botón **+ Nueva iniciativa** (barra) y un **＋** en el encabezado de cada grupo (cae en ese grupo).
+- **Formulario** (`ui/tablero/FormularioAlta.tsx`): nombre (obligatorio), grupo y los campos que se llenan a mano,
+  ocultos incluidos (`dominio/formulario-alta.ts`). Texto, número y fecha con controles nativos; status, personas,
+  relación y plan reutilizan las celdas de la tabla. Quedan fuera lo calculado (espejo, fórmula, calculada por la app,
+  archivo) y lo que pone la app (Ini ID, Creation log).
+- **Servidor:** `elemento.crear` acepta `valores` (cada uno validado y con el permiso de SU columna; rechaza columnas
+  calculadas, automáticas o que ya no existen). Se corrigió un fallo que había: `responsables` (uuid[]) se armaba con
+  TODOS los valores iniciales, así que crear un elemento en un tablero con «Ini ID»/«Creation log» fallaba; ahora sale
+  solo de la columna con rol «responsable».
+- **Filas compactas:** se usa `oculta` (ya existía). En «Iniciativas 💡» la fila lleva Ini ID · Status · PM · CKU ·
+  Estrategia · Plazo · Salud; lo demás pasa al **detalle**. Menú **Columnas** (barra) para mostrar u ocultar cada una
+  (`ColumnasMenu.tsx`). Las ocultas no se pierden: siguen en el modelo, en el detalle y en las métricas.
+- **Detalle** (`ElementoPanel` · pestaña «Detalle», `DetalleCampos.tsx`): TODAS las columnas del elemento, cada una con su
+  celda editable bajo las mismas reglas que en la tabla (Monday solo lectura, permisos por columna). Se abre con ↗.
+- **Convivencia:** mientras un tablero se sincroniza con Monday, a las páginas solo llega lo que VIENE de Monday
+  (`soloLoDeMonday`, `dominio/dashboard.ts`): una Iniciativa creada en la app no cuenta en ninguna métrica hasta el corte,
+  cuando el tablero deja de sincronizarse. OJO: producción tiene el código anterior hasta el próximo push; hasta
+  entonces lo que se cree en «Iniciativas 💡» SÍ cuenta allá (producción lee de los tableros).
+- Un tablero creado desde plantilla no conserva los ids de columna de Monday, y el procesador de las métricas (`iniProcess`)
+  lee por ellos: las Iniciativas se crean en «Iniciativas 💡», no en un tablero nuevo.

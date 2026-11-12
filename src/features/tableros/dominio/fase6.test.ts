@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildDashboardData } from "@/lib/dashboardData";
 import type { DashboardData, DashboardRaw, IniItem, MondayItem } from "@/types";
-import { compararDashboard, completarDatosDeEscritura, personasAHrItems, type PersonaRh } from "./dashboard";
+import { compararDashboard, completarDatosDeEscritura, personasAHrItems, soloLoDeMonday, type PersonaRh } from "./dashboard";
+import type { Elemento, TableroCompleto } from "./tablero";
 
 const COLUMNAS_RH = {
   name: { title: "Name" }, status: { title: "Status" }, email_mkz5qg4v: { title: "Email" }, numeric_mkze8mf7: { title: "Hrs Mes" },
@@ -106,5 +107,22 @@ describe("Fase 6 · comparar el dashboard completo", () => {
     expect(r.secciones[0].avisos).toHaveLength(1);
     expect(r.personasFuera).toEqual(["Rafael Toruño"]);
     expect(r.igual).toBe(true);
+  });
+});
+
+describe("convivencia: a las páginas solo llega lo que viene de Monday", () => {
+  const el = (id: string, mondayItemId: string | null, parentId: string | null = null): Elemento =>
+    ({ id, grupoId: parentId ? null : "g", parentId, nombre: id, orden: 0, valores: {}, responsables: [], mondayItemId, actualizadoAt: "" });
+  const tablero = (sincronizaMonday: boolean) => ({ sincronizaMonday }) as TableroCompleto["tablero"];
+  const elementos = [el("de-monday", "101"), el("sub-de-monday", "102", "de-monday"), el("creado-en-la-app", null), el("sub-creado-en-la-app", null, "de-monday")];
+
+  it("en un tablero que se sincroniza, lo creado en la app (elementos y subelementos) no llega", () => {
+    const t = soloLoDeMonday({ tablero: tablero(true), elementos });
+    expect(t.elementos.map((e) => e.id)).toEqual(["de-monday", "sub-de-monday"]);
+  });
+
+  it("en un tablero que ya no se sincroniza (después del corte) se lee completo", () => {
+    const t = soloLoDeMonday({ tablero: tablero(false), elementos });
+    expect(t.elementos).toHaveLength(4);
   });
 });

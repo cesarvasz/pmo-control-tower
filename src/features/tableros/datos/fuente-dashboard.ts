@@ -23,7 +23,7 @@ import type { DashboardRaw, MondayItem, ProjBoardRaw } from "@/types";
 import type { Tables } from "@/types/supabase";
 import { nombreBoard, tableroAMondayItems, type PersonaMetricas } from "../dominio/metricas";
 import {
-  compararDashboard, completarDatosDeEscritura, personasAHrItems, type DatosDeEscritura, type ResultadoParidadDashboard,
+  compararDashboard, completarDatosDeEscritura, personasAHrItems, soloLoDeMonday, type DatosDeEscritura, type ResultadoParidadDashboard,
 } from "../dominio/dashboard";
 import type { TableroCompleto } from "../dominio/tablero";
 import { claveNombre } from "../dominio/personas";
@@ -119,8 +119,10 @@ export async function leerFuenteTableros(opciones: OpcionesFuente = {}): Promise
 
   // Cada tablero completo, con lo que necesitan sus fórmulas y espejos (tableros ligados y archivos).
   const completos = (await Promise.all(aLeer.map(async (f) => {
-    const t = await leerTablero(f.id, ACCESO_SISTEMA);
-    if (!t) return null;
+    const completo = await leerTablero(f.id, ACCESO_SISTEMA);
+    if (!completo) return null;
+    // Durante la convivencia solo cuenta lo que viene de Monday (ver soloLoDeMonday).
+    const t = paraLaApp ? soloLoDeMonday(completo) : completo;
     const extras = await leerExtras(t, ACCESO_SISTEMA);
     return { t, items: tableroAMondayItems(t, mapaPersonas, { ligados: extras.ligados, archivos: extras.archivos.map((a) => ({ ...a })) }) };
   }))).filter((x): x is { t: TableroCompleto; items: MondayItem[] } => !!x);

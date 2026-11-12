@@ -11,6 +11,7 @@ import { aplicarOnHold } from "@/lib/onHold";
 import { splitBoardName } from "@/lib/proj";
 import type { DashboardData, MondayColumnValue, MondayItem, ProjItem } from "@/types";
 import { diferenciasPorId, diferenciasProfundas, diferenciasProjItems, separarExplicadas, separarPersonasFuera } from "./paridad";
+import type { TableroCompleto } from "./tablero";
 
 // ── Directorio: personas → items del board Directorio RH ─────────────────────
 
@@ -209,4 +210,13 @@ export function compararDashboard(
     soloEnLaApp: [...soloEnLaApp].map((id) => b.projBoards.find((x) => x.id === id)?.name ?? id),
     personasFuera: [...new Set(secciones.flatMap((s) => s.avisos).map((d) => d.match(/: Monday "(.+)" ≠ app/)?.[1] ?? "").filter(Boolean))].sort(),
   };
+}
+
+/** Convivencia con Monday: mientras un tablero se sincroniza con Monday, a las páginas de la app (Control Tower,
+ *  Players, Portafolio…) solo llega lo que VIENE de Monday. Lo que se crea aquí mientras tanto (p. ej. una
+ *  Iniciativa de prueba) no cuenta en ninguna métrica hasta el corte, cuando el tablero deja de sincronizarse
+ *  y pasa a ser la fuente. Un tablero que no se sincroniza se lee completo. */
+export function soloLoDeMonday<T extends Pick<TableroCompleto, "tablero" | "elementos">>(t: T): T {
+  if (!t.tablero.sincronizaMonday) return t;
+  return { ...t, elementos: t.elementos.filter((e) => !!e.mondayItemId) };
 }

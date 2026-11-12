@@ -19,6 +19,10 @@ import { esEditable } from "../../dominio/tipos-columna";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import ColumnaEditor, { type CambiosColumna } from "../columnas/ColumnaEditor";
 import ElementoPanel from "./ElementoPanel";
+import FormularioAlta from "./FormularioAlta";
+import DetalleCampos from "./DetalleCampos";
+import ColumnasMenu from "./ColumnasMenu";
+import { altaConFormulario, columnasDelFormulario, grupoInicialId, valoresDeAlta } from "../../dominio/formulario-alta";
 import CompararModal from "./CompararModal";
 import GuardarPlantillaModal from "./GuardarPlantillaModal";
 import { botonMini, NuevoElemento, TextoEditable } from "./piezas";
@@ -54,6 +58,8 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
   const [busca, setBusca] = useState("");
   const [vistaClave, setVistaClave] = useState(VISTAS[0].clave);
   const [modal, setModal] = useState<"comparar" | "plantilla" | null>(null);
+  /** Formulario de alta abierto (categorías con altaConFormulario): grupoId null = el grupo por defecto. */
+  const [alta, setAlta] = useState<{ grupoId: string | null } | null>(null);
   const { me } = useMe();
 
   const alternar = (set: Set<string>, id: string) => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
@@ -150,6 +156,10 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
   const colsSub = columnasDe(columnas, "sub");
   const faltan = rolesFaltantes(tablero.categoria, columnas);
   const elementoPanel = panel ? elementos.find((e) => e.id === panel) : undefined;
+  const formulario = altaConFormulario(tablero.categoria);
+  /** ¿Esta celda se puede editar? Las mismas reglas en la tabla y en el detalle. */
+  const editableCelda = (e: Elemento, c: Columna) =>
+    (c.tipo === "archivo" || esEditable(c.tipo)) && !esDatoDeMonday(tablero, e, c) && puede(u, "editar_valor", tablero, R, { columna: c, elemento: e });
 
   const q = busca.trim().toLowerCase();
   const coincide = (e: Elemento) => !q || e.nombre.toLowerCase().includes(q) || (subsPorPadre.get(e.id) ?? []).some((s) => s.nombre.toLowerCase().includes(q));
@@ -195,7 +205,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
     return (
       <div className="flex items-center gap-1">
         <TextoEditable valor={e.nombre} editable={editable} className="flex-1 truncate text-[0.84rem]" onGuardar={(n) => hacer({ op: "elemento.renombrar", elementoId: e.id, nombre: n })} />
-        <button type="button" className={botonMini} onClick={() => setPanel(e.id)} title="Bitácora e historial" aria-label="Bitácora e historial">
+        <button type="button" className={botonMini} onClick={() => setPanel(e.id)} title="Ver detalle, bitácora e historial" aria-label="Ver detalle, bitácora e historial">
           {data!.comentarios[e.id] ? <span className="text-[0.72rem]">💬 {data!.comentarios[e.id]}</span> : "↗"}
         </button>
       </div>
@@ -210,7 +220,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
             <Celda
               columna={c} valor={valorDeCelda(calc!, e, c)} personas={personas} elementoId={e.id} entorno={entorno}
               // Fórmula y espejo se calculan solos; los archivos sí se suben (si puede editar).
-              editable={(c.tipo === "archivo" || esEditable(c.tipo)) && !esDatoDeMonday(tablero, e, c) && puede(u, "editar_valor", tablero, R, { columna: c, elemento: e })}
+              editable={editableCelda(e, c)}
               onCambiar={(v) => cambiarValor(e, c, v)}
             />
           </td>
@@ -318,8 +328,12 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
             </button>
           ))}
         </div>
+        {formulario && puedeCrear && <Boton primario onClick={() => setAlta({ grupoId: null })}>+ Nueva {formulario.sustantivo}</Boton>}
         {puedeEstructura && <Boton onClick={() => hacer({ op: "grupo.crear" })}>+ Grupo</Boton>}
         {puedeEstructura && <Boton onClick={() => setEditorCol({ columna: null, nivel: "item" })}>+ Columna</Boton>}
+        {puedeEstructura && (
+          <ColumnasMenu columnas={columnasDe(columnas, "item", true)} onAlternar={(c) => hacer({ op: "columna.editar", columnaId: c.id, oculta: !c.oculta })} />
+        )}
         <input
           type="search" placeholder="Buscar elemento…" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar elemento"
           {...estiloControl} className={`${estiloControl.className} w-56 py-1.5`}
@@ -347,6 +361,9 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
                 onGuardar={(titulo) => { if (titulo) hacer({ op: "grupo.editar", grupoId: g.id, titulo }); }}
               />
               <span className="text-[0.75rem] text-[var(--text-muted)]">{items.length}</span>
+              {formulario && puedeCrear && (
+                <button type="button" className={botonMini} onClick={() => setAlta({ grupoId: g.id })} title={`Nueva ${formulario.sustantivo} en este grupo`} aria-label={`Nueva ${formulario.sustantivo} en ${g.titulo}`}>＋</button>
+              )}
               {puedeEstructura ? (
                 <select
                   value={g.fase ?? ""} onChange={(e) => hacer({ op: "grupo.editar", grupoId: g.id, fase: e.target.value || null })}
@@ -410,7 +427,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
                         </Fragment>
                       );
                     })}
-                    {puedeCrear && (
+                    {puedeCrear && !formulario && (
                       <tr>
                         <td />
                         <td colSpan={colsItem.length + 1 + (puedeEstructura ? 1 : 0)} style={{ padding: "2px 6px" }}>
@@ -436,6 +453,16 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         />
       )}
 
+      {alta && formulario && (
+        <FormularioAlta
+          sustantivo={formulario.sustantivo} grupos={grupos} grupoInicial={alta.grupoId ?? grupoInicialId(tablero.categoria, grupos)}
+          columnas={columnasDelFormulario(columnas).filter((c) => puede(u, "editar_valor", tablero, R, { columna: c }))}
+          valoresIniciales={valoresDeAlta(tablero.categoria, columnas)} personas={personas} entorno={entorno}
+          onCrear={async (d) => { await op({ op: "elemento.crear", grupoId: d.grupoId, nombre: d.nombre, valores: d.valores }); }}
+          onCerrar={() => setAlta(null)}
+        />
+      )}
+
       {modal === "comparar" && <CompararModal tableroId={tablero.id} onCerrar={() => setModal(null)} />}
       {modal === "plantilla" && (
         <GuardarPlantillaModal
@@ -450,6 +477,14 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
           tableroId={tablero.id} elemento={elementoPanel} grupos={grupos} columnas={columnas} personas={personas}
           puedeEditar={puede(u, "editar_valor", tablero, R, { elemento: elementoPanel })} esAdmin={u.esAdmin}
           deMonday={esDatoDeMonday(tablero, elementoPanel)}
+          detalle={(
+            <DetalleCampos
+              columnas={columnasDe(columnas, elementoPanel.parentId ? "sub" : "item", true)} elementoId={elementoPanel.id}
+              valorDe={(c) => valorDeCelda(calc, elementoPanel, c)} personas={personas} entorno={entorno}
+              editable={(c) => editableCelda(elementoPanel, c)} deMonday={(c) => esDatoDeMonday(tablero, elementoPanel, c)}
+              onCambiar={(c, v) => cambiarValor(elementoPanel, c, v)}
+            />
+          )}
           onCambio={() => { void recargar(); }}
           onMover={async (grupoId) => { await op({ op: "elemento.mover", elementoId: elementoPanel.id, grupoId }).catch(() => {}); }}
           onArchivar={async () => { await op({ op: "elemento.archivar", elementoId: elementoPanel.id }).catch(() => {}); }}

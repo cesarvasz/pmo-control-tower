@@ -3,7 +3,7 @@
 // Detalle de un elemento: su bitácora (actualizaciones), su historial de cambios, moverlo de
 // grupo y archivarlo.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Modal from "@/components/Modal";
 import { ErrorBox } from "@/components/ui";
 import { textoCelda, type Columna, type Elemento, type Grupo } from "../../dominio/tablero";
@@ -60,7 +60,7 @@ function Historial({ tableroId, elementoId, columnas, personas }: { tableroId: s
   );
 }
 
-export default function ElementoPanel({ tableroId, elemento, grupos, columnas, personas, puedeEditar, esAdmin, deMonday = false, onMover, onArchivar, onCambio, onCerrar }: {
+export default function ElementoPanel({ tableroId, elemento, grupos, columnas, personas, puedeEditar, esAdmin, deMonday = false, detalle, onMover, onArchivar, onCambio, onCerrar }: {
   tableroId: string;
   elemento: Elemento;
   grupos: Grupo[];
@@ -70,15 +70,18 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
   esAdmin: boolean;
   /** Viene de Monday (convivencia): su grupo y su archivado se cambian en Monday. */
   deMonday?: boolean;
+  /** Todos sus campos (ver DetalleCampos): si viene, es la primera pestaña. */
+  detalle?: ReactNode;
   onMover(grupoId: string): Promise<void>;
   onArchivar(): Promise<void>;
   /** Algo cambió en la bitácora (para refrescar el contador). */
   onCambio(): void;
   onCerrar(): void;
 }) {
-  const [pestana, setPestana] = useState<"bitacora" | "historial">("bitacora");
+  const [pestana, setPestana] = useState<"detalle" | "bitacora" | "historial">(detalle ? "detalle" : "bitacora");
+  const pestanas = [...(detalle ? [["detalle", "Detalle"] as const] : []), ["bitacora", "Bitácora"] as const, ["historial", "Historial de cambios"] as const];
   return (
-    <Modal open onClose={onCerrar} width={600} label={`Detalle de ${elemento.nombre}`}>
+    <Modal open onClose={onCerrar} width={detalle ? 760 : 600} label={`Detalle de ${elemento.nombre}`}>
       <div className="flex flex-col gap-4 p-5">
         <h2 className="text-base font-semibold text-[var(--text-primary)]">{elemento.nombre || "(sin nombre)"}</h2>
         {puedeEditar && deMonday && (
@@ -100,7 +103,7 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
           </div>
         )}
         <div className="flex w-fit rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }} role="tablist">
-          {([["bitacora", "Bitácora"], ["historial", "Historial de cambios"]] as const).map(([v, t]) => (
+          {pestanas.map(([v, t]) => (
             <button key={v} type="button" role="tab" aria-selected={pestana === v} onClick={() => setPestana(v)}
               className="rounded-md px-3 py-1 text-[0.8rem] font-bold"
               style={pestana === v ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-muted)" }}>
@@ -108,7 +111,7 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
             </button>
           ))}
         </div>
-        {pestana === "bitacora"
+        {pestana === "detalle" ? detalle : pestana === "bitacora"
           ? <Bitacora tableroId={tableroId} elementoId={elemento.id} puedeComentar={puedeEditar} esAdmin={esAdmin} bloquearDeMonday={deMonday} onCambio={onCambio} />
           : <Historial tableroId={tableroId} elementoId={elemento.id} columnas={columnas} personas={personas} />}
       </div>
