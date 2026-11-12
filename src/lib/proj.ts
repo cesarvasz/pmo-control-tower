@@ -5,6 +5,7 @@
 import { parseYMD, today } from "@/lib/business";
 import { colText, colDisplay, colByTitle, colByTitleAny, colNumByTitle } from "@/lib/monday-cols";
 import { calcVem, healthStatusFromIndex, type HealthStatus } from "@/lib/health";
+import { claseDeAprobacion } from "@/lib/ini";
 import type {
   EstrategiaInfo,
   MondayColumnValue,
@@ -283,7 +284,7 @@ export function deriveBoardHealth(metrics: { ev: number; pv: number; ac: number;
 // cargado en Monday.
 const INI_LOOKUP_COL = {
   estrategia: "board_relation_mm3by83p", sponsor: "lookup_mm3bdj38", benefitType: "dropdown_mm51s7pm",
-  projectId: "text_mm3ajvj5",
+  projectId: "text_mm3ajvj5", status: "color_mm3a94fr",
   pm: "multiple_person_mm3akwgd",   // columna "PM" de la Iniciativa (people)
 };
 
@@ -335,6 +336,8 @@ const stripPmPrefix = (boardName: string) => splitBoardName(boardName).name;
 /** Datos que se traen de la Iniciativa para enriquecer el Proyecto del mismo nombre. */
 type IniLookupVal = {
   estrategia: string; sponsor: string; cku: string; benefitType: string;
+  /** Clase (A/B/C) con la que se aprobó la Iniciativa (status PM "A"/"B"/"C"); undefined si aún no está aprobada. */
+  claseIni?: "A" | "B" | "C";
   /** PM de la Iniciativa (columna "PM"); solo lo usan los boards de la 3ª plantilla. */
   pm?: string;
 };
@@ -396,6 +399,7 @@ export function buildIniLookup(
       sponsor:    resolveName(colDisplay(it.column_values, INI_LOOKUP_COL.sponsor)),
       cku:        resolveName(colByTitleAny(it.column_values, "CKU")),
       benefitType: colText(it.column_values, INI_LOOKUP_COL.benefitType).trim(),
+      claseIni:   claseDeAprobacion(colText(it.column_values, INI_LOOKUP_COL.status)) ?? undefined,
       // Si la columna trae varias personas ("A, B") el PM es la primera.
       pm:         colText(it.column_values, INI_LOOKUP_COL.pm).split(",")[0].trim(),
     };
@@ -535,6 +539,8 @@ export function projEnrichBoards(
       sponsor,
       cku: iniCompartida?.cku || "",
       benefitType: ini?.benefitType || "",
+      // Solo la Iniciativa PROPIA del proyecto (PM-013 no hereda la de PM-003: no la aprobaron como a él).
+      iniClase: ini?.claseIni,
     };
   });
 }

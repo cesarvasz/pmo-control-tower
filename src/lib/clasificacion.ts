@@ -24,6 +24,9 @@ export interface FilaClasificacion {
   sponsor: string;
   /** La asignada a mano; si no hay, la de siempre (proyecto: su tabla en claseProyecto.ts; PML: C). */
   clase: Clase;
+  /** Proyectos: la clase con la que se aprobó su Iniciativa (PM "A"/"B"/"C"), cuando es distinta de `clase`. Es solo una
+   *  SUGERENCIA: no cambia sola la que mide el EVM; el Admin decide si la aplica. */
+  sugerida?: "A" | "B" | "C";
   /** Fase en la que está hoy (proyecto: la primera que aún no está 100 % Done); «Completado» /
    *  «Cerrado» cuando ya no hay nada que hacer. */
   fase: string;
@@ -66,6 +69,7 @@ export function filasClasificacion(data: DashboardData): FilaClasificacion[] {
       tipo: "proyecto", id: b.id, codigo: code || b.name, nombre: code ? name : "",
       pm: b.pm || "", cku: b.cku || "", sponsor: b.sponsor || "",
       clase: claseDeBoard(b, data.clases),
+      sugerida: b.iniClase && b.iniClase !== claseDeBoard(b, data.clases) ? b.iniClase : undefined,
       fase: oh ? oh.fase : "Completado", pausable: !!oh, enOnHold: oh?.enOnHold ?? false, motivo: oh?.motivo ?? "",
     });
   }

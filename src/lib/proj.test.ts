@@ -342,6 +342,28 @@ describe("projEnrichBoards", () => {
     });
   });
 
+  describe("buildIniLookup: clase con la que se aprobó la Iniciativa", () => {
+    const ini = (name: string, projectId: string, status: string): MondayItem => ({
+      id: name, name, group: { title: "Aprobadas" },
+      column_values: [{ id: "text_mm3ajvj5", text: projectId }, { id: "color_mm3a94fr", text: status }],
+    });
+
+    it("PM \"A\" / \"B\" / \"C\" dan la clase; cualquier otro status, ninguna", () => {
+      const lk = buildIniLookup([ini("Uno", "PM-001", 'PM "A"'), ini("Dos", "PM-002", 'PM "c"'), ini("Tres", "PM-003", "Meeting 1"), ini("Cuatro", "PM-004", "Sin Valor Def")]);
+      expect(lk.byId.get("PM-001")?.claseIni).toBe("A");
+      expect(lk.byId.get("PM-002")?.claseIni).toBe("C");
+      expect(lk.byId.get("PM-003")?.claseIni).toBeUndefined();
+      expect(lk.byId.get("PM-004")?.claseIni).toBeUndefined();
+    });
+
+    it("el board la recibe como iniClase, pero solo de su Iniciativa PROPIA (PM-013 no hereda la de PM-003)", () => {
+      const lk = buildIniLookup([ini("DUCAfast 2.0", "PM-003", 'PM "A"')]);
+      const [b003, b013] = projEnrichBoards([{ id: "b3", name: "PM-003 | DUCAfast 2.0" }, { id: "b13", name: "PM-013 | TDP ADU" }], [], lk);
+      expect(b003.iniClase).toBe("A");
+      expect(b013.iniClase).toBeUndefined();
+    });
+  });
+
   describe("buildIniLookup: PM de la Iniciativa", () => {
     const ini = (name: string, projectId: string, pm: string): MondayItem => ({
       id: name, name, group: { title: "Aprobadas" },

@@ -42,6 +42,29 @@ const data = (clases: DashboardData["clases"] = {}, onHold: DashboardData["onHol
   ]),
 }) as unknown as DashboardData;
 
+describe("clase sugerida por la Iniciativa aprobada", () => {
+  const conIni = (clases: DashboardData["clases"] = {}) => {
+    const d = data(clases) as unknown as { projBoards: { id: string; iniClase?: "A" | "B" | "C" }[] };
+    d.projBoards.find((b) => b.id === "b1")!.iniClase = "A";   // sin clasificar → se sugiere A
+    d.projBoards.find((b) => b.id === "b2")!.iniClase = "B";   // PM-004 es B en la tabla → coincide, no se sugiere
+    d.projBoards.find((b) => b.id === "b3")!.iniClase = "C";
+    return filasClasificacion(d as unknown as DashboardData);
+  };
+
+  it("se sugiere solo cuando es distinta de la clase que tiene hoy el proyecto", () => {
+    const filas = conIni();
+    expect(filas.find((f) => f.id === "b1")).toMatchObject({ clase: "Sin clasificar", sugerida: "A" });
+    expect(filas.find((f) => f.id === "b2")).toMatchObject({ clase: "B", sugerida: undefined });
+    expect(filas.find((f) => f.id === "b4")?.sugerida).toBeUndefined(); // sin Iniciativa aprobada
+  });
+
+  it("una clase asignada a mano manda: la sugerencia aparece pero NO cambia la clase", () => {
+    const filas = conIni({ b3: ent("B") });
+    expect(filas.find((f) => f.id === "b3")).toMatchObject({ clase: "B", sugerida: "C" });
+    expect(filas.filter((f) => f.tipo === "pml").every((f) => f.sugerida === undefined)).toBe(true);
+  });
+});
+
 describe("filasClasificacion", () => {
   const filas = filasClasificacion(data());
 

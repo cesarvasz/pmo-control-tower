@@ -199,6 +199,17 @@ export default function ClasificacionTab({ data }: { data: DashboardData }) {
                       ) : (
                         <span className="whitespace-nowrap text-[0.8rem] font-semibold text-[var(--text-secondary)]">{etiquetaClase(f.clase)}</span>
                       )}
+                      {f.sugerida && (
+                        <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[0.7rem] text-[var(--text-muted)]"
+                          title="Es la clase con la que se aprobó su Iniciativa. No cambia sola la que mide el EVM: tú decides si la aplicas.">
+                          Iniciativa: Clase {f.sugerida}
+                          {puedeClase && (
+                            <button type="button" onClick={() => clasificar(f, f.sugerida!)} className="text-[var(--accent)] hover:underline">
+                              Usar
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td style={{ fontSize: ".78rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{f.fase}</td>
                     <td>

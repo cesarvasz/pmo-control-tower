@@ -446,6 +446,9 @@ Respuestas del usuario (2026-11-12 tarde):
   su Iniciativa dice A; PM-004 y PM-009 son B en la tabla y A en la Iniciativa): por eso NO cambia sola la que
   hoy mide el EVM; la sugerencia se muestra para que el Admin la aplique. Ojo: con los «Project ID» repetidos
   la Iniciativa que se encuentra puede ser la equivocada.
+  HECHO: la pestaña Clasificación muestra «Iniciativa: Clase X» y un botón «Usar» cuando la clase con la que se aprobó
+  la Iniciativa (`ProjBoard.iniClase`, solo la Iniciativa PROPIA: PM-013 no hereda la de PM-003) difiere de la que tiene
+  hoy. Con datos reales son 9 de 21 (todas «A»: PM-004, 005, 006, 009, 011, 014, 015, 016 y 017); no cambia el EVM.
 - **Columnas calculadas por la app:** confirmadas Etapa, Plazo, Salud, Clase aprobada, Cumplimiento y Calidad
   (Reunión agendada y Recordatorios quedan para el corte).
 - **«Project ID» repetidos:** se dejan por ahora (se arreglan después, en Monday).

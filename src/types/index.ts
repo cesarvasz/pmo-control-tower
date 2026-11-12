@@ -507,6 +507,7 @@ export interface ProjBoard {
   sponsor?: string;    // lookup desde la Iniciativa con el mismo nombre
   cku?: string;        // lookup desde la Iniciativa (columna "CKU")
   benefitType?: string; // "Benefit Type" de la Iniciativa (SoftSaving/HardSaving/"")
+  iniClase?: "A" | "B" | "C"; // clase con la que se aprobó su Iniciativa (PM "A"/"B"/"C"); solo la sugiere la pestaña Clasificación
 }
 
 /** Un comentario de la bitácora (Updates) de Monday de un item/hito de Proyectos. */
