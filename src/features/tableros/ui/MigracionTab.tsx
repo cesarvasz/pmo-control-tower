@@ -28,7 +28,12 @@ interface BoardCorrida {
 interface Corrida {
   id: number; origen: string; inicio: string; fin: string | null; estado: "en_curso" | "ok" | "con_errores" | "fallo"; error: string | null;
   resumen: { copia?: { ok: boolean; boards: number; errores: string[] }; boards: BoardCorrida[]; enCurso?: string | null };
+  pendientes: number; latido: string | null;
 }
+/** De dónde lee la app en este servidor (lib/fuenteDatos.ts · FuenteEfectiva). */
+interface Fuente { configurada: "monday" | "tableros"; fuente: "monday" | "tableros"; actualizadoAl: string | null; motivo?: string }
+
+const ORIGEN: Record<string, string> = { manual: "a mano", programada: "programada en esta PC", nube: "programada en la nube" };
 
 const TIPO: Record<BoardImportable["tipo"], string> = { est: "Estrategia", ini: "Iniciativas", req: "PML / VALOR Lite", proj: "Proyecto" };
 const URL_API = "/api/tableros/importar";
@@ -91,7 +96,7 @@ export default function MigracionTab() {
   const { me } = useMe();
   const puede = tieneAccionTableros(me?.permissions, "tableros_crear");
   const { data, error, recargar } = useCarga<{ boards: BoardImportable[] }>(puede ? URL_API : "");
-  const sync = useCarga<{ corridas: Corrida[] }>(puede ? URL_SYNC : "");
+  const sync = useCarga<{ corridas: Corrida[]; fuente: Fuente }>(puede ? URL_SYNC : "");
   const [estado, setEstado] = useState<Record<string, Estado>>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [viendo, setViendo] = useState<string | null>(null);
@@ -186,8 +191,8 @@ export default function MigracionTab() {
             <div className="flex flex-wrap items-center gap-2">
               <Pill tone={ESTADO[ultima.estado].tono} small>{ESTADO[ultima.estado].texto}</Pill>
               <span>
-                {enCurso ? `Empezó ${hace(ultima.inicio)}${ultima.resumen.enCurso ? ` · va en: ${ultima.resumen.enCurso}` : ""} · ${ultima.resumen.boards?.length ?? 0} de ${boards.length} boards`
-                  : `Última: ${hace(ultima.fin ?? ultima.inicio)} (${ultima.origen === "manual" ? "a mano" : "programada"}, ${duracion(ultima)})`}
+                {enCurso ? `Empezó ${hace(ultima.inicio)} (${ORIGEN[ultima.origen] ?? ultima.origen})${ultima.resumen.enCurso ? ` · va en: ${ultima.resumen.enCurso}` : ""} · ${ultima.resumen.boards?.length ?? 0} de ${boards.length} boards · faltan ${ultima.pendientes} pasos`
+                  : `Última: ${hace(ultima.fin ?? ultima.inicio)} (${ORIGEN[ultima.origen] ?? ultima.origen}, ${duracion(ultima)})`}
               </span>
             </div>
             {!enCurso && <span className="text-[0.8rem] text-[var(--text-muted)]">{textoTotales(ultima)}</span>}
@@ -196,8 +201,27 @@ export default function MigracionTab() {
           </div>
         )}
         <p className="mt-2 text-[0.75rem] text-[var(--text-muted)]">
-          Corre sola cada hora en esta PC (Programador de tareas de Windows, <code>npm run tableros:sincronizar</code>), solo con la PC encendida.
+          Corre sola cada hora, por pasos: en esta PC con el Programador de tareas de Windows (<code>npm run tableros:sincronizar</code>, solo con
+          la PC encendida); en producción, <code>pg_cron</code> de Supabase llama cada minuto a <code>/api/cron/tableros-sync</code>, que sigue la
+          corrida abierta o abre una nueva cada hora.
         </p>
+        {sync.data?.fuente.configurada === "tableros" && sync.data.fuente.fuente === "monday" ? (
+          <Nota tono="mal">
+            <strong>Respaldo activo: la app está leyendo de Monday</strong> aunque este servidor tiene <code>FUENTE_DATOS=tableros</code>.{" "}
+            {sync.data.fuente.motivo} Vuelve a los tableros sola en cuanto termine una sincronización correcta.
+          </Nota>
+        ) : sync.data?.fuente.configurada === "tableros" ? (
+          <Nota tono="ok">
+            <strong>La app lee de los tableros</strong> en este servidor (<code>FUENTE_DATOS=tableros</code>): Control Tower, Players, Portafolio,
+            Proyectos… muestran lo de la última sincronización. El status que se cambia en /proyectos sigue yendo a Monday y ese board se
+            sincroniza al momento. Si la sincronización se atrasa más de 2 horas, la app vuelve a leer de Monday sola.
+          </Nota>
+        ) : sync.data && (
+          <p className="mt-1 text-[0.75rem] text-[var(--text-muted)]">
+            La app lee de Monday en este servidor. Para que lea de los tableros: <code>FUENTE_DATOS=tableros</code> en <code>.env.local</code> y
+            reiniciar el servidor.
+          </p>
+        )}
         {corridas.length > 1 && (
           <div className="mt-2">
             <button type="button" className="text-[0.78rem] text-[var(--accent)] hover:underline" onClick={() => setVerHistorial((v) => !v)}>
@@ -211,7 +235,7 @@ export default function MigracionTab() {
                     {corridas.slice(1).map((c) => (
                       <tr key={c.id}>
                         <td style={{ fontSize: ".78rem", whiteSpace: "nowrap" }}>{new Date(c.inicio).toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" })}</td>
-                        <td style={{ fontSize: ".78rem" }}>{c.origen === "manual" ? "A mano" : "Programada"}</td>
+                        <td style={{ fontSize: ".78rem" }}>{ORIGEN[c.origen] ?? c.origen}</td>
                         <td style={{ fontSize: ".78rem" }}>{duracion(c)}</td>
                         <td><Pill tone={ESTADO[c.estado].tono} small>{ESTADO[c.estado].texto}</Pill></td>
                         <td style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>{c.error ?? textoTotales(c)}</td>

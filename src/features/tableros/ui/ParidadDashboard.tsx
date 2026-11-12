@@ -108,7 +108,7 @@ export default function ParidadDashboard({ deshabilitado }: { deshabilitado?: bo
           ))}
           {data.soloEnLaApp.length > 0 && (
             <p className="text-[0.75rem] text-[var(--text-muted)]">
-              Tableros de proyecto que existen solo en la app (no vienen de Monday; leyendo de Supabase aparecerían como proyectos): {data.soloEnLaApp.join(", ")}.
+              Tableros de proyecto que existen solo en la app (no vienen de Monday; mientras dure la convivencia no llegan a Control Tower ni a las demás páginas): {data.soloEnLaApp.join(", ")}.
             </p>
           )}
           <p className="text-[0.72rem] text-[var(--text-muted)]">

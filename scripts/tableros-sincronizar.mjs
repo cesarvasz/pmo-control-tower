@@ -4,8 +4,9 @@
 //
 //   npm run tableros:sincronizar
 //
-// La corre cada hora el Programador de tareas de Windows (scripts/tableros-sincronizar.cmd).
-// Si ya hay una corrida en curso (p. ej. la del botón «Sincronizar ahora»), no hace nada.
+// La corre cada hora el Programador de tareas de Windows (scripts/tableros-sincronizar.cmd). Usa el
+// mismo motor por pasos que la nube: si hay una corrida a medias (de la nube o de un corte), la
+// termina; si otra llamada la está avanzando, no hace nada.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,21 +19,21 @@ if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 
 // jiti carga el TypeScript de la app tal cual (con el alias "@/" de tsconfig).
 const jiti = createJiti(import.meta.url, { alias: { "@": path.join(raiz, "src") } });
-const { iniciarCorrida, correrSincronizacion } = await jiti.import(path.join(raiz, "src/features/tableros/datos/sincronizar.ts"));
+const { tickSincronizacion, listarCorridas } = await jiti.import(path.join(raiz, "src/features/tableros/datos/sincronizar.ts"));
 
 const hora = () => new Date().toLocaleString("es-GT", { hour12: false });
 const inicio = Date.now();
 
-let corridaId;
-try {
-  corridaId = await iniciarCorrida("programada");
-} catch (e) {
-  console.log(`[${hora()}] No se sincronizó: ${e instanceof Error ? e.message : e}`);
+console.log(`[${hora()}] Sincronización…`);
+const tick = await tickSincronizacion({ origen: "programada", cadaMin: 0 });
+if (tick.accion === "ocupada" || !tick.corridaId) {
+  console.log(`[${hora()}] No se sincronizó: otra llamada está avanzando la corrida en curso.`);
   process.exit(0);
 }
-
-console.log(`[${hora()}] Sincronización #${corridaId}…`);
-const r = await correrSincronizacion(corridaId);
+const corrida = (await listarCorridas(10)).find((c) => c.id === tick.corridaId);
+if (!corrida) process.exit(0);
+const r = corrida.resumen;
+console.log(`  Corrida #${corrida.id} (${tick.accion === "abrió" ? "nueva" : "retomada"}): ${corrida.estado}${corrida.error ? ` · ${corrida.error}` : ""}`);
 for (const b of r.boards) {
   const c = b.cambios;
   const partes = [

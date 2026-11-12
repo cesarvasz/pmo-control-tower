@@ -54,6 +54,32 @@ export function personasAHrItems(personas: PersonaRh[], columnasRh: Record<strin
     }));
 }
 
+// ── Fase 6: lo que la app necesita para seguir escribiendo en Monday ─────────
+
+/** Lo que guarda la copia de Monday de cada item para escribirle (no es dato de las métricas). */
+export interface DatosDeEscritura {
+  email: string | null;
+  /** Board OCULTO de subitems: la mutación de status de un hito lo exige. */
+  subBoard: string | null;
+}
+
+/**
+ * Mientras dure la convivencia, lo que la app escribe (status, bitácora) sigue yendo a Monday y
+ * necesita el correo del item y, en un subitem, su board oculto. El tablero no los guarda (no son
+ * datos): salen de la copia, por id de Monday. Un elemento creado en la app no existe en Monday y
+ * se queda sin ellos (a un hito sin board oculto no se le ofrece el selector de status).
+ */
+export function completarDatosDeEscritura(items: MondayItem[], copia: Map<string, DatosDeEscritura>): MondayItem[] {
+  return items.map((it) => ({
+    ...it,
+    email: copia.get(it.id)?.email ?? null,
+    subitems: it.subitems?.map((s) => {
+      const c = copia.get(s.id);
+      return { ...s, email: c?.email ?? null, board: c?.subBoard ? { id: c.subBoard } : null };
+    }),
+  }));
+}
+
 // ── Comparar el dashboard armado con Monday y con Supabase ───────────────────
 
 export interface SeccionParidad {

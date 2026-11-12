@@ -466,6 +466,7 @@ export type Database = {
           columnas: Json
           id: string
           nombre: string
+          orden: number | null
           padre_board_id: string | null
           synced_at: string | null
           tipo: string
@@ -477,6 +478,7 @@ export type Database = {
           columnas?: Json
           id: string
           nombre: string
+          orden?: number | null
           padre_board_id?: string | null
           synced_at?: string | null
           tipo: string
@@ -488,6 +490,7 @@ export type Database = {
           columnas?: Json
           id?: string
           nombre?: string
+          orden?: number | null
           padre_board_id?: string | null
           synced_at?: string | null
           tipo?: string
@@ -1107,8 +1110,11 @@ export type Database = {
           fin: string | null
           id: number
           inicio: string
+          latido: string | null
           origen: string
+          pasos: Json
           resumen: Json
+          trabajando_hasta: string | null
         }
         Insert: {
           error?: string | null
@@ -1116,8 +1122,11 @@ export type Database = {
           fin?: string | null
           id?: never
           inicio?: string
+          latido?: string | null
           origen: string
+          pasos?: Json
           resumen?: Json
+          trabajando_hasta?: string | null
         }
         Update: {
           error?: string | null
@@ -1125,8 +1134,11 @@ export type Database = {
           fin?: string | null
           id?: never
           inicio?: string
+          latido?: string | null
           origen?: string
+          pasos?: Json
           resumen?: Json
+          trabajando_hasta?: string | null
         }
         Relationships: []
       }

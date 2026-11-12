@@ -110,6 +110,18 @@ async function enParalelo<T, R>(lista: T[], n: number, fn: (x: T) => Promise<R>)
   return out;
 }
 
+/** El orden de los boards de Proyectos en la carpeta de Monday (la app los muestra así). Solo
+ *  escribe los que cambiaron de lugar. */
+async function guardarOrdenDeLaCarpeta(projIds: string[]): Promise<void> {
+  if (!projIds.length) return;
+  const db = getSupabaseAdmin();
+  const actuales = unwrap(await db.from("monday_boards").select("id, orden").in("id", projIds)) ?? [];
+  const antes = new Map(actuales.map((b) => [b.id, b.orden]));
+  for (const [orden, id] of projIds.entries()) {
+    if (antes.has(id) && antes.get(id) !== orden) unwrap(await db.from("monday_boards").update({ orden }).eq("id", id));
+  }
+}
+
 export interface ResultadoCompleto {
   runId: number;
   ok: boolean;
@@ -118,42 +130,62 @@ export interface ResultadoCompleto {
   desactivados: number;
 }
 
+/** Abre el registro de una copia completa en monday_sync_runs. */
+export async function abrirCopia(origen: string): Promise<number> {
+  const run = unwrap(await getSupabaseAdmin().from("monday_sync_runs").insert({ tipo: "completa", origen }).select("id").single()) as { id: number };
+  return run.id;
+}
+
+/** Copia esos boards (de a 3 en paralelo). Un board que falle no frena a los demás. */
+export async function copiarBoards(objetivos: { id: string; tipo: TipoBoard }[]): Promise<Pick<ResultadoCompleto, "boards" | "errores">> {
+  const resultados = await enParalelo(objetivos, 3, (b) => sincronizarBoard(b.id, b.tipo));
+  const boards: ResultadoCompleto["boards"] = [];
+  const errores: ResultadoCompleto["errores"] = [];
+  resultados.forEach((r, i) => {
+    const { id, tipo } = objetivos[i];
+    if (r.status === "fulfilled") boards.push({ ...r.value, tipo });
+    else errores.push({ board_id: id, tipo, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+  });
+  return { boards, errores };
+}
+
+/** Cierra la copia: apaga los boards que salieron de la carpeta, guarda su orden y deja el registro.
+ *  Devuelve cuántos boards se desactivaron. */
+export async function cerrarCopia(runId: number, projIds: string[], resultado: { detalle: unknown; errores: string[] }): Promise<number> {
+  const db = getSupabaseAdmin();
+  // Solo se apagan boards si se pudo descubrir la carpeta (si no, la lista vendría vacía).
+  const desactivados = projIds.length
+    ? (unwrap(await db.rpc("mirror_desactivar_boards", { p_tipo: "proj", p_vigentes: projIds })) as number)
+    : 0;
+  await guardarOrdenDeLaCarpeta(projIds);
+  const ok = resultado.errores.length === 0;
+  await db.from("monday_sync_runs").update({
+    finished_at: new Date().toISOString(),
+    ok,
+    detalle: { boards: resultado.detalle, desactivados } as unknown as Json,
+    error: ok ? null : resultado.errores.join(" | "),
+  }).eq("id", runId);
+  return desactivados;
+}
+
+/** Deja el registro de una copia que falló entera. */
+export async function fallarCopia(runId: number, error: string): Promise<void> {
+  await getSupabaseAdmin().from("monday_sync_runs").update({ finished_at: new Date().toISOString(), ok: false, error }).eq("id", runId);
+}
+
 /** Copia completa de todos los boards. Un board que falle no frena a los demás; queda en
  *  `errores` y en monday_sync_runs. Los boards que salieron de la carpeta se desactivan. */
 export async function sincronizarTodo(origen: string): Promise<ResultadoCompleto> {
-  const db = getSupabaseAdmin();
-  const run = unwrap(await db.from("monday_sync_runs").insert({ tipo: "completa", origen }).select("id").single()) as { id: number };
-
+  const runId = await abrirCopia(origen);
   try {
     const objetivos = await boardsACopiar();
-    const resultados = await enParalelo(objetivos, 3, (b) => sincronizarBoard(b.id, b.tipo));
-
-    const boards: ResultadoCompleto["boards"] = [];
-    const errores: ResultadoCompleto["errores"] = [];
-    resultados.forEach((r, i) => {
-      const { id, tipo } = objetivos[i];
-      if (r.status === "fulfilled") boards.push({ ...r.value, tipo });
-      else errores.push({ board_id: id, tipo, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+    const { boards, errores } = await copiarBoards(objetivos);
+    const desactivados = await cerrarCopia(runId, objetivos.filter((o) => o.tipo === "proj").map((o) => o.id), {
+      detalle: boards, errores: errores.map((e) => `${e.tipo} ${e.board_id}: ${e.error}`),
     });
-
-    // Solo se apagan boards si se pudo descubrir la carpeta (si no, la lista vendría vacía).
-    const projIds = objetivos.filter((o) => o.tipo === "proj").map((o) => o.id);
-    const desactivados = projIds.length
-      ? (unwrap(await db.rpc("mirror_desactivar_boards", { p_tipo: "proj", p_vigentes: projIds })) as number)
-      : 0;
-
-    const ok = errores.length === 0;
-    await db.from("monday_sync_runs").update({
-      finished_at: new Date().toISOString(),
-      ok,
-      detalle: { boards, desactivados } as unknown as Json,
-      error: ok ? null : errores.map((e) => `${e.tipo} ${e.board_id}: ${e.error}`).join(" | "),
-    }).eq("id", run.id);
-
-    return { runId: run.id, ok, boards, errores, desactivados };
+    return { runId, ok: errores.length === 0, boards, errores, desactivados };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    await db.from("monday_sync_runs").update({ finished_at: new Date().toISOString(), ok: false, error: msg }).eq("id", run.id);
+    await fallarCopia(runId, e instanceof Error ? e.message : String(e));
     throw e;
   }
 }

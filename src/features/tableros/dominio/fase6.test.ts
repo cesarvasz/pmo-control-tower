@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDashboardData } from "@/lib/dashboardData";
-import type { DashboardData, DashboardRaw, IniItem } from "@/types";
-import { compararDashboard, personasAHrItems, type PersonaRh } from "./dashboard";
+import type { DashboardData, DashboardRaw, IniItem, MondayItem } from "@/types";
+import { compararDashboard, completarDatosDeEscritura, personasAHrItems, type PersonaRh } from "./dashboard";
 
 const COLUMNAS_RH = {
   name: { title: "Name" }, status: { title: "Status" }, email_mkz5qg4v: { title: "Email" }, numeric_mkze8mf7: { title: "Hrs Mes" },
@@ -51,6 +51,40 @@ function raw(parcial: Partial<DashboardRaw> = {}): DashboardRaw {
     ...parcial,
   };
 }
+
+describe("Fase 6 · seguir escribiendo en Monday con los datos de los tableros", () => {
+  const items: MondayItem[] = [
+    { id: "100", name: "Item", group: { title: "G" }, email: null, column_values: [], subitems: [
+      { id: "101", name: "Hito", email: null, board: { id: "B" }, column_values: [] },
+      { id: "uuid-sub", name: "Hito de la app", email: null, board: { id: "B" }, column_values: [] },
+    ] },
+    { id: "uuid-item", name: "Creado en la app", group: { title: "G" }, email: null, column_values: [] },
+  ];
+  const copia = new Map([
+    ["100", { email: "item-100@c807.monday.com", subBoard: null }],
+    ["101", { email: "item-101@c807.monday.com", subBoard: "SUB" }],
+  ]);
+
+  it("el item y el hito llevan su correo; el hito, el board OCULTO de subitems (no el del proyecto)", () => {
+    const [it0] = completarDatosDeEscritura(items, copia);
+    expect(it0.email).toBe("item-100@c807.monday.com");
+    expect(it0.subitems![0].email).toBe("item-101@c807.monday.com");
+    expect(it0.subitems![0].board).toEqual({ id: "SUB" });
+  });
+
+  it("lo creado en la app no existe en Monday: sin correo y el hito sin board (no se ofrece el selector)", () => {
+    const [it0, it1] = completarDatosDeEscritura(items, copia);
+    expect(it0.subitems![1].board).toBeNull();
+    expect(it1.email).toBeNull();
+    expect(it1.subitems).toBeUndefined();
+  });
+
+  it("no toca los valores (no cambia ninguna métrica)", () => {
+    const [it0] = completarDatosDeEscritura(items, copia);
+    expect(it0.column_values).toBe(items[0].column_values);
+    expect(it0.subitems![0].column_values).toBe(items[0].subitems![0].column_values);
+  });
+});
 
 describe("Fase 6 · comparar el dashboard completo", () => {
   const base = buildDashboardData(raw());

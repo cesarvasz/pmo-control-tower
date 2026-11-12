@@ -59,8 +59,10 @@ export async function leerBoardsEspejo(ids: string[]): Promise<BoardLeido[]> {
 
 /** Boards de Proyectos activos en la copia (equivalente a discoverProjBoards). */
 export async function leerProjBoardsEspejo(): Promise<{ id: string; name: string }[]> {
+  // En el orden de la carpeta de Monday, como discoverProjBoards.
   const filas = unwrap(await getSupabaseAdmin().from("monday_boards")
-    .select("id, nombre").eq("tipo", "proj").eq("activo", true).order("nombre")) as { id: string; nombre: string }[];
+    .select("id, nombre").eq("tipo", "proj").eq("activo", true)
+    .order("orden", { nullsFirst: false }).order("nombre")) as { id: string; nombre: string }[];
   return filas.map((f) => ({ id: f.id, name: f.nombre }));
 }
 

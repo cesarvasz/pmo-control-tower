@@ -111,7 +111,7 @@ function valoresMonday(e: Elemento, cols: Columna[], personas: Map<string, Perso
   return out;
 }
 
-export function nombreBoard(t: TableroCompleto["tablero"]): string {
+export function nombreBoard(t: { codigo: string | null; nombre: string }): string {
   return t.codigo ? `${t.codigo} | ${t.nombre}` : t.nombre;
 }
 

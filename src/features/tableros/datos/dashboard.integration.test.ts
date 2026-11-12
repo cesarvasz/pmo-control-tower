@@ -25,11 +25,32 @@ describe.skipIf(!ACTIVO)("Tableros · el dashboard completo leído de Supabase (
     expect(r.kpis.filter((k) => k.estado === "distinta")).toEqual([]);
   });
 
-  it("dashboardRawDesdeTableros da un DashboardRaw completo", async () => {
+  it("dashboardRawDesdeTableros da un DashboardRaw completo, listo para escribir en Monday", async () => {
     const raw = await dashboardRawDesdeTableros();
     expect(raw.iniItems.length).toBeGreaterThan(0);
     expect(raw.reqItems.length).toBeGreaterThan(0);
     expect(raw.hrItems.length).toBeGreaterThan(0);
     expect(raw.projRaw.length).toBe(raw.projBoards.length);
+    // Lo que necesita el selector de status y la bitácora por correo (sale de la copia de Monday).
+    const items = raw.projRaw.flatMap((b) => b.items_page.items).filter((i) => /^\d+$/.test(i.id));
+    const subs = raw.projRaw.flatMap((b) => b.items_page.items.flatMap((i) => (i.subitems ?? []).map((s) => ({ board: b.id, s }))))
+      .filter(({ s }) => /^\d+$/.test(s.id));
+    expect(items.filter((i) => !i.email)).toEqual([]);
+    expect(subs.filter(({ s }) => !s.board?.id).map(({ s }) => s.id)).toEqual([]);
+    expect(subs.filter(({ board, s }) => s.board?.id === board).map(({ s }) => s.id)).toEqual([]); // el oculto, no el del proyecto
+  });
+
+  it("el refresh de un board da el mismo proyecto que la lectura completa", async () => {
+    const { fuenteMondayDesdeTableros, proyectoDesdeTableros } = await import("./fuente-dashboard");
+    const { buildIniLookup, projEnrichBoards, projProcess } = await import("@/lib/proj");
+    const { fuente } = await fuenteMondayDesdeTableros();
+    const raw = fuente.projRaw[0];
+    const uno = await proyectoDesdeTableros(raw.id);
+    expect(uno.projRaw).toEqual(raw);
+    expect(uno.allBoardsMeta).toEqual(fuente.projBoards);
+    const enriquecer = (ini: typeof fuente.iniItems, hr: typeof fuente.hrItems) =>
+      projEnrichBoards(uno.allBoardsMeta, projProcess(raw.name, raw.id, raw.items_page.items), buildIniLookup(ini, hr)).find((b) => b.id === raw.id);
+    expect(enriquecer(uno.iniItems, uno.hrItems)).toEqual(enriquecer(fuente.iniItems, fuente.hrItems));
+    expect((await proyectoDesdeTableros("no-existe")).projRaw).toBeNull();
   });
 });

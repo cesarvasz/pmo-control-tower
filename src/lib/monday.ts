@@ -2,6 +2,7 @@
 // SOLO SERVIDOR. Usa MONDAY_API_KEY (sin NEXT_PUBLIC_) → nunca llega al cliente.
 // Este módulo solo debe importarse desde Route Handlers / código de servidor.
 
+import { decidirFuente, fuenteDatos, type FuenteEfectiva } from "@/lib/fuenteDatos";
 import { soloBoardsDeProyecto } from "@/lib/proj";
 import type {
   CalMeetingRaw,
@@ -124,6 +125,44 @@ export async function fetchProjBoardRaw(boardId: string): Promise<ProjBoardRaw> 
   return board;
 }
 
+/** De dónde se leen AHORA los datos de Monday en este servidor: la fuente configurada
+ *  (FUENTE_DATOS), salvo que sea «tableros» y la última sincronización correcta sea vieja o no se
+ *  pueda consultar → Monday (respaldo automático; ver lib/fuenteDatos.ts). */
+export async function fuenteEfectiva(): Promise<FuenteEfectiva> {
+  const configurada = fuenteDatos();
+  if (configurada === "monday") return decidirFuente(configurada, null);
+  let ultima: string | null;
+  try {
+    const { ultimaSincronizacion } = await import("@/features/tableros/datos/fuente-dashboard");
+    ultima = await ultimaSincronizacion();
+  } catch (e) {
+    console.error("FUENTE_DATOS=tableros: no se pudo consultar la última sincronización; se lee de Monday.", e);
+    return { configurada, fuente: "monday", actualizadoAl: null, motivo: "No se pudo consultar la última sincronización." };
+  }
+  const f = decidirFuente(configurada, ultima);
+  if (f.fuente !== configurada) console.warn(`FUENTE_DATOS=tableros, pero se lee de Monday: ${f.motivo}`);
+  return f;
+}
+
+/** Todo lo que necesita el refresh de UN board de Proyectos: la lista de todos
+ *  los boards, los items de ese board, Iniciativas y el Directorio RH. Con
+ *  FUENTE_DATOS=tableros sale de los tableros de Supabase (`projRaw` null = no
+ *  existe ese proyecto); si no, de Monday. */
+export async function fetchProjBoardConContexto(boardId: string): Promise<{
+  allBoardsMeta: { id: string; name: string }[]; projRaw: ProjBoardRaw | null; iniItems: MondayItem[]; hrItems: MondayItem[];
+}> {
+  if ((await fuenteEfectiva()).fuente === "tableros") {
+    const { proyectoDesdeTableros } = await import("@/features/tableros/datos/fuente-dashboard");
+    return proyectoDesdeTableros(boardId);
+  }
+  const [allBoardsMeta, projRaw, { iniItems, hrItems }] = await Promise.all([
+    discoverProjBoards(),
+    fetchProjBoardRaw(boardId),
+    fetchIniAndHrRaw(),
+  ]);
+  return { allBoardsMeta, projRaw, iniItems, hrItems };
+}
+
 /** Iniciativas + Directorio RH — lo que necesita `buildIniLookup` para
  *  enriquecer un board (Estrategia/Sponsor/CKU/Benefit Type). Mismo fetch que
  *  hace el dashboard completo, aislado para el refresh de un solo board. */
@@ -139,8 +178,13 @@ export async function fetchIniAndHrRaw(): Promise<{ iniItems: MondayItem[]; hrIt
   };
 }
 
-/** Solo el Directorio RH (para saber el Role de quien envía una encuesta). */
+/** Solo el Directorio RH (para saber el Role de quien envía una encuesta). Con
+ *  FUENTE_DATOS=tableros, el directorio de la app (`personas`, misma forma). */
 export async function fetchHrItems(): Promise<MondayItem[]> {
+  if ((await fuenteEfectiva()).fuente === "tableros") {
+    const { hrItemsDesdeTableros } = await import("@/features/tableros/datos/fuente-dashboard");
+    return hrItemsDesdeTableros();
+  }
   const data = await mondayFetch<{ boards: { items_page: { items: MondayItem[] } }[] }>(
     boardItemsQuery(env("MONDAY_RH_BOARD_ID")),
   );
@@ -183,10 +227,41 @@ export async function fetchDashboardRaw(): Promise<DashboardRaw> {
   return dashboardInflight;
 }
 
+/** Lo que el route handler llena desde Supabase (bases, atribuciones, On Hold…). */
+const DATOS_DE_LA_APP_VACIOS = {
+  baselines: {}, projItemBaselines: {}, npsRecords: [], delayAttributions: {}, reprocesoAttributions: {},
+  metodologiaCalifs: {}, atrasoDetalles: {}, boardAlcance: {}, onHold: { proyectos: {}, pml: {} }, clases: {},
+} satisfies Partial<DashboardRaw>;
+
+/** FUENTE_DATOS=tableros (Fase 6): lo de Monday sale de los tableros de Supabase, que la
+ *  sincronización mantiene al día; calendario, hoja y recordatorios, de Apps Script como siempre.
+ *  `fetchedAt` es cuándo empezó la última sincronización (de cuándo son los datos de Monday). */
+async function fetchDashboardRawDeTableros(): Promise<DashboardRaw> {
+  const { fuenteMondayDesdeTableros } = await import("@/features/tableros/datos/fuente-dashboard");
+  const [{ fuente, actualizadoAl }, webApp, reminderLog] = await Promise.all([
+    fuenteMondayDesdeTableros(), fetchWebApp(), fetchReminderLog(),
+  ]);
+  if (!fuente.iniItems.length) throw new Error("Iniciativas: el tablero está vacío o no existe en Supabase");
+  if (!fuente.reqItems.length) throw new Error("REQ: el tablero de PML está vacío o no existe en Supabase");
+  return {
+    ...fuente,
+    calData: webApp.calData,
+    sheetRows: webApp.sheetRows,
+    ...DATOS_DE_LA_APP_VACIOS,
+    reminderLog,
+    fetchedAt: actualizadoAl ?? new Date().toISOString(),
+  };
+}
+
 /** Trae TODO de Monday/Apps Script en paralelo y devuelve datos crudos serializables.
  *  Degrada con parciales: las fuentes de enriquecimiento (RH, Estrategia, calendario,
  *  boards de Proyectos) que fallen quedan vacías; Iniciativas y REQ son obligatorias. */
 async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
+  if ((await fuenteEfectiva()).fuente === "tableros") {
+    // Si leer los tableros falla, se cae a Monday en vez de dejar la app sin datos.
+    try { return await fetchDashboardRawDeTableros(); }
+    catch (e) { console.error("FUENTE_DATOS=tableros: no se pudo leer de los tableros; se lee de Monday.", e); }
+  }
   const iniId = env("MONDAY_INI_BOARD_ID");
   const reqId = env("MONDAY_REQ_BOARD_ID");
   // Board "Directorio RH": el nombre del item es el nombre del recurso; email en email_mkz5qg4v.
@@ -258,6 +333,22 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     reminderLog,
     fetchedAt: new Date().toISOString(),
   };
+}
+
+/** Con FUENTE_DATOS=tableros, tras escribir en Monday (status) se trae ese board a su tablero
+ *  para que el refresh que sigue ya lo vea. Con Monday como fuente no hace nada. Nunca lanza:
+ *  si falla, el cambio llega igual con la sincronización de cada hora. */
+export async function reflejarEscrituraEnTableros(itemId: string): Promise<{ reflejado: boolean; aviso?: string }> {
+  if (fuenteDatos() !== "tableros") return { reflejado: true };
+  try {
+    const { sincronizarProyectoDeItem } = await import("@/features/tableros/datos/sincronizar");
+    await sincronizarProyectoDeItem(itemId);
+    return { reflejado: true };
+  } catch (e) {
+    const aviso = e instanceof Error ? e.message : String(e);
+    console.warn("No se pudo traer el cambio al tablero:", aviso);
+    return { reflejado: false, aviso };
+  }
 }
 
 const changeStatusMutation = `mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $label: String!) {

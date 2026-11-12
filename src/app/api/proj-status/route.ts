@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { requireAction } from "@/lib/users";
 import { apiError } from "@/lib/api-errors";
-import { changeProjStatus } from "@/lib/monday";
+import { changeProjStatus, reflejarEscrituraEnTableros } from "@/lib/monday";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +23,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Parámetros inválidos" }, { status: 400 });
     }
 
+    // Con FUENTE_DATOS=tableros, un elemento creado en la app (id no numérico) no existe en Monday.
+    if (!/^\d+$/.test(itemId)) {
+      return NextResponse.json({ error: "Este elemento se creó en la app: su status se cambia en /tableros" }, { status: 409 });
+    }
+
+    // Mientras dure la convivencia con Monday, el status se escribe en Monday; con
+    // FUENTE_DATOS=tableros además se trae ese board a su tablero para que el refresh ya lo vea.
     await changeProjStatus(boardId, itemId, columnId, label);
-    return NextResponse.json({ ok: true });
+    const { reflejado, aviso } = await reflejarEscrituraEnTableros(itemId);
+    return NextResponse.json({ ok: true, reflejado, ...(aviso ? { aviso } : {}) });
   } catch (err) {
     return apiError(err);
   }

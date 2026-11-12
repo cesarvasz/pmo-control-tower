@@ -204,7 +204,7 @@ durante la convivencia (Fase 5, sección 8) y solo se congela en el corte (Fase 
 | **3 · Completo** ✓ | Fórmulas (`dominio/formulas.ts`: parser propio, sintaxis de Monday + español; `dominio/calculos.ts` calcula fórmula/espejo/archivo y detecta ciclos; una fórmula puede tener rol si devuelve lo que el rol pide), espejo (dato del directorio o de un tablero ligado), relación entre tableros, bitácora (`elemento_comentarios`) y archivos (`elemento_archivos` + bucket privado `tableros`, subida directa con URL firmada). Importar trae fórmulas y espejos; "Traer bitácora y archivos" trae Updates y documentos de Monday (`datos/importar-extras.ts`) | piloto PM-013: 0 diferencias, fórmulas verificadas en 128 elementos, 68 actualizaciones y 9 archivos; prueba de punta a punta con un archivo real en Storage |
 | **4 · Migración** ✓ | Pestaña Migración: Estrategia → Iniciativas → PML → 19 proyectos (orden por las relaciones); relaciones a tableros importados y espejos sobre ellas; tipos automáticos ID (autonumérico con prefijo, el "Item ID") y Creado (el "Creation log"); volver a importar conserva ids, permisos y lo que apunta al tablero; las columnas importadas conservan su id de Monday (Iniciativas y PML se procesan por id); personas fuera del directorio = aviso. Vista Gantt (registro `ui/vistas`) | `TABLEROS_IT=1 npx vitest run src/features/tableros/datos/portafolio.integration.test.ts`: 22 boards con 0 diferencias salvo una explicada (PM-018: Cost $ = esfuerzo × 9 + Costo adicional; la app de hoy ignora el adicional) |
 | **5 · Convivencia** | Monday sigue vivo. Cada hora se trae todo de Monday a los tableros ya creados **sin rehacerlos** (sección 8): Monday manda en los datos, la app en el modelo. Bitácora, archivos, directorio y boards nuevos incluidos. Registro de corridas, «Sincronizar ahora» y paridad diaria en la pestaña Migración. Primero corre en local; en producción, con pg_cron + pg_net cuando se autorice subir. También se cierran huecos: adjuntos dentro de la bitácora, personas que faltan en el directorio | una semana de corridas sin errores; lo modelado en la app sobrevive a las sincronizaciones; la paridad diaria solo muestra las diferencias que se buscan a propósito al modelar |
-| **6 · Conectar la app** | Interruptor `FUENTE_DATOS=monday\|tableros`: la app lee las métricas de los tableros (datos de hasta 1 h, o al momento con «Sincronizar ahora»). Mientras dure la convivencia, lo que la app escribe (status, actualizaciones) sigue yendo a Monday y dispara la sincronización de ese board. Menú y acciones en `ACTIONS`/roles (toca la estructura de la app: requiere el visto bueno) | comparación del dashboard completo con las dos fuentes (EVM, salud, Control Tower, Players, CKUs, Portafolio) |
+| **6 · Conectar la app** (en curso, sección 10) | Interruptor `FUENTE_DATOS=monday\|tableros`: la app lee las métricas de los tableros (datos de hasta 1 h, o al momento con «Sincronizar ahora»). Mientras dure la convivencia, lo que la app escribe (status, actualizaciones) sigue yendo a Monday y dispara la sincronización de ese board. Menú y acciones en `ACTIONS`/roles (toca la estructura de la app: requiere el visto bueno) | comparación del dashboard completo con las dos fuentes (EVM, salud, Control Tower, Players, CKUs, Portafolio) |
 | **7 · Corte** | Cuando el modelo esté listo: se detiene la sincronización, se desbloquean los valores ligados, las escrituras van a los tableros, Monday solo lectura → exportación final a Storage → se apagan la copia, el cron y la clave de Monday | paridad final 0; respaldo semanal de la base y de Storage |
 
 ---
@@ -303,8 +303,8 @@ Supabase:
   tableros (Estrategia, Iniciativas, PML y los de categoría Proyecto, vía
   `tableroAMondayItems`) y el directorio (`dominio/dashboard.ts::personasAHrItems`: `personas`
   con los mismos ids de columna del board Directorio RH). Lo que no viene de Monday (bases del
-  EVM, atribuciones, On Hold, Clase, NPS) se lee igual que hoy. **Todavía no lo usa la app**: en la
-  Fase 6 lo llamaría `fetchDashboardRaw` según el interruptor `FUENTE_DATOS`.
+  EVM, atribuciones, On Hold, Clase, NPS) se lee igual que hoy. La app lo usa con el interruptor
+  `FUENTE_DATOS` (sección 10).
 - `compararDashboardCompleto()` arma el `DashboardData` con la copia de Monday y con los tableros
   y los compara (`dominio/dashboard.ts::compararDashboard`): Iniciativas, PML, Proyectos (elementos
   y tableros), Estrategia, Directorio, y los indicadores del Control Tower (EVM, Calidad,
@@ -314,5 +314,94 @@ Supabase:
 - Resultado del 2026-11-11: **sale igual**. EVM 85, Calidad 42, Cumplimiento 64 y NPS 41 con las
   dos fuentes; 1744 elementos de proyecto, 44 iniciativas, 31 PML, 23 estrategias y 80 personas
   del directorio idénticos. Avisos: «JC Rodas», «Rafael Toruño» y «Deleted outdated pending user».
-  «Tablero Prueba con Plantilla» (categoría Proyecto, nacido en la app) aparecería como proyecto.
+  «Tablero Prueba con Plantilla» (categoría Proyecto, nacido en la app) no llega a la app mientras
+  dure la convivencia (sección 10).
 - No entran el calendario, la hoja ni el ROI (Apps Script y Sheets): no dependen de la fuente.
+
+## 10. Fase 6: la app lee de los tableros (en curso desde el 2026-11-11, solo en local)
+
+- **Interruptor:** `FUENTE_DATOS=monday|tableros` (`lib/fuenteDatos.ts`; sin definir = Monday). En
+  local está en `tableros` (`.env.local`); en Vercel no está definida, así que producción y el cron
+  semanal siguen leyendo de Monday. Volver atrás = `FUENTE_DATOS=monday` (el servidor de
+  desarrollo recarga `.env.local` solo). La pestaña Migración dice qué fuente usa el servidor.
+- **Qué cambia de fuente** (todo en `lib/monday.ts`, las páginas no se tocan):
+  - `fetchDashboardRaw` → `fuenteMondayDesdeTableros()`: Iniciativas, PML, Proyectos, Estrategia y
+    el directorio salen de los tableros; calendario, hoja y recordatorios siguen de Apps Script.
+    `fetchedAt` («Actualizado:» del Topbar) es cuándo empezó la última sincronización: de
+    cuándo son los datos de Monday. Tarda ~6 s (Monday: ~47 s).
+  - `fetchProjBoardConContexto` (refresh de un board, `/api/dashboard/board/[id]`) →
+    `proyectoDesdeTableros()`: solo ese tablero, Iniciativas y el directorio.
+  - `fetchHrItems` (rol de quien responde una encuesta) → el directorio de la app.
+- **Escrituras durante la convivencia:** el status de /proyectos se sigue escribiendo en Monday;
+  luego `reflejarEscrituraEnTableros` copia ese board de Monday y lo trae a su tablero
+  (`sincronizarProyectoDeItem`, ~5 s) para que el refresh que sigue ya lo vea. Si eso falla, el
+  cambio llega con la sincronización de cada hora (no rompe la escritura). Para escribir hacen
+  falta el correo de cada item y el board **oculto** de cada hito: el tablero no los guarda, salen
+  de la copia (`completarDatosDeEscritura`). Un elemento creado en la app no existe en Monday: su
+  status se cambia en /tableros (409). La bitácora de /proyectos sigue leyéndose y escribiéndose
+  en Monday (no afecta métricas; llega a los tableros con la sincronización).
+- **Lo que no llega a las páginas:** ningún tablero nacido en la app, de ninguna categoría (p. ej.
+  «Tablero Prueba con Plantilla», o un segundo tablero de Iniciativas o PML): las páginas leen solo
+  los que vienen de Monday, así se puede modelar en tableros nuevos sin que los usuarios lo vean.
+- **Orden de los proyectos:** el de la carpeta de Monday (`monday_boards.orden`, lo llena la copia
+  en cada corrida), como hoy; los que no tienen, al final por nombre. En la Fase 7 hay que pasarlo
+  a los tableros.
+- **Verificación del 2026-11-11** (`fetchDashboardRaw` con las dos fuentes, Monday en vivo):
+  EVM 85, Calidad 42, Cumplimiento 64 y NPS 41 iguales; 1743 elementos, 44 iniciativas, 31 PML,
+  23 estrategias, 21 proyectos y 80 personas iguales, en el mismo orden; correo, board oculto y
+  columna de status iguales en los 1743 items/hitos. Solo difieren los avisos de personas fuera
+  del directorio y la diferencia decidida de PM-018. `TABLEROS_IT=1 npx vitest run
+  src/features/tableros/datos/dashboard.integration.test.ts` cubre el camino de la app y el
+  refresh de un board.
+- **Falta:** producción (sección 11) y menú/roles cuando se autorice.
+
+## 11. Camino a producción: sincronización en la nube y respaldo (2026-11-12)
+
+Para que en producción los usuarios lean de Supabase mientras se modela en tableros nuevos, la
+sincronización tiene que correr fuera de esta PC (de noche se apaga: no hubo corridas de 18:00 a
+08:00) y la app no puede quedarse con datos viejos si la sincronización falla.
+
+**Sincronización por pasos (fase A).** Una corrida completa tarda ~4 min de trabajo y en Vercel una
+función se corta a los 60 s. La corrida se parte en pasos (`dominio/sincronizar-pasos.ts`): buscar
+los boards de Monday → copiarlos de a 3 → cerrar la copia → directorio → por cada board, en orden:
+traerlo, su bitácora y archivos, su comparación. La cola de pasos que faltan vive en la corrida
+(`tablero_sincronizaciones.pasos`, migración `20261112120000_tableros_sincronizacion_por_pasos`).
+
+- `/api/cron/tableros-sync` (protegida con `CRON_SECRET`): la llama `pg_cron` **cada minuto**.
+  Si hay una corrida a medias, la avanza ~35 s (ningún paso tarda más de ~20 s); si no, abre una
+  nueva cuando la última empezó hace 60 min o más; si no toca, responde al momento. Una corrida
+  queda lista en 6–7 llamadas.
+- **Candado** (`trabajando_hasta`, 3 min, se renueva en cada paso): solo una llamada avanza la
+  corrida; otra a la vez responde «ocupada». Si la función se corta a medio paso, el paso queda
+  intentado y la siguiente llamada lo retoma cuando vence el candado; un paso que se corta 3 veces
+  se abandona (queda como error de ese board; si es de la copia o del directorio, la corrida falla).
+  Una corrida abierta hace más de 2 h se da por cortada.
+- Todo usa el mismo motor: el botón «Sincronizar ahora» (en local la corre entera; en Vercel avanza
+  ~35 s y el cron la termina), el script de esta PC (`npm run tableros:sincronizar`, retoma una corrida
+  a medias) y la ruta. `sincronizarTodo` (copia de Monday, `/api/cron/monday-sync`) quedó armada con
+  las mismas piezas (`abrirCopia`, `copiarBoards`, `cerrarCopia`).
+- Origen de cada corrida: «a mano», «programada en esta PC» o «programada en la nube» (`nube`).
+
+**Respaldo automático (fase B).** Con `FUENTE_DATOS=tableros`, la app lee de los tableros solo si la
+última sincronización correcta (ok o con errores) empezó hace 2 h o menos (`decidirFuente` en
+`lib/fuenteDatos.ts`, `fuenteEfectiva` en `lib/monday.ts`). Si es más vieja, si no se puede consultar
+o si leer los tableros falla, lee de Monday y lo deja en el log; vuelve a los tableros sola con la
+siguiente sincronización correcta. La pestaña Migración muestra «Respaldo activo» con el motivo.
+
+**Verificación del 2026-11-12 (local):** la ruta llamada como lo haría pg_cron terminó una corrida en
+6 llamadas (la más larga, 41 s con 40 s de presupuesto; se bajó a 35 s): 24 boards, 0 errores,
+0 diferencias con Monday. Dos llamadas a la vez → una «ocupada». Un proceso muerto a medio paso →
+el paso queda intentado, la corrida bloqueada hasta que vence el candado, y luego otra llamada la
+termina (24 boards, 0 errores, 0 diferencias).
+
+**Lo que falta, en orden:**
+1. **Subir el código** (cuando el usuario lo diga): commit, unir con `origin/main` (conflictos en
+   `monday.ts` y `supabase.ts`), renombrar `20261111120000_tableros_sincronizacion.sql` (choca con
+   `20261111120000_encuestas_cku_entregable.sql`), lint/typecheck/tests/build y push. Producción sigue
+   leyendo de Monday (sin `FUENTE_DATOS` en Vercel).
+2. **Programar en Supabase:** activar `pg_cron` y `pg_net`; guardar en el Vault la URL de producción y
+   el `CRON_SECRET`; un job cada minuto que llame `/api/cron/tableros-sync` con
+   `Authorization: Bearer`. Apagar la tarea del Programador de Windows. Observar 2–3 días en
+   Migración (corridas «en la nube», ok, 0 diferencias).
+3. **Encender:** `FUENTE_DATOS=tableros` en Vercel (Production) y volver a desplegar. Para volver atrás:
+   borrar la variable y desplegar.

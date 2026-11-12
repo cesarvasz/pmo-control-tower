@@ -1,14 +1,19 @@
 // SOLO SERVIDOR. Sincronización con Monday (Fase 5, convivencia): aplica a la base el plan de
 // dominio/sincronizar.ts para un tablero, y corre la sincronización COMPLETA (copia de Monday →
-// directorio → cada tablero en orden → bitácora y archivos → comparación), dejando registro en
-// tablero_sincronizaciones. Solo puede haber una corrida a la vez.
+// directorio → cada tablero en orden → bitácora y archivos → comparación) POR PASOS
+// (dominio/sincronizar-pasos.ts), dejando registro en tablero_sincronizaciones. Solo puede haber una
+// corrida a la vez, y solo una llamada la avanza a la vez (candado).
 
 import { randomUUID } from "node:crypto";
 import { enTrozos, getSupabaseAdmin, PG, selectAll, unwrap } from "@/lib/supabase-admin";
 import type { AppUser } from "@/lib/permissions";
-import type { Json, Tables } from "@/types/supabase";
-import { sincronizarTodo } from "@/lib/mondayMirrorSync";
+import type { Json, Tables, TablesUpdate } from "@/types/supabase";
+import { abrirCopia, boardsACopiar, cerrarCopia, copiarBoards, fallarCopia, sincronizarBoard } from "@/lib/mondayMirrorSync";
+import type { TipoBoard } from "@/lib/mondayMirror";
 import { filaIgual } from "../dominio/paridad";
+import {
+  decidirTick, describirPaso, HORAS_MAX_CORRIDA, MAX_INTENTOS_POR_PASO, pasoCritico, pasosDeCopia, pasosDeTableros, type Paso, type PasoEnCola,
+} from "../dominio/sincronizar-pasos";
 import { mismoValor, planSincronizacion, planVacio, type ColumnaActual, type ElementoActual, type GrupoActual } from "../dominio/sincronizar";
 import { aColumna, leerTablero, type Acceso } from "./tableros";
 import { compararConMonday, definicionDesdeLaCopia, importarBoard, listarBoardsImportables, nombreYCodigo } from "./importar";
@@ -172,10 +177,32 @@ export async function sincronizarTablero(tableroId: string, opciones: { simular?
   return res;
 }
 
-// ── La corrida completa ──────────────────────────────────────────────────────
+/** Fase 6 (convivencia): tras escribir en Monday a un item (p. ej. su status desde /proyectos),
+ *  copia SOLO ese board de Monday y lo trae a su tablero, para que la app lo vea al momento sin
+ *  esperar la sincronización de cada hora. Unos segundos (un board). */
+export async function sincronizarProyectoDeItem(itemId: string): Promise<ResultadoTablero> {
+  const db = getSupabaseAdmin();
+  const item = unwrap(await db.from("monday_items").select("board_id").eq("id", itemId).maybeSingle());
+  if (!item) throw new ErrorTablero(404, "Ese item no está en la copia de Monday");
+  const [board, t] = await Promise.all([
+    db.from("monday_boards").select("tipo").eq("id", item.board_id).maybeSingle().then(unwrap),
+    db.from("tableros").select("id").eq("monday_board_id", item.board_id).is("archivado_at", null).eq("sincroniza_monday", true).maybeSingle().then(unwrap),
+  ]);
+  if (!board) throw new ErrorTablero(404, "Ese board no está en la copia de Monday");
+  if (!t) throw new ErrorTablero(404, "Ese board no tiene un tablero que se sincronice con Monday");
+  await sincronizarBoard(item.board_id, board.tipo as TipoBoard);
+  return sincronizarTablero(t.id);
+}
+
+// ── La corrida, por pasos ────────────────────────────────────────────────────
+// La corrida se parte en pasos (dominio/sincronizar-pasos.ts) que se guardan en la corrida: cada
+// llamada avanza los que le alcancen y la siguiente sigue donde quedó. Así corre igual en esta PC
+// (todo de un jalón) que en Vercel (≤ 60 s por llamada, pg_cron llama cada minuto).
 
 export interface ResultadoBoardCorrida {
   board: string;
+  /** El board de Monday (liga los pasos de un mismo board). */
+  boardId?: string;
   tipo: string;
   tableroId: string | null;
   importado?: boolean;
@@ -187,103 +214,255 @@ export interface ResultadoBoardCorrida {
   adjuntosSinTraer?: number;
   diferencias?: number;
   avisos?: number;
+  /** Lo que tardaron sus pasos, en ms. */
+  ms?: number;
   error?: string;
 }
 
 export interface ResumenCorrida {
-  copia?: { ok: boolean; boards: number; errores: string[] };
+  copia?: { ok: boolean; boards: number; errores: string[]; runId?: number };
   directorio?: { nuevas: number; actualizadas: number; desactivadas: number };
   boards: ResultadoBoardCorrida[];
-  /** Board en el que va (mientras corre). */
+  /** Lo que está haciendo (mientras corre). */
   enCurso?: string | null;
 }
 
-export type Origen = "manual" | "programada";
+export type Origen = "manual" | "programada" | "nube";
+
+const T = "tablero_sincronizaciones";
+/** Cuánto dura el candado de quien avanza una corrida; se renueva en cada paso. Si la función se
+ *  corta (Vercel a los 60 s, la PC se apaga), otra llamada retoma la corrida cuando vence. */
+const CANDADO_MS = 3 * 60_000;
+
+const mensaje = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const iso = (ms: number) => new Date(ms).toISOString();
 
 /** Abre una corrida (el candado: si ya hay una en curso, 409). Devuelve su id. */
 export async function iniciarCorrida(origen: Origen): Promise<number> {
   const db = getSupabaseAdmin();
-  // Una corrida que se cortó (se cerró la PC, se reinició el servidor…) no bloquea para siempre.
-  const hace2h = new Date(Date.now() - 2 * 3600_000).toISOString();
-  unwrap(await db.from("tablero_sincronizaciones").update({ estado: "fallo", fin: new Date().toISOString(), error: "Se cortó a medias (el proceso se detuvo)" })
-    .eq("estado", "en_curso").lt("inicio", hace2h));
-  const r = await db.from("tablero_sincronizaciones").insert({ origen }).select("id").single();
+  // Una corrida que se cortó (se cerró la PC, nadie la siguió…) no bloquea para siempre.
+  unwrap(await db.from(T).update({ estado: "fallo", fin: iso(Date.now()), error: "Se cortó a medias (nadie la siguió)", pasos: [], trabajando_hasta: null })
+    .eq("estado", "en_curso").lt("inicio", iso(Date.now() - HORAS_MAX_CORRIDA * 3600_000)));
+  const pasos: PasoEnCola[] = [{ tipo: "descubrir" }];
+  const r = await db.from(T).insert({ origen, pasos: pasos as unknown as Json, resumen: { boards: [] } as unknown as Json }).select("id").single();
   if (r.error?.code === PG.uniqueViolation) throw new ErrorTablero(409, "Ya hay una sincronización en curso");
   return unwrap(r)!.id;
 }
 
-const mensaje = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const deBoard = (resumen: ResumenCorrida, boardId: string) => resumen.boards.find((b) => b.boardId === boardId);
 
-/** Corre la sincronización completa sobre una corrida ya abierta. No lanza: el resultado queda en la corrida. */
-export async function correrSincronizacion(corridaId: number, opciones: { bitacora?: boolean; comparar?: boolean } = {}): Promise<ResumenCorrida> {
-  const { bitacora = true, comparar = true } = opciones;
+/** Corre un paso: anota su resultado en `resumen` y devuelve los pasos nuevos que van al frente de la
+ *  cola. Los pasos de un board no lanzan (el error queda en ese board); los críticos sí. */
+async function ejecutarPaso(paso: Paso, resumen: ResumenCorrida): Promise<Paso[]> {
   const db = getSupabaseAdmin();
-  const resumen: ResumenCorrida = { boards: [] };
-  const guardar = async (extra: Partial<Pick<Tables<"tablero_sincronizaciones">, "fin" | "estado" | "error">> = {}) => {
-    await db.from("tablero_sincronizaciones").update({ resumen: resumen as unknown as Json, ...extra }).eq("id", corridaId);
-  };
-  let fallo: string | null = null;
-
-  try {
-    // 1) Copia de Monday (monday_boards / monday_items), con los boards nuevos de la carpeta.
-    resumen.enCurso = "Copia de Monday";
-    await guardar();
-    const copia = await sincronizarTodo("tableros");
-    resumen.copia = { ok: copia.ok, boards: copia.boards.length, errores: copia.errores.map((e) => `${e.tipo} ${e.board_id}: ${e.error}`) };
-
-    // 2) Directorio RH → personas (sin deshacer los ligados a mano).
-    resumen.enCurso = "Directorio";
-    await guardar();
-    const dir = await importarPersonasDesdeMonday(false);
-    resumen.directorio = { nuevas: dir.nuevas, actualizadas: dir.actualizadas, desactivadas: dir.desactivadas };
-
-    // 3) Cada board, en el orden de importación (las relaciones necesitan su destino al día).
-    const boards = await listarBoardsImportables();
-    const tableros = unwrap(await db.from("tableros").select("id, monday_board_id, sincroniza_monday, archivado_at").not("monday_board_id", "is", null)) ?? [];
-    for (const b of boards) {
-      resumen.enCurso = b.nombre;
-      await guardar();
-      const t = tableros.find((x) => x.monday_board_id === b.id && !x.archivado_at) ?? tableros.find((x) => x.monday_board_id === b.id);
-      const r: ResultadoBoardCorrida = { board: b.nombre, tipo: b.tipo, tableroId: t?.id ?? null };
+  switch (paso.tipo) {
+    case "descubrir": {
+      const runId = await abrirCopia("tableros");
+      try {
+        const objetivos = await boardsACopiar();
+        resumen.copia = { ok: true, boards: 0, errores: [], runId };
+        return pasosDeCopia(objetivos);
+      } catch (e) {
+        await fallarCopia(runId, mensaje(e));
+        throw e;
+      }
+    }
+    case "copiar": {
+      const r = await copiarBoards(paso.boards);
+      const copia = (resumen.copia ??= { ok: true, boards: 0, errores: [] });
+      copia.boards += r.boards.length;
+      copia.errores.push(...r.errores.map((e) => `${e.tipo} ${e.board_id}: ${e.error}`));
+      copia.ok = copia.errores.length === 0;
+      return [];
+    }
+    case "cerrar_copia": {
+      const copia = resumen.copia;
+      if (copia?.runId) await cerrarCopia(copia.runId, paso.projIds, { detalle: copia.boards, errores: copia.errores });
+      return pasosDeTableros(await listarBoardsImportables());
+    }
+    case "directorio": {
+      const dir = await importarPersonasDesdeMonday(false);
+      resumen.directorio = { nuevas: dir.nuevas, actualizadas: dir.actualizadas, desactivadas: dir.desactivadas };
+      return [];
+    }
+    case "tablero": {
+      const inicio = Date.now();
+      const tableros = unwrap(await db.from("tableros").select("id, sincroniza_monday, archivado_at").eq("monday_board_id", paso.boardId)) ?? [];
+      const t = tableros.find((x) => !x.archivado_at) ?? tableros[0];
+      const r: ResultadoBoardCorrida = { board: paso.nombre, boardId: paso.boardId, tipo: paso.tipoBoard, tableroId: t?.id ?? null };
+      resumen.boards = [...resumen.boards.filter((b) => b.boardId !== paso.boardId), r];
       try {
         if (!t) {
-          const imp = await importarBoard(b.id, { refrescar: false, reemplazar: false }, SISTEMA);
+          const imp = await importarBoard(paso.boardId, { refrescar: false, reemplazar: false }, SISTEMA);
           r.tableroId = imp.tableroId;
           r.importado = true;
-        } else if (t.archivado_at) { r.omitido = "Tablero archivado en la app"; }
-        else if (!t.sincroniza_monday) { r.omitido = "Ya no se sincroniza con Monday"; }
+        } else if (t.archivado_at) r.omitido = "Tablero archivado en la app";
+        else if (!t.sincroniza_monday) r.omitido = "Ya no se sincroniza con Monday";
         else r.cambios = await sincronizarTablero(t.id);
-
-        if (r.tableroId && !r.omitido) {
-          if (bitacora) {
-            const ex = await traerBitacoraYArchivos(r.tableroId);
-            r.comentariosNuevos = ex.comentariosNuevos;
-            r.archivosNuevos = ex.archivosNuevos;
-            r.adjuntosSinTraer = ex.adjuntosSinTraer;
-            if (ex.errores.length) r.error = `Archivos: ${ex.errores.slice(0, 3).join("; ")}`;
-          }
-          if (comparar) {
-            const completo = await leerTablero(r.tableroId, ACCESO_SISTEMA);
-            if (completo) {
-              const c = await compararConMonday(completo, ACCESO_SISTEMA);
-              r.diferencias = c.diferencias.length + c.filas.filter((f) => !filaIgual(f)).length;
-              r.avisos = c.avisos.length;
-            }
+      } catch (e) {
+        r.error = mensaje(e);
+      }
+      r.ms = Date.now() - inicio;
+      return [];
+    }
+    case "bitacora":
+    case "comparar": {
+      const r = deBoard(resumen, paso.boardId);
+      if (!r?.tableroId || r.omitido) return [];
+      const inicio = Date.now();
+      try {
+        if (paso.tipo === "bitacora") {
+          const ex = await traerBitacoraYArchivos(r.tableroId);
+          r.comentariosNuevos = ex.comentariosNuevos;
+          r.archivosNuevos = ex.archivosNuevos;
+          r.adjuntosSinTraer = ex.adjuntosSinTraer;
+          if (ex.errores.length) r.error = `Archivos: ${ex.errores.slice(0, 3).join("; ")}`;
+        } else {
+          const completo = await leerTablero(r.tableroId, ACCESO_SISTEMA);
+          if (completo) {
+            const c = await compararConMonday(completo, ACCESO_SISTEMA);
+            r.diferencias = c.diferencias.length + c.filas.filter((f) => !filaIgual(f)).length;
+            r.avisos = c.avisos.length;
           }
         }
       } catch (e) {
         r.error = mensaje(e);
       }
-      resumen.boards.push(r);
+      r.ms = (r.ms ?? 0) + Date.now() - inicio;
+      return [];
     }
-  } catch (e) {
-    fallo = mensaje(e);
   }
+}
 
-  resumen.enCurso = null;
-  const conErrores = !!resumen.copia?.errores.length || resumen.boards.some((b) => b.error);
-  await guardar({ fin: new Date().toISOString(), estado: fallo ? "fallo" : conErrores ? "con_errores" : "ok", error: fallo });
-  return resumen;
+/** Un paso que se cortó demasiadas veces se deja de intentar. Devuelve el error si eso tumba la corrida. */
+function abandonar(paso: Paso, resumen: ResumenCorrida): string | null {
+  const motivo = `${describirPaso(paso)}: no terminó a tiempo (se cortó ${MAX_INTENTOS_POR_PASO} veces)`;
+  if (pasoCritico(paso)) return motivo;
+  if (paso.tipo === "copiar") {
+    const copia = (resumen.copia ??= { ok: true, boards: 0, errores: [] });
+    copia.errores.push(motivo);
+    copia.ok = false;
+    return null;
+  }
+  if (paso.tipo === "tablero" || paso.tipo === "bitacora" || paso.tipo === "comparar") {
+    let r = deBoard(resumen, paso.boardId);
+    if (!r) resumen.boards.push(r = { board: paso.nombre, boardId: paso.boardId, tipo: paso.tipo === "tablero" ? paso.tipoBoard : "", tableroId: null });
+    r.error = motivo;
+  }
+  return null;
+}
+
+export interface Avance {
+  /** ocupada: otra llamada la está avanzando · pendiente: faltan pasos · terminada: se cerró. */
+  estado: "ocupada" | "pendiente" | "terminada";
+  pasos: number;
+  faltan: number;
+  resumen?: ResumenCorrida;
+}
+
+/** Avanza una corrida abierta paso a paso hasta terminarla o hasta `hasta` (ms de reloj; no empieza
+ *  un paso después de esa hora). Toma el candado de la corrida: si otra llamada lo tiene, no hace nada. */
+export async function avanzarCorrida(corridaId: number, opciones: { hasta?: number } = {}): Promise<Avance> {
+  const db = getSupabaseAdmin();
+  let candado = iso(Date.now() + CANDADO_MS);
+  const tomada = unwrap(await db.from(T).update({ trabajando_hasta: candado })
+    .eq("id", corridaId).eq("estado", "en_curso")
+    .or(`trabajando_hasta.is.null,trabajando_hasta.lt."${iso(Date.now())}"`)
+    .select("pasos, resumen")) ?? [];
+  if (!tomada.length) return { estado: "ocupada", pasos: 0, faltan: 0 };
+
+  let cola = (Array.isArray(tomada[0].pasos) ? tomada[0].pasos : []) as unknown as PasoEnCola[];
+  const resumen = { boards: [], ...(tomada[0].resumen as object) } as ResumenCorrida;
+  let hechos = 0;
+
+  /** Guarda el avance y renueva el candado. false = otra llamada se quedó con la corrida (venció el candado). */
+  const guardar = async (extra: Pick<TablesUpdate<"tablero_sincronizaciones">, "fin" | "estado" | "error" | "trabajando_hasta"> = {}): Promise<boolean> => {
+    const nuevo = iso(Date.now() + CANDADO_MS);
+    const filas = unwrap(await db.from(T).update({
+      pasos: cola as unknown as Json, resumen: resumen as unknown as Json, latido: iso(Date.now()), trabajando_hasta: nuevo, ...extra,
+    }).eq("id", corridaId).eq("trabajando_hasta", candado).select("id")) ?? [];
+    candado = nuevo;
+    return filas.length > 0;
+  };
+  const terminar = async (fallo: string | null): Promise<Avance> => {
+    resumen.enCurso = null;
+    cola = [];
+    const conErrores = !!resumen.copia?.errores.length || resumen.boards.some((b) => b.error);
+    await guardar({ fin: iso(Date.now()), estado: fallo ? "fallo" : conErrores ? "con_errores" : "ok", error: fallo, trabajando_hasta: null });
+    return { estado: "terminada", pasos: hechos, faltan: 0, resumen };
+  };
+
+  while (cola.length) {
+    if (opciones.hasta !== undefined && Date.now() >= opciones.hasta) break;
+    const [paso, ...resto] = cola;
+    const intentos = (paso.intentos ?? 0) + 1;
+    if (intentos > MAX_INTENTOS_POR_PASO) {
+      cola = resto;
+      const fatal = abandonar(paso, resumen);
+      if (fatal) return terminar(fatal);
+      if (!(await guardar())) return { estado: "ocupada", pasos: hechos, faltan: cola.length };
+      continue;
+    }
+    // Se anota el intento ANTES de correrlo: si la función se corta a medias, cuenta.
+    cola = [{ ...paso, intentos }, ...resto];
+    resumen.enCurso = describirPaso(paso);
+    if (!(await guardar())) return { estado: "ocupada", pasos: hechos, faltan: cola.length };
+    try {
+      cola = [...(await ejecutarPaso(paso, resumen)), ...resto];
+    } catch (e) {
+      return terminar(`${describirPaso(paso)}: ${mensaje(e)}`);
+    }
+    hechos++;
+  }
+  if (!cola.length) return terminar(null);
+  // Se acabó el tiempo de esta llamada: guarda y suelta el candado para que la siguiente siga.
+  await guardar({ trabajando_hasta: null });
+  return { estado: "pendiente", pasos: hechos, faltan: cola.length, resumen };
+}
+
+/** Corre una corrida ya abierta hasta el final, de un jalón (en esta PC: botón y script). */
+export async function correrSincronizacion(corridaId: number): Promise<ResumenCorrida> {
+  for (;;) {
+    const a = await avanzarCorrida(corridaId);
+    if (a.estado !== "pendiente") return a.resumen ?? { boards: [] };
+  }
+}
+
+export interface ResultadoTick {
+  /** nada: aún no toca · ocupada: otra llamada la está avanzando · avanzó / abrió: trabajó. */
+  accion: "nada" | "ocupada" | "avanzó" | "abrió";
+  corridaId?: number;
+  pasos?: number;
+  faltan?: number;
+  terminada?: boolean;
+  /** Con «nada»: minutos para la siguiente. */
+  faltanMin?: number;
+}
+
+/** Lo que hace cada llamada programada: seguir la corrida abierta o abrir una nueva si la última
+ *  empezó hace `cadaMin` o más. Con `presupuestoMs` no empieza pasos después de ese tiempo. */
+export async function tickSincronizacion(o: { origen: Origen; cadaMin: number; presupuestoMs?: number }): Promise<ResultadoTick> {
+  const db = getSupabaseAdmin();
+  const hasta = o.presupuestoMs === undefined ? undefined : Date.now() + o.presupuestoMs;
+  const [abierta, ultima] = await Promise.all([
+    db.from(T).select("id, inicio").eq("estado", "en_curso").maybeSingle().then(unwrap),
+    db.from(T).select("inicio").order("inicio", { ascending: false }).limit(1).maybeSingle().then(unwrap),
+  ]);
+  const d = decidirTick({ enCurso: abierta ?? null, ultimaInicio: ultima?.inicio ?? null, ahora: new Date(), cadaMin: o.cadaMin });
+  const informe = (accion: "avanzó" | "abrió", corridaId: number, a: Avance): ResultadoTick =>
+    ({ accion: a.estado === "ocupada" ? "ocupada" : accion, corridaId, pasos: a.pasos, faltan: a.faltan, terminada: a.estado === "terminada" });
+
+  if (d.decision === "avanzar") return informe("avanzó", abierta!.id, await avanzarCorrida(abierta!.id, { hasta }));
+  if (d.decision === "esperar") return { accion: "nada", faltanMin: d.faltanMin };
+  // abrir (y si había una cortada, iniciarCorrida la cierra primero)
+  let id: number;
+  try {
+    id = await iniciarCorrida(o.origen);
+  } catch (e) {
+    if (e instanceof ErrorTablero && e.status === 409) return { accion: "ocupada" };
+    throw e;
+  }
+  return informe("abrió", id, await avanzarCorrida(id, { hasta }));
 }
 
 export interface Corrida {
@@ -294,10 +473,17 @@ export interface Corrida {
   estado: string;
   error: string | null;
   resumen: ResumenCorrida;
+  /** Pasos que le faltan (mientras corre). */
+  pendientes: number;
+  latido: string | null;
 }
 
 /** Las últimas corridas (la primera es la más reciente). */
 export async function listarCorridas(limite = 10): Promise<Corrida[]> {
-  const filas = unwrap(await getSupabaseAdmin().from("tablero_sincronizaciones").select("*").order("inicio", { ascending: false }).limit(limite)) ?? [];
-  return filas.map((f) => ({ id: f.id, origen: f.origen, inicio: f.inicio, fin: f.fin, estado: f.estado, error: f.error, resumen: f.resumen as unknown as ResumenCorrida }));
+  const filas = unwrap(await getSupabaseAdmin().from(T).select("*").order("inicio", { ascending: false }).limit(limite)) ?? [];
+  return filas.map((f) => ({
+    id: f.id, origen: f.origen, inicio: f.inicio, fin: f.fin, estado: f.estado, error: f.error,
+    resumen: { boards: [], ...(f.resumen as object) } as ResumenCorrida,
+    pendientes: Array.isArray(f.pasos) ? f.pasos.length : 0, latido: f.latido,
+  }));
 }
