@@ -46,7 +46,7 @@ export async function mondayFetch<T>(query: string, variables?: Record<string, u
 
 /** Web App de Google: ahora devuelve calendario + hoja en un solo objeto.
  *  Retrocompatible: si la respuesta es un array (formato viejo) = solo calendario. */
-async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: SheetRow[] }> {
+export async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: SheetRow[] }> {
   try {
     const res = await fetch(env("CALENDAR_WEBAPP_URL"), {
       redirect: "follow",

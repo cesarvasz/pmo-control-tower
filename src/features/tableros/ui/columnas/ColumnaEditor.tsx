@@ -22,7 +22,7 @@ export interface CambiosColumna {
   oculta: boolean;
 }
 
-export default function ColumnaEditor({ columna, nivel, columnas, tableros, ligados, camposDirectorio = [], onGuardar, onArchivar, onCerrar }: {
+export default function ColumnaEditor({ columna, nivel, columnas, tableros, ligados, camposDirectorio = [], categoria, onGuardar, onArchivar, onCerrar }: {
   /** null = columna nueva */
   columna: Columna | null;
   nivel: Nivel;
@@ -30,6 +30,8 @@ export default function ColumnaEditor({ columna, nivel, columnas, tableros, liga
   tableros: ContextoConfig["tableros"];
   ligados: ContextoConfig["ligados"];
   camposDirectorio?: ContextoConfig["camposDirectorio"];
+  /** Categoría del tablero (define qué campos puede calcular la app). */
+  categoria?: string;
   onGuardar(c: CambiosColumna): Promise<void>;
   onArchivar?(): Promise<void>;
   onCerrar(): void;
@@ -114,7 +116,7 @@ export default function ColumnaEditor({ columna, nivel, columnas, tableros, liga
         {def && <p className="text-[0.75rem] text-[var(--text-muted)]">{def.descripcion}</p>}
         {EditorConfig && (
           <div className="rounded-lg border p-3" style={{ borderColor: "var(--border)" }}>
-            <EditorConfig config={config} onCambiar={cambiarConfig} contexto={{ columnas: otras, tableros, ligados, camposDirectorio }} />
+            <EditorConfig config={config} onCambiar={cambiarConfig} contexto={{ columnas: otras, tableros, ligados, camposDirectorio, categoria }} />
           </div>
         )}
         {columna && (

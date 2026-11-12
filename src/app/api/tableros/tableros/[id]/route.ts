@@ -1,7 +1,7 @@
 // src/app/api/tableros/tableros/[id]/route.ts
 // Un tablero. Pasa por la puerta de Tableros; cada operación revisa además su permiso con el
 // motor (por tablero, columna y elemento).
-//  GET                  → { tablero, grupos, columnas, elementos, personas, camposDirectorio, acceso }
+//  GET                  → { tablero, grupos, columnas, elementos, personas, camposDirectorio, valoresApp, acceso }
 //  POST { op, ...datos } → ejecuta una operación del registro (features/tableros/datos/operaciones.ts)
 
 import { NextResponse } from "next/server";
@@ -9,6 +9,7 @@ import { exigirAccion } from "@/features/tableros/datos/puerta";
 import { accesoDe, leerExtras, leerTablero, leerTableroFila, listarPersonasCorto } from "@/features/tableros/datos/tableros";
 import { ejecutarOperacion } from "@/features/tableros/datos/operaciones";
 import { listarCamposDirectorio } from "@/features/tableros/datos/personas";
+import { valoresApp } from "@/features/tableros/datos/calculadas-app";
 import { ErrorTablero, respuestaDeError } from "@/features/tableros/datos/errores";
 import { puede } from "@/features/tableros/dominio/permisos";
 
@@ -28,7 +29,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const acceso = await accesoDe(me);
     const [completo, personas, camposDirectorio] = await Promise.all([leerTablero(await idDe(params), acceso), listarPersonasCorto(), listarCamposDirectorio()]);
     if (!completo) throw new ErrorTablero(404, "Tablero no encontrado");
-    return NextResponse.json({ ...completo, ...(await leerExtras(completo, acceso)), personas, camposDirectorio, acceso });
+    // Las columnas «Calculada por la app» las arma el servidor con las reglas de las métricas.
+    const calculadas = await valoresApp(completo, new Map(personas.map((p) => [p.id, p])));
+    return NextResponse.json({ ...completo, ...(await leerExtras(completo, acceso)), personas, camposDirectorio, valoresApp: calculadas, acceso });
   } catch (err) {
     return respuestaDeError(err);
   }

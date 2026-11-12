@@ -22,6 +22,7 @@ export const EDITORES_CELDA: Record<string, ComponentType<PropsCelda<never, neve
   persona: CeldaPersona,
   formula: CeldaFormula,
   espejo: CeldaEspejo,
+  app: CeldaEspejo, // «Calculada por la app»: solo lectura, igual que un espejo
   relacion: CeldaRelacion,
   archivo: CeldaArchivo,
 } as Record<string, ComponentType<PropsCelda<never, never>>>;

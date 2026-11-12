@@ -1,10 +1,11 @@
 // REGISTRO de tipos de columna. Para agregar un tipo nuevo: crea su módulo en esta carpeta
 // (implementa TipoColumna, ver tipo.ts) y agrégalo a la lista. Para quitarlo: sácalo de la
 // lista; las columnas que ya lo usan quedan "sin tipo" y sus datos se conservan.
-// Los "calculados" (fórmula, espejo, archivo) los arma la app: ver dominio/calculos.ts.
+// Los "calculados" (fórmula, espejo, archivo, calculada por la app) los arma la app: ver dominio/calculos.ts.
 import type { TipoColumna } from "./tipo";
 import { formula } from "./formula";
 import { espejo } from "./espejo";
+import { app } from "./app";
 import { relacion } from "./relacion";
 import { archivo } from "./archivo";
 import { autonumero } from "./autonumero";
@@ -19,7 +20,7 @@ import { persona } from "./persona";
 import { checkbox } from "./checkbox";
 
 export const TIPOS_COLUMNA = [
-  texto, numero, fecha, timeline, status, dropdown, persona, checkbox, formula, espejo, relacion, archivo, autonumero, creacion,
+  texto, numero, fecha, timeline, status, dropdown, persona, checkbox, formula, espejo, relacion, archivo, autonumero, creacion, app,
 ] as TipoColumna[];
 
 export const esCalculado = (tipo: string) => !!tipoColumna(tipo)?.calculado;

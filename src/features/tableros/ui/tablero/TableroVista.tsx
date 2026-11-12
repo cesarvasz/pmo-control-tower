@@ -36,6 +36,8 @@ interface Datos extends TableroCompleto {
   comentarios: Record<string, number>;
   /** Campos propios del directorio (para mostrarlos con un Espejo). */
   camposDirectorio?: CampoDirectorio[];
+  /** Columnas «Calculada por la app»: { elementoId: { columnaId: valor } }. */
+  valoresApp?: Record<string, Record<string, unknown>>;
 }
 
 const tdCelda = { padding: 0, borderLeft: "1px solid var(--border-subtle)" } as const;
@@ -89,7 +91,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
 
   // Fórmulas, espejos y archivos: se calculan aquí con el mismo código que usan las métricas.
   const calc = useMemo(() => (data ? calcularTablero(data, {
-    personas: new Map(data.personas.map((p) => [p.id, p])), ligados: data.ligados, archivos: data.archivos,
+    personas: new Map(data.personas.map((p) => [p.id, p])), ligados: data.ligados, archivos: data.archivos, valoresApp: data.valoresApp,
   }) : null), [data]);
   const tablerosLista = useCarga<{ tableros: { id: string; nombre: string }[] }>(editorCol ? "/api/tableros/tableros" : "").data?.tableros ?? [];
   const [traidos, setTraidos] = useState<string | null>(null);
@@ -427,7 +429,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       {editorCol && (
         <ColumnaEditor
           columna={editorCol.columna} nivel={editorCol.nivel} columnas={columnas}
-          tableros={tablerosLista} ligados={data.ligados} camposDirectorio={data.camposDirectorio ?? []}
+          tableros={tablerosLista} ligados={data.ligados} camposDirectorio={data.camposDirectorio ?? []} categoria={data.tablero.categoria}
           onGuardar={guardarColumna}
           onArchivar={editorCol.columna ? async () => { await op({ op: "columna.archivar", columnaId: editorCol.columna!.id }); } : undefined}
           onCerrar={() => setEditorCol(null)}

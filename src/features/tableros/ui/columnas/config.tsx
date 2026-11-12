@@ -11,7 +11,7 @@ import type { ConfigNumero } from "../../dominio/tipos-columna/numero";
 import type { ConfigTexto } from "../../dominio/tipos-columna/texto";
 import type { ConfigPersona } from "../../dominio/tipos-columna/persona";
 import { estiloControl } from "../comun";
-import { ConfigEspejoEd, ConfigFormulaEd, ConfigRelacionEd, type ContextoConfig } from "./configCalculadas";
+import { ConfigAppEd, ConfigEspejoEd, ConfigFormulaEd, ConfigRelacionEd, type ContextoConfig } from "./configCalculadas";
 
 /** `contexto` solo lo usan los que miran otras columnas o tableros (fórmula, espejo, relación). */
 interface PropsConfig<C> { config: C; onCambiar(c: C): void; contexto: ContextoConfig }
@@ -109,6 +109,7 @@ export const EDITORES_CONFIG: Record<string, ComponentType<PropsConfig<never>>> 
   formula: ConfigFormulaEd,
   espejo: ConfigEspejoEd,
   relacion: ConfigRelacionEd,
+  app: ConfigAppEd,
 } as Record<string, ComponentType<PropsConfig<never>>>;
 
 export type { PropsConfig };

@@ -157,6 +157,7 @@ export async function sincronizarTablero(tableroId: string, opciones: { simular?
         anotar(c.id, "movido", titulo(c.antes.grupoId), titulo(c.grupoId));
       }
     }
+    if (c.orden !== undefined) cambios.orden = c.orden; // también cuando solo cambió de posición
     if (c.valores) {
       cambios.valores = c.valores;
       for (const v of c.cambios) if (!mismoValor(v.antes, v.despues)) anotar(c.id, "valor", v.antes, v.despues, v.columnaId);

@@ -432,7 +432,48 @@ Decisiones del usuario:
   sincronización con el Directorio RH no toca `extra`.
 - **Estrategia pasa a la app en el mismo corte** que Iniciativas.
 
-Pendiente de respuesta del usuario: quién crea y edita Iniciativas (menú y roles), fecha de corte,
+Respuestas del usuario (2026-11-12 tarde):
+- **Aprobación por clase:** hecho (commit 055a39d). `claseDeAprobacion()` en lib/ini.ts; las 65 aprobadas
+  vuelven a contar (Calidad 42 → 58; EVM, Cumplimiento y NPS no cambian).
+- **Quién crea y edita Iniciativas:** el Admin y los roles PM (cada PM solo las suyas por «solo lo mío»).
+  Abrir /tableros al rol PM toca menú, roles y ACTIONS: se hace al final, con su visto bueno.
+- **Corte de Iniciativas y Estrategia:** viernes 2026-11-20. Hasta entonces, solo pruebas; no se crean
+  Iniciativas en los dos lados.
+- **Recordatorios de «Sin Valor Def»:** el Apps Script sigue leyendo Monday hasta el corte y se migra a la app
+  como parte del corte.
+- **Clase aprobada → Clasificación:** como SUGERIDA (el Admin decide). Medición: de 17 proyectos con
+  Iniciativa aprobada, 9 tendrían una clase distinta a la de hoy (los Lite PM-014 a PM-017 están en C a mano y
+  su Iniciativa dice A; PM-004 y PM-009 son B en la tabla y A en la Iniciativa): por eso NO cambia sola la que
+  hoy mide el EVM; la sugerencia se muestra para que el Admin la aplique. Ojo: con los «Project ID» repetidos
+  la Iniciativa que se encuentra puede ser la equivocada.
+- **Columnas calculadas por la app:** confirmadas Etapa, Plazo, Salud, Clase aprobada, Cumplimiento y Calidad
+  (Reunión agendada y Recordatorios quedan para el corte).
+- **«Project ID» repetidos:** se dejan por ahora (se arreglan después, en Monday).
+
+### Columnas «Calculada por la app» (tipo `app`)
+
+Tipo de columna nuevo, solo lectura, que muestra un dato calculado con las reglas de la app. Para una
+Iniciativa el elemento pasa por el MISMO `iniProcess` de las métricas y sus campos salen de las mismas
+funciones (`iniItemStatus`, `porDefinirStatus`, `iniEntregaVerdict`, `lateExcused`…): el tablero y el
+Control Tower no pueden dar números distintos (verificado con las 109 reales: Salud, Cumplimiento y
+Calidad coinciden con calcIniPMHealth, calcEntregaStats e iniUnidadesCalidad).
+- Lógica pura en `dominio/calculadas-iniciativas.ts` (catálogo `CAMPOS_INICIATIVAS`: etapa, plazo, días hábiles,
+  fecha límite, salud, clase aprobada, cumplimiento, calidad); tipo en `dominio/tipos-columna/app.ts`.
+- El servidor las arma en `datos/calculadas-app.ts` (trae el calendario y las causas de atraso/reproceso solo si
+  alguna columna las necesita) y el GET del tablero las manda en `valoresApp`.
+- Sin calendario, «Salud» no afirma lo que no puede saber (queda vacía, salvo Atrasada = Off track).
+- Creadas en «Iniciativas 💡»: Etapa, Plazo, Salud, Clase aprobada, Cumplimiento y Calidad. El código viejo de
+  producción ignora una columna de tipo desconocido, así que no afecta lo que ven los usuarios.
+
+### Corrección de la sincronización: posición de los elementos
+
+La sincronización solo actualizaba el orden de un elemento cuando cambiaba de grupo o de padre; si en Monday
+solo lo movían de lugar, la app lo dejaba donde estaba (la prueba de paridad lo marcó en PM-012 y PM-018).
+Ahora Monday manda también en la POSICIÓN: se reparten, en el orden de Monday, los mismos lugares que esos
+elementos ya ocupaban entre sus hermanos (lo creado en la app conserva el suyo; un item nuevo ocupa su lugar).
+Aplicado a los 24 tableros: solo se movieron los 4 elementos que diferían.
+
+Pendiente (las respuestas de arriba ya lo resuelven en parte): menú y roles para el rol PM,
 recordatorios de «Sin Valor Def» (hoy un Apps Script que lee Monday), si la clase aprobada llena sola
 la Clasificación, y la lista de columnas calculadas por la app (Etapa, plazos, salud, reunión
 agendada, clase aprobada, cumplimiento, calidad, recordatorios). Limpiar los 7 «Project ID»

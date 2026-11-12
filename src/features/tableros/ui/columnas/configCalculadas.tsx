@@ -6,6 +6,8 @@
 import type { ConfigFormula, FormatoFormula } from "../../dominio/tipos-columna/formula";
 import { CAMPOS_PERSONA, type ConfigEspejo } from "../../dominio/tipos-columna/espejo";
 import { claveEspejoDeCampo } from "../../dominio/directorio-campos";
+import type { ConfigApp } from "../../dominio/tipos-columna/app";
+import { camposApp } from "../../dominio/calculadas-iniciativas";
 import type { ConfigRelacion } from "../../dominio/tipos-columna/relacion";
 import { FUNCIONES } from "../../dominio/formulas";
 import type { Columna } from "../../dominio/tablero";
@@ -18,6 +20,8 @@ export interface ContextoConfig {
   ligados: Record<string, { nombre: string; columnas: Columna[] }>;
   /** Campos propios del directorio: un Espejo sobre una Persona también los puede mostrar. */
   camposDirectorio?: { id: string; titulo: string }[];
+  /** Categoría del tablero: define los campos que puede calcular la app. */
+  categoria?: string;
 }
 
 interface Props<C> { config: C; onCambiar(c: C): void; contexto: ContextoConfig }
@@ -117,6 +121,26 @@ export function ConfigRelacionEd({ config, onCambiar, contexto }: Props<ConfigRe
       <label className="flex items-center gap-1.5 pb-1 text-[0.8rem] text-[var(--text-secondary)]">
         <input type="checkbox" checked={config.multiple} onChange={(e) => onCambiar({ ...config, multiple: e.target.checked })} /> Permitir varios
       </label>
+    </div>
+  );
+}
+
+/** «Calculada por la app»: se elige qué dato calcula (los campos dependen de la categoría del tablero). */
+export function ConfigAppEd({ config, onCambiar, contexto }: Props<ConfigApp>) {
+  const campos = camposApp(contexto.categoria);
+  const elegido = campos.find((c) => c.clave === config.campo);
+  if (!campos.length) {
+    return <span className="text-[0.75rem] text-[var(--text-muted)]">Esta categoría de tablero todavía no tiene datos que la app pueda calcular.</span>;
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className={etiqueta}>Dato que calcula
+        <select value={config.campo} onChange={(e) => onCambiar({ campo: e.target.value })} {...estiloControl}>
+          <option value="">— Elige —</option>
+          {campos.map((c) => <option key={c.clave} value={c.clave}>{c.etiqueta}</option>)}
+        </select>
+      </label>
+      {elegido && <span className="text-[0.75rem] text-[var(--text-muted)]">{elegido.descripcion}</span>}
     </div>
   );
 }

@@ -37,6 +37,8 @@ export interface ContextoCalculo {
   personas: Map<string, PersonaCalc>;
   ligados?: Record<string, TableroLigado>;
   archivos?: ArchivoCalc[];
+  /** Columnas «Calculada por la app»: { elementoId: { columnaId: valor } } (las arma el servidor, datos/calculadas-app.ts). */
+  valoresApp?: Record<string, Record<string, unknown>>;
   hoy?: string;
 }
 
@@ -110,6 +112,7 @@ export function calcularTablero(t: Pick<TableroCompleto, "columnas" | "elementos
         if (c.tipo === "formula") v = calcularFormula(c);
         else if (c.tipo === "espejo") v = calcularEspejo(c);
         else if (c.tipo === "archivo") v = (archivosPor.get(`${e.id}:${c.id}`) ?? []).map((a) => a.id);
+        else if (c.tipo === "app") v = ctx.valoresApp?.[e.id]?.[c.id] ?? null;
       } finally { enCurso.delete(c.id); }
       const tipo = tipoColumna(c.tipo)!;
       const ok = v === null || v === undefined ? null : tipo.valor.validar(v, tipo.config.validar(c.config));

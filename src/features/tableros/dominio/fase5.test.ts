@@ -67,6 +67,38 @@ const AYER: Fila[] = [
   { id: "3", parent: "1", nombre: "Bocetos", status: "Done" },
 ];
 
+describe("sincronizar con Monday · la posición de los elementos", () => {
+  const orden = (p: ReturnType<typeof plan>, id: string) => p.elementosCambiados.find((c) => c.id === id)?.orden;
+  const antes = (a: EntradaSincronizar["actual"], id: string) => a.elementos.find((x) => x.id === id)!.orden;
+
+  it("un elemento que solo cambió de lugar en Monday también cambia de lugar aquí, sin tocar lo demás", () => {
+    const actual = importado(deMonday(AYER).def);
+    const p = plan(actual, deMonday([AYER[1], AYER[0], AYER[2]])); // «Pruebas» pasó antes de «Diseño»
+    expect(orden(p, "E-2")).toBe(antes(actual, "E-1"));
+    expect(orden(p, "E-1")).toBe(antes(actual, "E-2"));
+    expect(p.elementosCambiados.find((c) => c.id === "E-1")?.cambios).toEqual([]); // solo la posición, ningún valor
+    expect(p.elementosCambiados.find((c) => c.id === "E-3")).toBeUndefined();     // el subelemento no se movió
+    expect(planVacio(p)).toBe(false);
+  });
+
+  it("lo que se creó en la app conserva su lugar entre sus hermanos", () => {
+    const actual = importado(deMonday(AYER).def);
+    actual.elementos.push({ id: "APP", grupoId: actual.grupos[0].id, parentId: null, nombre: "Propio", orden: 7, valores: {}, mondayItemId: null, archivado: false });
+    const p = plan(actual, deMonday([AYER[1], AYER[0], AYER[2]]));
+    expect(p.elementosCambiados.find((c) => c.id === "APP")).toBeUndefined();
+    expect(orden(p, "E-1")).toBe(antes(actual, "E-2"));
+  });
+
+  it("un elemento nuevo de Monday en medio ocupa su lugar y empuja al que le sigue", () => {
+    const actual = importado(deMonday(AYER).def);
+    const p = plan(actual, deMonday([AYER[0], { id: "9", nombre: "Nuevo", status: "Working on it" }, AYER[1], AYER[2]]));
+    expect(p.elementosNuevos).toHaveLength(1);
+    expect(p.elementosNuevos[0].orden).toBe(antes(actual, "E-2"));     // el lugar que tenía «Pruebas»
+    expect(orden(p, "E-2")).toBe(antes(actual, "E-2") + 1);            // «Pruebas» pasa al final
+    expect(p.elementosCambiados.find((c) => c.id === "E-1")).toBeUndefined();
+  });
+});
+
 describe("sincronizar con Monday · lo que trae", () => {
   it("si nada cambió en Monday, no hay nada que hacer", () => {
     const ayer = deMonday(AYER);
@@ -108,11 +140,19 @@ describe("sincronizar con Monday · lo que trae", () => {
     expect(plan(actual, deMonday(AYER)).restaurar).toEqual(["E-2"]);
   });
 
-  it("un item que cambió de grupo en Monday se mueve al final del grupo", () => {
+  it("un item que cambió de grupo en Monday ocupa en el grupo nuevo el lugar que Monday le da", () => {
     const actual = importado(deMonday([...AYER, { id: "9", grupo: "Fase 2", nombre: "Otro" }]).def);
-    const p = plan(actual, deMonday([{ ...AYER[0], grupo: "Fase 2" }, AYER[1], AYER[2], { id: "9", grupo: "Fase 2", nombre: "Otro" }]));
-    expect(p.elementosCambiados).toEqual([expect.objectContaining({ id: "E-1", grupoId: "G-g2", parentId: null })]);
-    expect(p.elementosCambiados[0].orden).toBeGreaterThan(actual.elementos.find((e) => e.id === "E-9")!.orden);
+    const lugar9 = actual.elementos.find((e) => e.id === "E-9")!.orden;
+    // Monday lo deja DESPUÉS de «Otro»: solo cambia él, al final del grupo.
+    const alFinal = plan(actual, deMonday([AYER[1], AYER[2], { id: "9", grupo: "Fase 2", nombre: "Otro" }, { ...AYER[0], grupo: "Fase 2" }]));
+    expect(alFinal.elementosCambiados).toEqual([expect.objectContaining({ id: "E-1", grupoId: "G-g2", parentId: null })]);
+    expect(alFinal.elementosCambiados[0].orden).toBeGreaterThan(lugar9);
+    // Monday lo deja ANTES de «Otro»: él toma el primer lugar y «Otro» pasa al segundo.
+    const alInicio = plan(actual, deMonday([{ ...AYER[0], grupo: "Fase 2" }, AYER[1], AYER[2], { id: "9", grupo: "Fase 2", nombre: "Otro" }]));
+    const uno = alInicio.elementosCambiados.find((c) => c.id === "E-1")!;
+    const otro = alInicio.elementosCambiados.find((c) => c.id === "E-9")!;
+    expect(uno).toMatchObject({ grupoId: "G-g2", parentId: null });
+    expect(uno.orden).toBeLessThan(otro.orden!);
   });
 });
 

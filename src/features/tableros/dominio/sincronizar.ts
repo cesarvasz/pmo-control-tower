@@ -198,6 +198,18 @@ export function planSincronizacion(e: EntradaSincronizar): PlanSincronizacion {
   }
   const siguiente = (k: string) => { const n = (ordenHermanos.get(k) ?? -1) + 1; ordenHermanos.set(k, n); return n; };
 
+  // Monday manda también en la POSICIÓN de lo que viene de él: al final se reparten, en el orden de
+  // Monday, los mismos lugares que esos elementos ya ocupaban entre sus hermanos (lo que se creó en
+  // la app conserva el suyo). Así un elemento que solo se movió de lugar en Monday también se mueve aquí.
+  const secuencias = new Map<string, { lugar: number; poner(orden: number): void }[]>();
+  const enSecuencia = (clave: string, lugar: number, poner: (orden: number) => void) => {
+    const lista = secuencias.get(clave) ?? [];
+    lista.push({ lugar, poner });
+    secuencias.set(clave, lista);
+  };
+  const previos: ElementoCambiado[] = [];
+  const enElPlan = new Set<ElementoCambiado>();
+
   const vistos = new Set<string>();
   // Items primero: los subelementos nuevos necesitan el id de su padre.
   const ordenados = [...monday.elementos.filter((x) => !x.padre), ...monday.elementos.filter((x) => x.padre)];
@@ -213,21 +225,28 @@ export function planSincronizacion(e: EntradaSincronizar): PlanSincronizacion {
     if (!previo) {
       const id = e.nuevoId();
       idPorItem.set(itemId, id);
-      plan.elementosNuevos.push({
-        id, grupoId, parentId, nombre: de.nombre, orden: siguiente(parentId ? `p:${parentId}` : `g:${grupoId}`),
+      const clave = parentId ? `p:${parentId}` : `g:${grupoId}`;
+      const nuevo = {
+        id, grupoId, parentId, nombre: de.nombre, orden: siguiente(clave),
         valores: Object.fromEntries([...valores].filter(([, v]) => v !== null)), mondayItemId: itemId,
-      });
+      };
+      plan.elementosNuevos.push(nuevo);
+      enSecuencia(clave, nuevo.orden, (o) => { nuevo.orden = o; });
       continue;
     }
 
     if (previo.archivado) plan.restaurar.push(previo.id);
     const cambio: ElementoCambiado = { id: previo.id, cambios: [], antes: { nombre: previo.nombre, grupoId: previo.grupoId, parentId: previo.parentId } };
     if (de.nombre !== previo.nombre) cambio.nombre = de.nombre;
-    if (grupoId !== previo.grupoId || parentId !== previo.parentId) {
+    const clave = parentId ? `p:${parentId}` : `g:${grupoId}`;
+    const cambioDeLugar = grupoId !== previo.grupoId || parentId !== previo.parentId;
+    if (cambioDeLugar) {
       cambio.grupoId = grupoId;
       cambio.parentId = parentId;
-      cambio.orden = siguiente(parentId ? `p:${parentId}` : `g:${grupoId}`);
+      cambio.orden = siguiente(clave);
     }
+    previos.push(cambio);
+    enSecuencia(clave, cambio.orden ?? previo.orden, (o) => { if (cambioDeLugar || o !== previo.orden) cambio.orden = o; });
     const nuevos = { ...previo.valores };
     for (const [colId, v] of valores) {
       const antes = previo.valores[colId] ?? null;
@@ -236,8 +255,15 @@ export function planSincronizacion(e: EntradaSincronizar): PlanSincronizacion {
       cambio.cambios.push({ columnaId: colId, antes, despues: v });
     }
     if (cambio.cambios.length) cambio.valores = nuevos;
-    if (cambio.nombre !== undefined || cambio.grupoId !== undefined || cambio.valores) plan.elementosCambiados.push(cambio);
+    if (cambio.nombre !== undefined || cambio.grupoId !== undefined || cambio.valores) { plan.elementosCambiados.push(cambio); enElPlan.add(cambio); }
   }
+
+  for (const lista of secuencias.values()) {
+    const lugares = lista.map((x) => x.lugar).sort((a, b) => a - b);
+    lista.forEach((x, i) => x.poner(lugares[i]));
+  }
+  // Los que solo cambiaron de posición también van al plan.
+  for (const c of previos) if (c.orden !== undefined && !enElPlan.has(c)) plan.elementosCambiados.push(c);
 
   // Lo que ya no está en Monday (borrado o archivado allá) se archiva aquí; no se borra.
   for (const el of actual.elementos) {
