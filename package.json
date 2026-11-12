@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "tableros:sincronizar": "node scripts/tableros-sincronizar.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",

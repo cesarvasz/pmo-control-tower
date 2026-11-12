@@ -220,6 +220,212 @@ export type Database = {
         }
         Relationships: []
       }
+      elemento_archivos: {
+        Row: {
+          borrado_at: string | null
+          columna_id: string | null
+          comentario_id: string | null
+          creado_at: string
+          elemento_id: string
+          estado: string
+          id: string
+          monday_asset_id: string | null
+          nombre: string
+          ruta: string
+          subido_email: string | null
+          subido_por: string | null
+          tablero_id: string
+          tamano: number | null
+          tipo_mime: string | null
+        }
+        Insert: {
+          borrado_at?: string | null
+          columna_id?: string | null
+          comentario_id?: string | null
+          creado_at?: string
+          elemento_id: string
+          estado?: string
+          id?: string
+          monday_asset_id?: string | null
+          nombre: string
+          ruta: string
+          subido_email?: string | null
+          subido_por?: string | null
+          tablero_id: string
+          tamano?: number | null
+          tipo_mime?: string | null
+        }
+        Update: {
+          borrado_at?: string | null
+          columna_id?: string | null
+          comentario_id?: string | null
+          creado_at?: string
+          elemento_id?: string
+          estado?: string
+          id?: string
+          monday_asset_id?: string | null
+          nombre?: string
+          ruta?: string
+          subido_email?: string | null
+          subido_por?: string | null
+          tablero_id?: string
+          tamano?: number | null
+          tipo_mime?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "elemento_archivos_columna_id_fkey"
+            columns: ["columna_id"]
+            isOneToOne: false
+            referencedRelation: "tablero_columnas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elemento_archivos_elemento_id_fkey"
+            columns: ["elemento_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elemento_archivos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      elemento_comentarios: {
+        Row: {
+          autor_email: string | null
+          autor_id: string | null
+          autor_nombre: string
+          borrado_at: string | null
+          creado_at: string
+          editado_at: string | null
+          elemento_id: string
+          id: string
+          monday_update_id: string | null
+          respuesta_a: string | null
+          tablero_id: string
+          texto: string
+        }
+        Insert: {
+          autor_email?: string | null
+          autor_id?: string | null
+          autor_nombre?: string
+          borrado_at?: string | null
+          creado_at?: string
+          editado_at?: string | null
+          elemento_id: string
+          id?: string
+          monday_update_id?: string | null
+          respuesta_a?: string | null
+          tablero_id: string
+          texto: string
+        }
+        Update: {
+          autor_email?: string | null
+          autor_id?: string | null
+          autor_nombre?: string
+          borrado_at?: string | null
+          creado_at?: string
+          editado_at?: string | null
+          elemento_id?: string
+          id?: string
+          monday_update_id?: string | null
+          respuesta_a?: string | null
+          tablero_id?: string
+          texto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "elemento_comentarios_elemento_id_fkey"
+            columns: ["elemento_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elemento_comentarios_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      elementos: {
+        Row: {
+          actualizado_at: string
+          archivado_at: string | null
+          creado_at: string
+          creado_por: string | null
+          grupo_id: string | null
+          id: string
+          monday_item_id: string | null
+          nombre: string
+          orden: number
+          parent_id: string | null
+          responsables: string[]
+          tablero_id: string
+          valores: Json
+        }
+        Insert: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          grupo_id?: string | null
+          id?: string
+          monday_item_id?: string | null
+          nombre?: string
+          orden?: number
+          parent_id?: string | null
+          responsables?: string[]
+          tablero_id: string
+          valores?: Json
+        }
+        Update: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          grupo_id?: string | null
+          id?: string
+          monday_item_id?: string | null
+          nombre?: string
+          orden?: number
+          parent_id?: string | null
+          responsables?: string[]
+          tablero_id?: string
+          valores?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "elementos_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "tablero_grupos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elementos_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "elementos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       implementacion_metas_cliente: {
         Row: {
           cliente: string
@@ -322,6 +528,136 @@ export type Database = {
         }
         Relationships: []
       }
+      monday_boards: {
+        Row: {
+          activo: boolean
+          columnas: Json
+          id: string
+          nombre: string
+          orden: number | null
+          padre_board_id: string | null
+          synced_at: string | null
+          tipo: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          activo?: boolean
+          columnas?: Json
+          id: string
+          nombre: string
+          orden?: number | null
+          padre_board_id?: string | null
+          synced_at?: string | null
+          tipo: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          activo?: boolean
+          columnas?: Json
+          id?: string
+          nombre?: string
+          orden?: number | null
+          padre_board_id?: string | null
+          synced_at?: string | null
+          tipo?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monday_boards_padre_board_id_fkey"
+            columns: ["padre_board_id"]
+            isOneToOne: false
+            referencedRelation: "monday_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monday_items: {
+        Row: {
+          board_id: string
+          column_values: Json
+          deleted_at: string | null
+          email: string | null
+          grupo: string | null
+          id: string
+          nombre: string
+          orden: number
+          parent_id: string | null
+          sub_board_id: string | null
+          synced_at: string
+        }
+        Insert: {
+          board_id: string
+          column_values?: Json
+          deleted_at?: string | null
+          email?: string | null
+          grupo?: string | null
+          id: string
+          nombre: string
+          orden: number
+          parent_id?: string | null
+          sub_board_id?: string | null
+          synced_at?: string
+        }
+        Update: {
+          board_id?: string
+          column_values?: Json
+          deleted_at?: string | null
+          email?: string | null
+          grupo?: string | null
+          id?: string
+          nombre?: string
+          orden?: number
+          parent_id?: string | null
+          sub_board_id?: string | null
+          synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monday_items_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "monday_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monday_sync_runs: {
+        Row: {
+          detalle: Json
+          error: string | null
+          finished_at: string | null
+          id: number
+          ok: boolean | null
+          origen: string
+          started_at: string
+          tipo: string
+        }
+        Insert: {
+          detalle?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: never
+          ok?: boolean | null
+          origen: string
+          started_at?: string
+          tipo: string
+        }
+        Update: {
+          detalle?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: never
+          ok?: boolean | null
+          origen?: string
+          started_at?: string
+          tipo?: string
+        }
+        Relationships: []
+      }
       on_hold: {
         Row: {
           created_at: string
@@ -345,6 +681,109 @@ export type Database = {
           tipo?: string
         }
         Relationships: []
+      }
+      personas: {
+        Row: {
+          activo: boolean
+          actualizado_at: string
+          app_user_id: string | null
+          creado_at: string
+          email: string | null
+          grupo: string | null
+          hrs_mes: number | null
+          id: string
+          monday_item_id: string | null
+          nombre: string
+          rol: string | null
+          tld: string | null
+        }
+        Insert: {
+          activo?: boolean
+          actualizado_at?: string
+          app_user_id?: string | null
+          creado_at?: string
+          email?: string | null
+          grupo?: string | null
+          hrs_mes?: number | null
+          id?: string
+          monday_item_id?: string | null
+          nombre: string
+          rol?: string | null
+          tld?: string | null
+        }
+        Update: {
+          activo?: boolean
+          actualizado_at?: string
+          app_user_id?: string | null
+          creado_at?: string
+          email?: string | null
+          grupo?: string | null
+          hrs_mes?: number | null
+          id?: string
+          monday_item_id?: string | null
+          nombre?: string
+          rol?: string | null
+          tld?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "personas_app_user_id_fkey"
+            columns: ["app_user_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plantillas: {
+        Row: {
+          actualizado_at: string
+          archivada_at: string | null
+          categoria: string
+          creado_at: string
+          creado_por: string | null
+          definicion: Json
+          descripcion: string | null
+          id: string
+          nombre: string
+          tablero_origen_id: string | null
+          version: number
+        }
+        Insert: {
+          actualizado_at?: string
+          archivada_at?: string | null
+          categoria?: string
+          creado_at?: string
+          creado_por?: string | null
+          definicion?: Json
+          descripcion?: string | null
+          id?: string
+          nombre: string
+          tablero_origen_id?: string | null
+          version?: number
+        }
+        Update: {
+          actualizado_at?: string
+          archivada_at?: string | null
+          categoria?: string
+          creado_at?: string
+          creado_por?: string | null
+          definicion?: Json
+          descripcion?: string | null
+          id?: string
+          nombre?: string
+          tablero_origen_id?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plantillas_tablero_origen_fk"
+            columns: ["tablero_origen_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       preprod_restore_dates: {
         Row: {
@@ -526,6 +965,304 @@ export type Database = {
         }
         Relationships: []
       }
+      tablero_columnas: {
+        Row: {
+          ancho: number | null
+          archivada_at: string | null
+          config: Json
+          id: string
+          monday_column_id: string | null
+          nivel: string
+          oculta: boolean
+          orden: number
+          rol: string | null
+          tablero_id: string
+          tipo: string
+          titulo: string
+        }
+        Insert: {
+          ancho?: number | null
+          archivada_at?: string | null
+          config?: Json
+          id?: string
+          monday_column_id?: string | null
+          nivel?: string
+          oculta?: boolean
+          orden?: number
+          rol?: string | null
+          tablero_id: string
+          tipo: string
+          titulo: string
+        }
+        Update: {
+          ancho?: number | null
+          archivada_at?: string | null
+          config?: Json
+          id?: string
+          monday_column_id?: string | null
+          nivel?: string
+          oculta?: boolean
+          orden?: number
+          rol?: string | null
+          tablero_id?: string
+          tipo?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_columnas_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tablero_grupos: {
+        Row: {
+          archivado_at: string | null
+          color: string | null
+          fase: string | null
+          id: string
+          monday_group_id: string | null
+          orden: number
+          tablero_id: string
+          titulo: string
+        }
+        Insert: {
+          archivado_at?: string | null
+          color?: string | null
+          fase?: string | null
+          id?: string
+          monday_group_id?: string | null
+          orden?: number
+          tablero_id: string
+          titulo: string
+        }
+        Update: {
+          archivado_at?: string | null
+          color?: string | null
+          fase?: string | null
+          id?: string
+          monday_group_id?: string | null
+          orden?: number
+          tablero_id?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_grupos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tablero_historial: {
+        Row: {
+          antes: Json | null
+          campo: string
+          columna_id: string | null
+          creado_at: string
+          despues: Json | null
+          elemento_id: string | null
+          id: number
+          tablero_id: string
+          usuario_email: string | null
+          usuario_id: string | null
+        }
+        Insert: {
+          antes?: Json | null
+          campo: string
+          columna_id?: string | null
+          creado_at?: string
+          despues?: Json | null
+          elemento_id?: string | null
+          id?: never
+          tablero_id: string
+          usuario_email?: string | null
+          usuario_id?: string | null
+        }
+        Update: {
+          antes?: Json | null
+          campo?: string
+          columna_id?: string | null
+          creado_at?: string
+          despues?: Json | null
+          elemento_id?: string | null
+          id?: never
+          tablero_id?: string
+          usuario_email?: string | null
+          usuario_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_historial_columna_id_fkey"
+            columns: ["columna_id"]
+            isOneToOne: false
+            referencedRelation: "tablero_columnas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tablero_historial_elemento_id_fkey"
+            columns: ["elemento_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tablero_historial_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tablero_permisos: {
+        Row: {
+          actualizado_at: string
+          actualizado_por: string | null
+          categoria: string | null
+          columnas_editables: string[]
+          id: string
+          nivel: string
+          rol_id: string
+          solo_lo_mio: boolean
+          tablero_id: string | null
+        }
+        Insert: {
+          actualizado_at?: string
+          actualizado_por?: string | null
+          categoria?: string | null
+          columnas_editables?: string[]
+          id?: string
+          nivel: string
+          rol_id: string
+          solo_lo_mio?: boolean
+          tablero_id?: string | null
+        }
+        Update: {
+          actualizado_at?: string
+          actualizado_por?: string | null
+          categoria?: string | null
+          columnas_editables?: string[]
+          id?: string
+          nivel?: string
+          rol_id?: string
+          solo_lo_mio?: boolean
+          tablero_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tablero_permisos_rol_id_fkey"
+            columns: ["rol_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tablero_permisos_tablero_id_fkey"
+            columns: ["tablero_id"]
+            isOneToOne: false
+            referencedRelation: "tableros"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tablero_sincronizaciones: {
+        Row: {
+          error: string | null
+          estado: string
+          fin: string | null
+          id: number
+          inicio: string
+          latido: string | null
+          origen: string
+          pasos: Json
+          resumen: Json
+          trabajando_hasta: string | null
+        }
+        Insert: {
+          error?: string | null
+          estado?: string
+          fin?: string | null
+          id?: never
+          inicio?: string
+          latido?: string | null
+          origen: string
+          pasos?: Json
+          resumen?: Json
+          trabajando_hasta?: string | null
+        }
+        Update: {
+          error?: string | null
+          estado?: string
+          fin?: string | null
+          id?: never
+          inicio?: string
+          latido?: string | null
+          origen?: string
+          pasos?: Json
+          resumen?: Json
+          trabajando_hasta?: string | null
+        }
+        Relationships: []
+      }
+      tableros: {
+        Row: {
+          actualizado_at: string
+          archivado_at: string | null
+          categoria: string
+          codigo: string | null
+          creado_at: string
+          creado_por: string | null
+          descripcion: string | null
+          id: string
+          monday_board_id: string | null
+          nombre: string
+          plantilla_id: string | null
+          sincroniza_monday: boolean
+        }
+        Insert: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          categoria?: string
+          codigo?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          id?: string
+          monday_board_id?: string | null
+          nombre: string
+          plantilla_id?: string | null
+          sincroniza_monday?: boolean
+        }
+        Update: {
+          actualizado_at?: string
+          archivado_at?: string | null
+          categoria?: string
+          codigo?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          id?: string
+          monday_board_id?: string | null
+          nombre?: string
+          plantilla_id?: string | null
+          sincroniza_monday?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tableros_plantilla_id_fkey"
+            columns: ["plantilla_id"]
+            isOneToOne: false
+            referencedRelation: "plantillas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vpa_califs: {
         Row: {
           indicador: string
@@ -594,10 +1331,33 @@ export type Database = {
         Args: { p_by: string; p_metas: Json; p_objetivos: Json }
         Returns: undefined
       }
+      mirror_desactivar_boards: {
+        Args: { p_tipo: string; p_vigentes: string[] }
+        Returns: number
+      }
+      mirror_guardar_board: {
+        Args: { p_board: Json; p_items: Json }
+        Returns: Json
+      }
       reabrir_encuesta: { Args: { p_token: string }; Returns: undefined }
       responder_encuesta: {
         Args: { p_answers: Json; p_respondent_email: string; p_token: string }
         Returns: undefined
+      }
+      tablero_cambiar_valor: {
+        Args: {
+          p_columna: string
+          p_elemento: string
+          p_email: string
+          p_usuario: string
+          p_valor: Json
+        }
+        Returns: boolean
+      }
+      tablero_ids_persona: { Args: { p: Json }; Returns: string[] }
+      tablero_recalcular_responsables: {
+        Args: { p_tablero: string }
+        Returns: number
       }
     }
     Enums: {

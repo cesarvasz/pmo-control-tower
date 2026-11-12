@@ -5,7 +5,7 @@
 // los baselines de sus items. Mismo esquema de auth que /api/dashboard.
 
 import { NextResponse } from "next/server";
-import { discoverProjBoards, fetchIniAndHrRaw, fetchProjBoardRaw } from "@/lib/monday";
+import { fetchProjBoardConContexto } from "@/lib/monday";
 import { buildIniLookup, projEnrichBoards, projProcess } from "@/lib/proj";
 import { syncBoardBaselines } from "@/lib/projBaselineSync";
 import { requireSession } from "@/lib/users";
@@ -39,13 +39,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ boar
     // para que resolverIniDeBoard aplique correctamente sus excepciones (ej.
     // PM-013 hereda Estrategia/Sponsor/CKU de PM-003, ver proj.ts) aunque acá
     // solo se traigan los items de UNO.
-    const [allBoardsMeta, projRaw, { iniItems, hrItems }] = await Promise.all([
-      discoverProjBoards(),
-      fetchProjBoardRaw(boardId),
-      fetchIniAndHrRaw(),
-    ]);
+    // Con FUENTE_DATOS=tableros sale de Supabase (ver lib/fuenteDatos.ts).
+    const { allBoardsMeta, projRaw, iniItems, hrItems } = await fetchProjBoardConContexto(boardId);
 
-    if (!allBoardsMeta.some((b) => b.id === boardId)) {
+    if (!projRaw || !allBoardsMeta.some((b) => b.id === boardId)) {
       return NextResponse.json({ error: "Ese board no pertenece a la carpeta de Proyectos" }, { status: 404 });
     }
 
