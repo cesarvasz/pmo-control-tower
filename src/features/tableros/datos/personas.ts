@@ -5,8 +5,10 @@
 import { getSupabaseAdmin, selectAll, unwrap } from "@/lib/supabase-admin";
 import { leerBoardsEspejo } from "@/lib/mondayMirrorRead";
 import { sincronizarBoard } from "@/lib/mondayMirrorSync";
-import type { Tables, TablesInsert } from "@/types/supabase";
+import type { Json, Tables, TablesInsert } from "@/types/supabase";
 import { ligarPorEmail, normalizarEmail, personaDesdeRh, type Persona } from "../dominio/personas";
+import { validarDefinicionCampo, validarValorCampo, type CampoDirectorio, type TipoCampoDirectorio } from "../dominio/directorio-campos";
+import { ErrorTablero } from "./errores";
 
 function aPersona(r: Tables<"personas">): Persona {
   return {
@@ -26,7 +28,11 @@ function aPersona(r: Tables<"personas">): Persona {
 export interface PersonaConUsuario extends Persona {
   /** Correo del usuario de la app ligado (para mostrarlo). */
   usuarioEmail: string | null;
+  /** Campos propios del directorio: { id del campo: valor }. */
+  extra: Record<string, unknown>;
 }
+
+const objeto = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
 export async function listarPersonas(): Promise<PersonaConUsuario[]> {
   const db = getSupabaseAdmin();
@@ -36,7 +42,7 @@ export async function listarPersonas(): Promise<PersonaConUsuario[]> {
   ]);
   const emailDe = new Map(usuarios.map((u) => [u.id, u.email]));
   return filas
-    .map((r) => ({ ...aPersona(r), usuarioEmail: r.app_user_id ? emailDe.get(r.app_user_id) ?? null : null }))
+    .map((r) => ({ ...aPersona(r), usuarioEmail: r.app_user_id ? emailDe.get(r.app_user_id) ?? null : null, extra: objeto(r.extra) }))
     .sort((a, b) => (a.grupo ?? "").localeCompare(b.grupo ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"));
 }
 
@@ -130,4 +136,66 @@ export async function listarUsuariosApp(): Promise<{ id: string; email: string; 
   const filas = await selectAll<{ id: string; email: string; display_name: string }>((d, h) =>
     db.from("app_users").select("id, email, display_name").order("id").range(d, h));
   return filas.map((u) => ({ id: u.id, email: u.email, nombre: u.display_name || u.email })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+
+// ── Campos propios del directorio ───────────────────────────────────────────
+// Se agregan en la app (la sincronización con el Directorio RH no los toca: solo escribe los
+// campos fijos). Sus valores viven en personas.extra.
+
+function aCampo(r: Tables<"directorio_campos">): CampoDirectorio {
+  const opciones = Array.isArray(r.opciones) ? r.opciones.filter((o): o is string => typeof o === "string") : [];
+  return { id: r.id, titulo: r.titulo, tipo: r.tipo as TipoCampoDirectorio, opciones, orden: r.orden };
+}
+
+/** Los campos propios vigentes, en orden. */
+export async function listarCamposDirectorio(): Promise<CampoDirectorio[]> {
+  const filas = unwrap(await getSupabaseAdmin().from("directorio_campos").select("*").is("archivado_at", null).order("orden").order("creado_at")) ?? [];
+  return filas.map(aCampo);
+}
+
+/** Agrega un campo al directorio (al final). */
+export async function crearCampoDirectorio(d: { titulo?: unknown; tipo?: unknown; opciones?: unknown }, autor: string): Promise<CampoDirectorio> {
+  const existentes = await listarCamposDirectorio();
+  const v = validarDefinicionCampo(d, existentes);
+  if ("error" in v) throw new ErrorTablero(400, v.error);
+  const orden = existentes.reduce((m, c) => Math.max(m, c.orden + 1), 0);
+  const fila = unwrap(await getSupabaseAdmin().from("directorio_campos")
+    .insert({ titulo: v.titulo, tipo: v.tipo, opciones: v.opciones as Json, orden, creado_por: autor }).select("*").single());
+  return aCampo(fila!);
+}
+
+/** Cambia el título o las opciones de un campo. El tipo no cambia (los valores ya guardados dejarían de servir). */
+export async function editarCampoDirectorio(campoId: string, d: { titulo?: unknown; opciones?: unknown }): Promise<CampoDirectorio> {
+  const existentes = await listarCamposDirectorio();
+  const c = existentes.find((x) => x.id === campoId);
+  if (!c) throw new ErrorTablero(404, "El campo ya no existe");
+  const v = validarDefinicionCampo({ titulo: d.titulo ?? c.titulo, tipo: c.tipo, opciones: d.opciones ?? c.opciones }, existentes, c.id);
+  if ("error" in v) throw new ErrorTablero(400, v.error);
+  const fila = unwrap(await getSupabaseAdmin().from("directorio_campos")
+    .update({ titulo: v.titulo, opciones: v.opciones as Json }).eq("id", campoId).select("*").single());
+  return aCampo(fila!);
+}
+
+/** Quita un campo (se archiva; sus valores se quedan guardados por si se vuelve a necesitar). */
+export async function archivarCampoDirectorio(campoId: string): Promise<void> {
+  const r = unwrap(await getSupabaseAdmin().from("directorio_campos").update({ archivado_at: new Date().toISOString() })
+    .eq("id", campoId).is("archivado_at", null).select("id"));
+  if (!r?.length) throw new ErrorTablero(404, "El campo ya no existe");
+}
+
+/** Guarda el valor de un campo propio para una persona (vacío = se borra). */
+export async function guardarValorCampo(personaId: string, campoId: string, valor: unknown): Promise<unknown> {
+  const db = getSupabaseAdmin();
+  const campo = (await listarCamposDirectorio()).find((c) => c.id === campoId);
+  if (!campo) throw new ErrorTablero(404, "El campo ya no existe");
+  let limpio: string | number | null;
+  try { limpio = validarValorCampo(campo, valor); }
+  catch (e) { throw new ErrorTablero(400, e instanceof Error ? e.message : "Valor no válido"); }
+  const p = unwrap(await db.from("personas").select("extra").eq("id", personaId).maybeSingle());
+  if (!p) throw new ErrorTablero(404, "La persona ya no existe");
+  const extra = { ...objeto(p.extra) };
+  if (limpio === null) delete extra[campoId];
+  else extra[campoId] = limpio;
+  unwrap(await db.from("personas").update({ extra: extra as Json, actualizado_at: new Date().toISOString() }).eq("id", personaId));
+  return limpio;
 }

@@ -220,6 +220,39 @@ export type Database = {
         }
         Relationships: []
       }
+      directorio_campos: {
+        Row: {
+          archivado_at: string | null
+          creado_at: string
+          creado_por: string | null
+          id: string
+          opciones: Json
+          orden: number
+          tipo: string
+          titulo: string
+        }
+        Insert: {
+          archivado_at?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          id?: string
+          opciones?: Json
+          orden?: number
+          tipo: string
+          titulo: string
+        }
+        Update: {
+          archivado_at?: string | null
+          creado_at?: string
+          creado_por?: string | null
+          id?: string
+          opciones?: Json
+          orden?: number
+          tipo?: string
+          titulo?: string
+        }
+        Relationships: []
+      }
       elemento_archivos: {
         Row: {
           borrado_at: string | null
@@ -689,6 +722,7 @@ export type Database = {
           app_user_id: string | null
           creado_at: string
           email: string | null
+          extra: Json
           grupo: string | null
           hrs_mes: number | null
           id: string
@@ -703,6 +737,7 @@ export type Database = {
           app_user_id?: string | null
           creado_at?: string
           email?: string | null
+          extra?: Json
           grupo?: string | null
           hrs_mes?: number | null
           id?: string
@@ -717,6 +752,7 @@ export type Database = {
           app_user_id?: string | null
           creado_at?: string
           email?: string | null
+          extra?: Json
           grupo?: string | null
           hrs_mes?: number | null
           id?: string

@@ -5,6 +5,7 @@
 
 import type { ConfigFormula, FormatoFormula } from "../../dominio/tipos-columna/formula";
 import { CAMPOS_PERSONA, type ConfigEspejo } from "../../dominio/tipos-columna/espejo";
+import { claveEspejoDeCampo } from "../../dominio/directorio-campos";
 import type { ConfigRelacion } from "../../dominio/tipos-columna/relacion";
 import { FUNCIONES } from "../../dominio/formulas";
 import type { Columna } from "../../dominio/tablero";
@@ -15,6 +16,8 @@ export interface ContextoConfig {
   columnas: Columna[];
   tableros: { id: string; nombre: string }[];
   ligados: Record<string, { nombre: string; columnas: Columna[] }>;
+  /** Campos propios del directorio: un Espejo sobre una Persona también los puede mostrar. */
+  camposDirectorio?: { id: string; titulo: string }[];
 }
 
 interface Props<C> { config: C; onCambiar(c: C): void; contexto: ContextoConfig }
@@ -77,7 +80,8 @@ export function ConfigEspejoEd({ config, onCambiar, contexto }: Props<ConfigEspe
   const origenes = contexto.columnas.filter((c) => c.tipo === "persona" || c.tipo === "relacion");
   const origen = origenes.find((c) => c.id === config.columna);
   const ligado = origen?.tipo === "relacion" ? contexto.ligados[(origen.config as ConfigRelacion).tableroId] : undefined;
-  const campos = origen?.tipo === "persona" ? CAMPOS_PERSONA
+  const campos = origen?.tipo === "persona"
+    ? [...CAMPOS_PERSONA, ...(contexto.camposDirectorio ?? []).map((c) => ({ clave: claveEspejoDeCampo(c.id), etiqueta: c.titulo }))]
     : [{ clave: "nombre", etiqueta: "Nombre" }, ...(ligado?.columnas.filter((c) => c.nivel === "item").map((c) => ({ clave: c.id, etiqueta: c.titulo })) ?? [])];
   return (
     <div className="flex flex-wrap items-end gap-3">

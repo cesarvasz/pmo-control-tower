@@ -102,6 +102,15 @@ describe("columnas calculadas", () => {
     expect(valorDeCelda(c, elementos[0], columnas[0])).toBe(2);
   });
 
+  it("un Espejo sobre una Persona también muestra un campo propio del directorio («campo:<id>»)", () => {
+    const cols = [col("resp", "persona"), col("pais", "espejo", { columna: "resp", campo: "campo:c-pais" })];
+    const els = [el("1", { resp: [ANA] }), el("2", {})];
+    const conExtra = new Map([[ANA, { nombre: "Ana López", extra: { "c-pais": "Guatemala" } }]]);
+    const c = calcularTablero({ columnas: cols, elementos: els }, { personas: conExtra, hoy: HOY });
+    expect(c.valores.get("1")).toEqual({ pais: "Guatemala" });
+    expect(c.valores.get("2")).toEqual({ pais: null });
+  });
+
   it("detecta ciclos y referencias que no existen", () => {
     const ciclo = [col("a", "formula", formula("{b} + 1")), col("b", "formula", formula("{a} + 1"))];
     expect(errorFormula("{b} + 1", "item", ciclo, "a")).toMatch(/se usa a sí misma/);

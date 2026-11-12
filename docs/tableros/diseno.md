@@ -409,3 +409,31 @@ termina (24 boards, 0 errores, 0 diferencias).
    tarea del Programador de Windows y se observa 2–3 días en Migración (ok, 0 diferencias).
 3. **Encender:** `FUENTE_DATOS=tableros` en Vercel (Production) y volver a desplegar. Para volver atrás:
    borrar la variable y desplegar.
+
+## 12. Modelado de Iniciativas (desde el 2026-11-12)
+
+Objetivo: un solo formato para todas las Iniciativas, creadas y llenadas en la app. Se modela sobre
+el tablero **importado** «Iniciativas 💡» (no uno nuevo): ya tiene las 109 Iniciativas con su
+«Ini ID» (que liga las reuniones del calendario), bitácora, archivos y relaciones; lo que se le
+agrega sobrevive a la sincronización y, en el corte, basta con apagarla.
+
+Decisiones del usuario:
+- **Aprobación:** «PM Aprobado / REQ Aprobado» pasan a ser **PM "A" / PM "B" / PM "C"**
+  (aprobada como Proyecto Clase A, B o C). Ya no hay «PML aprobado». (La regla de la app
+  —`INI_APPROVED` en lib/ini.ts— está pendiente del visto bueno: hace que las 65 aprobadas vuelvan a
+  contar; Calidad pasa de 42 a 58.)
+- **PM, CKU y Sponsor salen del directorio** (columnas Persona). El **Sponsor** sale de la Estrategia
+  (Espejo Iniciativa → Estrategia → Sponsor) y en Estrategia se elige del directorio (Persona). La
+  columna **PM** es de **una sola persona** (cambiado el 2026-11-12; las 109 tenían una).
+- **El directorio sigue siendo una tabla** (no un tablero), con sus campos del Directorio RH, pero
+  admite **campos propios** (texto, número, fecha o lista) que se agregan y llenan en Tableros →
+  Directorio y se muestran en un tablero con un **Espejo** sobre una Persona (clave `campo:<id>`).
+  Tabla `directorio_campos` y `personas.extra` (migración `20261112190000_directorio_campos`); la
+  sincronización con el Directorio RH no toca `extra`.
+- **Estrategia pasa a la app en el mismo corte** que Iniciativas.
+
+Pendiente de respuesta del usuario: quién crea y edita Iniciativas (menú y roles), fecha de corte,
+recordatorios de «Sin Valor Def» (hoy un Apps Script que lee Monday), si la clase aprobada llena sola
+la Clasificación, y la lista de columnas calculadas por la app (Etapa, plazos, salud, reunión
+agendada, clase aprobada, cumplimiento, calidad, recordatorios). Limpiar los 7 «Project ID»
+repetidos (PM-005 ×2, PM-006, PM-008, PM-009, PM-016, PM-017).

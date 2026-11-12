@@ -2,7 +2,8 @@
 
 // Pestaña Directorio: las personas que se pueden poner en una columna Persona. Hoy se importan
 // del Directorio RH de Monday; cada una se liga a su usuario de la app por correo (eso es lo que
-// hace funcionar "solo lo mío").
+// hace funcionar "solo lo mío"). Además de los campos del Directorio RH, tiene campos PROPIOS que se
+// agregan y llenan aquí (DirectorioCampos.tsx).
 
 import { useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
@@ -10,10 +11,13 @@ import { EmptyRow, ErrorBox, Loader, Pill, StatCard } from "@/components/ui";
 import { tieneAccionTableros } from "../dominio/acciones";
 import type { PersonaConUsuario, ResultadoImportacion } from "../datos/personas";
 import { Boton, enviar, estiloControl, Nota, useCarga } from "./comun";
+import type { CampoDirectorio } from "../dominio/directorio-campos";
+import { CamposPanel, CeldaCampo } from "./DirectorioCampos";
 
 interface Respuesta {
   personas: PersonaConUsuario[];
   usuarios: { id: string; email: string; nombre: string }[];
+  campos: CampoDirectorio[];
 }
 
 const URL_API = "/api/tableros/personas";
@@ -30,6 +34,7 @@ export default function DirectorioTab() {
   const [fallo, setFallo] = useState<string | null>(null);
 
   const personas = useMemo(() => data?.personas ?? [], [data]);
+  const campos = data?.campos ?? [];
   const grupos = useMemo(() => [...new Set(personas.map((p) => p.grupo ?? "Sin grupo"))].sort((a, b) => a.localeCompare(b, "es")), [personas]);
   const visibles = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -90,6 +95,8 @@ export default function DirectorioTab() {
       )}
       {fallo && <Nota tono="mal">{fallo}</Nota>}
 
+      <CamposPanel campos={campos} puedeAdministrar={puedeAdministrar} onCambio={recargar} />
+
       {personas.length === 0 ? (
         <EmptyRow msg="Todavía no hay personas. Importa el Directorio RH para empezar." />
       ) : (
@@ -124,7 +131,11 @@ export default function DirectorioTab() {
             <div className="table-wrap">
               <table className="pmo">
                 <thead>
-                  <tr><th>Nombre</th><th>Grupo</th><th>Rol</th><th>TLD</th><th>Hrs/mes</th><th>Correo</th><th>Usuario de la app</th><th>Estado</th></tr>
+                  <tr>
+                    <th>Nombre</th><th>Grupo</th><th>Rol</th><th>TLD</th><th>Hrs/mes</th><th>Correo</th>
+                    {campos.map((c) => <th key={c.id} title="Campo propio (no viene del Directorio RH)">{c.titulo}</th>)}
+                    <th>Usuario de la app</th><th>Estado</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {visibles.map((p) => (
@@ -135,6 +146,14 @@ export default function DirectorioTab() {
                       <td style={{ color: "var(--text-secondary)" }}>{p.tld ?? "—"}</td>
                       <td style={{ textAlign: "right" }}>{p.hrsMes ?? "—"}</td>
                       <td style={{ color: "var(--text-secondary)", fontSize: ".8rem" }}>{p.email ?? "—"}</td>
+                      {campos.map((c) => (
+                        <td key={c.id}>
+                          <CeldaCampo
+                            campo={c} personaId={p.id} valor={p.extra?.[c.id]} editable={puedeAdministrar}
+                            onError={setFallo} onGuardado={() => void recargar()}
+                          />
+                        </td>
+                      ))}
                       <td>
                         {puedeAdministrar ? (
                           <select

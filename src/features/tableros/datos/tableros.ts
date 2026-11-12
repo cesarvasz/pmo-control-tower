@@ -99,6 +99,8 @@ export async function leerTablero(id: string, acceso: Acceso): Promise<TableroCo
 export interface PersonaTablero {
   id: string; nombre: string; activo: boolean;
   tld: string | null; rol: string | null; email: string | null; grupo: string | null; hrsMes: number | null;
+  /** Campos propios del directorio: { id del campo: valor }. */
+  extra: Record<string, unknown>;
 }
 
 /** El directorio con lo que necesitan las celdas Persona y los Espejos (TLD, rol…). */
@@ -106,7 +108,10 @@ export async function listarPersonasCorto(): Promise<PersonaTablero[]> {
   const db = getSupabaseAdmin();
   const filas = await selectAll<Tables<"personas">>((d, h) => db.from("personas").select("*").order("id").range(d, h));
   return filas
-    .map((p) => ({ id: p.id, nombre: p.nombre, activo: p.activo, tld: p.tld, rol: p.rol, email: p.email, grupo: p.grupo, hrsMes: p.hrs_mes === null ? null : Number(p.hrs_mes) }))
+    .map((p) => ({
+      id: p.id, nombre: p.nombre, activo: p.activo, tld: p.tld, rol: p.rol, email: p.email, grupo: p.grupo, hrsMes: p.hrs_mes === null ? null : Number(p.hrs_mes),
+      extra: p.extra && typeof p.extra === "object" && !Array.isArray(p.extra) ? (p.extra as Record<string, unknown>) : {},
+    }))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 

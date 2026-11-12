@@ -25,6 +25,7 @@ import { botonMini, NuevoElemento, TextoEditable } from "./piezas";
 import { VISTAS } from "../vistas";
 import { useMe } from "@/context/PermissionsContext";
 import { tieneAccionTableros } from "../../dominio/acciones";
+import type { CampoDirectorio } from "../../dominio/directorio-campos";
 
 interface Datos extends TableroCompleto {
   personas: (PersonaCorta & PersonaCalc)[];
@@ -33,6 +34,8 @@ interface Datos extends TableroCompleto {
   archivos: ArchivoCelda[];
   /** elementoId → cuántas actualizaciones tiene en la bitácora */
   comentarios: Record<string, number>;
+  /** Campos propios del directorio (para mostrarlos con un Espejo). */
+  camposDirectorio?: CampoDirectorio[];
 }
 
 const tdCelda = { padding: 0, borderLeft: "1px solid var(--border-subtle)" } as const;
@@ -424,7 +427,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
       {editorCol && (
         <ColumnaEditor
           columna={editorCol.columna} nivel={editorCol.nivel} columnas={columnas}
-          tableros={tablerosLista} ligados={data.ligados}
+          tableros={tablerosLista} ligados={data.ligados} camposDirectorio={data.camposDirectorio ?? []}
           onGuardar={guardarColumna}
           onArchivar={editorCol.columna ? async () => { await op({ op: "columna.archivar", columnaId: editorCol.columna!.id }); } : undefined}
           onCerrar={() => setEditorCol(null)}

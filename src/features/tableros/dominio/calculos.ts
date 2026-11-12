@@ -9,6 +9,7 @@ import type { ConfigDropdown } from "./tipos-columna/dropdown";
 import type { ConfigFormula } from "./tipos-columna/formula";
 import type { ConfigEspejo } from "./tipos-columna/espejo";
 import type { ConfigRelacion } from "./tipos-columna/relacion";
+import { campoDeClaveEspejo } from "./directorio-campos";
 import { analizar, ErrorFormula, evaluar, hoyLocal, referencias, type Nodo, type ValorF } from "./formulas";
 import type { Columna, Elemento, Nivel, TableroCompleto } from "./tablero";
 
@@ -19,6 +20,8 @@ export interface PersonaCalc {
   email?: string | null;
   grupo?: string | null;
   hrsMes?: number | null;
+  /** Campos propios del directorio: { id del campo: valor } (ver dominio/directorio-campos.ts). */
+  extra?: Record<string, unknown> | null;
 }
 
 /** Un tablero ligado por una columna Relación (solo lo que el usuario puede ver). */
@@ -157,7 +160,13 @@ export function calcularTablero(t: Pick<TableroCompleto, "columnas" | "elementos
       const ids = (valor(origen) as string[] | null) ?? [];
       let partes: (string | number)[] = [];
       if (origen.tipo === "persona") {
-        partes = ids.map((id) => ctx.personas.get(id)?.[campo as keyof PersonaCalc]).filter((x): x is string | number => x !== null && x !== undefined && x !== "");
+        const campoPropio = campoDeClaveEspejo(campo);
+        partes = ids.map((id) => {
+          const p = ctx.personas.get(id);
+          if (!campoPropio) return p?.[campo as Exclude<keyof PersonaCalc, "extra">];
+          const v = p?.extra?.[campoPropio];
+          return typeof v === "string" || typeof v === "number" ? v : null;
+        }).filter((x): x is string | number => x !== null && x !== undefined && x !== "");
       } else if (origen.tipo === "relacion") {
         const ligado = ctx.ligados?.[(origen.config as ConfigRelacion | undefined)?.tableroId ?? ""];
         const destino = ligado?.columnas.find((x) => x.id === campo);
