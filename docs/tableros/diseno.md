@@ -399,9 +399,13 @@ termina (24 boards, 0 errores, 0 diferencias).
    `monday.ts` y `supabase.ts`), renombrar `20261111120000_tableros_sincronizacion.sql` (choca con
    `20261111120000_encuestas_cku_entregable.sql`), lint/typecheck/tests/build y push. Producción sigue
    leyendo de Monday (sin `FUENTE_DATOS` en Vercel).
-2. **Programar en Supabase:** activar `pg_cron` y `pg_net`; guardar en el Vault la URL de producción y
-   el `CRON_SECRET`; un job cada minuto que llame `/api/cron/tableros-sync` con
-   `Authorization: Bearer`. Apagar la tarea del Programador de Windows. Observar 2–3 días en
-   Migración (corridas «en la nube», ok, 0 diferencias).
+2. **Programar en Supabase** (hecho el 2026-11-12, migración `20261112170000_tableros_sync_pg_cron`):
+   `pg_cron` y `pg_net` activos; job `tableros-sync` cada minuto → `net.http_get` a
+   `https://pmo-control-tower.vercel.app/api/cron/tableros-sync` con `Authorization: Bearer` + el secreto
+   `cron_secret` del Vault (mismo valor que `CRON_SECRET` en Vercel; se guarda a mano desde el SQL Editor con
+   `select vault.create_secret(…, cron_secret)`, nunca en un archivo). Sin ese secreto el job no manda
+   nada. Job `limpiar-historial-cron` (diario) deja una semana de `cron.job_run_details`. Pausar:
+   `select cron.unschedule(tableros-sync)`. Cuando las corridas «en la nube» salgan bien, se apaga la
+   tarea del Programador de Windows y se observa 2–3 días en Migración (ok, 0 diferencias).
 3. **Encender:** `FUENTE_DATOS=tableros` en Vercel (Production) y volver a desplegar. Para volver atrás:
    borrar la variable y desplegar.
