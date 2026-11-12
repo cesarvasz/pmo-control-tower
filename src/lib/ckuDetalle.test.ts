@@ -19,7 +19,7 @@ const LAUNCH = "Launch | Lanzamiento";
 
 const creacion = new Date(2026, 0, 5);
 const iniE = (id: string, aTiempo: boolean): IniItem =>
-  ({ id, name: `Ini ${id}`, grupo: "Aprobadas", status: "PM Aprobado", estado: "APROBADA", pm: "Javier",
+  ({ id, name: `Ini ${id}`, grupo: "Aprobadas", status: 'PM "A"', estado: "APROBADA", pm: "Javier",
     creacion, meet1: aTiempo ? "2026-01-12" : "2026-01-13", meet2: "2026-01-26" }) as IniItem;
 
 // El CKU medido en estos tests. Solo cuentan los entregables y actividades cuyo Responsible es él.

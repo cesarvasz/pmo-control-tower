@@ -1603,10 +1603,10 @@ describe("calidadProjectStatus (trayectoria de Calidad por proyecto: Done + pend
 });
 
 describe("Calidad de Entregas con Iniciativas (aprobadas, nota binaria como un PML cerrado)", () => {
-  const ini = (o: Partial<IniItem>): IniItem => ({ grupo: "G", status: "PM Aprobado", estado: "APROBADA", pm: "Luis", ...o }) as IniItem;
+  const ini = (o: Partial<IniItem>): IniItem => ({ grupo: "G", status: 'PM "A"', estado: "APROBADA", pm: "Luis", ...o }) as IniItem;
   const aprobadas = [ini({ id: "INI-1", name: "Uno" }), ini({ id: "INI-2", name: "Dos" })];
 
-  it("solo cuentan las APROBADAS (PM / PML Aprobado) y con id; el resto del embudo no mide Calidad", () => {
+  it("solo cuentan las APROBADAS (PM A / B / C) y con id; el resto del embudo no mide Calidad", () => {
     const resto = [
       ini({ id: "INI-3", estado: "EN TIEMPO", status: "New" }), ini({ id: "INI-4", estado: "POR_DEFINIR", status: "Meeting 2" }),
       ini({ id: "INI-5", estado: "EN_ESPERA", status: "Sin Valor Def" }), ini({ id: "", name: "sin id" }),

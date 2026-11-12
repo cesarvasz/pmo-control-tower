@@ -1021,7 +1021,7 @@ export function calidadActividadCkuResp(s: ProjSubitem, reproceso: DelayMap): { 
 
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
-/** Unidades de Calidad de INICIATIVAS: las ya aprobadas (PM Aprobado / PML Aprobado,
+/** Unidades de Calidad de INICIATIVAS: las ya aprobadas (PM "A" / "B" / "C",
  *  estado "APROBADA"). Como un REQ cerrado, su nota es binaria: 100 si el Admin la
  *  excusa con un responsable ≠ "PM" (o "Sin reproceso"), 0 si no (sin asignar
  *  penaliza). Se atribuyen por el id de la iniciativa (ini.id). Las demás etapas del

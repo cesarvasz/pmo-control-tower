@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess, porDefinirStatus, porDefinirDias, calcIniPMHealth, esperaReminderInfo, buildReminderMap } from "./ini";
+import { claseDeAprobacion, nextOrLatest, iniItemStatus, INI_ACTIVE_STS, iniProcess, porDefinirStatus, porDefinirDias, calcIniPMHealth, esperaReminderInfo, buildReminderMap } from "./ini";
 import { today, addBusinessDays } from "./business";
 import { buildNameResolver } from "./proj";
 import type { IniItem, CalMap, MondayColumnValue, MondayItem } from "@/types";
@@ -47,8 +47,8 @@ describe("iniItemStatus", () => {
     expect(iniItemStatus(iniItem({ dias: 5 }), calWithM1)).toBe("on-track");
   });
   it("estado no activo → on-track", () => {
-    expect(INI_ACTIVE_STS.has("PM Aprobado")).toBe(false);
-    expect(iniItemStatus(iniItem({ status: "PM Aprobado", dias: 5 }), emptyCal)).toBe("on-track");
+    expect(INI_ACTIVE_STS.has('PM "A"')).toBe(false);
+    expect(iniItemStatus(iniItem({ status: 'PM "A"', dias: 5 }), emptyCal)).toBe("on-track");
   });
 });
 
@@ -166,10 +166,27 @@ const mkIni = (name: string, cols: MondayColumnValue[]): MondayItem => ({
   id: name, name, group: { title: "Grupo" }, column_values: cols,
 });
 
+describe("aprobación por clase: PM A / B / C", () => {
+  it("el status PM \"A\", \"B\" o \"C\" es una aprobación y da la clase (tolera comillas tipográficas y espacios)", () => {
+    expect(claseDeAprobacion('PM "A"')).toBe("A");
+    expect(claseDeAprobacion('PM "b"')).toBe("B");
+    expect(claseDeAprobacion("PM “C”")).toBe("C");
+    expect(claseDeAprobacion("  PM C ")).toBe("C");
+  });
+  it("lo que ya no existe (PM Aprobado, REQ Aprobado) y el resto del embudo no son aprobaciones", () => {
+    for (const st of ["PM Aprobado", "REQ Aprobado", "New", "Meeting 1", "Sin Valor Def", "PM \"D\"", ""]) expect(claseDeAprobacion(st)).toBeNull();
+  });
+  it("iniProcess marca APROBADA con su clase y sin cálculo de plazos", () => {
+    const [b] = iniProcess([mkIni("Ini B", [col(INI_COL_ID.status, 'PM "B"'), col(INI_COL_ID.id, "PMO-2"), col(INI_COL_ID.pm, "Ana")])]);
+    expect(b).toMatchObject({ estado: "APROBADA", clase: "B", dias: null, deadline: null, id: "PMO-2" });
+    expect(iniProcess([mkIni("Vieja", [col(INI_COL_ID.status, "REQ Aprobado")])])).toEqual([]);
+  });
+});
+
 describe("iniProcess", () => {
-  it("PM Aprobado → APROBADA sin cálculo de días, conserva id/pm", () => {
+  it("PM \"A\" → APROBADA sin cálculo de días, conserva id/pm", () => {
     const [r] = iniProcess([mkIni("Ini A", [
-      col(INI_COL_ID.status, "PM Aprobado"), col(INI_COL_ID.id, "PMO-1"),
+      col(INI_COL_ID.status, 'PM "A"'), col(INI_COL_ID.id, "PMO-1"),
       col(INI_COL_ID.pm, "Luis"), col(INI_COL_ID.benefit, "1000"),
     ])]);
     expect(r.estado).toBe("APROBADA");
@@ -210,7 +227,7 @@ describe("iniProcess", () => {
     const SPONSOR_COL = "lookup_mm3bdj38";
     const conSponsor = (name: string, email: string): MondayItem => ({
       id: name, name, group: { title: "Grupo" },
-      column_values: [col(INI_COL_ID.status, "PM Aprobado"), { id: SPONSOR_COL, text: "", display_value: email }],
+      column_values: [col(INI_COL_ID.status, 'PM "A"'), { id: SPONSOR_COL, text: "", display_value: email }],
     });
     const directorio: MondayItem[] = [{
       id: "1", name: "Gabriela Pineda", group: { title: "RH" },
@@ -228,7 +245,7 @@ describe("iniProcess", () => {
     });
 
     it("una Iniciativa sin Sponsor queda con texto vacío (no rompe)", () => {
-      expect(iniProcess([mkIni("D", [col(INI_COL_ID.status, "PM Aprobado")])], buildNameResolver(directorio))[0].sponsor).toBe("");
+      expect(iniProcess([mkIni("D", [col(INI_COL_ID.status, 'PM "A"')])], buildNameResolver(directorio))[0].sponsor).toBe("");
     });
   });
 });

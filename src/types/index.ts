@@ -378,6 +378,7 @@ export interface IniItem {
   ckuMail?: string;   // email del CKU (destinatario del recordatorio) — solo EN_ESPERA
   cku?: string;       // nombre del CKU de la Iniciativa (relación "CKU") — base de la página Players
   sponsor?: string;   // nombre del Sponsor (lookup de la Iniciativa; Monday lo trae como email, se resuelve con el Directorio RH)
+  clase?: "A" | "B" | "C"; // solo APROBADA: la clase con la que se aprobó (status PM "A" / "B" / "C")
   planFuturo?: Date | null;
   recordatorio?: Date | null;
 }

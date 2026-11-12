@@ -18,13 +18,20 @@ import type { CalMap, CalMeetingRaw, IniItem, MondayItem, ReminderEnvio, Reminde
 // INICIATIVAS
 // ─────────────────────────────────────────────────────────────────────
 export const INI_LIMITS: Record<string, number> = { New: 5, "Meeting 1": 10 };
-export const INI_APPROVED = new Set(["PM Aprobado", "REQ Aprobado"]);
-export const INI_SEC_ORDER = ["New", "Meeting 1", "PM Aprobado", "REQ Aprobado", "Sin Valor Def"];
+/** Una Iniciativa se aprueba como Proyecto de Clase A, B o C: su status es PM "A", PM "B" o PM "C"
+ *  (decisión del 2026-11-12; ya no existen «PM Aprobado» ni «REQ Aprobado»). Tolera comillas
+ *  tipográficas y espacios. Devuelve la clase, o null si el status no es una aprobación. */
+export function claseDeAprobacion(status: string): "A" | "B" | "C" | null {
+  const m = /^PM\s*["“”']?\s*([ABC])\s*["“”']?$/i.exec((status ?? "").trim());
+  return m ? (m[1].toUpperCase() as "A" | "B" | "C") : null;
+}
+export const INI_SEC_ORDER = ["New", "Meeting 1", 'PM "A"', 'PM "B"', 'PM "C"', "Sin Valor Def"];
 export const INI_SEC_LABEL: Record<string, string> = {
   New: "Meeting 1",
   "Meeting 1": "Meeting 2",
-  "PM Aprobado": "PM Aprobado",
-  "REQ Aprobado": "PML Aprobado",
+  'PM "A"': "Aprobada · Clase A",
+  'PM "B"': "Aprobada · Clase B",
+  'PM "C"': "Aprobada · Clase C",
   "Sin Valor Def": "En Espera +Info CKU",
 };
 export const INI_ACTIVE_STS = new Set(["New", "Meeting 1"]);
@@ -60,11 +67,12 @@ export function iniProcess(items: MondayItem[], resolveName: (v: string) => stri
       const meet1 = col(INI_COL.meet1);
       const meet2 = col(INI_COL.meet2);
 
-      if (INI_APPROVED.has(status)) {
+      const claseAprobada = claseDeAprobacion(status);
+      if (claseAprobada) {
         return {
           id: id_ini, name: item.name, grupo, pm, status, benefit,
           estado: "APROBADA", dias: null, limite: null, deadline: null,
-          creacion: parseCreation(creRaw), meet1, meet2,
+          creacion: parseCreation(creRaw), meet1, meet2, clase: claseAprobada,
         };
       }
       if (status === "Sin Valor Def") {
