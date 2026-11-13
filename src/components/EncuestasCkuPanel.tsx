@@ -11,9 +11,11 @@ import { enlaceEncuestaCku, type CkuSurveyDoc } from "@/lib/surveyCku";
 import CkuSurveyResultModal from "@/components/CkuSurveyResultModal";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
-export default function EncuestasCkuPanel({ puedeGestionar }: {
-  /** Invalidar respuestas y eliminar encuestas: un Admin (todas) o un CKU (las suyas; el servidor lo valida). */
+export default function EncuestasCkuPanel({ puedeGestionar, puedeInvalidar }: {
+  /** Eliminar encuestas: un Admin (todas) o un CKU (las suyas; el servidor lo valida). */
   puedeGestionar: boolean;
+  /** Invalidar / validar respuestas: SOLO un Admin (igual que en las encuestas de PM; el servidor lo valida). */
+  puedeInvalidar: boolean;
 }) {
   const { data, quitarEncuestaCku, marcarRespuestaCku } = useData();
   const [surveys, setSurveys] = useState<CkuSurveyDoc[] | null>(null);
@@ -168,7 +170,7 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
 
       {resultToken && (
         <CkuSurveyResultModal
-          token={resultToken} puedeGestionar={puedeGestionar}
+          token={resultToken} puedeInvalidar={puedeInvalidar}
           onClose={() => setResultToken(null)}
           onChanged={(r) => marcarRespuestaCku(r.surveyToken, r.respondentEmail, r.invalidated)}
         />

@@ -1,7 +1,7 @@
 "use client";
 
 // Respuestas de una encuesta NPS de un CKU: una tarjeta por persona que contestó (nombre, correo, NPS, respuesta abierta y
-// dimensiones). Un Admin puede invalidar una respuesta (deja de contar en el NPS del Player) o devolverla.
+// dimensiones). SOLO un Admin puede invalidar una respuesta (deja de contar en el NPS del Player) o devolverla.
 
 import { useCallback, useEffect, useState } from "react";
 import Modal from "@/components/Modal";
@@ -18,10 +18,10 @@ const LIKERT_COLOR: Record<string, string> = {
 const npsColor = (v: number) => (v >= 9 ? "var(--ok)" : v >= 7 ? "var(--warn)" : "var(--bad)");
 const npsLabel = (v: number) => (v >= 9 ? "Promotor" : v >= 7 ? "Pasivo" : "Detractor");
 
-export default function CkuSurveyResultModal({ token, puedeGestionar, onClose, onChanged }: {
+export default function CkuSurveyResultModal({ token, puedeInvalidar, onClose, onChanged }: {
   token: string;
-  /** Invalidar / validar respuestas: un Admin o el CKU dueño de la encuesta. */
-  puedeGestionar: boolean; onClose: () => void;
+  /** Invalidar / validar respuestas: SOLO un Admin (igual que en las encuestas de PM). */
+  puedeInvalidar: boolean; onClose: () => void;
   /** Se llama tras invalidar o validar una respuesta (para actualizar los números de afuera sin recargar). */
   onChanged?: (r: CkuSurveyResponseDoc) => void;
 }) {
@@ -103,7 +103,7 @@ export default function CkuSurveyResultModal({ token, puedeGestionar, onClose, o
                     </div>
                     {valido && <span className="shrink-0 text-[0.72rem] font-bold" style={{ color: npsColor(nps) }}>{npsLabel(nps)}</span>}
                     {r.invalidated && <span className="shrink-0 text-[0.7rem] font-bold" style={{ color: "var(--bad)" }}>⊘ Invalidada</span>}
-                    {puedeGestionar && (
+                    {puedeInvalidar && (
                       <button
                         onClick={() => invalidar(r)} disabled={busyId === r.id}
                         className="shrink-0 rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold disabled:opacity-50"

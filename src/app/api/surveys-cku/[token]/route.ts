@@ -1,9 +1,9 @@
 // src/app/api/surveys-cku/[token]/route.ts
 // GET PÚBLICO: lo mínimo para pintar el formulario (nombre de la encuesta y de qué CKU). La seguridad está en el token (UUID
 //   aleatorio no adivinable); no expone correos ni respuestas.
-// PATCH { responseId, invalidated }: saca una respuesta de las métricas (o la devuelve).
-// DELETE: elimina la encuesta con todas sus respuestas.
-// Ambas: un Admin (de cualquier CKU) o el CKU dueño de la encuesta (solo la suya).
+// PATCH { responseId, invalidated }: saca una respuesta de las métricas (o la devuelve). SOLO un Admin, igual que en las
+//   encuestas de PM (el CKU no puede invalidar las respuestas de su propia encuesta).
+// DELETE: elimina la encuesta con todas sus respuestas. Un Admin (de cualquier CKU) o el CKU dueño (solo la suya).
 
 import { NextResponse } from "next/server";
 import { deleteCkuSurvey, getCkuSurvey, listCkuResponses, setCkuResponseInvalidated } from "@/lib/surveysCku";
@@ -30,9 +30,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
   try {
     const me = await requireSession(request.headers.get("authorization"));
     const { token } = await params;
+    if (!(await actorCku(me)).admin) throw new Error("forbidden");
     const survey = await getCkuSurvey(token);
     if (!survey) return NextResponse.json({ error: "Encuesta no encontrada" }, { status: 404 });
-    if (!puedeVerCku(await actorCku(me), survey.cku)) throw new Error("forbidden");
     const body = (await request.json().catch(() => null)) as { responseId?: unknown; invalidated?: unknown } | null;
     if (typeof body?.responseId !== "string" || typeof body.invalidated !== "boolean")
       return NextResponse.json({ error: "Acción no válida" }, { status: 400 });
