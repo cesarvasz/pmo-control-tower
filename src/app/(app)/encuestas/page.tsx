@@ -90,10 +90,11 @@ export default function EncuestasPage() {
       ))}
     </div>
   );
-  // Un CKU: solo las suyas (las puede eliminar, pero invalidar respuestas es solo de un Admin, como en las de PM).
+  // Un CKU: solo las suyas; las puede eliminar mientras no tengan respuestas. Invalidar respuestas y eliminar una con
+  // respuestas es solo de un Admin (como en las de PM).
   // Un Admin: puede cambiar entre las de PM y las de CKU. Si es también CKU, manda Admin.
-  if (isAdmin && vista === "cku") return <div>{selector}<EncuestasCkuPanel puedeGestionar puedeInvalidar /></div>;
-  if (esCku && !isAdmin) return <div><EncuestasCkuPanel puedeGestionar puedeInvalidar={false} /></div>;
+  if (isAdmin && vista === "cku") return <div>{selector}<EncuestasCkuPanel puedeGestionar esAdmin /></div>;
+  if (esCku && !isAdmin) return <div><EncuestasCkuPanel puedeGestionar esAdmin={false} /></div>;
 
   if (error) return <ErrorBox msg={error} />;
   if (!surveys) return <Loader />;

@@ -3,7 +3,8 @@
 //   aleatorio no adivinable); no expone correos ni respuestas.
 // PATCH { responseId, invalidated }: saca una respuesta de las métricas (o la devuelve). SOLO un Admin, igual que en las
 //   encuestas de PM (el CKU no puede invalidar las respuestas de su propia encuesta).
-// DELETE: elimina la encuesta con todas sus respuestas. Un Admin (de cualquier CKU) o el CKU dueño (solo la suya).
+// DELETE: elimina la encuesta con todas sus respuestas. Un Admin, la de cualquier CKU y aunque ya tenga respuestas; el CKU
+//   dueño, solo la suya y solo mientras NADIE la haya contestado.
 
 import { NextResponse } from "next/server";
 import { deleteCkuSurvey, getCkuSurvey, listCkuResponses, setCkuResponseInvalidated } from "@/lib/surveysCku";
@@ -52,7 +53,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
     const { token } = await params;
     const survey = await getCkuSurvey(token);
     if (!survey) return NextResponse.json({ error: "Encuesta no encontrada" }, { status: 404 });
-    if (!puedeVerCku(await actorCku(me), survey.cku)) throw new Error("forbidden");
+    const a = await actorCku(me);
+    if (!puedeVerCku(a, survey.cku)) throw new Error("forbidden");
+    if (!a.admin && (await listCkuResponses(token)).length > 0)
+      return NextResponse.json({ error: "La encuesta ya tiene respuestas: solo un Admin puede eliminarla." }, { status: 403 });
     await deleteCkuSurvey(token);
     return NextResponse.json({ ok: true });
   } catch (err) {

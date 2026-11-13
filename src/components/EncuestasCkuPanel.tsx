@@ -11,11 +11,13 @@ import { enlaceEncuestaCku, type CkuSurveyDoc } from "@/lib/surveyCku";
 import CkuSurveyResultModal from "@/components/CkuSurveyResultModal";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
-export default function EncuestasCkuPanel({ puedeGestionar, puedeInvalidar }: {
-  /** Eliminar encuestas: un Admin (todas) o un CKU (las suyas; el servidor lo valida). */
+export default function EncuestasCkuPanel({ puedeGestionar, esAdmin }: {
+  /** Eliminar encuestas: un Admin (todas) o un CKU (las suyas y SOLO sin respuestas; con respuestas, solo un Admin). El
+   *  servidor lo valida. */
   puedeGestionar: boolean;
-  /** Invalidar / validar respuestas: SOLO un Admin (igual que en las encuestas de PM; el servidor lo valida). */
-  puedeInvalidar: boolean;
+  /** Un Admin: el único que invalida / valida respuestas (igual que en las de PM) y que elimina una encuesta con
+   *  respuestas. El servidor lo valida. */
+  esAdmin: boolean;
 }) {
   const { data, quitarEncuestaCku, marcarRespuestaCku } = useData();
   const [surveys, setSurveys] = useState<CkuSurveyDoc[] | null>(null);
@@ -78,6 +80,7 @@ export default function EncuestasCkuPanel({ puedeGestionar, puedeInvalidar }: {
     setBusyToken(token);
     try {
       const res = await authedFetch(`/api/surveys-cku/${token}`, { method: "DELETE" });
+      if (!res.ok) window.alert((await res.json().catch(() => ({}))).error || "No se pudo eliminar la encuesta");
       // Sin recargar nada: se quita de la tabla y sus respuestas salen de los NPS (aquí y en el Player) al instante.
       if (res.ok) {
         setSurveys((l) => l?.filter((x) => x.token !== token) ?? l);
@@ -149,7 +152,8 @@ export default function EncuestasCkuPanel({ puedeGestionar, puedeInvalidar }: {
                         >
                           {copied === s.token ? "¡Copiado!" : "Copiar enlace"}
                         </button>
-                        {puedeGestionar && (
+                        {/* Con respuestas, eliminarla es solo de un Admin. */}
+                        {puedeGestionar && (s.respuestas === 0 || esAdmin) && (
                           <button
                             onClick={() => eliminar(s.token)} disabled={busyToken === s.token}
                             className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap disabled:opacity-50"
@@ -170,7 +174,7 @@ export default function EncuestasCkuPanel({ puedeGestionar, puedeInvalidar }: {
 
       {resultToken && (
         <CkuSurveyResultModal
-          token={resultToken} puedeInvalidar={puedeInvalidar}
+          token={resultToken} puedeInvalidar={esAdmin}
           onClose={() => setResultToken(null)}
           onChanged={(r) => marcarRespuestaCku(r.surveyToken, r.respondentEmail, r.invalidated)}
         />
