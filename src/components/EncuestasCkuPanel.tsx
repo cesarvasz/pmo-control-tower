@@ -9,6 +9,8 @@ import { useData } from "@/context/DataContext";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { enlaceEncuestaCku, type CkuSurveyDoc } from "@/lib/surveyCku";
 import CkuSurveyResultModal from "@/components/CkuSurveyResultModal";
+import NpsCommentsReport from "@/components/NpsCommentsReport";
+import NpsDimensionsChart from "@/components/NpsDimensionsChart";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
 export default function EncuestasCkuPanel({ puedeGestionar, esAdmin }: {
@@ -26,6 +28,9 @@ export default function EncuestasCkuPanel({ puedeGestionar, esAdmin }: {
   const [ckuFilter, setCkuFilter] = useState("");
   const [busyToken, setBusyToken] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // Pestañas, como en las encuestas de PM. Comentarios y Dimensiones usan solo las respuestas de las encuestas que esta
+  // persona puede ver (un CKU, las suyas: la lista ya viene recortada por el servidor) y del CKU filtrado.
+  const [tab, setTab] = useState<"encuestas" | "comentarios" | "dimensiones">("encuestas");
 
   const load = useCallback(async () => {
     setError(null);
@@ -60,6 +65,7 @@ export default function EncuestasCkuPanel({ puedeGestionar, esAdmin }: {
   const rows = ckuFilter ? surveys.filter((s) => s.cku === ckuFilter) : surveys;
   const totalRespuestas = rows.reduce((s, x) => s + x.respuestas, 0);
   const recsVisibles = rows.flatMap((s) => recordsPorToken.get(s.token) ?? []);
+  const nombrePorToken = new Map(rows.map((s) => [s.token, s.nombre]));
   const npsGlobal = recsVisibles.length ? npsDe(recsVisibles) : null;
   const npsColor = npsCfg(npsGlobal?.nps ?? null)?.color ?? "var(--card-value-total)";
 
@@ -106,6 +112,24 @@ export default function EncuestasCkuPanel({ puedeGestionar, esAdmin }: {
         </div>
       )}
 
+      <div className="mb-6 flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
+        {([["encuestas", "Encuestas"], ["comentarios", "Comentarios NPS"], ["dimensiones", "Dimensiones"]] as const).map(([key, label]) => (
+          <button
+            key={key} onClick={() => setTab(key)}
+            className="rounded-t-lg px-4 py-2 text-[0.85rem] font-semibold transition-colors"
+            style={tab === key ? { color: "var(--info)", borderBottom: "2px solid var(--info)" } : { color: "var(--text-muted)" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "comentarios" ? (
+        <NpsCommentsReport cku={{ records: recsVisibles, nombrePorToken, titulo: ckuFilter || "CKU" }} />
+      ) : tab === "dimensiones" ? (
+        <NpsDimensionsChart cku={{ records: recsVisibles }} />
+      ) : (
+      <>
       <div className="mb-7 grid grid-cols-3 gap-4 sm:max-w-xl">
         <StatCard value={rows.length} label="Encuestas" color="var(--info)" borderColor="var(--info)" />
         <StatCard value={totalRespuestas} label="Respuestas" color="#10b981" borderColor="#10b981" />
@@ -170,6 +194,8 @@ export default function EncuestasCkuPanel({ puedeGestionar, esAdmin }: {
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
 
       {resultToken && (

@@ -3,9 +3,12 @@
 // Reporte de comentarios del NPS: agrupa las razones (answers.razon) por categoría
 // (Promotor / Pasivo / Detractor) para leer patrones. Se puede descargar en PDF
 // (abre una ventana de impresión autocontenida → "Guardar como PDF").
+// Con `cku` es el de las encuestas de CKU: el comentario es su pregunta abierta y cada tarjeta dice de qué CKU y de qué
+// encuesta es. Sin él (encuestas de PM) deja fuera las respuestas de las encuestas de CKU.
 
 import { useData } from "@/context/DataContext";
-import { npsCfg } from "@/lib/nps";
+import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
+import { CKU_ABIERTA_ID } from "@/lib/surveyCku";
 import type { NpsRecord } from "@/types";
 import { Loader, ErrorBox } from "@/components/ui";
 
@@ -21,28 +24,35 @@ interface Comment {
   score: number;
   category: Cat;
   reason: string;
-  pm: string;
-  reqCode: string;
+  /** «PM» o «CKU», y de quién es. */
+  dueñoLabel: string;
+  dueño: string;
+  /** El PML de la encuesta de PM, o el nombre de la encuesta de CKU. */
+  ref: string;
   date: string;
   respondentEmail: string;
   respondentName: string; // resuelto vía Directorio RH (vacío si no hay match)
 }
 
-function buildComments(records: NpsRecord[], nameByEmail: Map<string, string>): Comment[] {
+function buildComments(records: NpsRecord[], nameByEmail: Map<string, string>, nombrePorToken?: Map<string, string>): Comment[] {
   const out: Comment[] = [];
   for (const r of records) {
     if (r.invalidated) continue;
     const raw = r.answers?.nps;
     const score = typeof raw === "number" ? raw : parseFloat(String(raw));
     if (!Number.isFinite(score)) continue;
-    const reason = String(r.answers?.razon ?? "").trim();
+    const reason = String(r.answers?.[r.ckuEncuesta ? CKU_ABIERTA_ID : "razon"] ?? "").trim();
     if (!reason) continue; // solo respuestas con comentario
     const category: Cat = score >= 9 ? "promoter" : score >= 7 ? "passive" : "detractor";
     const email = (r.respondentEmail ?? "").trim();
     out.push({
-      score, category, reason, pm: r.pm, reqCode: r.reqCode, date: r.submittedAt,
+      score, category, reason, date: r.submittedAt,
+      dueñoLabel: r.ckuEncuesta ? "CKU" : "PM",
+      dueño: (r.ckuEncuesta ? r.cku : r.pm) ?? "",
+      ref: r.ckuEncuesta ? (nombrePorToken?.get(r.token ?? "") ?? "") : r.reqCode,
       respondentEmail: email,
-      respondentName: nameByEmail.get(email.toLowerCase()) ?? "",
+      // En las de CKU quien contesta escribe su nombre; si no, se busca en el Directorio RH.
+      respondentName: r.respondentName || nameByEmail.get(email.toLowerCase()) || "",
     });
   }
   return out;
@@ -61,6 +71,7 @@ const esc = (s: string) =>
 function buildReportHtml(
   summary: { nps: number | null; label: string; promoters: number; passives: number; detractors: number; total: number },
   comments: Comment[],
+  titulo: string,
 ): string {
   const generated = new Date().toLocaleDateString("es-GT", { day: "2-digit", month: "long", year: "numeric" });
   const sections = CAT_ORDER.map((cat) => {
@@ -71,7 +82,7 @@ function buildReportHtml(
             <div class="meta">
               <span class="badge" style="background:${CAT[cat].color}">nota ${c.score}/10</span>
               &nbsp; Respondió: <strong>${esc(respondentLabel(c))}</strong>${c.respondentName && c.respondentEmail ? ` <span class="email">(${esc(c.respondentEmail)})</span>` : ""}
-              &nbsp;·&nbsp; PM: <strong>${esc(c.pm || "—")}</strong> &nbsp;·&nbsp; ${esc(c.reqCode || "—")} &nbsp;·&nbsp; ${esc(fmtDate(c.date))}
+              &nbsp;·&nbsp; ${c.dueñoLabel}: <strong>${esc(c.dueño || "—")}</strong> &nbsp;·&nbsp; ${esc(c.ref || "—")} &nbsp;·&nbsp; ${esc(fmtDate(c.date))}
             </div>
             <div class="reason">${esc(c.reason)}</div>
           </div>`).join("")
@@ -84,7 +95,7 @@ function buildReportHtml(
   }).join("");
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
-    <title>Reporte de Comentarios NPS</title>
+    <title>Reporte de Comentarios ${esc(titulo)}</title>
     <style>
       @page { margin: 16mm; }
       * { box-sizing: border-box; }
@@ -105,7 +116,7 @@ function buildReportHtml(
       .empty { color: #9ca3af; font-style: italic; margin-bottom: 8px; }
     </style></head>
     <body>
-      <h1>Reporte de Comentarios · NPS PMO</h1>
+      <h1>Reporte de Comentarios · ${esc(titulo)}</h1>
       <div class="sub">Generado el ${generated} · ${comments.length} comentario${comments.length !== 1 ? "s" : ""}</div>
       <div class="summary">
         <div>
@@ -123,22 +134,29 @@ function buildReportHtml(
     </body></html>`;
 }
 
-export default function NpsCommentsReport() {
+export default function NpsCommentsReport({ cku }: {
+  /** Encuestas de CKU: sus respuestas (ya recortadas a lo que la persona puede ver), el nombre de cada encuesta por token
+   *  y de quién es el reporte (un CKU, o «CKU» si son varios). */
+  cku?: { records: NpsRecord[]; nombrePorToken: Map<string, string>; titulo: string };
+} = {}) {
   const { data, loading, error } = useData();
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 
-  const { nps } = data;
+  // calcNpsFromRecords deja fuera lo que trae `cku` (es para el Player): aquí se calcula sobre las respuestas que se pasan.
+  const nps = cku ? calcNpsFromRecords(cku.records.map((r) => ({ ...r, cku: undefined }))) : data.nps;
+  const records = cku ? cku.records : data.npsRecords.filter((r) => !r.ckuEncuesta);
+  const titulo = cku ? `NPS ${cku.titulo}` : "NPS PMO";
   const nameByEmail = new Map(data.directorio.map((d) => [d.email.trim().toLowerCase(), d.name]));
-  const comments = buildComments(data.npsRecords, nameByEmail);
+  const comments = buildComments(records, nameByEmail, cku?.nombrePorToken);
   const label = npsCfg(nps.nps)?.label ?? "Sin datos";
   const npsColor = npsCfg(nps.nps)?.color ?? "#6b7280";
 
   const downloadPdf = () => {
     const html = buildReportHtml(
       { nps: nps.nps, label, promoters: nps.promoters, passives: nps.passives, detractors: nps.detractors, total: nps.total },
-      comments,
+      comments, titulo,
     );
     const w = window.open("", "_blank", "width=900,height=700");
     if (!w) return; // bloqueado por el navegador
@@ -169,7 +187,7 @@ export default function NpsCommentsReport() {
           onClick={downloadPdf}
           disabled={comments.length === 0}
           className="ml-auto rounded-lg border px-3.5 py-2 text-[0.8rem] font-bold transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
-          style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+          style={{ borderColor: cku ? "var(--info)" : "var(--accent)", color: cku ? "var(--info)" : "var(--accent)" }}
           title="Abre el diálogo de impresión — elige “Guardar como PDF”"
         >
           ⬇ Descargar PDF
@@ -212,8 +230,8 @@ export default function NpsCommentsReport() {
                           <span title={c.respondentEmail}>
                             Respondió: <strong className="text-[var(--text-secondary)]">{respondentLabel(c)}</strong>
                           </span>
-                          <span>· PM: <strong className="text-[var(--text-secondary)]">{c.pm || "—"}</strong></span>
-                          <span>· {c.reqCode || "—"}</span>
+                          <span>· {c.dueñoLabel}: <strong className="text-[var(--text-secondary)]">{c.dueño || "—"}</strong></span>
+                          <span>· {c.ref || "—"}</span>
                           <span>· {fmtDate(c.date)}</span>
                         </div>
                         <div className="whitespace-pre-wrap text-[0.86rem] leading-relaxed text-[var(--text-primary)]">{c.reason}</div>
