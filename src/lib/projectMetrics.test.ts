@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   detectPlantilla, buildUnits, calcEvm, calcCalidad, calcCumplimiento,
-  calcValor, calcNpsProyecto, buildProjectMetrics, faseKey,
+  calcValor, calcNpsProyecto, buildProjectMetrics,
 } from "./projectMetrics";
 import { today } from "./business";
 import type { NpsRecord, ProjBoard, ProjItem, ProjSubitem } from "@/types";
@@ -278,29 +278,33 @@ describe("calcCalidad — solo fase 3", () => {
   });
 });
 
-describe("calcCumplimiento", () => {
-  it("fases 1/2/4/5 se califican por FASE; fase 3 por entregable", () => {
+describe("calcCumplimiento — entregables de la fase 3 (igual que el KPI del PM)", () => {
+  const f3 = (o: Partial<ProjItem>) => item({ grupo: "Launch | Lanzamiento", status: "Done", deadline: d(-5), ...o });
+
+  it("solo la fase 3: cada entregable evaluado es una fila; las demás fases y lo pendiente no cuentan", () => {
     const items = [
-      item({ id: "v1", grupo: "Valuación | Formulación", status: "Done" }),
-      item({ id: "v2", grupo: "Valuación | Formulación", status: "Done" }),
-      item({ id: "e1", grupo: "Launch | Lanzamiento", status: "Done" }),
-      item({ id: "e2", grupo: "Launch | Lanzamiento", status: "Done" }),
+      item({ id: "v1", grupo: "Valuación | Formulación", status: "Done", entrega: "late" }),
+      f3({ id: "e1", entrega: "on-time", endDate: d(-6) }),
+      f3({ id: "e2", entrega: "late", endDate: d(-2) }),
+      f3({ id: "e3", status: "Working on it", entrega: null }),
     ];
-    const r = calcCumplimiento(buildUnits(items, "nueva", HOY), "b1", {});
-    // 1 fila por la fase Valuación + 1 por cada entregable de fase 3 = 3
-    expect(r.total).toBe(3);
-    expect(r.filas.filter((f) => f.tipo === "fase")).toHaveLength(1);
-    expect(r.filas.filter((f) => f.tipo === "entregable")).toHaveLength(2);
+    const r = calcCumplimiento(items, {});
+    expect(r.filas.map((f) => f.id)).toEqual(["e1", "e2"]);
+    expect(r).toMatchObject({ onTime: 1, late: 1, total: 2, pct: 50 });
   });
 
-  it("una fase con un item atrasado cuenta tarde, y se excusa por responsable", () => {
-    const items = [item({ id: "v1", grupo: "Valuación | Formulación", status: "Working on it", deadline: AYER })];
-    const u = buildUnits(items, "nueva", HOY);
-    expect(calcCumplimiento(u, "b1", {}).pct).toBe(0);
-    const key = faseKey("b1", "Valuación | Formulación");
-    expect(calcCumplimiento(u, "b1", { [key]: { responsible: "CKU" } }).pct).toBe(100);
-    // "PM" no excusa
-    expect(calcCumplimiento(u, "b1", { [key]: { responsible: "PM" } }).pct).toBe(0);
+  it("cerrar dentro de la New Limit Date es cumplido; un atraso con responsable ≠ PM (suyo o de la fase) no cuenta", () => {
+    const items = [
+      f3({ id: "e1", entrega: "late", endDate: d(-2), newLimitDate: d(-1) }),
+      f3({ id: "e2", entrega: "late", endDate: d(-2) }),
+    ];
+    expect(calcCumplimiento(items, {}).filas[0]).toMatchObject({ onTime: true, porNuevaFecha: true });
+    expect(calcCumplimiento(items, {}).pct).toBe(50);
+    const fase = { [`b1::Launch | Lanzamiento`]: { responsible: "CKU" as const } };
+    const r = calcCumplimiento(items.map((i) => ({ ...i, boardId: "b1" })), fase);
+    expect(r.filas[1]).toMatchObject({ excusado: true, heredada: true, responsable: "CKU" });
+    expect(r).toMatchObject({ onTime: 1, late: 0, total: 1, pct: 100 });
+    expect(calcCumplimiento(items, { e2: { responsible: "PM" } }).pct).toBe(50);
   });
 });
 
@@ -353,6 +357,7 @@ describe("buildProjectMetrics — integración", () => {
     expect(m.units).toHaveLength(2);
     expect(m.evm.scope).toBe(0);            // hay un atraso
     expect(m.calidad.total).toBe(1);        // solo el de fase 3
+    expect(m.cumplimiento.total).toBe(0);   // y la fase 1 ya no cuenta
     expect(m.atrasos).toHaveLength(1);
     expect(m.atrasos[0].id).toBe("e1");
     expect(m.valor.costo).toBe(500);

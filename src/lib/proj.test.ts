@@ -156,6 +156,17 @@ describe("projProcess", () => {
     expect(r.pm).toBe("Luis");
   });
 
+  it("lee la New Limit Date del item sin importar mayúsculas (en PM-018 es «New Limit date»); vacía → null", () => {
+    const [a, b, c] = projProcess("Board X", "b1", [
+      mkProj("A", [pcol("Status", "Done"), pcol("New Limit Date", "2026-11-20")]),
+      mkProj("B", [pcol("Status", "Done"), pcol("New Limit date", "2026-11-21")]),
+      mkProj("C", [pcol("Status", "Done"), pcol("New Limit Date", "")]),
+    ]);
+    expect(a.newLimitDate).toEqual(new Date(2026, 10, 20));
+    expect(b.newLimitDate).toEqual(new Date(2026, 10, 21));
+    expect(c.newLimitDate).toBeNull();
+  });
+
   it("excluye por completo los items con Status 'Out Of Scope' (no cuentan en nada, como si no existieran)", () => {
     const rows = projProcess("Board X", "b1", [
       mkProj("Descartado", [pcol("Status", "Out Of Scope"), pcol("Cost $", "500")]),

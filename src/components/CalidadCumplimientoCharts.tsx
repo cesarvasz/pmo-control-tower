@@ -16,6 +16,8 @@ export default function CalidadCumplimientoCharts({ m }: { m: ProjectMetrics }) 
   const c50 = calidad.unidades.filter((u) => u.nota === 50).length;
   const c0 = calidad.unidades.filter((u) => u.nota === 0).length;
 
+  const excusadosCump = cumplimiento.filas.filter((f) => f.excusado).length;
+
   return (
     <div className="flex flex-col gap-7">
       {/* ── Calidad de Entregas ── */}
@@ -66,7 +68,7 @@ export default function CalidadCumplimientoCharts({ m }: { m: ProjectMetrics }) 
 
       {/* ── Cumplimiento de Entrega ── */}
       <div>
-        <SectionTitle>Cumplimiento de Entrega</SectionTitle>
+        <SectionTitle>Cumplimiento de Entrega · solo fase 3</SectionTitle>
         {cumplimiento.total === 0 ? (
           <p className="text-[0.82rem] text-[var(--text-muted)]">Sin unidades evaluadas todavía.</p>
         ) : (
@@ -75,7 +77,7 @@ export default function CalidadCumplimientoCharts({ m }: { m: ProjectMetrics }) 
               <ScoreCard
                 value={cumplimiento.pct === null ? "—" : `${cumplimiento.pct}%`}
                 label="Cumplimiento"
-                sub={`${cumplimiento.total} unidad${cumplimiento.total !== 1 ? "es" : ""}`}
+                sub={`${cumplimiento.total} entregable${cumplimiento.total !== 1 ? "s" : ""}${excusadosCump ? ` · ${excusadosCump} excusado${excusadosCump !== 1 ? "s" : ""}` : ""}`}
                 color={toneOfPct(cumplimiento.pct)}
               />
               <div className="grid grid-cols-2 gap-3">
@@ -89,14 +91,21 @@ export default function CalidadCumplimientoCharts({ m }: { m: ProjectMetrics }) 
             ]} />
             <div className="max-h-64 overflow-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>
               <table className="pmo w-full text-[0.74rem]">
-                <thead><tr><th>Unidad</th><th>Tipo</th><th>Resultado</th><th>Responsable</th></tr></thead>
+                <thead><tr><th>Entregable</th><th>Resultado</th><th>Responsable</th></tr></thead>
                 <tbody>
                   {cumplimiento.filas.map((f) => (
                     <tr key={f.id}>
                       <td style={{ maxWidth: 300, wordBreak: "break-word" }}>{f.label}</td>
-                      <td className="whitespace-nowrap text-[var(--text-secondary)]">{f.tipo}</td>
-                      <td><BadgePill label={f.onTime ? "A tiempo" : `Atraso (${f.atrasados.length})`} color={f.onTime ? CHART_OK : CHART_BAD} /></td>
-                      <td className="whitespace-nowrap text-[var(--text-secondary)]">{f.responsable ?? "—"}</td>
+                      <td>
+                        <BadgePill
+                          label={f.onTime ? (f.porNuevaFecha ? "A tiempo (New Limit Date)" : "A tiempo") : f.excusado ? "Atraso · no cuenta" : "Atraso"}
+                          color={f.onTime ? CHART_OK : f.excusado ? CHART_WARN : CHART_BAD}
+                        />
+                      </td>
+                      <td className="whitespace-nowrap text-[var(--text-secondary)]">
+                        {f.responsable ?? "—"}
+                        {f.heredada && <span className="ml-1 text-[0.62rem] text-[var(--text-muted)]">(de la fase)</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

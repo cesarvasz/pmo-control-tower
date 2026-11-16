@@ -18,7 +18,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useMe } from "@/context/PermissionsContext";
 import { fmtDate } from "@/lib/business";
-import { buildEntregaRows, buildReprocesoRows, calidadProjectStatus, type ReprocesoCascade, type CalidadProjectStatus, type PendingCalidadItem } from "@/lib/dashboard";
+import { buildEntregaRows, buildReprocesoRows, calidadProjectStatus, type FechasEntregable, type ReprocesoCascade, type CalidadProjectStatus, type PendingCalidadItem } from "@/lib/dashboard";
 import { hasAction } from "@/lib/permissions";
 import { splitBoardName } from "@/lib/proj";
 import { DELAY_RESPONSIBLES, REPROCESO_RESPONSIBLES, RESPONSIBLE_COLOR, countByResponsible, type DelayMap } from "@/lib/delay";
@@ -215,10 +215,40 @@ function reprocesoResponsibleCell(r: { id: string; unitKind: "req" | "step" | "i
   return <ResponsibleSelect itemId={r.id} kind="reproceso" emptyPenalizes={r.verdict === "reproceso"} readOnly={locked} />;
 }
 
-// Desde este cambio la unidad es la FASE de Proyecto (board+grupo), no el hito
-// individual: un solo responsable por fase, y el acordeón de abajo muestra
-// SOLO los steps/hitos que salieron atrasados dentro de esa fase (solo lectura,
-// no se asigna responsable ahí — ver buildEntregaRows en lib/dashboard.ts).
+// Fechas de un entregable de Proyecto, en filas: Limit Date, New Limit Date (si tiene) y cierre real.
+function FechasCell({ f }: { f: FechasEntregable }) {
+  const linea = (label: string, d: Date | null) => (
+    <div className="whitespace-nowrap">
+      <span className="text-[var(--text-muted)]">{label}:</span> {d ? fmtDate(d) : <span className="text-[var(--text-disabled)]">—</span>}
+    </div>
+  );
+  return (
+    <div className="text-[0.72rem] leading-snug text-[var(--text-secondary)]">
+      {linea("Limit Date", f.limite)}
+      {f.nuevaFecha && linea("New Limit Date", f.nuevaFecha)}
+      {linea("Done", f.cierre)}
+    </div>
+  );
+}
+
+// Responsable de una fila. El dropdown escribe siempre en el id de la unidad; si la unidad no tiene uno propio y
+// aplica el heredado (de su fase en Cumplimiento, o de su step padre en Calidad), se avisa debajo.
+function ResponsableCell({ id, atribId, kind, penaliza, map, de }: {
+  id: string; atribId: string; kind: "delay" | "reproceso"; penaliza: boolean; map: DelayMap; de: string;
+}) {
+  const heredado = atribId !== id ? map[atribId]?.responsible : undefined;
+  return (
+    <div>
+      <ResponsibleSelect itemId={id} kind={kind} emptyPenalizes={penaliza && !heredado} />
+      {heredado && (
+        <div className="mt-0.5 text-[0.62rem] text-[var(--text-muted)]" title={`Este entregable no tiene responsable propio: aplica el de ${de}.`}>
+          Heredado de {de}: {heredado}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReqPhaseAccordion({ phases }: { phases: { name: string; target: Date | null; actual: Date | null; late: boolean; slipDays: number }[] }) {
   return (
     <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
@@ -250,37 +280,11 @@ function ReqPhaseAccordion({ phases }: { phases: { name: string; target: Date | 
   );
 }
 
-function FaseAtrasadaAccordion({ items }: { items: { kind: "step" | "hito"; name: string; stepPadre: string; deadline: Date | null }[] }) {
-  return (
-    <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
-      <table className="w-full text-left text-[0.76rem]">
-        <thead>
-          <tr style={{ background: "var(--bg-hover)" }}>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Tipo</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Nombre</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Step padre</th>
-            <th className="px-3 py-1.5 font-bold text-[var(--text-secondary)]">Deadline</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it, i) => (
-            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
-              <td className="px-3 py-1.5"><Pill tone="bad" small>{it.kind === "step" ? "Step" : "Hito"}</Pill></td>
-              <td className="px-3 py-1.5 text-[var(--text-primary)]">{it.name}</td>
-              <td className="px-3 py-1.5 text-[var(--text-secondary)]">{it.stepPadre || <span className="text-[var(--text-disabled)]">—</span>}</td>
-              <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(it.deadline)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
   req: ReqItem[]; proj: ProjItem[]; projBoards: ProjBoard[]; delays: DelayMap; canEditFilters: boolean | null; ini: IniItem[];
 }) {
-  const rows = useMemo(() => buildEntregaRows(req, proj, projBoards, ini), [req, proj, projBoards, ini]);
+  // Proyectos: un renglón por ENTREGABLE de la Fase 3 ya evaluado (ver buildEntregaRows).
+  const rows = useMemo(() => buildEntregaRows(req, proj, projBoards, ini, delays), [req, proj, projBoards, ini, delays]);
   // Por default solo se ven los atrasos SIN responsable asignado — el filtro de
   // Responsable (abajo) ya trae "Sin asignar" marcado; desmarcarlo o elegir otros
   // responsables ahí mismo muestra también los que ya están calificados.
@@ -297,15 +301,15 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
   const pct = byPm.length ? Math.round((onTimeCount / byPm.length) * 100) : null;
   const pctColor = pct === null ? "#6b7280" : pct >= 90 ? "var(--ok)" : pct >= 75 ? "var(--warn)" : "var(--bad)";
 
-  const respCounts = countByResponsible(late.map((r) => r.id), delays);
+  const respCounts = countByResponsible(late.map((r) => r.atribId), delays);
   const respOpts: MSOption[] = [...DELAY_RESPONSIBLES, SIN_ASIGNAR].map((r) => ({ value: r, label: r, count: respCounts[r] ?? 0 }));
 
   const tableRows = byPm
-    .filter((r) => resps.length === 0 || resps.includes(responsableOf(r.id, delays)))
+    .filter((r) => resps.length === 0 || resps.includes(responsableOf(r.atribId, delays)))
     .filter((r) => !soloProblema || r.verdict === "late")
     .sort((a, b) => (a.verdict === b.verdict ? a.pm.localeCompare(b.pm) || a.name.localeCompare(b.name) : a.verdict === "late" ? -1 : 1));
 
-  // Agrupa por PROYECTO (código+nombre) — cada fila sigue siendo UNA FASE, con su
+  // Agrupa por PROYECTO (código+nombre) — cada fila es UN ENTREGABLE de la Fase 3, con su
   // propia calificación (Responsable); el proyecto es solo la agrupación visual
   // (mismo patrón que ReprocesoTab). REQ e Iniciativas no cuelgan de un proyecto,
   // así que van en sus propias secciones aparte, al final.
@@ -383,7 +387,7 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
             <thead>
               <tr>
                 <th style={{ width: 28 }}></th>
-                <th>Tipo</th><th>ID / Proyecto</th><th>Fase</th><th>Atrasos</th><th>PM</th><th>Estado</th><th>Responsable</th>
+                <th>Tipo</th><th>ID / Entregable</th><th>Fase</th><th>Fechas</th><th>PM</th><th>Estado</th><th>Responsable</th>
               </tr>
             </thead>
             <tbody>
@@ -417,8 +421,7 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
                       </td>
                     </tr>
                     {gOpen && g.rows.map((r) => {
-                      const hasLatePhasesReq = r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late);
-                      const expandible = (r.source === "Proyecto" && r.totalAtrasados > 0) || hasLatePhasesReq;
+                      const expandible = !!(r.source === "REQ" && r.phaseDetails && r.phaseDetails.some((p) => p.late));
                       const abierta = expandible && abiertas.has(r.id);
                       return (
                         <Fragment key={r.id}>
@@ -435,11 +438,10 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
                               <Pill tone={r.tipo === "PM" ? "info" : "neutral"}>{r.tipo}</Pill>
                             </td>
                             {/* El proyecto ya se ve en el encabezado del grupo — en una fila de
-                                Proyecto no queda nada más específico que la Fase (columna de al
-                                lado); REQ/Iniciativa sí muestran su propio id+nombre. */}
+                                Proyecto va solo el entregable; REQ/Iniciativa muestran su id+nombre. */}
                             <td>
                               {r.source === "Proyecto" ? (
-                                <span className="text-[var(--text-disabled)]">—</span>
+                                <div className="ini-name" style={{ color: "var(--text-secondary)" }}>{r.name}</div>
                               ) : (
                                 <div className="leading-tight">
                                   <div className="ini-id">{r.id}</div>
@@ -448,22 +450,23 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
                               )}
                             </td>
                             <td style={{ color: "var(--text-secondary)" }}>{r.fase || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                            <td className="tabular-nums" style={{ color: r.totalAtrasados > 0 ? "var(--bad)" : "var(--text-secondary)" }}>
-                              {r.source === "Proyecto" ? `${r.totalAtrasados} / ${r.totalEvaluados}` : <span className="text-[var(--text-disabled)]">—</span>}
+                            <td>
+                              {r.fechas ? <FechasCell f={r.fechas} /> : <span className="text-[var(--text-disabled)]">—</span>}
                             </td>
                             <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
-                            <td>{r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill> : <Pill tone="ok">✓ A tiempo</Pill>}</td>
-                            <td onClick={(e) => e.stopPropagation()}><ResponsibleSelect itemId={r.id} kind="delay" emptyPenalizes={r.verdict === "late"} /></td>
+                            <td>
+                              {r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill>
+                                : <Pill tone="ok" title={r.porNuevaFecha ? "Cerró después del Limit Date, pero dentro de su New Limit Date" : undefined}>✓ A tiempo</Pill>}
+                            </td>
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <ResponsableCell id={r.id} atribId={r.atribId} kind="delay" penaliza={r.verdict === "late"} map={delays} de="su fase" />
+                            </td>
                           </tr>
                           {abierta && (
                             <tr>
                               <td></td>
                               <td colSpan={7} className="pb-3">
-                                {r.source === "REQ" && r.phaseDetails ? (
-                                  <ReqPhaseAccordion phases={r.phaseDetails} />
-                                ) : (
-                                  <FaseAtrasadaAccordion items={r.itemsAtrasados} />
-                                )}
+                                {r.phaseDetails && <ReqPhaseAccordion phases={r.phaseDetails} />}
                               </td>
                             </tr>
                           )}
