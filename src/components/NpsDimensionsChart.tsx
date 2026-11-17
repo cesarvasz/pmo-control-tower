@@ -9,9 +9,13 @@
 //   3) Tabla de estadísticos.
 // La escala Likert va de 1 (Totalmente en desacuerdo) a 5 (Totalmente de acuerdo);
 // en % se usa 20% por nivel (misma convención que el resto de la app).
+// Con `cku` analiza las dimensiones de las encuestas de CKU (sus propias 8 preguntas) y muestra solo los indicadores y
+// la distribución: sin «Media y dispersión» ni «Estadísticos por dimensión». Sin él (PM) deja fuera las respuestas de
+// CKU, que usan los mismos códigos G1…H2 pero son otras preguntas.
 
 import { useData } from "@/context/DataContext";
-import { SURVEY_QUESTIONS, LIKERT_OPTIONS } from "@/lib/survey";
+import { SURVEY_QUESTIONS, LIKERT_OPTIONS, type SurveyQuestion } from "@/lib/survey";
+import { CKU_SURVEY_QUESTIONS } from "@/lib/surveyCku";
 import type { NpsRecord } from "@/types";
 import { Loader, ErrorBox } from "@/components/ui";
 
@@ -44,6 +48,18 @@ const SHORT: Record<string, string> = {
   H2: "Gestiona el cambio organizacional",
 };
 
+// Las mismas, para las preguntas de la encuesta de CKU (mismos códigos, otro texto).
+const SHORT_CKU: Record<string, string> = {
+  G1: "Conecta mi trabajo con la estrategia",
+  G2: "Comunica cambios de prioridad a tiempo",
+  I1: "Conoce las necesidades de mi trabajo",
+  I2: "Anticipa problemas del equipo",
+  T1: "Capacitaciones me preparan",
+  T2: "Capacitaciones a nuestro ritmo",
+  H1: "Accesible y escucha",
+  H2: "Acompaña en los cambios",
+};
+
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const OPT = LIKERT_OPTIONS.map(norm); // [TA, A, N, D, TD] (índice 0..4)
 const toScore = (v: unknown): number | null => {
@@ -64,8 +80,8 @@ interface DimStat {
   fav: number; neu: number; unfav: number; net: number; // % top-2-box / neutral / bottom-2-box / neto
 }
 
-function computeStats(records: NpsRecord[]): DimStat[] {
-  const likert = SURVEY_QUESTIONS.filter((q) => q.type === "likert" && q.code);
+function computeStats(records: NpsRecord[], preguntas: SurveyQuestion[], cortas: Record<string, string>): DimStat[] {
+  const likert = preguntas.filter((q) => q.type === "likert" && q.code);
   const valid = records.filter((r) => !r.invalidated);
   const out: DimStat[] = [];
   for (const q of likert) {
@@ -83,7 +99,7 @@ function computeStats(records: NpsRecord[]): DimStat[] {
     const fav = ((c.a + c.ta) / n) * 100;
     const unfav = ((c.d + c.td) / n) * 100;
     out.push({
-      code, short: SHORT[code] ?? code, label: q.label,
+      code, short: cortas[code] ?? code, label: q.label,
       n, c, mean: m, meanPct: Math.round(m * 20), median: median(scores), mode: mode(scores), sd: stdev(scores),
       fav, neu: (c.n / n) * 100, unfav, net: fav - unfav,
     });
@@ -161,13 +177,18 @@ function StatTile({ label, value, sub, color }: { label: string; value: string; 
   );
 }
 
-export default function NpsDimensionsChart() {
+export default function NpsDimensionsChart({ cku }: {
+  /** Encuestas de CKU: sus respuestas (ya recortadas a lo que la persona puede ver). */
+  cku?: { records: NpsRecord[] };
+} = {}) {
   const { data, loading, error } = useData();
   if (loading && !data) return <Loader />;
   if (error) return <ErrorBox msg={error} />;
   if (!data) return null;
 
-  const dims = computeStats(data.npsRecords);
+  const dims = cku
+    ? computeStats(cku.records, CKU_SURVEY_QUESTIONS, SHORT_CKU)
+    : computeStats(data.npsRecords.filter((r) => !r.ckuEncuesta), SURVEY_QUESTIONS, SHORT);
   if (dims.length === 0) {
     return <div className="py-16 text-center text-[var(--text-muted)]">Aún no hay respuestas a las dimensiones de la encuesta.</div>;
   }
@@ -216,7 +237,8 @@ export default function NpsDimensionsChart() {
         </p>
       </section>
 
-      {/* 2) Media con dispersión */}
+      {/* 2) Media con dispersión (no en las de CKU) */}
+      {!cku && (<>
       <section>
         <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-[0.95rem] font-bold text-[var(--text-primary)]">Media y dispersión (±1σ)</h3>
@@ -274,6 +296,7 @@ export default function NpsDimensionsChart() {
           n = {n}: cifras descriptivas/direccionales, no inferenciales.
         </p>
       </section>
+      </>)}
     </div>
   );
 }

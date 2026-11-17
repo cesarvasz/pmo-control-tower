@@ -380,61 +380,6 @@ export function calcPmValue(pm: string, req: ReqItem[], proj: ProjItem[], projBo
 // ── Compromiso de Entregas ───────────────────────────────────────────────
 export interface EntregaStats { total: number; onTime: number; late: number; pct: number | null; }
 
-/** Un step (item padre) o hito (subitem) de Proyecto YA evaluado (Done), con su
- *  propio veredicto — la unidad mínima que compone una fase. */
-export interface FaseEntregaItem {
-  id: string;
-  kind: "step" | "hito";
-  name: string;
-  /** Nombre del item padre si es un hito; "" si es un step. */
-  stepPadre: string;
-  deadline: Date | null;
-  verdict: "on-time" | "late";
-}
-
-interface FaseEntregaGroup {
-  key: string;                 // projPhaseKey(boardId, grupo) — misma clave que Reproceso
-  boardId: string;
-  boardName: string;
-  fase: string;                // grupo
-  pm: string;
-  /** Solo steps/hitos YA evaluados (Done); los pendientes no entran aún. */
-  items: FaseEntregaItem[];
-}
-
-/** Agrupa steps (ProjItem) + hitos (ProjSubitem) de Proyectos por FASE (board +
- *  grupo) — la unidad de "Cumplimiento de Entrega" desde este cambio: antes se
- *  media por hito único (PMS ID), ahora se responde UN responsable por fase y se
- *  mide el total de fases con/sin atraso. Solo entran los steps/hitos que ya
- *  tienen veredicto (Done); los pendientes no cuentan todavía (medición
- *  progresiva, no espera a que la fase entera cierre — a diferencia de Reproceso). */
-function groupFaseEntrega(projs: ProjItem[]): Map<string, FaseEntregaGroup> {
-  const map = new Map<string, FaseEntregaGroup>();
-  const grupoDe = (p: ProjItem) => {
-    const key = projPhaseKey(p.boardId, p.grupo);
-    let g = map.get(key);
-    if (!g) { g = { key, boardId: p.boardId, boardName: p.boardName, fase: p.grupo, pm: p.pm, items: [] }; map.set(key, g); }
-    return g;
-  };
-  for (const p of projs) {
-    const g = grupoDe(p);
-    if (p.entrega === "on-time" || p.entrega === "late") {
-      g.items.push({ id: p.id, kind: "step", name: p.name, stepPadre: "", deadline: p.deadline, verdict: p.entrega });
-    }
-    for (const s of p.subitems) {
-      if (s.entrega === "on-time" || s.entrega === "late") {
-        g.items.push({ id: s.id, kind: "hito", name: s.name, stepPadre: p.name, deadline: s.deadline, verdict: s.entrega });
-      }
-    }
-  }
-  return map;
-}
-
-/** ¿Tiene la fase algún step/hito atrasado SIN excusar? Es la pregunta binaria que
- *  decide si la fase entera cuenta como "con atraso" — un solo responsable por
- *  fase decide la excusa de todos sus atrasos a la vez. */
-const faseTieneAtrasoSinExcusar = (g: FaseEntregaGroup, delays: DelayMap): boolean =>
-  g.items.some((it) => it.verdict === "late") && !lateExcused(g.key, delays);
 
 /**
  * Veredicto RETROSPECTIVO de Cumplimiento de Entrega de una Iniciativa YA
@@ -467,13 +412,10 @@ export function iniEntregaVerdict(i: IniItem): "on-time" | "late" | "n/a" {
   return etapa1OK && etapa2OK ? "on-time" : "late";
 }
 
-/** Cumplimiento de Entrega: REQ cerrados (1 unidad c/u) + FASES de Proyecto (1
- *  unidad c/u — board+grupo, no por hito individual) + Iniciativas APROBADAS (1
- *  unidad c/u, ver iniEntregaVerdict). Cada fase es binaria: "sin atraso" si
- *  ninguno de sus steps/hitos YA evaluados quedó atrasado sin excusar; "con
- *  atraso" si tiene al menos uno. Se responde UN responsable por fase (no por
- *  step/hito); si se excusa (responsable ≠ PM), toda la fase deja de penalizar.
- *  Una fase sin nada evaluado todavía no entra en el recorte (medición progresiva). */
+/** Cumplimiento de Entrega: REQ cerrados (1 unidad c/u) + ENTREGABLES de la Fase 3 de Proyecto (1 unidad c/u, ver
+ *  entregablesPm y entregaEntregablePm: cumplido si cerró en o antes de su Limit Date o de su New Limit Date) +
+ *  Iniciativas APROBADAS (1 unidad c/u, ver iniEntregaVerdict). Un incumplido con responsable ≠ PM (en un entregable,
+ *  el suyo o el de su fase) sale de la cuenta. Lo que aún no tiene veredicto (pendiente) no entra. */
 export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
   const f = entregaPorFuente(reqs, projs, delays, ini);
   const total = f.req.total + f.proj.total + f.ini.total;
@@ -497,11 +439,8 @@ function entregaPorFuente(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, 
     else if (v === "late" && !lateExcused(r.id, delays)) { out.req.total++; }
   }
 
-  for (const g of groupFaseEntrega(projs).values()) {
-    if (g.items.length === 0) continue; // nada evaluado aún en esta fase
-    out.proj.total++;
-    if (!faseTieneAtrasoSinExcusar(g, delays)) out.proj.onTime++;
-  }
+  // Proyectos: cada ENTREGABLE de la Fase 3 ya evaluado (ver entregablesPm / entregaEntregablesPm).
+  out.proj = entregaEntregablesPm(projs, delays);
 
   for (const i of ini) {
     const v = iniEntregaVerdict(i);
@@ -621,6 +560,121 @@ export const entregaActividadCku = (s: ProjSubitem): ProjSubitem["entrega"] => {
   return esActividadATiempo(s.id) || cerroDentroDeNuevaFecha(s) ? "on-time" : "late";
 };
 
+// ── Entregables de la Fase 3 de un PM (Cumplimiento de Entrega) ──
+// Desde 2026-11-16 (pedido del usuario) el Cumplimiento de Entrega de un PM, en Proyectos, se mide SOLO con los
+// ENTREGABLES de la Fase 3 (Launch), con el mismo modelo que las actividades de un CKU (ver entregaActividadCku):
+// la unidad es el entregable, no la fase ni la actividad. PML e Iniciativas no cambian. Calidad de Entregas NO
+// cambia (sigue con calidadUnits / calcItemNota).
+//   · plantilla nueva y Lite: cada ITEM de la Fase 3 es un entregable (cierre = «End Date»);
+//   · plantilla vieja: cada HITO del step «Desarrollo por iteraciones…» (cierre = «Actual End»); los demás
+//     steps de la fase son checkpoints sobre esos mismos hitos.
+
+/** Un entregable de la Fase 3 de un proyecto, con las fechas con las que se mide. */
+export interface EntregablePm {
+  id: string;
+  name: string;
+  kind: "item" | "hito";
+  boardId: string;
+  boardName: string;
+  grupo: string;
+  pm: string;
+  status: string;
+  /** Limit Date. */
+  limite: Date | null;
+  /** New Limit Date (null = vacía; en items solo existe de PM-016 en adelante). */
+  nuevaFecha: Date | null;
+  /** Fecha real de cierre: «End Date» del item o «Actual End» del hito. */
+  cierre: Date | null;
+  /** Inicio (para mostrar el rango): «Start Date» del item o del hito. */
+  inicio: Date | null;
+  /** Veredicto base de Monday (solo Done con fechas): cierre ≤ Limit Date. */
+  entrega: "on-time" | "late" | null;
+  /** Plantilla vieja: el step padre («Desarrollo por iteraciones…»); null en un item. */
+  padreId: string | null;
+  padreName: string;
+}
+
+/** Los entregables de la Fase 3 de los proyectos recibidos (ver el comentario de arriba). La plantilla se decide por
+ *  board con TODOS sus items (esPlantillaNueva), así que hay que pasarle los boards completos. */
+export function entregablesPm(projs: ProjItem[]): EntregablePm[] {
+  const porBoard = new Map<string, ProjItem[]>();
+  for (const p of projs) {
+    const lista = porBoard.get(p.boardId);
+    if (lista) lista.push(p); else porBoard.set(p.boardId, [p]);
+  }
+  const out: EntregablePm[] = [];
+  for (const items of porBoard.values()) {
+    const nueva = esPlantillaNueva(items);
+    for (const p of items) {
+      if (!isFase3(p.grupo)) continue;
+      if (nueva) out.push(entregableDeItem(p));
+      else if (isDesarrolloPorIteracionesStep(p.name)) out.push(...p.subitems.map((s) => entregableDeHito(s, p)));
+    }
+  }
+  return out;
+}
+
+/** Un item de la Fase 3 (plantilla nueva/Lite) visto como entregable. */
+export const entregableDeItem = (p: ProjItem): EntregablePm => ({
+  boardId: p.boardId, boardName: p.boardName, grupo: p.grupo, pm: p.pm,
+  id: p.id, name: p.name, kind: "item", status: p.status,
+  limite: p.deadline, nuevaFecha: p.newLimitDate ?? null, cierre: p.endDate, inicio: p.startDate,
+  entrega: p.entrega, padreId: null, padreName: "",
+});
+
+/** Un hito del step «Desarrollo por iteraciones…» (plantilla vieja) visto como entregable. */
+export const entregableDeHito = (s: ProjSubitem, padre: ProjItem): EntregablePm => ({
+  boardId: padre.boardId, boardName: padre.boardName, grupo: padre.grupo, pm: padre.pm,
+  id: s.id, name: s.name, kind: "hito", status: s.status,
+  limite: s.deadline, nuevaFecha: s.newLimitDate, cierre: s.actualEnd, inicio: s.startDate,
+  entrega: s.entrega, padreId: padre.id, padreName: padre.name,
+});
+
+/** Cumplimiento de un entregable: cumplido si cerró en o antes de su Limit Date; si cerró DESPUÉS, se compara con su
+ *  New Limit Date: dentro de ella sigue cumplido, y solo es incumplido si cerró después de las dos. Sin veredicto
+ *  (pendiente: no está Done o le faltan fechas) → null, no cuenta. Misma regla que entregaActividadCku. */
+export const entregaEntregablePm = (e: EntregablePm): "on-time" | "late" | null => {
+  if (e.entrega !== "late") return e.entrega;
+  return e.cierre && e.nuevaFecha && e.cierre.getTime() <= e.nuevaFecha.getTime() ? "on-time" : "late";
+};
+
+/** Clave cuya atribución de ATRASO (Cumplimiento) aplica a un entregable: la suya si un Admin le eligió responsable;
+ *  si no, la de su FASE (`boardId::grupo`: el modelo anterior asignaba un responsable por fase). */
+export const llaveAtrasoEntregable = (e: EntregablePm, delays: DelayMap): string => {
+  if (delays[e.id]) return e.id;
+  const fase = projPhaseKey(e.boardId, e.grupo);
+  return delays[fase] ? fase : e.id;
+};
+
+/** Cumplimiento de un entregable ya evaluado, con su excusa: un incumplido cuyo responsable (propio o el de su fase)
+ *  es ≠ PM queda `excusado` y sale de la cuenta, igual que un PML o una Iniciativa. */
+export interface EntregaEntregable { e: EntregablePm; veredicto: "on-time" | "late"; porNuevaFecha: boolean; excusado: boolean; llave: string }
+
+export function entregasEntregablesPm(projs: ProjItem[], delays: DelayMap): EntregaEntregable[] {
+  const out: EntregaEntregable[] = [];
+  for (const e of entregablesPm(projs)) {
+    const veredicto = entregaEntregablePm(e);
+    if (!veredicto) continue;
+    const llave = llaveAtrasoEntregable(e, delays);
+    out.push({
+      e, veredicto, llave,
+      porNuevaFecha: veredicto === "on-time" && e.entrega === "late",
+      excusado: veredicto === "late" && lateExcused(llave, delays),
+    });
+  }
+  return out;
+}
+
+/** Conteo de Cumplimiento de los entregables (con excusa): los excusados no cuentan. */
+export function entregaEntregablesPm(projs: ProjItem[], delays: DelayMap): FuenteEntrega {
+  const out = { total: 0, onTime: 0 };
+  for (const x of entregasEntregablesPm(projs, delays)) {
+    if (x.veredicto === "on-time") { out.total++; out.onTime++; }
+    else if (!x.excusado) out.total++;
+  }
+  return out;
+}
+
 /** Cumplimiento de Entrega medido COMO EL EVM (ver weightedEvm / EVM_WEIGHTS en
  *  lib/health.ts): el % a tiempo de cada fuente por separado (Iniciativas y las Clases A, B y C de
  *  Proyectos y PML), combinados con los pesos del EVM. Una fuente sin unidades no cuenta y su
@@ -659,10 +713,10 @@ export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[], ini: Ini
     else if (v === "late") { total++; }
   }
 
-  for (const g of groupFaseEntrega(projs).values()) {
-    if (g.items.length === 0) continue;
+  // Proyectos: cada entregable de la Fase 3 ya evaluado, sin excusas (ver entregasEntregablesPm).
+  for (const x of entregasEntregablesPm(projs, {})) {
     total++;
-    if (!g.items.some((it) => it.verdict === "late")) onTime++;
+    if (x.veredicto === "on-time") onTime++;
   }
 
   for (const i of ini) {
@@ -678,9 +732,8 @@ export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[], ini: Ini
 
 // ── Reproceso (componente del KPI, peso 15) ──────────────────────────────
 /** Clave sintética de atribución de una fase (grupo) de un proyecto. Usada por
- *  Cumplimiento de Entrega (Atraso, a nivel fase — ver groupFaseEntrega y la UI de
- *  Proyectos, cabecera de cada fase). Reproceso ya NO la usa: atribuye por step
- *  (p.id) — ver calcReprocesoStats/buildReprocesoRows más abajo. */
+ *  Cumplimiento de Entrega: la atribución de una fase es el respaldo de sus entregables que no tienen una propia
+ *  (ver llaveAtrasoEntregable), y la excusa de las actividades de un CKU (ver actividadExcusadaCku). */
 export const projPhaseKey = (boardId: string, grupo: string) => `${boardId}::${grupo}`;
 
 
@@ -1138,37 +1191,38 @@ export interface ReqPhaseDetail {
   slipDays: number;      // días hábiles de atraso
 }
 
+/** Fechas de un entregable de Proyecto para mostrar en una fila (Limit Date, New Limit Date y cierre real). */
+export interface FechasEntregable { limite: Date | null; nuevaFecha: Date | null; cierre: Date | null }
+
 export interface EntregaRow {
-  id: string;                        // r.id (REQ) / projPhaseKey (fase de Proyecto) / ini.id (Iniciativa) — atribución "delay"
+  id: string;                        // r.id (REQ) / id del entregable (Proyecto) / ini.id (Iniciativa) — atribución "delay"
   source: "REQ" | "Proyecto" | "Iniciativa";
   tipo: "PM" | "PML" | "INI";         // Proyecto → "PM"; REQ → "PML"; Iniciativa → "INI"
-  name: string;                      // REQ: r.name. Proyecto: "<projName> · <fase>"
+  name: string;                      // REQ: r.name. Proyecto: nombre del entregable (item, o hito en plantilla vieja)
   context: string;                   // REQ: grupo. Proyecto: "board · grupo".
   projCode: string;                  // "PM-003" del board; "" en REQ/Iniciativa (no cuelgan de un proyecto)
   projName: string;                  // "DUCAfast 2.0 GT"; "" en REQ/Iniciativa
   fase: string;                      // REQ/Proyecto/Iniciativa: grupo (fase)
   pm: string;
-  deadline: Date | null;             // REQ: su deadline. Proyecto/Iniciativa: null (sin una sola fecha).
-  verdict: "on-time" | "late";       // Proyecto: "late" si ≥1 step/hito de la fase quedó atrasado.
+  deadline: Date | null;             // REQ: su deadline. Proyecto: Limit Date del entregable. Iniciativa: null.
+  verdict: "on-time" | "late";       // Proyecto: ver entregaEntregablePm (New Limit Date incluida).
   /** Solo REQ: desglose de deadlines por fase (para acordeón). */
   phaseDetails?: ReqPhaseDetail[];
-  /** Solo Proyecto: steps/hitos de la fase con veredicto "late" — para el acordeón de detalle. */
-  itemsAtrasados: FaseEntregaItem[];
-  /** Solo Proyecto: steps/hitos de la fase YA evaluados (Done). */
-  totalEvaluados: number;
-  /** Solo Proyecto: cuántos de los evaluados están atrasados. */
-  totalAtrasados: number;
+  /** Solo Proyecto: fechas del entregable. */
+  fechas?: FechasEntregable;
+  /** Solo Proyecto: cumplido porque cerró dentro de su New Limit Date (después del Limit Date). */
+  porNuevaFecha?: boolean;
+  /** Clave cuya atribución aplica: el propio id, o la de su fase si el entregable no tiene una propia (ver
+   *  llaveAtrasoEntregable). Para filtrar/contar por responsable; el dropdown siempre escribe en `id`. */
+  atribId: string;
 }
 
-/** Filas de "Cumplimiento de Entrega": una por cada REQ + una por cada FASE de
- *  Proyecto con al menos un step/hito YA evaluado (mismo universo/agrupación que
- *  calcEntregaStats: REQ por r.id, fases por projPhaseKey) + una por cada
- *  Iniciativa APROBADA evaluable (ver iniEntregaVerdict — "n/a" no entra, igual
- *  que un REQ sin R Done). El responsable se asigna a la FASE/Iniciativa
- *  completa, no a cada step/hito — el detalle de cuáles quedaron atrasados va en
- *  `itemsAtrasados`, solo informativo. El tipo distingue Proyecto ("PM") de REQ
+/** Filas de "Cumplimiento de Entrega": una por cada REQ + una por cada ENTREGABLE de la Fase 3 ya evaluado (ver
+ *  entregasEntregablesPm, mismo universo que calcEntregaStats) + una por cada Iniciativa APROBADA evaluable (ver
+ *  iniEntregaVerdict — "n/a" no entra, igual que un REQ sin R Done). El responsable se asigna a cada unidad; un
+ *  entregable sin responsable propio hereda el de su fase (`atribId`). El tipo distingue Proyecto ("PM") de REQ
  *  ("PML") de Iniciativa ("INI"). */
-export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], ini: IniItem[] = []): EntregaRow[] {
+export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], ini: IniItem[] = [], delays: DelayMap = {}): EntregaRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: EntregaRow[] = [];
   for (const r of reqs) {
@@ -1176,20 +1230,18 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
     rows.push({
       id: r.id, source: "REQ", tipo: "PML", name: r.name, context: r.grupo,
       projCode: "", projName: "", fase: r.grupo, pm: r.pm, deadline: r.deadline,
-      verdict: r.onTime.verdict, phaseDetails: r.onTime.phases,
-      itemsAtrasados: [], totalEvaluados: 0, totalAtrasados: 0,
+      verdict: r.onTime.verdict, phaseDetails: r.onTime.phases, atribId: r.id,
     });
   }
-  for (const g of groupFaseEntrega(projs).values()) {
-    if (g.items.length === 0) continue;
-    const pm = bpm.get(g.boardId) ?? g.pm;
-    const { code: projCode, name: projName } = splitBoardName(g.boardName);
-    const itemsAtrasados = g.items.filter((it) => it.verdict === "late");
+  for (const x of entregasEntregablesPm(projs, delays)) {
+    const { e } = x;
+    const { code: projCode, name: projName } = splitBoardName(e.boardName);
     rows.push({
-      id: g.key, source: "Proyecto", tipo: "PM", name: `${projName} · ${g.fase}`,
-      context: `${g.boardName} · ${g.fase}`, projCode, projName, fase: g.fase, pm, deadline: null,
-      verdict: itemsAtrasados.length > 0 ? "late" : "on-time",
-      itemsAtrasados, totalEvaluados: g.items.length, totalAtrasados: itemsAtrasados.length,
+      id: e.id, source: "Proyecto", tipo: "PM", name: e.name,
+      context: `${e.boardName} · ${e.grupo}`, projCode, projName, fase: e.grupo, pm: bpm.get(e.boardId) ?? e.pm,
+      deadline: e.limite, verdict: x.veredicto,
+      fechas: { limite: e.limite, nuevaFecha: e.nuevaFecha, cierre: e.cierre }, porNuevaFecha: x.porNuevaFecha,
+      atribId: x.llave,
     });
   }
   for (const i of ini) {
@@ -1197,8 +1249,7 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
     if (v === "n/a") continue;
     rows.push({
       id: i.id, source: "Iniciativa", tipo: "INI", name: i.name, context: i.grupo,
-      projCode: "", projName: "", fase: i.grupo, pm: i.pm, deadline: null,
-      verdict: v, itemsAtrasados: [], totalEvaluados: 0, totalAtrasados: 0,
+      projCode: "", projName: "", fase: i.grupo, pm: i.pm, deadline: null, verdict: v, atribId: i.id,
     });
   }
   return rows;
@@ -1210,17 +1261,30 @@ export interface LateResponsibleRow {
   name: string;
   pm: string;
   responsible: DelayResponsible | null; // null = sin asignar
-  onTime?: number;                   // fase: steps/hitos a tiempo entre los ya evaluados
-  doneTotal?: number;                // fase: total de steps/hitos ya evaluados (Done)
+  onTime?: number;                   // (ya no se llena: era el conteo de una fase del modelo anterior)
+  doneTotal?: number;
+}
+
+/** Filas de atraso de los entregables de la Fase 3 (Proyecto) — un entregable incumplido por fila, con el
+ *  responsable que le aplica (el suyo o el de su fase, ver llaveAtrasoEntregable). `soloSinExcusar` deja fuera los
+ *  excusados (detalle del KPI); sin él salen todos (tarjeta principal del Control Tower). */
+function filasEntregablesAtrasados(projs: ProjItem[], bpm: Map<string, string>, delays: DelayMap, soloSinExcusar: boolean): LateResponsibleRow[] {
+  return entregasEntregablesPm(projs, delays)
+    .filter((x) => x.veredicto === "late" && (!soloSinExcusar || !x.excusado))
+    .map((x) => {
+      const { name: projName } = splitBoardName(x.e.boardName);
+      return {
+        id: x.e.id, source: "Proyecto" as const, name: `${projName} · ${x.e.name}`, pm: bpm.get(x.e.boardId) ?? x.e.pm,
+        responsible: delays[x.llave]?.responsible ?? null,
+      };
+    });
 }
 
 /** Filas de atraso para el detalle de "Cumplimiento de Entrega": REQ (1 fila c/u)
- *  + FASES de Proyecto (1 fila c/u — mismo universo/agrupación que calcEntregaStats)
- *  + Iniciativas APROBADAS atrasadas (ver iniEntregaVerdict). Solo aparecen las
- *  fases/iniciativas con atraso SIN excusar; el responsable mostrado es el de la
- *  fase completa (un solo responsable decide la excusa de todos sus atrasos).
- *  Solo "PM" o sin asignar penaliza el % (ver lateExcused); el resto excusa el
- *  atraso. */
+ *  + ENTREGABLES de la Fase 3 incumplidos (mismo universo que calcEntregaStats)
+ *  + Iniciativas APROBADAS atrasadas (ver iniEntregaVerdict). Entregables e
+ *  Iniciativas solo aparecen con atraso SIN excusar. Solo "PM" o sin asignar
+ *  penaliza el % (ver lateExcused); el resto excusa el atraso. */
 export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap, ini: IniItem[] = []): LateResponsibleRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: LateResponsibleRow[] = [];
@@ -1229,17 +1293,7 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
     rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible: delays[r.id]?.responsible ?? null });
   }
 
-  for (const g of groupFaseEntrega(projs).values()) {
-    if (g.items.length === 0) continue;
-    if (!faseTieneAtrasoSinExcusar(g, delays)) continue; // sin atraso sin excusar → no aparece en el detalle
-    const pm = bpm.get(g.boardId) ?? g.pm;
-    const { name: projName } = splitBoardName(g.boardName);
-    const onTime = g.items.filter((it) => it.verdict === "on-time").length;
-    rows.push({
-      id: g.key, source: "Proyecto", name: `${projName} · ${g.fase}`, pm,
-      responsible: delays[g.key]?.responsible ?? null, onTime, doneTotal: g.items.length,
-    });
-  }
+  rows.push(...filasEntregablesAtrasados(projs, bpm, delays, true));
 
   for (const i of ini) {
     if (iniEntregaVerdict(i) !== "late" || lateExcused(i.id, delays)) continue;
@@ -1250,9 +1304,9 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
 
 /** Variante "todos los atrasados" de buildLateResponsibleRows — SOLO para el
  *  detalle de la tarjeta principal del Control Tower (Players/KPI siguen
- *  excusando por responsable, ver buildLateResponsibleRows). Lista TODA fase con
- *  al menos un atraso, sin importar el responsable asignado (se muestra igual,
- *  es solo informativo aquí). */
+ *  excusando por responsable, ver buildLateResponsibleRows). Lista TODO entregable
+ *  incumplido, sin importar el responsable asignado (se muestra igual, es solo
+ *  informativo aquí). */
 export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBoards: ProjBoard[], delays: DelayMap, ini: IniItem[] = []): LateResponsibleRow[] {
   const bpm = boardPmMap(projBoards);
   const rows: LateResponsibleRow[] = [];
@@ -1261,17 +1315,7 @@ export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], 
     rows.push({ id: r.id, source: "REQ", name: r.name, pm: r.pm, responsible: delays[r.id]?.responsible ?? null });
   }
 
-  for (const g of groupFaseEntrega(projs).values()) {
-    if (g.items.length === 0) continue;
-    if (!g.items.some((it) => it.verdict === "late")) continue;
-    const pm = bpm.get(g.boardId) ?? g.pm;
-    const { name: projName } = splitBoardName(g.boardName);
-    const onTime = g.items.filter((it) => it.verdict === "on-time").length;
-    rows.push({
-      id: g.key, source: "Proyecto", name: `${projName} · ${g.fase}`, pm,
-      responsible: delays[g.key]?.responsible ?? null, onTime, doneTotal: g.items.length,
-    });
-  }
+  rows.push(...filasEntregablesAtrasados(projs, bpm, delays, false));
 
   for (const i of ini) {
     if (iniEntregaVerdict(i) !== "late") continue;

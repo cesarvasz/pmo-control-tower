@@ -9,11 +9,17 @@ import { useData } from "@/context/DataContext";
 import { calcNpsFromRecords, npsCfg } from "@/lib/nps";
 import { enlaceEncuestaCku, type CkuSurveyDoc } from "@/lib/surveyCku";
 import CkuSurveyResultModal from "@/components/CkuSurveyResultModal";
+import NpsCommentsReport from "@/components/NpsCommentsReport";
+import NpsDimensionsChart from "@/components/NpsDimensionsChart";
 import { EmptyRow, ErrorBox, Loader, SectionHeader, StatCard } from "@/components/ui";
 
-export default function EncuestasCkuPanel({ puedeGestionar }: {
-  /** Invalidar respuestas y eliminar encuestas: un Admin (todas) o un CKU (las suyas; el servidor lo valida). */
+export default function EncuestasCkuPanel({ puedeGestionar, esAdmin }: {
+  /** Eliminar encuestas: un Admin (todas) o un CKU (las suyas y SOLO sin respuestas; con respuestas, solo un Admin). El
+   *  servidor lo valida. */
   puedeGestionar: boolean;
+  /** Un Admin: el único que invalida / valida respuestas (igual que en las de PM) y que elimina una encuesta con
+   *  respuestas. El servidor lo valida. */
+  esAdmin: boolean;
 }) {
   const { data, quitarEncuestaCku, marcarRespuestaCku } = useData();
   const [surveys, setSurveys] = useState<CkuSurveyDoc[] | null>(null);
@@ -22,6 +28,9 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
   const [ckuFilter, setCkuFilter] = useState("");
   const [busyToken, setBusyToken] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // Pestañas, como en las encuestas de PM. Comentarios y Dimensiones usan solo las respuestas de las encuestas que esta
+  // persona puede ver (un CKU, las suyas: la lista ya viene recortada por el servidor) y del CKU filtrado.
+  const [tab, setTab] = useState<"encuestas" | "comentarios" | "dimensiones">("encuestas");
 
   const load = useCallback(async () => {
     setError(null);
@@ -56,6 +65,7 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
   const rows = ckuFilter ? surveys.filter((s) => s.cku === ckuFilter) : surveys;
   const totalRespuestas = rows.reduce((s, x) => s + x.respuestas, 0);
   const recsVisibles = rows.flatMap((s) => recordsPorToken.get(s.token) ?? []);
+  const nombrePorToken = new Map(rows.map((s) => [s.token, s.nombre]));
   const npsGlobal = recsVisibles.length ? npsDe(recsVisibles) : null;
   const npsColor = npsCfg(npsGlobal?.nps ?? null)?.color ?? "var(--card-value-total)";
 
@@ -76,6 +86,7 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
     setBusyToken(token);
     try {
       const res = await authedFetch(`/api/surveys-cku/${token}`, { method: "DELETE" });
+      if (!res.ok) window.alert((await res.json().catch(() => ({}))).error || "No se pudo eliminar la encuesta");
       // Sin recargar nada: se quita de la tabla y sus respuestas salen de los NPS (aquí y en el Player) al instante.
       if (res.ok) {
         setSurveys((l) => l?.filter((x) => x.token !== token) ?? l);
@@ -101,6 +112,24 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
         </div>
       )}
 
+      <div className="mb-6 flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
+        {([["encuestas", "Encuestas"], ["comentarios", "Comentarios NPS"], ["dimensiones", "Dimensiones"]] as const).map(([key, label]) => (
+          <button
+            key={key} onClick={() => setTab(key)}
+            className="rounded-t-lg px-4 py-2 text-[0.85rem] font-semibold transition-colors"
+            style={tab === key ? { color: "var(--info)", borderBottom: "2px solid var(--info)" } : { color: "var(--text-muted)" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "comentarios" ? (
+        <NpsCommentsReport cku={{ records: recsVisibles, nombrePorToken, titulo: ckuFilter || "CKU" }} />
+      ) : tab === "dimensiones" ? (
+        <NpsDimensionsChart cku={{ records: recsVisibles }} />
+      ) : (
+      <>
       <div className="mb-7 grid grid-cols-3 gap-4 sm:max-w-xl">
         <StatCard value={rows.length} label="Encuestas" color="var(--info)" borderColor="var(--info)" />
         <StatCard value={totalRespuestas} label="Respuestas" color="#10b981" borderColor="#10b981" />
@@ -147,7 +176,8 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
                         >
                           {copied === s.token ? "¡Copiado!" : "Copiar enlace"}
                         </button>
-                        {puedeGestionar && (
+                        {/* Con respuestas, eliminarla es solo de un Admin. */}
+                        {puedeGestionar && (s.respuestas === 0 || esAdmin) && (
                           <button
                             onClick={() => eliminar(s.token)} disabled={busyToken === s.token}
                             className="rounded-md border px-2.5 py-1 text-[0.7rem] font-semibold whitespace-nowrap disabled:opacity-50"
@@ -165,10 +195,12 @@ export default function EncuestasCkuPanel({ puedeGestionar }: {
           </table>
         </div>
       )}
+      </>
+      )}
 
       {resultToken && (
         <CkuSurveyResultModal
-          token={resultToken} puedeGestionar={puedeGestionar}
+          token={resultToken} puedeInvalidar={esAdmin}
           onClose={() => setResultToken(null)}
           onChanged={(r) => marcarRespuestaCku(r.surveyToken, r.respondentEmail, r.invalidated)}
         />

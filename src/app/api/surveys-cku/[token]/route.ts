@@ -1,9 +1,10 @@
 // src/app/api/surveys-cku/[token]/route.ts
 // GET PÚBLICO: lo mínimo para pintar el formulario (nombre de la encuesta y de qué CKU). La seguridad está en el token (UUID
 //   aleatorio no adivinable); no expone correos ni respuestas.
-// PATCH { responseId, invalidated }: saca una respuesta de las métricas (o la devuelve).
-// DELETE: elimina la encuesta con todas sus respuestas.
-// Ambas: un Admin (de cualquier CKU) o el CKU dueño de la encuesta (solo la suya).
+// PATCH { responseId, invalidated }: saca una respuesta de las métricas (o la devuelve). SOLO un Admin, igual que en las
+//   encuestas de PM (el CKU no puede invalidar las respuestas de su propia encuesta).
+// DELETE: elimina la encuesta con todas sus respuestas. Un Admin, la de cualquier CKU y aunque ya tenga respuestas; el CKU
+//   dueño, solo la suya y solo mientras NADIE la haya contestado.
 
 import { NextResponse } from "next/server";
 import { deleteCkuSurvey, getCkuSurvey, listCkuResponses, setCkuResponseInvalidated } from "@/lib/surveysCku";
@@ -30,9 +31,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
   try {
     const me = await requireSession(request.headers.get("authorization"));
     const { token } = await params;
+    if (!(await actorCku(me)).admin) throw new Error("forbidden");
     const survey = await getCkuSurvey(token);
     if (!survey) return NextResponse.json({ error: "Encuesta no encontrada" }, { status: 404 });
-    if (!puedeVerCku(await actorCku(me), survey.cku)) throw new Error("forbidden");
     const body = (await request.json().catch(() => null)) as { responseId?: unknown; invalidated?: unknown } | null;
     if (typeof body?.responseId !== "string" || typeof body.invalidated !== "boolean")
       return NextResponse.json({ error: "Acción no válida" }, { status: 400 });
@@ -52,7 +53,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
     const { token } = await params;
     const survey = await getCkuSurvey(token);
     if (!survey) return NextResponse.json({ error: "Encuesta no encontrada" }, { status: 404 });
-    if (!puedeVerCku(await actorCku(me), survey.cku)) throw new Error("forbidden");
+    const a = await actorCku(me);
+    if (!puedeVerCku(a, survey.cku)) throw new Error("forbidden");
+    if (!a.admin && (await listCkuResponses(token)).length > 0)
+      return NextResponse.json({ error: "La encuesta ya tiene respuestas: solo un Admin puede eliminarla." }, { status: 403 });
     await deleteCkuSurvey(token);
     return NextResponse.json({ ok: true });
   } catch (err) {

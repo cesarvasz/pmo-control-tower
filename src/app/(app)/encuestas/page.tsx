@@ -50,7 +50,7 @@ export default function EncuestasPage() {
 
   // A un CKU no se le cargan las encuestas de PM: solo ve las suyas (ver EncuestasCkuPanel).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial (sistema externo)
-  useEffect(() => { if (me && !esCku) load(); }, [load, me, esCku]);
+  useEffect(() => { if (me && (!esCku || isAdmin)) load(); }, [load, me, esCku, isAdmin]);
 
   const patch = async (token: string, body: { invalidated?: boolean; reopen?: boolean }) => {
     setBusyToken(token);
@@ -90,9 +90,11 @@ export default function EncuestasPage() {
       ))}
     </div>
   );
-  // Un CKU: solo las suyas. Un Admin: puede cambiar entre las de PM y las de CKU.
-  if (esCku) return <div><EncuestasCkuPanel puedeGestionar /></div>;
-  if (isAdmin && vista === "cku") return <div>{selector}<EncuestasCkuPanel puedeGestionar /></div>;
+  // Un CKU: solo las suyas; las puede eliminar mientras no tengan respuestas. Invalidar respuestas y eliminar una con
+  // respuestas es solo de un Admin (como en las de PM).
+  // Un Admin: puede cambiar entre las de PM y las de CKU. Si es también CKU, manda Admin.
+  if (isAdmin && vista === "cku") return <div>{selector}<EncuestasCkuPanel puedeGestionar esAdmin /></div>;
+  if (esCku && !isAdmin) return <div><EncuestasCkuPanel puedeGestionar esAdmin={false} /></div>;
 
   if (error) return <ErrorBox msg={error} />;
   if (!surveys) return <Loader />;

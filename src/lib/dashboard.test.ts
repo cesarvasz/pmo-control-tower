@@ -27,6 +27,8 @@ import {
   calidadActividadCkuResp,
   entregaActividadCku,
   calcReprocesoStatsRaw,
+  entregablesPm,
+  projPhaseKey,
   iniUnidadesCalidad,
   calcReprocesoCascade,
   calidadUnits,
@@ -443,10 +445,13 @@ describe("calcPmEvm (nota EVM del PM, de la que sale su estado)", () => {
   });
 });
 
-describe("calcEntregaStats (Cumplimiento de Entrega: REQ + FASES de Proyecto)", () => {
-  // Fase por defecto: board b1, grupo "Fase 1".
-  const step = (o: Partial<ReturnType<typeof proj>>) => proj({ boardId: "b1", grupo: "Fase 1", ...o });
+// Entregables de la Fase 3 de un PM (desde 2026-11-16): plantilla nueva/Lite → cada item de la fase; vieja → cada
+// hito del step «Desarrollo por iteraciones…». Fechas: Limit Date (deadline), New Limit Date, End Date / Actual End.
+const L3 = "Launch | Lanzamiento";
+const dia = (d: number) => new Date(2026, 9, d);
+const ent = (o: Partial<ProjItem>) => proj({ boardId: "b1", boardName: "PM-010 | AIR", grupo: L3, status: "Done", deadline: dia(10), ...o });
 
+describe("calcEntregaStats (Cumplimiento de Entrega: REQ + ENTREGABLES de la Fase 3)", () => {
   it("REQ cerrado cuenta 1 unidad c/u; solo excusa si el responsable es ≠ PM", () => {
     const reqs = [
       req({ id: "r1", onTime: onTime("on-time") }),
@@ -457,81 +462,88 @@ describe("calcEntregaStats (Cumplimiento de Entrega: REQ + FASES de Proyecto)", 
     expect(calcEntregaStats(reqs, [], delays)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
   });
 
-  it("un item de Proyecto SIN subitems SÍ cuenta ahora (steps y hitos comparten la misma fase)", () => {
-    const projs = [step({ id: "p1", entrega: "late" })];
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 0, late: 1, pct: 0 });
-  });
-
-  it("una fase con 8 de 10 items a tiempo cuenta como UNA unidad 'con atraso' (binario, no fraccional)", () => {
+  it("cada entregable de la Fase 3 es una unidad; las demás fases no cuentan", () => {
     const projs = [
-      step({ id: "p1", entrega: "on-time" }),
-      step({ id: "p2", entrega: "late" }, ),
-      step({
-        id: "p3", entrega: "on-time",
-        subitems: Array.from({ length: 8 }, (_, i) => sub({ id: `s${i}`, entrega: i < 6 ? "on-time" : "late" })),
-      }),
+      ent({ id: "e1", entrega: "on-time", endDate: dia(9) }),
+      ent({ id: "e2", entrega: "late", endDate: dia(12) }),
+      ent({ id: "e3", entrega: "on-time", endDate: dia(10) }),
+      ent({ id: "f1", grupo: "Valuación | Formulación", entrega: "late", endDate: dia(20) }), // otra fase: no cuenta
     ];
-    // 10 items evaluados en la fase (2 steps + 8 hitos), 8 a tiempo / 2 atrasados → 1 sola fase, "con atraso".
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 0, late: 1, pct: 0 });
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 3, onTime: 2, late: 1, pct: 67 });
   });
 
-  it("una fase sin ningún atraso cuenta como 'sin atraso' aunque tenga muchos items evaluados", () => {
+  it("cerrar después del Limit Date pero dentro de la New Limit Date es cumplido; después de las dos, incumplido", () => {
     const projs = [
-      step({ id: "p1", entrega: "on-time", subitems: [sub({ id: "s1", entrega: "on-time" }), sub({ id: "s2", entrega: "on-time" })] }),
-      step({ id: "p2", entrega: "on-time" }),
+      ent({ id: "e1", entrega: "late", endDate: dia(14), newLimitDate: dia(15) }), // dentro de la nueva fecha
+      ent({ id: "e2", entrega: "late", endDate: dia(16), newLimitDate: dia(15) }), // después de las dos
+    ];
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+  });
+
+  it("lo pendiente (no Done, o sin fechas) no cuenta, ni las actividades (subitems) del entregable", () => {
+    const projs = [
+      ent({ id: "e1", status: "Working on it", entrega: null }),
+      ent({ id: "e2", entrega: "on-time", endDate: dia(9), subitems: [sub({ id: "s1", entrega: "late", actualEnd: dia(20) })] }),
     ];
     expect(calcEntregaStats([], projs, {})).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
   });
 
-  it("excusar la FASE (no un item) libera TODOS sus atrasos a la vez", () => {
+  it("un incumplido con responsable ≠ PM sale de la cuenta; si no tiene uno propio, aplica el de su fase", () => {
     const projs = [
-      step({ id: "p1", entrega: "late", subitems: [sub({ id: "s1", entrega: "late" }), sub({ id: "s2", entrega: "on-time" })] }),
+      ent({ id: "e1", entrega: "late", endDate: dia(12) }),
+      ent({ id: "e2", entrega: "late", endDate: dia(12) }),
+      ent({ id: "e3", entrega: "on-time", endDate: dia(9) }),
     ];
-    const delays: DelayMap = { "b1::Fase 1": { responsible: "Sponsor" } }; // excusa la fase entera
-    expect(calcEntregaStats([], projs, delays)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+    // Propio ≠ PM → excusado.
+    expect(calcEntregaStats([], projs, { e1: { responsible: "CKU" } })).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+    // El de la fase excusa a todos los que no tienen uno propio…
+    const fase = projPhaseKey("b1", L3);
+    expect(calcEntregaStats([], projs, { [fase]: { responsible: "Sponsor" } })).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+    // …pero el propio manda: «PM» en el entregable penaliza aunque la fase esté excusada.
+    expect(calcEntregaStats([], projs, { [fase]: { responsible: "Sponsor" }, e2: { responsible: "PM" } }))
+      .toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
   });
 
-  it("dos fases del mismo board son unidades independientes", () => {
+  it("plantilla vieja: los entregables son los hitos de «Desarrollo por iteraciones», no los steps de la fase", () => {
     const projs = [
-      step({ id: "p1", entrega: "late" }),                                   // Fase 1 → con atraso
-      proj({ id: "p2", boardId: "b1", grupo: "Fase 2", entrega: "on-time" }), // Fase 2 → sin atraso
+      ent({ id: "chk", name: "Agenda BAT/UAT CKU", entrega: "late", endDate: dia(20) }), // checkpoint: no cuenta
+      ent({
+        id: "dev", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", entrega: "late", endDate: dia(20),
+        subitems: [
+          sub({ id: "h1", entrega: "on-time", deadline: dia(5), actualEnd: dia(5) }),
+          sub({ id: "h2", entrega: "late", deadline: dia(5), actualEnd: dia(8), newLimitDate: dia(9) }), // dentro de la nueva
+          sub({ id: "h3", entrega: "late", deadline: dia(5), actualEnd: dia(8) }),
+        ],
+      }),
     ];
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+    expect(entregablesPm(projs).map((e) => e.id)).toEqual(["h1", "h2", "h3"]);
+    expect(calcEntregaStats([], projs, {})).toEqual({ total: 3, onTime: 2, late: 1, pct: 67 });
   });
 
-  it("el mismo nombre de fase en boards distintos NO se mezcla (la clave incluye el board)", () => {
+  it("la plantilla se decide por board: uno viejo y uno nuevo se miden cada uno a su manera", () => {
     const projs = [
-      step({ id: "p1", boardId: "b1", entrega: "late" }),
-      step({ id: "p2", boardId: "b2", entrega: "on-time" }),
+      ent({ id: "n1", entrega: "on-time", endDate: dia(9) }),
+      ent({ id: "dev", boardId: "b2", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", subitems: [sub({ id: "h1", entrega: "late", deadline: dia(5), actualEnd: dia(8) })] }),
     ];
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
-  });
-
-  it("una fase sin nada evaluado todavía (todo pendiente) no cuenta — medición progresiva", () => {
-    const projs = [step({ id: "p1", entrega: null, subitems: [sub({ id: "s1", entrega: null })] })];
-    expect(calcEntregaStats([], projs, {})).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
+    expect(entregablesPm(projs).map((e) => e.id)).toEqual(["n1", "h1"]);
   });
 });
 
-describe("calcEntregaStatsRaw (tarjeta principal: todas las fases con atraso, sin excusar por responsable)", () => {
-  const step = (o: Partial<ReturnType<typeof proj>>) => proj({ boardId: "b1", grupo: "Fase 1", ...o });
-
+describe("calcEntregaStatsRaw (tarjeta principal: todos los entregables, sin excusar por responsable)", () => {
   it("un atraso con responsable ≠ PM cuenta igual (no se excusa, a diferencia de calcEntregaStats)", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })];
-    const projs = [step({ id: "p1", entrega: "late" })];
+    const projs = [ent({ id: "e1", entrega: "late", endDate: dia(12) })];
     // Nota: calcEntregaStatsRaw no recibe delays — no hay forma de excusar nada.
     expect(calcEntregaStatsRaw(reqs, projs)).toEqual({ total: 3, onTime: 1, late: 2, pct: 33 });
   });
 
-  it("una fase sigue pesando 1 unidad sin importar cuántos steps/hitos atrasados tenga", () => {
+  it("cada entregable pesa 1 unidad, y respeta la New Limit Date", () => {
     const projs = [
-      step({
-        id: "p1", entrega: "late",
-        subitems: [sub({ id: "s1", entrega: "on-time" }), sub({ id: "s2", entrega: "late" })],
-      }),
+      ent({ id: "e1", entrega: "late", endDate: dia(12) }),
+      ent({ id: "e2", entrega: "late", endDate: dia(12), newLimitDate: dia(13) }),
+      ent({ id: "e3", entrega: "on-time", endDate: dia(9) }),
     ];
-    const stats = calcEntregaStatsRaw([], projs);
-    expect(stats).toEqual({ total: 1, onTime: 0, late: 1, pct: 0 });
+    expect(calcEntregaStatsRaw([], projs)).toEqual({ total: 3, onTime: 2, late: 1, pct: 67 });
   });
 });
 
@@ -607,10 +619,10 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
   /** Un item de proyecto en un board de Clase A (por su nombre, ver BOARD_A). */
   const projA = (o: Partial<ProjItem>) => proj({ boardName: BOARD_A, ...o });
 
-  it("Cumplimiento: cada fuente aporta su propio %, no su volumen — 1 PML a tiempo (Clase C) pesa 25/60 aunque haya 9 fases atrasadas (Clase A)", () => {
+  it("Cumplimiento: cada fuente aporta su propio %, no su volumen — 1 PML a tiempo (Clase C) pesa 25/60 aunque haya 9 entregables atrasados (Clase A)", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
-    // 9 fases atrasadas (board+grupo distintos): como grupo todo junto serían 1 de 10 a tiempo = 10%.
-    const projs = Array.from({ length: 9 }, (_, i) => projA({ id: `p${i}`, boardId: `b${i}`, grupo: "Fase 1", entrega: "late" }));
+    // 9 entregables atrasados: como grupo todo junto serían 1 de 10 a tiempo = 10%.
+    const projs = Array.from({ length: 9 }, (_, i) => projA({ id: `p${i}`, boardId: `b${i}`, grupo: "Launch | Lanzamiento", entrega: "late" }));
     expect(calcEntregaStats(reqs, projs, {}).pct).toBe(10);
     // Ponderado: PML 100% (Clase C, peso 25) y Proyectos 0% (Clase A, peso 35) → 25 / 60 = 42%.
     expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(42);
@@ -619,14 +631,14 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
   it("Cumplimiento: con Iniciativas y las clases aplica los pesos exactos", () => {
     const inis = [iniOnTime("i1")];                                                    // 100%
     const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50% (Clase C)
-    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];                    // 0% (Clase A)
+    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "late" })];                    // 0% (Clase A)
     // (100·0.10 + 50·0.25 + 0·0.35) / (0.10 + 0.25 + 0.35) = 22.5 / 0.70 = 32
     expect(calcEntregaStatsPonderado(reqs, projs, {}, inis).pct).toBe(32);
   });
 
   it("Cumplimiento: la clase asignada manda — un PML en Clase A pesa 35, uno en Clase C pesa 25", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") })];                                           // 100%
-    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];                  // 0% (Clase A)
+    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "late" })];                  // 0% (Clase A)
     // PML en C (por defecto): 25 / 60 = 42. PML en la misma Clase A que el proyecto: promedian 50.
     expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(42);
     expect(calcEntregaStatsPonderado(reqs, projs, {}, [], cl({ r1: "A" })).pct).toBe(50);
@@ -634,7 +646,7 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
 
   it("Cumplimiento: lo que no tiene clase cuenta en los conteos pero no en la nota, hasta que se le asigne una", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") })];                                           // Clase C, 100%
-    const sinClase = [proj({ id: "p1", boardId: "bX", boardName: "Sin ID", grupo: "Fase 1", entrega: "late" })];
+    const sinClase = [proj({ id: "p1", boardId: "bX", boardName: "Sin ID", grupo: "Launch | Lanzamiento", entrega: "late" })];
     const r = calcEntregaStatsPonderado(reqs, sinClase, {});
     expect(r).toMatchObject({ total: 2, onTime: 1, late: 1, pct: 100 });     // la nota es solo la del PML
     // Le asignan la Clase A: ahora pesa (PML C 100% · proyecto A 0% → 25/60).
@@ -643,8 +655,8 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
 
   it("Cumplimiento: una fuente sin unidades no cuenta y su peso se reparte (solo Proyectos → su propio %)", () => {
     const projs = [
-      projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "on-time" }),
-      projA({ id: "p2", boardId: "b2", grupo: "Fase 1", entrega: "late" }),
+      projA({ id: "p1", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "on-time" }),
+      projA({ id: "p2", boardId: "b2", grupo: "Launch | Lanzamiento", entrega: "late" }),
     ];
     expect(calcEntregaStatsPonderado([], projs, {}).pct).toBe(50);
     expect(calcEntregaStatsPonderado([], [], {}).pct).toBeNull();
@@ -652,15 +664,20 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
 
   it("Cumplimiento: los conteos siguen siendo los de todas las unidades; solo cambia pct", () => {
     const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
-    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
+    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "late" })];
     const normal = calcEntregaStats(reqs, projs, {});
     const pond = calcEntregaStatsPonderado(reqs, projs, {});
     expect({ total: pond.total, onTime: pond.onTime, late: pond.late }).toEqual({ total: normal.total, onTime: normal.onTime, late: normal.late });
   });
 
-  it("Cumplimiento: el mismo atraso excusado por un responsable ≠ PM tampoco penaliza en la variante ponderada", () => {
-    const projs = [projA({ id: "p1", boardId: "b1", grupo: "Fase 1", entrega: "late" })];
-    expect(calcEntregaStatsPonderado([], projs, { "b1::Fase 1": { responsible: "Sponsor" } }).pct).toBe(100);
+  it("Cumplimiento: el mismo atraso excusado por un responsable ≠ PM tampoco penaliza en la variante ponderada (sale de la cuenta)", () => {
+    const projs = [
+      projA({ id: "p1", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "late" }),
+      projA({ id: "p2", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "on-time" }),
+    ];
+    expect(calcEntregaStatsPonderado([], projs, {}).pct).toBe(50);
+    expect(calcEntregaStatsPonderado([], projs, { "b1::Launch | Lanzamiento": { responsible: "Sponsor" } }))
+      .toMatchObject({ total: 1, onTime: 1, pct: 100 });
   });
 
   // ── Calidad de un CKU en Proyectos: cada actividad a su cargo vale 1 o 0 por sus FECHAS ─────────
@@ -873,12 +890,12 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     const bhm = buildBoardHealthMap(projs, projBoards, {});
     const run = (ponderar: boolean) =>
       calcPmMetrics("Luis", [], reqs, projs, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, ponderar);
-    // 1 PML a tiempo + 3 fases atrasadas: junto 1/4 = 25%; CKU: PML 100% (Clase C) y 3 actividades atrasadas 0% (Clase A) → (25·1 + 35·0) / 60 = 42%.
+    // 1 PML a tiempo + 3 entregables atrasados: junto 1/4 = 25%; CKU: PML 100% (Clase C) y 3 actividades atrasadas 0% (Clase A) → (25·1 + 35·0) / 60 = 42%.
     expect(run(false).entPct).toBe(25);
     expect(run(true).entPct).toBe(42);
   });
 
-  it("calcPmMetrics de un CKU ignora las fases del proyecto que no son la 3; un PM las sigue contando", () => {
+  it("calcPmMetrics ignora las fases del proyecto que no son la 3, tanto para un CKU como para un PM", () => {
     const projBoards = [board({ id: "b1", pm: "Luis", name: BOARD_A })];
     const projs = [
       proj({ id: "p1", name: "Kick Off", boardId: "b1", boardName: BOARD_A, grupo: "Valuación | Formulación del proyecto", entrega: "late" }),
@@ -887,8 +904,8 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     const bhm = buildBoardHealthMap(projs, projBoards, {});
     const run = (cku: boolean) =>
       calcPmMetrics("Luis", [], [], projs, projBoards, bhm, new Map(), [], {}, {}, undefined, {}, {}, cku);
-    expect(run(false).entPct).toBe(50);  // 2 fases (Valuación atrasada + Launch a tiempo)
-    expect(run(true).entPct).toBe(100);  // solo la Fase 3
+    expect(run(false).entPct).toBe(100); // PM: solo el entregable de la Fase 3 (desde 2026-11-16)
+    expect(run(true).entPct).toBe(100);  // CKU: solo la Fase 3
   });
 });
 
@@ -1124,41 +1141,30 @@ describe("calcReprocesoPct (5º componente del KPI: nota 0/50/100 por item de Pr
 });
 
 describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
-  it("una fila por REQ y una por FASE de Proyecto con algo evaluado (excluye n/a y fases sin nada Done)", () => {
+  it("una fila por REQ evaluable y una por ENTREGABLE de la Fase 3 ya evaluado; el PM es el del board", () => {
     const reqs = [
       req({ id: "r1", name: "R1", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("late") }),
       req({ id: "r2", name: "R2", grupo: "Desarrollo", pm: "Luis", deadline: null, onTime: onTime("n/a") }),
     ];
     const projs = [
-      proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", name: "Hito", deadline: null, entrega: "on-time",
-        subitems: [sub({ id: "s1", name: "Sub", deadline: null, entrega: "late" }), sub({ id: "s2", name: "Sub2", deadline: null, entrega: null })] }),
-      proj({ id: "p2", boardId: "b1", boardName: "P1", grupo: "Sin evaluar", pm: "Otro", name: "Pendiente", deadline: null, entrega: null }),
+      ent({ id: "e1", name: "Entregable 1", pm: "Otro", entrega: "late", endDate: dia(14), newLimitDate: dia(15) }),
+      ent({ id: "e2", name: "Entregable 2", pm: "Otro", status: "Working on it", entrega: null }),
+      ent({ id: "f1", grupo: "Valuación | Formulación", entrega: "late", endDate: dia(20) }),
     ];
     const rows = buildEntregaRows(reqs, projs, [board({ id: "b1", pm: "Luis" })]);
-    // La fase "Sin evaluar" no tiene nada Done todavía → no aparece.
-    expect(rows.map((r) => r.id).sort()).toEqual(["b1::Launch", "r1"]);
-  });
-
-  it("agrupa steps + hitos de la fase; itemsAtrasados trae SOLO los atrasados y atribuye el PM del board", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "ItemPm", name: "Step A", deadline: null, entrega: "late",
-      subitems: [
-        sub({ id: "s1", name: "Hito 1", deadline: null, entrega: "late" }),
-        sub({ id: "s2", name: "Hito 2", deadline: null, entrega: "on-time" }),
-      ] })];
-    const rows = buildEntregaRows([], projs, [board({ id: "b1", pm: "BoardPm" })]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      id: "b1::Launch", tipo: "PM", fase: "Launch", pm: "BoardPm", verdict: "late",
-      totalEvaluados: 3, totalAtrasados: 2,
+    expect(rows.map((r) => r.id).sort()).toEqual(["e1", "r1"]);
+    expect(rows.find((r) => r.id === "e1")).toMatchObject({
+      tipo: "PM", name: "Entregable 1", fase: L3, pm: "Luis", verdict: "on-time", porNuevaFecha: true,
+      projCode: "PM-010", projName: "AIR", atribId: "e1",
+      fechas: { limite: dia(10), nuevaFecha: dia(15), cierre: dia(14) },
     });
-    expect(rows[0].itemsAtrasados.map((it) => it.name).sort()).toEqual(["Hito 1", "Step A"]);
-    expect(rows[0].itemsAtrasados.find((it) => it.kind === "hito")).toMatchObject({ name: "Hito 1", stepPadre: "Step A" });
   });
 
-  it("separa el código y el nombre del proyecto desde el nombre del board", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", boardName: "PM-003 | DUCAfast 2.0 GT", grupo: "Launch", name: "Step A", deadline: null, entrega: "late" })];
-    const rows = buildEntregaRows([], projs, [board({ id: "b1", pm: "BoardPm" })]);
-    expect(rows[0]).toMatchObject({ projCode: "PM-003", projName: "DUCAfast 2.0 GT" });
+  it("atribId: el entregable sin responsable propio usa el de su fase; con uno propio, el suyo", () => {
+    const projs = [ent({ id: "e1", entrega: "late", endDate: dia(12) }), ent({ id: "e2", entrega: "late", endDate: dia(12) })];
+    const fase = projPhaseKey("b1", L3);
+    const rows = buildEntregaRows([], projs, [], [], { [fase]: { responsible: "CKU" }, e2: { responsible: "PM" } });
+    expect(rows.map((r) => [r.id, r.atribId])).toEqual([["e1", fase], ["e2", "e2"]]);
   });
 
   it("los REQ no cuelgan de un proyecto: projCode y projName vacíos", () => {
@@ -1181,26 +1187,19 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
 });
 
 describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la tarjeta principal)", () => {
-  const step = (o: Partial<ReturnType<typeof proj>>) => proj({ boardId: "b1", boardName: "P1", grupo: "Launch", ...o });
+  const projs = [ent({ id: "e1", name: "Entregable 1", entrega: "late", endDate: dia(12) }), ent({ id: "e2", entrega: "on-time", endDate: dia(9) })];
+  const fase = projPhaseKey("b1", L3);
 
-  it("una fase con atraso sin excusar aparece; el responsable es el de la FASE, no el de un item", () => {
-    const projs = [step({ id: "p1", entrega: "late", subitems: [sub({ id: "s1", entrega: "on-time" })] })];
-    const delays: DelayMap = { s1: { responsible: "VPA" } }; // asignado al item, NO a la fase → no excusa
-    const rows = buildLateResponsibleRows([], projs, [board({ id: "b1", pm: "BoardPm" })], delays);
-    expect(rows).toEqual([{ id: "b1::Launch", source: "Proyecto", name: "P1 · Launch", pm: "BoardPm", responsible: null, onTime: 1, doneTotal: 2 }]);
+  it("un entregable incumplido sin excusar aparece, con el responsable que le aplica", () => {
+    expect(buildLateResponsibleRows([], projs, [board({ id: "b1", pm: "BoardPm" })], {}))
+      .toEqual([{ id: "e1", source: "Proyecto", name: "AIR · Entregable 1", pm: "BoardPm", responsible: null }]);
   });
 
-  it("excusar la fase (clave projPhaseKey) hace que deje de aparecer, aunque tenga atrasos", () => {
-    const projs = [step({ id: "p1", entrega: "late" })];
-    const delays: DelayMap = { "b1::Launch": { responsible: "Sponsor" } };
+  it("excusado (el suyo o el de su fase ≠ PM) deja de aparecer; Raw lo muestra igual, con ese responsable", () => {
+    const delays: DelayMap = { [fase]: { responsible: "Sponsor" } };
     expect(buildLateResponsibleRows([], projs, [board({ id: "b1", pm: "BoardPm" })], delays)).toEqual([]);
-  });
-
-  it("Raw: una fase con atraso aparece aunque esté excusada — solo informativo", () => {
-    const projs = [step({ id: "p1", entrega: "late" })];
-    const delays: DelayMap = { "b1::Launch": { responsible: "Sponsor" } };
-    const rows = buildLateResponsibleRowsRaw([], projs, [board({ id: "b1", pm: "BoardPm" })], delays);
-    expect(rows).toEqual([{ id: "b1::Launch", source: "Proyecto", name: "P1 · Launch", pm: "BoardPm", responsible: "Sponsor", onTime: 0, doneTotal: 1 }]);
+    expect(buildLateResponsibleRowsRaw([], projs, [board({ id: "b1", pm: "BoardPm" })], delays))
+      .toEqual([{ id: "e1", source: "Proyecto", name: "AIR · Entregable 1", pm: "BoardPm", responsible: "Sponsor" }]);
   });
 
   it("una Iniciativa APROBADA atrasada aparece; se excusa igual que un REQ (Raw la muestra siempre)", () => {
@@ -1704,29 +1703,29 @@ describe("calcPmMetrics", () => {
     expect(run({}).kpi.score).toBeLessThan(half.kpi.score);                                          // más reprocesos → menor KPI
   });
 
-  it("un atraso baja el % del PM por defecto; solo se excusa asignando la FASE completa, no un item suelto", () => {
+  it("un entregable atrasado baja el % del PM; se excusa con un responsable ≠ PM (el suyo, o el de su fase)", () => {
     const projBoards = [board({ id: "b1", pm: "Luis" })];
-    // p1 y p2 comparten fase (b1::Launch): un atraso en cualquiera de sus hitos
-    // basta para que la fase entera cuente "con atraso" (binario, por fase).
+    // Cada item de la Fase 3 (plantilla nueva) es un entregable; sus actividades no cuentan por sí mismas.
     const projItems = [
-      proj({ boardId: "b1", id: "p1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 0, benefit: 0,
-        subitems: [sub({ id: "i1", pmsId: "H1", entrega: "on-time" })] }),
-      proj({ boardId: "b1", id: "p2", status: "Done", estado: "ATRASADO", name: "y", grupo: "Launch", cost: 0, benefit: 0,
-        subitems: [sub({ id: "i2", pmsId: "H2", entrega: "late" })] }),
+      proj({ boardId: "b1", id: "p1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 0, benefit: 0, entrega: "on-time",
+        subitems: [sub({ id: "i1", pmsId: "H1", entrega: "late" })] }),
+      proj({ boardId: "b1", id: "p2", status: "Done", estado: "ATRASADO", name: "y", grupo: "Launch", cost: 0, benefit: 0, entrega: "late",
+        subitems: [sub({ id: "i2", pmsId: "H2", entrega: "on-time" })] }),
     ];
     const bhm = buildBoardHealthMap(projItems, projBoards, {});
     const run = (delays: DelayMap) => calcPmMetrics("Luis", [], [], projItems, projBoards, bhm, new Map(), [], delays);
-    expect(run({}).entPct).toBe(0);                                              // sin asignar → la fase cuenta con atraso
-    expect(run({ "b1::Launch": { responsible: "PM" } }).entPct).toBe(0);         // PM → sigue contando
-    expect(run({ i2: { responsible: "Sponsor" } }).entPct).toBe(0);              // asignado al ITEM, no a la fase → no excusa
-    expect(run({ "b1::Launch": { responsible: "Sponsor" } }).entPct).toBe(100);  // excusa la FASE → libera el atraso
+    expect(run({}).entPct).toBe(50);                                             // 1 de 2 entregables a tiempo
+    expect(run({ p2: { responsible: "PM" } }).entPct).toBe(50);                  // PM → sigue contando
+    expect(run({ i2: { responsible: "Sponsor" } }).entPct).toBe(50);             // asignado a una actividad → no cambia nada
+    expect(run({ p2: { responsible: "Sponsor" } }).entPct).toBe(100);            // excusa el ENTREGABLE → sale de la cuenta
+    expect(run({ "b1::Launch": { responsible: "Sponsor" } }).entPct).toBe(100);  // o el de su fase, si no tiene uno propio
   });
 
   it("compone las métricas del PM (entregas, salud, KPI) de forma coherente", () => {
     const projBoards = [board({ id: "b1", pm: "Luis", benefitType: "HardSaving" })];
     const projItems = [
       proj({ boardId: "b1", boardName: "P1", status: "Done", estado: "EN TIEMPO", name: "x", grupo: "Launch", cost: 100, benefit: 500,
-        subitems: [sub({ id: "s1", pmsId: "H1", entrega: "on-time" })] }),
+        entrega: "on-time", subitems: [sub({ id: "s1", pmsId: "H1", entrega: "on-time" })] }),
     ];
     const bhm = buildBoardHealthMap(projItems, projBoards, {});
     const m = calcPmMetrics("Luis", [], [], projItems, projBoards, bhm, new Map(), []);

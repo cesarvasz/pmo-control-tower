@@ -45,19 +45,21 @@
 //   tarde / vencida, responsable = PM o sin asignar .......... 0
 //   pct = PROMEDIO de las notas
 //
-// CUMPLIMIENTO DE ENTREGA
-//   Fases 1,2,4,5 ... la unidad es la FASE (tarde si ≥1 item atrasado sin excusar)
-//   Fase 3 .......... la unidad es el ENTREGABLE
+// CUMPLIMIENTO DE ENTREGA (2026-11-16) — SOLO los entregables de la fase 3 (items en
+// plantilla nueva/Lite; hitos de "Desarrollo por iteraciones" en la vieja), igual que
+// el KPI del PM (ver entregablesPm en lib/dashboard): cumplido si cerró ≤ Limit Date
+// o ≤ New Limit Date; en curso / sin fechas → no se mide; incumplido con responsable
+// ≠ PM (el suyo o el de su fase) → no cuenta
 // ─────────────────────────────────────────────────────────────────────
 
 import { addBusinessDays, businessDays, unionBusinessDays, today } from "@/lib/business";
 import {
-  esPlantillaNueva, isFase3, isFase4, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts,
+  entregasEntregablesPm, esPlantillaNueva, isFase3, isFase4, isCierreVmoStep, isDesarrolloPorIteracionesStep, projStageAmounts,
 } from "@/lib/dashboard";
 import { valorStageOf } from "@/lib/valorStepper";
 import { splitBoardName, type BoardHealthData } from "@/lib/proj";
 import { healthStatusFromIndex, type HealthStatus } from "@/lib/health";
-import { lateExcused, atrasoReparto, type DelayMap } from "@/lib/delay";
+import { atrasoReparto, type DelayMap } from "@/lib/delay";
 import { calcNpsFromRecords } from "@/lib/nps";
 import { buildDevTimelines, type DevTimelineRow } from "@/lib/devTimeline";
 import type {
@@ -360,60 +362,37 @@ export function calcCalidad(units: MetricUnit[], reproceso: DelayMap, hoy: Date)
 // ─────────────────────────────────────────────────────────────────────
 // CUMPLIMIENTO DE ENTREGA
 // ─────────────────────────────────────────────────────────────────────
+// Misma medición que el KPI del PM (ver entregaEntregablePm en lib/dashboard): cada ENTREGABLE de la Fase 3 ya
+// evaluado; cumplido si cerró en o antes de su Limit Date o de su New Limit Date. Un incumplido con responsable ≠ PM
+// (propio o el de su fase) queda excusado y no cuenta.
 export interface CumplimientoRow {
-  id: string;            // clave de atribución: fase (boardId::grupo) o id del entregable
+  id: string;            // id del entregable (clave de atribución)
   label: string;
-  tipo: "fase" | "entregable";
   onTime: boolean;
-  atrasados: { id: string; name: string }[];
+  /** Cumplido porque cerró dentro de su New Limit Date (después del Limit Date). */
+  porNuevaFecha: boolean;
+  /** Incumplido con responsable ≠ PM: se muestra, pero no cuenta. */
+  excusado: boolean;
   responsable: string | null;
+  /** true = el responsable es el de su fase (el entregable no tiene uno propio). */
+  heredada: boolean;
 }
 
 export interface CumplimientoResult {
   filas: CumplimientoRow[];
+  /** Conteos de lo que cuenta (sin excusados). */
   onTime: number; late: number; total: number; pct: number | null;
 }
 
-/** Clave de atribución de una fase — misma forma que usa hoy `projPhaseKey`. */
-export const faseKey = (boardId: string, grupo: string) => `${boardId}::${grupo}`;
-
-export function calcCumplimiento(
-  units: MetricUnit[], boardId: string, delays: DelayMap,
-): CumplimientoResult {
-  const filas: CumplimientoRow[] = [];
-
-  // Fases 1, 2, 4 y 5 → una unidad por FASE.
-  const porFase = new Map<string, MetricUnit[]>();
-  for (const u of units) {
-    if (u.esFase3) continue;
-    const arr = porFase.get(u.fase);
-    if (arr) arr.push(u); else porFase.set(u.fase, [u]);
-  }
-  for (const [fase, list] of porFase) {
-    const key = faseKey(boardId, fase);
-    const atrasados = list.filter((u) => u.atrasada);
-    const onTime = atrasados.length === 0 || lateExcused(key, delays);
-    filas.push({
-      id: key, label: fase, tipo: "fase", onTime,
-      atrasados: atrasados.map((u) => ({ id: u.id, name: u.name })),
-      responsable: delays[key]?.responsible ?? null,
-    });
-  }
-
-  // Fase 3 → una unidad por ENTREGABLE.
-  for (const u of units) {
-    if (!u.esFase3) continue;
-    const onTime = !u.atrasada || lateExcused(u.id, delays);
-    filas.push({
-      id: u.id, label: u.name, tipo: "entregable", onTime,
-      atrasados: u.atrasada ? [{ id: u.id, name: u.name }] : [],
-      responsable: delays[u.id]?.responsible ?? null,
-    });
-  }
-
+export function calcCumplimiento(items: ProjItem[], delays: DelayMap): CumplimientoResult {
+  const filas: CumplimientoRow[] = entregasEntregablesPm(items, delays).map((x) => ({
+    id: x.e.id, label: x.e.name, onTime: x.veredicto === "on-time", porNuevaFecha: x.porNuevaFecha,
+    excusado: x.excusado, responsable: delays[x.llave]?.responsible ?? null, heredada: x.llave !== x.e.id,
+  }));
   const onTime = filas.filter((f) => f.onTime).length;
-  const total = filas.length;
-  return { filas, onTime, late: total - onTime, total, pct: total ? Math.round((onTime / total) * 100) : null };
+  const late = filas.filter((f) => !f.onTime && !f.excusado).length;
+  const total = onTime + late;
+  return { filas, onTime, late, total, pct: total ? Math.round((onTime / total) * 100) : null };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -617,7 +596,7 @@ export function buildProjectMetrics(input: ProjectMetricsInput): ProjectMetrics 
     units,
     evm: calcEvm(units, items, baselines, hoy),
     calidad: calcCalidad(units, reproceso, hoy),
-    cumplimiento: calcCumplimiento(units, board.id, delays),
+    cumplimiento: calcCumplimiento(items, delays),
     atrasos,
     responsabilidad: calcResponsabilidad(atrasos),
     fechas: calcFechas(units, items, hoy),

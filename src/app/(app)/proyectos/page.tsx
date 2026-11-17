@@ -527,8 +527,7 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
           <table className="pmo grouped">
             <thead>
               <tr>
-                <th>Tarea</th><th>Responsible</th><th>Status</th><th>Estado</th><th>Deadline</th><th>Entrega</th><th>Calidad</th>
-                <th style={{ textAlign: "right" }}>Costo</th><th style={{ textAlign: "right" }}>Beneficio</th>
+                <th>Tarea</th><th>Responsible</th><th>Status</th><th>Estado</th><th>Deadline</th><th>Entrega</th><th>Calidad</th><th>NPS</th>
               </tr>
             </thead>
             <tbody>
@@ -554,7 +553,7 @@ function BoardAccordion({ board, items, allBoardItems, ev, pv, ac, scope, spi, c
                   <React.Fragment key={grupo}>
                     {/* ── Group header row ── */}
                     <tr onClick={() => toggleGroup(grupo)} className="cursor-pointer select-none">
-                      <td colSpan={9} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
+                      <td colSpan={8} style={{ padding: 0, borderTop: "1px solid var(--border)" }}>
                         <div
                           className="flex items-center gap-2 px-4 py-2"
                           style={{ background: "var(--bg-hover)", borderLeft: "3px solid var(--accent)" }}
@@ -627,6 +626,39 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   const nota = calc?.qualifies ? calcItemNota(r.id, calc.recuperado, data?.reprocesoAttributions ?? {}) : null;
   const fueraDeCpmIds = new Set((calc?.fueraDeCpm ?? []).map((x) => x.id));
 
+  // Encuesta NPS del ENTREGABLE de la Fase 3 (item en plantilla nueva/Lite; hito de «Desarrollo por iteraciones…» en la
+  // vieja): se activa cuando el entregable está Done y todas sus actividades también. Lleva su nombre y su ID.
+  const itemEsEntregable = inFase3 && !desarrolloStepId && !itemFuera;
+  const hitosSonEntregables = inFase3 && !!desarrolloStepId && desarrolloStepId === r.id;
+  const itemListo = r.status === "Done" && subMedibles.every((s) => s.status === "Done");
+  const npsCell = (id: string, name: string, listo: boolean) => {
+    const list = surveysByReq.get(id) ?? [];
+    const total = list.length;
+    const answered = list.filter((x) => x.answered && !x.invalidated).length;
+    if (!listo && total === 0) {
+      return (
+        <span
+          className="rounded-md border px-2 py-0.5 text-[0.66rem] font-semibold opacity-40"
+          style={{ borderColor: "var(--border)", color: "var(--text-muted)", cursor: "not-allowed" }}
+          title="Se activa cuando el entregable y todas sus actividades están Done"
+        >
+          ✉ Encuesta
+        </span>
+      );
+    }
+    const color = total === 0 ? "var(--accent)" : answered === total ? "#10b981" : "#f59e0b";
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onOpenSurvey({ reqId: id, reqCode: id, reqName: name, pm }); }}
+        className="rounded-md border px-2 py-0.5 text-[0.66rem] font-semibold transition-colors hover:bg-[var(--bg-surface)]"
+        style={{ borderColor: color, color }}
+        title="Encuesta NPS del entregable · agregar destinatarios y enviar enlaces"
+      >
+        {total > 0 ? `👥 ${answered}/${total}` : "✉ Encuesta"}
+      </button>
+    );
+  };
+
   const SUB_BG = "var(--bg-hover)";
 
   const commentBtn = (id: string, name: string, email?: string) => canComment && (
@@ -681,8 +713,7 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
         <td>{nota != null && calc
           ? reprocesoCell(nota)
           : <span className="text-[var(--text-disabled)]">—</span>}</td>
-        <td style={{ textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.cost ? fmtMoney(r.cost) : "—"}</td>
-        <td style={{ textAlign: "right", fontWeight: 600, color: "var(--ok)", whiteSpace: "nowrap" }}>{r.benefit ? fmtMoney(r.benefit) : "—"}</td>
+        <td>{itemEsEntregable ? npsCell(r.id, r.name, itemListo) : <span className="text-[var(--text-disabled)]">—</span>}</td>
       </tr>
       {/* ── Subitem rows ── */}
       {isOpen && visibleSubitems.map((s, i) => {
@@ -733,8 +764,9 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
             <td style={{ background: SUB_BG }}>
               {stepMideCalidad && !subFuera(s) ? hitoCalidadReadOnly(s.entrega, fueraDeCpmIds.has(s.id)) : <span className="text-[var(--text-disabled)]">—</span>}
             </td>
-            <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
-            <td style={{ background: SUB_BG, color: "var(--text-disabled)" }}>—</td>
+            <td style={{ background: SUB_BG }}>
+              {hitosSonEntregables && !subFuera(s) ? npsCell(s.id, s.name, s.status === "Done") : <span className="text-[var(--text-disabled)]">—</span>}
+            </td>
           </tr>
         );
       })}

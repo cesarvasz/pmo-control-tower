@@ -487,6 +487,9 @@ export interface ProjItem {
   startDate: Date | null;                     // "Start Date": fecha real de inicio del item
   cpmStart: Date | null;                      // INICIO del rango de la columna "CPM" — NUNCA "Start Date" (ver resolveCpmStart)
   endDate: Date | null;                       // "End Date": fecha real de cierre del item
+  /** "New Limit Date" del item (entregable): nueva fecha límite si se movió la original. Solo existe en los boards
+   *  más nuevos (PM-016 en adelante); null/ausente = vacía. Opcional para no romper fixtures de test. */
+  newLimitDate?: Date | null;
   entrega: "on-time" | "late" | null;         // a tiempo si End Date ≤ Limit Date (solo Done)
   cost: number;
   benefit: number;
