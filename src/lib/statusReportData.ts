@@ -129,8 +129,9 @@ function buildGanttRows(phases: PhaseSummary[], units: WorkUnit[]): GRow[] {
   phases.forEach((p, i) => {
     rows.push({ grupo: p.grupo || "Sin grupo", total: p.total, done: p.done, offTrack: p.offTrack, started: p.started, isCurrent: i === curPhaseIdx, indent: 0, units: units.filter((u) => u.grupo === p.grupo) });
     if (!isFase3(p.grupo)) return;
-    // Los entregables salen en el orden en que están en Monday (el del board), no por fecha de inicio.
-    const groups = groupFase3Units(units, p.grupo);
+    // Los entregables salen ordenados alfabéticamente (A→Z, números en orden natural).
+    const groups = [...groupFase3Units(units, p.grupo)].sort((a, b) =>
+      a.name.localeCompare(b.name, "es", { numeric: true, sensitivity: "base" }));
     if (groups.length <= 1) return;
     const stepPhases = groups.map((g) => ({
       grupo: g.name,

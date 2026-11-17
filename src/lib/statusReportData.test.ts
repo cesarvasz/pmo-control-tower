@@ -316,9 +316,8 @@ describe("buildStatusReportData — Fase 3 plantilla nueva: varios entregables '
   });
 });
 
-// El Gantt abre la Fase 3 en sus entregables y los lista en el orden en que están en Monday (el del board),
-// no ordenados por fecha de inicio.
-describe("buildStatusReportData — Fase 3: los entregables salen en el orden de Monday", () => {
+// El Gantt abre la Fase 3 en sus entregables y los lista alfabéticamente (A→Z), no por fecha ni por orden de Monday.
+describe("buildStatusReportData — Fase 3: los entregables salen en orden alfabético", () => {
   const build = (items: ProjItem[]) => {
     const summary = buildProjectSummary(items);
     const health = deriveBoardHealth(calcBoardMetrics(items, {}));
@@ -330,17 +329,17 @@ describe("buildStatusReportData — Fase 3: los entregables salen en el orden de
     }).phases.filter((p) => p.indent === 1).map((p) => p.name);
   };
 
-  it("plantilla nueva: un entregable que arranca antes pero está más abajo en Monday sigue más abajo", () => {
+  it("plantilla nueva: los entregables salen de la A a la Z, sin importar fechas ni el orden en Monday", () => {
     const items = [
       item({ id: "z", name: "Zeta", grupo: "Launch | Lanzamiento", status: "Working on it", startDate: daysFromToday(20), deadline: daysFromToday(40) }),
       item({ id: "a", name: "Alfa", grupo: "Launch | Lanzamiento", status: "Working on it", startDate: daysFromToday(-10), deadline: daysFromToday(10) }),
       item({ id: "m", name: "Medio", grupo: "Launch | Lanzamiento", status: "Future Steps", startDate: daysFromToday(5), deadline: daysFromToday(30) }),
       item({ id: "s", name: "Sin fecha", grupo: "Launch | Lanzamiento", status: "Future Steps" }),
     ];
-    expect(build(items)).toEqual(["Zeta", "Alfa", "Medio", "Sin fecha"]);
+    expect(build(items)).toEqual(["Alfa", "Medio", "Sin fecha", "Zeta"]);
   });
 
-  it("plantilla vieja: los hitos de «Desarrollo por iteraciones» salen en el orden de sus subitems en Monday", () => {
+  it("plantilla vieja: los hitos de «Desarrollo por iteraciones» salen en orden alfabético", () => {
     const items = [
       item({
         id: "dev", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", grupo: "Launch | Desarrollo", status: "Working on it",
@@ -351,7 +350,7 @@ describe("buildStatusReportData — Fase 3: los entregables salen en el orden de
         ],
       }),
     ];
-    expect(build(items)).toEqual(["Hito 2", "Hito 1", "Hito 3"]);
+    expect(build(items)).toEqual(["Hito 1", "Hito 2", "Hito 3"]);
   });
 });
 
