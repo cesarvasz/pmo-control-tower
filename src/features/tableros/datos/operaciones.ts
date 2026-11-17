@@ -18,6 +18,9 @@ import {
   validarValor, valoresIniciales, vecino, categoriaValida, esDatoDeMonday, MENSAJE_DATO_DE_MONDAY, type Columna, type Elemento, type Tablero,
 } from "../dominio/tablero";
 import { tieneAccionTableros } from "../dominio/acciones";
+import { buscarEtiqueta, esAccionCompletable, planCompletar } from "../dominio/acciones-iniciativa";
+import { columnasNuevaIni } from "../dominio/nueva-iniciativa";
+import { etiquetaStatus, type ConfigStatus } from "../dominio/tipos-columna/status";
 import { aColumna, aElemento, aGrupo, leerTablero, type Acceso } from "./tableros";
 import { ErrorTablero } from "./errores";
 import { guardarComoPlantilla } from "./plantillas";
@@ -87,6 +90,35 @@ async function historial(ctx: Ctx, elementoId: string | null, campo: string, ant
     tablero_id: ctx.tablero.id, elemento_id: elementoId, campo,
     antes: (antes ?? null) as Json, despues: (despues ?? null) as Json, usuario_id: ctx.me.uid, usuario_email: ctx.me.email,
   }));
+}
+
+/** Cambia el valor de UNA celda con todas las reglas (nivel, permiso, convivencia con Monday, tipo) y deja su historial. Devuelve el valor guardado. */
+async function escribirValor(ctx: Ctx, e: Elemento, c: Columna, crudo: unknown): Promise<unknown> {
+  if (c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "La columna no es de ese nivel");
+  exigir(ctx, "editar_valor", { elemento: e, columna: c });
+  noDeMonday(ctx, e, c);
+  if (!esEditable(c.tipo)) throw new ErrorTablero(400, esCalculado(c.tipo) ? "Esa columna se calcula sola" : "Esa columna la llena la app");
+  const valor = validarValor(c, crudo);
+  if (valor === undefined) throw new ErrorTablero(400, "Tipo de columna desconocido");
+  unwrap(await db().rpc("tablero_cambiar_valor", {
+    p_elemento: e.id, p_columna: c.id, p_valor: valor as Json, p_usuario: ctx.me.uid, p_email: ctx.me.email,
+  }));
+  return valor;
+}
+
+/** Eliminar (archivar) una iniciativa es cosa de un Admin; en los demás tableros rigen los permisos de siempre. */
+function soloAdminElimina(ctx: Ctx, e: Pick<Elemento, "parentId">): void {
+  if (ctx.tablero.categoria === "iniciativas" && !e.parentId && !ctx.acceso.usuario.esAdmin) {
+    throw new ErrorTablero(403, "Solo un Admin puede eliminar una iniciativa");
+  }
+}
+
+/** Archiva el elemento y sus subelementos (dejan de verse; nada se borra) y lo anota en el historial. */
+async function archivarElemento(ctx: Ctx, e: Elemento): Promise<void> {
+  const t = ahora();
+  unwrap(await db().from("elementos").update({ archivado_at: t }).eq("parent_id", e.id).is("archivado_at", null));
+  unwrap(await db().from("elementos").update({ archivado_at: t }).eq("id", e.id));
+  await historial(ctx, e.id, "archivado", null, { nombre: e.nombre });
 }
 
 async function tocarTablero(ctx: Ctx) {
@@ -428,11 +460,22 @@ const OPERACIONES: OperacionDef[] = [
     async ejecutar(ctx, d) {
       const e = await elemento(ctx, id(d, "elementoId"));
       exigir(ctx, "editar_valor", { elemento: e });
+      soloAdminElimina(ctx, e);
       noDeMonday(ctx, e);
-      const t = ahora();
-      unwrap(await db().from("elementos").update({ archivado_at: t }).eq("parent_id", e.id).is("archivado_at", null));
-      unwrap(await db().from("elementos").update({ archivado_at: t }).eq("id", e.id));
-      await historial(ctx, e.id, "archivado", null, { nombre: e.nombre });
+      await archivarElemento(ctx, e);
+    },
+  },
+  // Iniciativas: «Eliminar» (solo un Admin). Es el archivado de siempre: la iniciativa y sus subelementos dejan de verse en toda la app, pero
+  // sus datos, su bitácora y su historial se conservan (se puede recuperar). Las que vienen de Monday se eliminan en Monday.
+  {
+    clave: "iniciativa.eliminar",
+    async ejecutar(ctx, d) {
+      if (ctx.tablero.categoria !== "iniciativas") throw new ErrorTablero(400, "Esta acción es de las iniciativas");
+      const e = await elemento(ctx, id(d, "elementoId"));
+      if (e.parentId) throw new ErrorTablero(400, "Solo se eliminan iniciativas");
+      soloAdminElimina(ctx, e);
+      noDeMonday(ctx, e);
+      await archivarElemento(ctx, e);
     },
   },
   {
@@ -440,16 +483,67 @@ const OPERACIONES: OperacionDef[] = [
     async ejecutar(ctx, d) {
       const e = await elemento(ctx, id(d, "elementoId"));
       const c = await columna(ctx, id(d, "columnaId"));
-      if (c.nivel !== (e.parentId ? "sub" : "item")) throw new ErrorTablero(400, "La columna no es de ese nivel");
-      exigir(ctx, "editar_valor", { elemento: e, columna: c });
-      noDeMonday(ctx, e, c);
-      if (!esEditable(c.tipo)) throw new ErrorTablero(400, esCalculado(c.tipo) ? "Esa columna se calcula sola" : "Esa columna la llena la app");
-      const valor = validarValor(c, d.valor);
-      if (valor === undefined) throw new ErrorTablero(400, "Tipo de columna desconocido");
-      unwrap(await db().rpc("tablero_cambiar_valor", {
-        p_elemento: e.id, p_columna: c.id, p_valor: valor as Json, p_usuario: ctx.me.uid, p_email: ctx.me.email,
-      }));
-      return { valor };
+      return { valor: await escribirValor(ctx, e, c, d.valor) };
+    },
+  },
+
+  // Iniciativas: «✓ Completar» la acción amarilla del timeline (la Meeting 1, la Meeting 2 o el Plan Futuro): anota su fecha (columna Meet 1 / Meet 2),
+  // mueve la etapa (Status) a la de la siguiente acción elegida y deja en el historial QUÉ se completó y CUÁNDO (fecha y hora exactas).
+  {
+    clave: "iniciativa.completar",
+    async ejecutar(ctx, d) {
+      if (ctx.tablero.categoria !== "iniciativas") throw new ErrorTablero(400, "Esta acción es de las iniciativas");
+      const e = await elemento(ctx, id(d, "elementoId"));
+      if (e.parentId) throw new ErrorTablero(400, "Solo las iniciativas se completan");
+      const k = columnasNuevaIni(await columnas(ctx));
+      const accion = d.accion;
+      if (!esAccionCompletable(accion)) throw new ErrorTablero(400, "Esa acción no se completa con el botón");
+      // Las reuniones anotan su fecha (Meet 1 / Meet 2); el Plan Futuro no (su columna es la fecha en que se iba a retomar y se conserva) ni Sin Beneficio Definido.
+      const esReunion = accion === "Meeting 1" || accion === "Meeting 2";
+      const colFecha = accion === "Meeting 1" ? k.meet1 : accion === "Meeting 2" ? k.meet2 : null;
+      if (!k.status || (esReunion && !colFecha)) throw new ErrorTablero(400, `Al tablero le faltan las columnas Status${esReunion ? ` y ${accion === "Meeting 2" ? "Meet 2" : "Meet 1"}` : ""}`);
+      const config = tipoColumna("status")!.config.validar(k.status.config) as ConfigStatus;
+      const actual = e.valores[k.status.id];
+      const ahoraIso = ahora();
+      const hoyGT = new Date(Date.parse(ahoraIso) - 6 * 3600_000).toISOString().slice(0, 10); // el día en Guatemala (UTC-6)
+      const plan = planCompletar({
+        accion, statusActual: typeof actual === "string" ? etiquetaStatus(config, actual)?.texto ?? null : null, siguiente: d.siguiente, clase: d.clase,
+        fecha: d.fecha, hoy: hoyGT,
+      });
+      if (!plan.ok) throw new ErrorTablero(409, plan.error);
+      // Una Sin Beneficio Definido ya cerrada a mano con «Completar» no se completa ni se aprueba después: no se espera ninguna acción más.
+      // (El cierre automático, 5 días hábiles después del 4.º recordatorio, lo oculta la pantalla: depende del registro de envíos.)
+      if (accion === "Sin Beneficio Definido") {
+        const cierres = unwrap(await db().from("tablero_historial").select("creado_at")
+          .eq("tablero_id", ctx.tablero.id).eq("elemento_id", e.id).eq("campo", "accion")
+          .filter("despues->>accion", "eq", "Sin Beneficio Definido").filter("despues->>resultado", "eq", "sin-aprobar")
+          .order("creado_at", { ascending: false }).limit(1)) ?? [];
+        const enEspera = k.espera ? e.valores[k.espera.id] : null;
+        const diaCierre = cierres[0] ? new Date(Date.parse(cierres[0].creado_at) - 6 * 3600_000).toISOString().slice(0, 10) : null;
+        if (diaCierre && (typeof enEspera !== "string" || diaCierre >= enEspera)) throw new ErrorTablero(409, "Sin Beneficio Definido ya se cerró sin aprobar: no hay más acciones");
+      }
+      // Sin Beneficio Definido + «Completar» (statusTexto null): se cierra sin aprobar y el Status se queda como está
+      const etiqueta = plan.statusTexto ? buscarEtiqueta(config.etiquetas, plan.statusTexto) : undefined;
+      if (plan.statusTexto && !etiqueta) throw new ErrorTablero(400, `El Status no tiene la etiqueta «${plan.statusTexto}»`);
+      // Además de Meet 1/2 y el Status: Plan Futuro guarda la fecha en que se retoma (de ahí sale el recordatorio de 5 días hábiles) y
+      // Sin Beneficio Definido guarda «En Espera» = hoy (de ahí corren los recordatorios de Sin Valor Def: 10 días hábiles, máx. 4).
+      // Cerrar Sin Beneficio Definido con «Completar» marca PKU: es la casilla con la que el sistema de recordatorios deja de mandar correos.
+      const extra = plan.siguiente === "Plan Futuro" ? { col: k.planFuturo, nombre: "Plan Futuro", valor: plan.fecha as unknown, obligatoria: true }
+        : plan.siguiente === "Sin Beneficio Definido" ? { col: k.espera, nombre: "En Espera", valor: hoyGT as unknown, obligatoria: true }
+        : plan.siguiente === null ? { col: k.pku, nombre: "PKU", valor: true as unknown, obligatoria: false } : null;
+      if (extra?.obligatoria && !extra.col) throw new ErrorTablero(400, `Al tablero le falta la columna ${extra.nombre}`);
+      // Primero se revisan los permisos de todas las columnas (nada se escribe a medias por un permiso).
+      for (const c of [k.status, ...(colFecha ? [colFecha] : []), ...(extra?.col ? [extra.col] : [])]) {
+        exigir(ctx, "editar_valor", { elemento: e, columna: c });
+        noDeMonday(ctx, e, c);
+      }
+      if (colFecha) await escribirValor(ctx, e, colFecha, hoyGT);
+      if (etiqueta) await escribirValor(ctx, e, k.status, etiqueta.id);
+      if (extra?.col) await escribirValor(ctx, e, extra.col, extra.valor);
+      await historial(ctx, e.id, "accion", null, plan.siguiente === null
+        ? { accion: plan.accion, resultado: "sin-aprobar" }
+        : { accion: plan.accion, siguiente: plan.siguiente, ...(plan.clase ? { clase: plan.clase } : {}), ...(plan.fecha ? { fecha: plan.fecha } : {}) });
+      return { completadaAt: ahoraIso };
     },
   },
 

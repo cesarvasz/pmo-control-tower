@@ -24,16 +24,29 @@ interface Cambio {
 const fmtFecha = (iso: string) => new Date(iso).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" });
 const nombreDe = (v: unknown) => (v && typeof v === "object" && "nombre" in v ? String((v as { nombre: unknown }).nombre) : "");
 
-function Historial({ tableroId, elementoId, columnas, personas }: { tableroId: string; elementoId: string; columnas: Columna[]; personas: PersonaCorta[] }) {
+/** El historial de cambios de un elemento (quién cambió qué, antes → después). Lo usa el detalle genérico y el pop-up de Iniciativas. */
+export function Historial({ tableroId, elementoId, columnas, personas, nombreElemento, sinTope = false }: {
+  tableroId: string; elementoId: string; columnas: Columna[]; personas: PersonaCorta[];
+  /** Nombre de un elemento ligado (para las columnas de tipo Relación, como Estrategia). */
+  nombreElemento?(id: string): string | undefined;
+  /** Sin límite de alto propio (cuando el que lo contiene ya hace scroll). */
+  sinTope?: boolean;
+}) {
   const { data, error } = useCarga<{ historial: Cambio[] }>(`/api/tableros/tableros/${tableroId}/historial?elemento=${elementoId}`);
   const nombres = new Map(personas.map((p) => [p.id, p.nombre]));
-  const ctx = { nombrePersona: (id: string) => nombres.get(id) };
+  const ctx = { nombrePersona: (id: string) => nombres.get(id), nombreElemento };
 
   function describir(c: Cambio): string {
     if (c.campo === "creado") return "Lo creó";
     if (c.campo === "archivado") return "Lo archivó";
     if (c.campo === "nombre") return `Nombre: «${c.antes ?? ""}» → «${c.despues ?? ""}»`;
     if (c.campo === "movido") return `Lo movió de «${c.antes ?? "—"}» a «${c.despues ?? "—"}»`;
+    if (c.campo === "accion") {
+      const d = (c.despues ?? {}) as { accion?: string; siguiente?: string; clase?: string; fecha?: string; resultado?: string };
+      if (d.resultado === "sin-aprobar") return `Completó «${d.accion ?? "—"}» sin aprobar · sin más acciones (se pausan los recordatorios)`;
+      const detalle = d.clase ? ` (Clase ${d.clase})` : d.fecha ? ` (se retoma el ${d.fecha.split("-").reverse().join("/")})` : "";
+      return `Completó «${d.accion ?? "—"}» · siguiente acción: ${d.siguiente ?? "—"}${detalle}`;
+    }
     if (c.campo === "archivo") return `Subió el archivo «${nombreDe(c.despues)}»`;
     if (c.campo === "archivo_borrado") return `Quitó el archivo «${nombreDe(c.antes)}»`;
     const col = columnas.find((x) => x.id === c.columnaId);
@@ -48,7 +61,7 @@ function Historial({ tableroId, elementoId, columnas, personas }: { tableroId: s
       {error && <ErrorBox msg={error} />}
       {!data && !error && <div className="text-[0.8rem] text-[var(--text-muted)]">Cargando…</div>}
       {data && data.historial.length === 0 && <div className="text-[0.8rem] text-[var(--text-muted)]">Sin cambios registrados.</div>}
-      <ol className="flex max-h-[50vh] flex-col gap-2 overflow-y-auto">
+      <ol className={`flex flex-col gap-2 ${sinTope ? "" : "max-h-[50vh] overflow-y-auto"}`}>
         {data?.historial.map((c) => (
           <li key={c.id} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
             <div className="text-[0.82rem] text-[var(--text-primary)]">{describir(c)}</div>
@@ -60,7 +73,7 @@ function Historial({ tableroId, elementoId, columnas, personas }: { tableroId: s
   );
 }
 
-export default function ElementoPanel({ tableroId, elemento, grupos, columnas, personas, puedeEditar, esAdmin, deMonday = false, detalle, onMover, onArchivar, onCambio, onCerrar }: {
+export default function ElementoPanel({ tableroId, elemento, grupos, columnas, personas, puedeEditar, esAdmin, deMonday = false, archivaSoloAdmin = false, detalle, onMover, onArchivar, onCambio, onCerrar }: {
   tableroId: string;
   elemento: Elemento;
   grupos: Grupo[];
@@ -70,6 +83,8 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
   esAdmin: boolean;
   /** Viene de Monday (convivencia): su grupo y su archivado se cambian en Monday. */
   deMonday?: boolean;
+  /** Archivar (eliminar) este elemento es solo de un Admin (las iniciativas): a los demás no se les ofrece el botón. */
+  archivaSoloAdmin?: boolean;
   /** Todos sus campos (ver DetalleCampos): si viene, es la primera pestaña. */
   detalle?: ReactNode;
   onMover(grupoId: string): Promise<void>;
@@ -97,9 +112,11 @@ export default function ElementoPanel({ tableroId, elemento, grupos, columnas, p
               </label>
             )}
             <span className="flex-1" />
-            <Boton onClick={async () => { if (confirm(`¿Archivar «${elemento.nombre}»${elemento.parentId ? "" : " y sus subelementos"}?`)) { await onArchivar(); onCerrar(); } }}>
-              Archivar
-            </Boton>
+            {(!archivaSoloAdmin || esAdmin) && (
+              <Boton onClick={async () => { if (confirm(`¿Archivar «${elemento.nombre}»${elemento.parentId ? "" : " y sus subelementos"}?`)) { await onArchivar(); onCerrar(); } }}>
+                Archivar
+              </Boton>
+            )}
           </div>
         )}
         <div className="flex w-fit rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }} role="tablist">

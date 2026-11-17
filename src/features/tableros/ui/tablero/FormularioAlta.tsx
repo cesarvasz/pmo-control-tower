@@ -17,7 +17,7 @@ const etiqueta = "flex flex-col gap-1 text-[0.72rem] font-semibold uppercase tra
 const claseNativo = `${estiloControl.className} w-full py-1.5`;
 
 /** El control de un campo: nativo para texto, número y fecha; la celda de la tabla para el resto. */
-function Campo({ columna, valor, personas, entorno, onCambiar }: {
+export function Campo({ columna, valor, personas, entorno, onCambiar }: {
   columna: Columna; valor: unknown; personas: PersonaCorta[]; entorno: EntornoCelda; onCambiar(v: unknown): void;
 }) {
   if (columna.tipo === "texto") {

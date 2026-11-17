@@ -509,3 +509,54 @@ Iniciativas»; los grupos se mantienen.
   entonces lo que se cree en «Iniciativas 💡» SÍ cuenta allá (producción lee de los tableros).
 - Un tablero creado desde plantilla no conserva los ids de columna de Monday, y el procesador de las métricas (`iniProcess`)
   lee por ellos: las Iniciativas se crean en «Iniciativas 💡», no en un tablero nuevo.
+## 13. Rediseño de Iniciativas (reiniciado el 2026-11-16, solo local)
+
+En /tableros → «Iniciativas 💡» hay dos pestañas: **Iniciativas** (abre por defecto; en rediseño desde cero, por ahora solo
+tiene el botón «+ Nueva iniciativa») y **Tabla** (la de modelado). El Gantt no se ofrece en este tablero. Los datos no cambian.
+
+- Sigue el cálculo de la reunión desde el calendario: columnas calculadas «Reunión agendada» y «Estado de la reunión»
+  (solo **Agendada** o **Sin agendar**, por Ini ID en el calendario; ya no se distingue dentro/fuera del plazo ni «realizada»), ocultas de la fila. La flecha de la reunión en el timeline
+  dice «agendada» (con su fecha y hora) o «sin agendar · fecha límite».
+- El primer intento (lista con tarjetas-filtro, detalle por etapa, reloj del embudo, asistente «Cambiar etapa») se quitó de la app
+  y quedó respaldado fuera del repo en `respaldos/rediseno-iniciativas-v1-2026-11-16/`.
+
+### Pop-up «Nueva iniciativa» (2026-11-16)
+- `ui/iniciativas/NuevaIniciativa.tsx` + `dominio/nueva-iniciativa.ts` (columnas por tipo y título). Pestaña **Datos**: Nombre, PM,
+  CKU, Estrategia y Proceso; el Sponsor se ve solo (espejo de la Estrategia, calculado sobre el borrador). Pestaña **Bitácora**: se
+  escribe y adjunta antes de crear y se publica al crear (`publicarComentario` / `CajaComentario` de Bitacora.tsx).
+- Status New y grupo «Nuevas Iniciativas» los pone la categoría (no se muestran). Ini ID (IN-###) y Creation log los pone la app.
+- Al crear, el pop-up sigue abierto: fecha de creación, **fecha límite de la Meeting 1** (5 días hábiles sin fines de semana ni
+  asuetos; columna calculada oculta «Fecha límite») y si la reunión ya está agendada en el calendario (por Ini ID).
+- Columna **Proceso** (lista desplegable, una sola opción; 20 opciones cargadas el 2026-11-16: Air&Sea, Escrito, UPS-GLD… Aduana) — obligatoria al crear.
+  **CKU** y **Estrategia** también son de una sola opción.
+- Ya creada: timeline de flechas arriba (Creado → Meeting 1; ver `TimelineIniciativa.tsx` y `pasosIniciativa`), Datos editables en su lugar
+  (salvo lo que viene de Monday, con 🔒) y una tarjeta «Beneficio, presupuesto y KPI» (columnas Benefit, Presupuesto, KPI y Tipo de
+  iniciativa: Legal / Normativo / Estratégico). Pestañas: **Datos · Bitácora** (solo comentarios y adjuntos; Ctrl+V pega imágenes) ·
+  **Historial** (cambios de datos: quién, cuándo, antes → después; el mismo componente `Historial` del detalle genérico).
+- **✓ Completar la acción amarilla** (2026-11-16; la Meeting 1, la Meeting 2, el Plan Futuro y Sin Beneficio Definido): botón en la flecha → panel dentro del pop-up (`CompletarAccion.tsx`)
+  con la fecha y hora que se anotan, la **siguiente acción** (tras la Meeting 1: Meeting 2 · Plan Futuro · Sin Beneficio Definido · Aprobada; tras la Meeting 2: las mismas sin la Meeting 2; Aprobada pide la Clase A/B/C)
+  y confirmar. Operación `iniciativa.completar` {accion, siguiente, clase?} (dominio/acciones-iniciativa.ts): escribe **Meet 1** o **Meet 2** = hoy (día en Guatemala), mueve el **Status**
+  a la etapa de la acción elegida (Meeting 2 → «Meeting 1» · Plan Futuro → «Plan Futuro» · Sin Beneficio Definido → «Sin Valor Def» · Aprobada →
+  PM "A/B/C") y deja en el historial un cambio `accion` {accion, siguiente, clase?}: de ahí sale la hora exacta que muestra el timeline.
+  **Plan Futuro** también se completa (solo desde «Plan Futuro»): ofrece Sin Beneficio Definido o Aprobada (con su Clase) y funcionan igual que desde las reuniones; no escribe fecha propia (la de «Plan Futuro» se conserva) y el timeline la muestra en verde con su hora. **Sin Beneficio Definido** (etapa «Sin Valor Def») tiene dos opciones: **Completar** (se cierra sin aprobar: el Status no cambia, se marca PKU para pausar los correos y queda en el historial
+  `accion` {resultado: "sin-aprobar"}) o **Aprobada** (con su Clase). También se cierra SOLA: con los 4 recordatorios enviados y 5 días hábiles después del último, sin aprobarse, queda en verde
+  con el mismo status. Cerrada (a mano o sola) ya no se espera ni se completa nada (columna calculada oculta «Cierre de espera», campo `espera_cierre`; el cierre sola depende del registro de
+  envíos del Apps Script). La Meeting 1 solo se completa desde New y la Meeting 2 solo desde «Meeting 1» (la reunión pendiente). Plazos: la Meeting 2 usa los 10 días hábiles desde la creación (o desde Plan Futuro) y, si hay reunión M2 agendada en el calendario, su fecha reemplaza a la fecha límite. Lo de Monday (Status y Meet 1 de las iniciativas que vienen de Monday) no se completa aquí hasta el corte. Sin «deshacer» todavía.
+  **Plan Futuro** pide la fecha en que se retoma (posterior a hoy; columna «Plan Futuro») y el timeline muestra debajo el **recordatorio a 5 días hábiles
+  antes** (el mismo cálculo de la tabla Plan Futuro de /iniciativas; solo se muestra, no manda correo). **Sin Beneficio Definido** = «Sin Valor Def»: se anota
+  «En Espera» = hoy y corren los mismos recordatorios (correo al CKU cada 10 días hábiles, máx. 4, PKU los pausa; el timeline muestra el 1.º).
+  OJO: ese correo lo manda el Apps Script `sin-valor-def-reminders.gs`, que lee el board de Monday: las iniciativas nacidas en la app no lo reciben hasta
+  apuntarlo a la app (trabajo del corte). Y `holidays.ts` solo trae los asuetos de 2026: los recordatorios de fechas de 2027 no descuentan sus asuetos.
+  El timeline sigue la etapa: Meeting 1 ✓ → la acción elegida en amarillo (las acciones específicas de cada una se definen después).
+- **Eliminar una iniciativa** (solo Admin): botón «🗑 Eliminar iniciativa» en el pie del pop-up (con confirmación). Operación `iniciativa.eliminar`: es el archivado de siempre, la iniciativa y sus
+  subelementos dejan de verse en toda la app pero NO se borran de la base (bitácora, archivos e historial quedan; se recupera quitando `archivado_at`). El servidor exige Admin (también en el
+  archivado genérico `elemento.archivar` de las iniciativas) y las que vienen de Monday no se eliminan aquí hasta el corte.
+- **Status que se muestra** (lista y encabezado del pop-up): **On Track / Off Track**, derivado de la «Salud» que ya calcula la app
+  (la del EVM del PM; `statusIni`: Off track → Off Track, On track y At risk → On Track, sin salud → «—»). La etapa real (New,
+  Meeting 1, PM "A"…) sigue guardada en la columna Status y sigue mandando el timeline y las métricas; solo dejó de mostrarse. Fuera del embudo el Status
+  que se muestra es lo que es, con el color de su etapa: **Plan Futuro**, **Sin Beneficio Definido** (la etapa «Sin Valor Def») y **Aprobada · Clase X** (PM "X"); las aprobadas
+  tienen «Próxima Acción» vacía. Solo New / Meeting 1 / Meeting 2 muestran On/Off Track.
+- **Próxima Acción** (columna calculada por la app, campo `proxima_accion`; en la Tabla y en la lista): la fecha de lo que sigue, la misma que va bajo la flecha amarilla.
+  Meeting 1 y 2: la reunión agendada o, si no hay, la fecha límite · Plan Futuro: cuándo se retoma · Sin Valor Def: el próximo recordatorio (`esperaReminderInfo`, con el
+  registro de envíos del Apps Script si `REMINDERS_WEBAPP_URL` está configurada; sin ella, el 1.º a 10 días hábiles de «En Espera») · Aprobadas y demás: vacío por ahora.
+  En la lista sale en rojo si ya pasó y «hoy» si es hoy.

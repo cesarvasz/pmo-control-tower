@@ -20,9 +20,13 @@ import { getSupabaseBrowser } from "@/lib/supabase-browser";
 import ColumnaEditor, { type CambiosColumna } from "../columnas/ColumnaEditor";
 import ElementoPanel from "./ElementoPanel";
 import FormularioAlta from "./FormularioAlta";
+import NuevaIniciativa from "../iniciativas/NuevaIniciativa";
+import ListaIniciativas from "../iniciativas/ListaIniciativas";
 import DetalleCampos from "./DetalleCampos";
 import ColumnasMenu from "./ColumnasMenu";
 import { altaConFormulario, columnasDelFormulario, grupoInicialId, valoresDeAlta } from "../../dominio/formulario-alta";
+import { columnasNuevaIni } from "../../dominio/nueva-iniciativa";
+import { AGENDAR_REUNIONES_ACTIVO, puedeAgendarIniciativa } from "../../dominio/reunion-iniciativa";
 import CompararModal from "./CompararModal";
 import GuardarPlantillaModal from "./GuardarPlantillaModal";
 import { botonMini, NuevoElemento, TextoEditable } from "./piezas";
@@ -56,10 +60,10 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
   const [busca, setBusca] = useState("");
-  const [vistaClave, setVistaClave] = useState(VISTAS[0].clave);
+  const [vistaClave, setVistaClave] = useState<string | null>(null);
   const [modal, setModal] = useState<"comparar" | "plantilla" | null>(null);
   /** Formulario de alta abierto (categorías con altaConFormulario): grupoId null = el grupo por defecto. */
-  const [alta, setAlta] = useState<{ grupoId: string | null } | null>(null);
+  const [alta, setAlta] = useState<{ grupoId: string | null; existenteId?: string } | null>(null);
   const { me } = useMe();
 
   const alternar = (set: Set<string>, id: string) => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
@@ -81,6 +85,11 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
 
   /** Cambio de celda: se ve al instante y se guarda en segundo plano. */
   function cambiarValor(e: Elemento, c: Columna, valor: unknown) {
+    guardarValor(e, c, valor).catch(() => {});
+  }
+
+  /** Igual que cambiarValor, pero se puede esperar: rechaza si el servidor no lo guardó. */
+  async function guardarValor(e: Elemento, c: Columna, valor: unknown) {
     setFallo(null);
     setData((d) => d && {
       ...d,
@@ -91,8 +100,13 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         return { ...x, valores };
       }),
     });
-    enviar(url, "POST", { op: "valor.cambiar", elementoId: e.id, columnaId: c.id, valor })
-      .catch((err) => { setFallo(err instanceof Error ? err.message : "Error"); void recargar(); });
+    try {
+      await enviar(url, "POST", { op: "valor.cambiar", elementoId: e.id, columnaId: c.id, valor });
+    } catch (err) {
+      setFallo(err instanceof Error ? err.message : "Error");
+      void recargar();
+      throw err;
+    }
   }
 
   // Fórmulas, espejos y archivos: se calculan aquí con el mismo código que usan las métricas.
@@ -110,7 +124,12 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
 
   if (!data || !calc) return error ? <ErrorBox msg={error} /> : <Loader />;
 
-  const VistaElegida = VISTAS.find((v) => v.clave === vistaClave)?.Componente;
+  // Iniciativas: su propia pestaña (en rediseño: por ahora solo «Nueva iniciativa») y la Tabla; sin Gantt.
+  const esIni = data.tablero.categoria === "iniciativas";
+  const vistasTablero = esIni ? [{ clave: "iniciativas", etiqueta: "Iniciativas" }, ...VISTAS.filter((v) => v.clave !== "gantt")] : VISTAS;
+  const vistaActual = vistaClave ?? (esIni ? "iniciativas" : VISTAS[0].clave);
+  const enIni = vistaActual === "iniciativas";
+  const VistaElegida = VISTAS.find((v) => v.clave === vistaActual)?.Componente;
 
   const entorno: EntornoCelda = {
     ligados: data.ligados,
@@ -275,6 +294,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
           valor={tablero.nombre} editable={puedeEstructura && !tablero.sincronizaMonday} className="text-lg font-bold text-[var(--text-primary)]"
           onGuardar={(nombre) => { if (nombre) hacer({ op: "tablero.editar", nombre }); }}
         />
+        {!enIni && (<>
         <TextoEditable
           valor={tablero.codigo ?? ""} editable={puedeEstructura && !tablero.sincronizaMonday} placeholder="(sin código)" max={30}
           className="text-[0.8rem] text-[var(--text-muted)]" onGuardar={(codigo) => hacer({ op: "tablero.editar", codigo })}
@@ -299,36 +319,38 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
             Archivar tablero
           </Boton>
         )}
+        </>)}
       </div>
 
-      {faltan.length > 0 && (
+      {!enIni && faltan.length > 0 && (
         <Nota>
           Para medirse como <strong>{categoriaTablero(tablero.categoria)?.etiqueta}</strong> le faltan columnas con rol:{" "}
           {faltan.map(textoRolRequerido).join(", ")}.
         </Nota>
       )}
-      {tablero.sincronizaMonday && (
+      {!enIni && tablero.sincronizaMonday && (
         <Nota>
           Este tablero se sincroniza con Monday. Los datos que vienen de allá (columnas marcadas <strong>M</strong>, nombres, grupos de los elementos
           y archivado) se cambian en Monday y llegan con la sincronización. Aquí puedes modelar: columnas propias, títulos, roles, tipos, fórmulas y grupos.
         </Nota>
       )}
-      {soloLoMio && <Nota>Solo ves los elementos donde eres responsable (y su contexto).</Nota>}
+      {!enIni && soloLoMio && <Nota>Solo ves los elementos donde eres responsable (y su contexto).</Nota>}
       {fallo && <Nota tono="mal">{fallo}</Nota>}
-      {traidos && <Nota tono="ok">{traidos}</Nota>}
+      {!enIni && traidos && <Nota tono="ok">{traidos}</Nota>}
 
       {/* Barra */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }} role="tablist" aria-label="Vista">
-          {VISTAS.map((v) => (
-            <button key={v.clave} type="button" role="tab" aria-selected={vistaClave === v.clave} onClick={() => setVistaClave(v.clave)}
+          {vistasTablero.map((v) => (
+            <button key={v.clave} type="button" role="tab" aria-selected={vistaActual === v.clave} onClick={() => setVistaClave(v.clave)}
               className="rounded-md px-3 py-1 text-[0.8rem] font-bold"
-              style={vistaClave === v.clave ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-muted)" }}>
+              style={vistaActual === v.clave ? { background: "var(--accent)", color: "#fff" } : { color: "var(--text-muted)" }}>
               {v.etiqueta}
             </button>
           ))}
         </div>
         {formulario && puedeCrear && <Boton primario onClick={() => setAlta({ grupoId: null })}>+ Nueva {formulario.sustantivo}</Boton>}
+        {!enIni && (<>
         {puedeEstructura && <Boton onClick={() => hacer({ op: "grupo.crear" })}>+ Grupo</Boton>}
         {puedeEstructura && <Boton onClick={() => setEditorCol({ columna: null, nivel: "item" })}>+ Columna</Boton>}
         {puedeEstructura && (
@@ -341,11 +363,18 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         <span className="text-[0.75rem] text-[var(--text-muted)]">
           {elementos.filter((e) => !e.parentId).length} elementos · {elementos.filter((e) => e.parentId).length} subelementos
         </span>
+        </>)}
       </div>
 
       {/* Otra vista (Gantt…), o la tabla editable */}
       {VistaElegida && <VistaElegida datos={data} calc={calc} busca={busca} onAbrir={setPanel} />}
-      {!VistaElegida && grupos.map((g, gi) => {
+      {enIni && (
+        <ListaIniciativas
+          columnas={columnas} elementos={elementos.filter((e) => !e.parentId)} personas={personas}
+          valorDe={(e, c) => valorDeCelda(calc, e, c)} onAbrir={(id) => setAlta({ grupoId: null, existenteId: id })}
+        />
+      )}
+      {!VistaElegida && vistaActual === "tabla" && grupos.map((g, gi) => {
         const items = itemsDe(g);
         const plegado = plegados.has(g.id);
         const color = g.color ?? "var(--accent)";
@@ -453,7 +482,47 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         />
       )}
 
-      {alta && formulario && (
+      {alta && formulario && esIni && (
+        <NuevaIniciativa
+          key={alta.existenteId ?? "nueva"} tableroId={tablero.id} existenteId={alta.existenteId} columnas={columnas} personas={personas} entorno={entorno} esAdmin={u.esAdmin}
+          grupoId={alta.grupoId ?? grupoInicialId(tablero.categoria, grupos)} valoresIniciales={valoresDeAlta(tablero.categoria, columnas)}
+          editable={(c) => puede(u, "editar_valor", tablero, R, { columna: c })}
+          previsualizar={(valores) => {
+            // El elemento como quedaría, para ver lo que se calcula solo (el Sponsor, de la Estrategia).
+            const borrador = { ...(elementos.find((e) => !e.parentId) ?? ({} as Elemento)), id: "borrador", parentId: null, nombre: "", valores };
+            const c2 = calcularTablero({ columnas, elementos: [borrador] }, { personas: new Map(data.personas.map((p) => [p.id, p])), ligados: data.ligados });
+            return (c) => valorDeCelda(c2, borrador, c);
+          }}
+          creada={(id) => {
+            const e = elementos.find((x) => x.id === id);
+            return e ? {
+              nombre: e.nombre, valorDe: (c) => valorDeCelda(calc, e, c), editable: (c) => editableCelda(e, c),
+              nombreEditable: puede(u, "editar_valor", tablero, R, { elemento: e, columna: NOMBRE }) && !esDatoDeMonday(tablero, e),
+              deMonday: esDatoDeMonday(tablero, e),
+              puedeAgendar: AGENDAR_REUNIONES_ACTIVO && !!me?.permissions.actions.schedule_meetings && puedeAgendarIniciativa(u, (() => { const pm = columnasNuevaIni(columnas).pm; return pm ? e.valores[pm.id] : null; })()),
+              puedeCompletar: (accion) => {
+                const k = columnasNuevaIni(columnas);
+                // Solo las reuniones anotan su fecha (Meet 1 / Meet 2); el Plan Futuro y Sin Beneficio Definido solo necesitan poder cambiar el Status
+                const fecha = accion === "Meeting 2" ? k.meet2 : accion === "Meeting 1" ? k.meet1 : null;
+                const esReunion = accion === "Meeting 1" || accion === "Meeting 2";
+                return !!k.status && editableCelda(e, k.status) && (!esReunion || (!!fecha && editableCelda(e, fecha)));
+              },
+            } : null;
+          }}
+          onCrear={async (d) => ((await op({ op: "elemento.crear", grupoId: d.grupoId, nombre: d.nombre, valores: d.valores })) as { id: string }).id}
+          onCambiarValor={async (id, c, v) => {
+            const e = elementos.find((x) => x.id === id);
+            if (!e) throw new Error("No se encontró la iniciativa");
+            await guardarValor(e, c, v);
+          }}
+          onRenombrar={async (id, nombre) => { await op({ op: "elemento.renombrar", elementoId: id, nombre }); }}
+          onEliminar={async (id) => { await op({ op: "iniciativa.eliminar", elementoId: id }); }}
+          onCompletar={async (id, d) => { await op({ op: "iniciativa.completar", elementoId: id, accion: d.accion, siguiente: d.siguiente, clase: d.clase, fecha: d.fecha }); }}
+          onCambio={() => { void recargar(); }}
+          onCerrar={() => setAlta(null)}
+        />
+      )}
+      {alta && formulario && !esIni && (
         <FormularioAlta
           sustantivo={formulario.sustantivo} grupos={grupos} grupoInicial={alta.grupoId ?? grupoInicialId(tablero.categoria, grupos)}
           columnas={columnasDelFormulario(columnas).filter((c) => puede(u, "editar_valor", tablero, R, { columna: c }))}
@@ -476,7 +545,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
         <ElementoPanel
           tableroId={tablero.id} elemento={elementoPanel} grupos={grupos} columnas={columnas} personas={personas}
           puedeEditar={puede(u, "editar_valor", tablero, R, { elemento: elementoPanel })} esAdmin={u.esAdmin}
-          deMonday={esDatoDeMonday(tablero, elementoPanel)}
+          deMonday={esDatoDeMonday(tablero, elementoPanel)} archivaSoloAdmin={esIni && !elementoPanel.parentId}
           detalle={(
             <DetalleCampos
               columnas={columnasDe(columnas, elementoPanel.parentId ? "sub" : "item", true)} elementoId={elementoPanel.id}

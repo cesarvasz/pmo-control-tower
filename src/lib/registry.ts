@@ -67,6 +67,7 @@ export const ACTIONS: ActionDef[] = [
   { key: "edit_on_hold", label: "Poner Proyectos y PML en On Hold", description: "Pausar un Proyecto o un PML (On Hold) y reactivarlo. Mientras está en On Hold no cuenta en ninguna métrica." },
   { key: "edit_clasificacion", label: "Clasificar Proyectos y PML (Clase A, B o C)", description: "Asignar la Clase A, B o C de cada Proyecto y PML desde la pestaña Clasificación de Calidad & Cumplimiento." },
   { key: "edit_implementacion_metas", label: "Editar cumplimiento de Implementación", description: "Capturar y modificar el cumplimiento por cliente (Vol y CM1) y el % a alcanzar por mes de la pestaña Implementación en ROI." },
+  { key: "schedule_meetings", label: "Agendar reuniones de Iniciativas (Google Calendar)", description: "Agendar, reprogramar y cancelar la Meeting 1 y la Meeting 2 de una iniciativa desde la app, en el Google Calendar del propio usuario (con Meet e invitaciones por correo). Un PM solo agenda las iniciativas donde es el PM; Admin, cualquiera." },
 ];
 
 // Páginas "puras" (sin requiredAction) — las únicas que van en el mapa de

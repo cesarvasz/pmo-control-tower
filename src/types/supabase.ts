@@ -459,6 +459,50 @@ export type Database = {
           },
         ]
       }
+      google_conexiones: {
+        Row: {
+          actualizado_at: string
+          conectado_at: string
+          estado: string
+          google_email: string
+          google_sub: string
+          scopes: string[]
+          secreto_id: string
+          ultimo_error: string | null
+          usuario_id: string
+        }
+        Insert: {
+          actualizado_at?: string
+          conectado_at?: string
+          estado?: string
+          google_email: string
+          google_sub: string
+          scopes?: string[]
+          secreto_id: string
+          ultimo_error?: string | null
+          usuario_id: string
+        }
+        Update: {
+          actualizado_at?: string
+          conectado_at?: string
+          estado?: string
+          google_email?: string
+          google_sub?: string
+          scopes?: string[]
+          secreto_id?: string
+          ultimo_error?: string | null
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_conexiones_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: true
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       implementacion_metas_cliente: {
         Row: {
           cliente: string
@@ -904,6 +948,99 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      reuniones: {
+        Row: {
+          actualizado_at: string
+          cancelada_at: string | null
+          codigo: string
+          creado_at: string
+          creado_por: string | null
+          descripcion: string | null
+          elemento_id: string | null
+          enlace_google: string | null
+          estado: string
+          fin: string
+          google_calendar_id: string | null
+          google_etag: string | null
+          google_event_id: string | null
+          id: string
+          inicio: string
+          invitados: Json
+          meet_url: string | null
+          organizador_email: string | null
+          organizador_id: string | null
+          origen: string
+          tipo: string
+          titulo: string
+          zona: string
+        }
+        Insert: {
+          actualizado_at?: string
+          cancelada_at?: string | null
+          codigo: string
+          creado_at?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          elemento_id?: string | null
+          enlace_google?: string | null
+          estado?: string
+          fin: string
+          google_calendar_id?: string | null
+          google_etag?: string | null
+          google_event_id?: string | null
+          id?: string
+          inicio: string
+          invitados?: Json
+          meet_url?: string | null
+          organizador_email?: string | null
+          organizador_id?: string | null
+          origen?: string
+          tipo: string
+          titulo: string
+          zona?: string
+        }
+        Update: {
+          actualizado_at?: string
+          cancelada_at?: string | null
+          codigo?: string
+          creado_at?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          elemento_id?: string | null
+          enlace_google?: string | null
+          estado?: string
+          fin?: string
+          google_calendar_id?: string | null
+          google_etag?: string | null
+          google_event_id?: string | null
+          id?: string
+          inicio?: string
+          invitados?: Json
+          meet_url?: string | null
+          organizador_email?: string | null
+          organizador_id?: string | null
+          origen?: string
+          tipo?: string
+          titulo?: string
+          zona?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reuniones_elemento_id_fkey"
+            columns: ["elemento_id"]
+            isOneToOne: false
+            referencedRelation: "elementos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reuniones_organizador_id_fkey"
+            columns: ["organizador_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       roles: {
         Row: {
@@ -1359,6 +1496,17 @@ export type Database = {
     }
     Functions: {
       borrar_grupo: { Args: { p_id: string }; Returns: undefined }
+      google_guardar_conexion: {
+        Args: {
+          p_google_email: string
+          p_google_sub: string
+          p_refresh_token: string
+          p_scopes: string[]
+          p_usuario: string
+        }
+        Returns: undefined
+      }
+      google_leer_token: { Args: { p_usuario: string }; Returns: string }
       guardar_fechas_preprod: {
         Args: { p_by: string; p_fechas: string[] }
         Returns: undefined

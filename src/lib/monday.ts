@@ -4,6 +4,8 @@
 
 import { decidirFuente, fuenteDatos, type FuenteEfectiva } from "@/lib/fuenteDatos";
 import { soloBoardsDeProyecto } from "@/lib/proj";
+import { reunionesParaCalendario } from "@/lib/reuniones";
+import { unirCalendarios } from "@/lib/reunionesImportacion";
 import type {
   CalMeetingRaw,
   DashboardRaw,
@@ -44,31 +46,36 @@ export async function mondayFetch<T>(query: string, variables?: Record<string, u
   return json.data;
 }
 
-/** Web App de Google: ahora devuelve calendario + hoja en un solo objeto.
- *  Retrocompatible: si la respuesta es un array (formato viejo) = solo calendario. */
+/** Web App de Google (Apps Script) TAL CUAL: calendario + hoja, sin las reuniones de la app. Lo usa la importación del histórico.
+ *  Retrocompatible: si la respuesta es un array (formato viejo) = solo calendario. Lanza si no responde. */
+export async function fetchWebAppCrudo(): Promise<{ calData: CalMeetingRaw[]; sheetRows: SheetRow[] }> {
+  const res = await fetch(env("CALENDAR_WEBAPP_URL"), { redirect: "follow", cache: "no-store" });
+  const json = await res.json();
+  return Array.isArray(json)
+    ? { calData: json as CalMeetingRaw[], sheetRows: [] as SheetRow[] }
+    : { calData: (json.calendar ?? []) as CalMeetingRaw[], sheetRows: (json.sheet ?? []) as SheetRow[] };
+}
+
+/** El calendario del sistema: las reuniones de la base (agendadas desde la app o importadas) más lo que todavía sirva el Apps Script,
+ *  sin repetir la misma reunión (la de la base gana). Cuando el histórico ya esté importado y se apague el Apps Script, queda solo la base. */
 export async function fetchWebApp(): Promise<{ calData: CalMeetingRaw[]; sheetRows: SheetRow[] }> {
   try {
-    const res = await fetch(env("CALENDAR_WEBAPP_URL"), {
-      redirect: "follow",
-      cache: "no-store",
-    });
-    const json = await res.json();
-    if (Array.isArray(json)) {
-      return { calData: json as CalMeetingRaw[], sheetRows: [] };
-    }
-    return {
-      calData: (json.calendar ?? []) as CalMeetingRaw[],
-      sheetRows: (json.sheet ?? []) as SheetRow[],
-    };
+    const web = await fetchWebAppCrudo();
+    return { ...web, calData: unirCalendarios(await reunionesAgendadasEnApp(), web.calData) };
   } catch (e) {
     console.warn("WebApp fetch failed:", e);
-    return { calData: [], sheetRows: [] };
+    return { calData: await reunionesAgendadasEnApp(), sheetRows: [] };
   }
+}
+
+/** Las reuniones agendadas desde la app (tabla reuniones), con la forma del calendario; si no se pueden leer, no hay (nunca rompe el dashboard). */
+async function reunionesAgendadasEnApp(): Promise<CalMeetingRaw[]> {
+  try { return await reunionesParaCalendario(); } catch (e) { console.warn("Reuniones de la app: no se pudieron leer:", e instanceof Error ? e.message : e); return []; }
 }
 
 /** Web App del Apps Script de recordatorios: devuelve el registro de correos enviados.
  *  Opcional: si REMINDERS_WEBAPP_URL no está configurado o falla, retorna []. */
-async function fetchReminderLog(): Promise<ReminderEnvio[]> {
+export async function fetchReminderLog(): Promise<ReminderEnvio[]> {
   const url = process.env.REMINDERS_WEBAPP_URL;
   if (!url) return [];
   try {

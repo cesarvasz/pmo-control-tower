@@ -3,14 +3,15 @@
 // dominio/calculadas-iniciativas.ts. Solo trae lo de fuera (calendario, causas de atraso y de
 // reproceso) si alguna columna lo necesita.
 
-import { buildCalMap, iniProcess } from "@/lib/ini";
-import { fetchWebApp } from "@/lib/monday";
+import { buildCalMap, buildReminderMap, iniProcess } from "@/lib/ini";
+import { fetchReminderLog, fetchWebApp } from "@/lib/monday";
 import { getAttributions } from "@/lib/store";
-import type { CalMap } from "@/types";
+import { getSupabaseAdmin, unwrap } from "@/lib/supabase-admin";
+import type { CalMap, ReminderRecord } from "@/types";
 import type { DelayMap } from "@/lib/delay";
 import { tableroAMondayItems, type PersonaMetricas } from "../dominio/metricas";
 import {
-  camposApp, NECESITA_ATRASOS, NECESITA_CALENDARIO, NECESITA_REPROCESOS, valoresIniciativa, type ValorApp,
+  camposApp, NECESITA_ATRASOS, NECESITA_CALENDARIO, NECESITA_CIERRES, NECESITA_RECORDATORIOS, NECESITA_REPROCESOS, valoresIniciativa, type ValorApp,
 } from "../dominio/calculadas-iniciativas";
 import { app, type ConfigApp } from "../dominio/tipos-columna/app";
 import type { TableroCompleto } from "../dominio/tablero";
@@ -24,6 +25,31 @@ async function leerCalendario(): Promise<CalMap | undefined> {
     console.warn("Calculadas por la app: no se pudo leer el calendario:", e instanceof Error ? e.message : e);
     return undefined;
   }
+}
+
+/** Los correos «Sin Valor Def» ya enviados, por Ini ID; undefined si no se pudo leer (sin registro no se afirma qué recordatorio toca). */
+async function leerRecordatorios(): Promise<Map<string, ReminderRecord> | undefined> {
+  try {
+    return buildReminderMap(await fetchReminderLog());
+  } catch (e) {
+    console.warn("Calculadas por la app: no se pudo leer el registro de recordatorios:", e instanceof Error ? e.message : e);
+    return undefined;
+  }
+}
+
+/** El día (hora de Guatemala) en que se cerró a mano Sin Beneficio Definido con «Completar», por elemento: la última vez que quedó en el historial. */
+export async function leerCierres(tableroId: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  try {
+    const filas = unwrap(await getSupabaseAdmin().from("tablero_historial").select("elemento_id, creado_at")
+      .eq("tablero_id", tableroId).eq("campo", "accion")
+      .filter("despues->>accion", "eq", "Sin Beneficio Definido").filter("despues->>resultado", "eq", "sin-aprobar")
+      .order("creado_at", { ascending: true })) ?? [];
+    for (const f of filas) if (f.elemento_id) out.set(f.elemento_id, new Date(Date.parse(f.creado_at) - 6 * 3600_000).toISOString().slice(0, 10)); // UTC-6
+  } catch (e) {
+    console.warn("Calculadas por la app: no se pudieron leer los cierres:", e instanceof Error ? e.message : e);
+  }
+  return out;
 }
 
 async function leerAtribuciones(clase: "delay" | "reproceso"): Promise<DelayMap | undefined> {
@@ -44,10 +70,12 @@ export async function valoresApp(t: TableroCompleto, personas: Map<string, Perso
   const campos = new Set(usadas.map((u) => u.campo));
   const quiere = (grupo: Set<string>) => [...campos].some((c) => grupo.has(c));
 
-  const [calMap, atrasos, reprocesos] = await Promise.all([
+  const [calMap, atrasos, reprocesos, recordatorios, cierres] = await Promise.all([
     quiere(NECESITA_CALENDARIO) ? leerCalendario() : undefined,
     quiere(NECESITA_ATRASOS) ? leerAtribuciones("delay") : undefined,
     quiere(NECESITA_REPROCESOS) ? leerAtribuciones("reproceso") : undefined,
+    quiere(NECESITA_RECORDATORIOS) ? leerRecordatorios() : undefined,
+    quiere(NECESITA_CIERRES) ? leerCierres(t.tablero.id) : undefined,
   ]);
 
   const porId = new Map(tableroAMondayItems(t, personas).map((i) => [i.id, i]));
@@ -56,7 +84,7 @@ export async function valoresApp(t: TableroCompleto, personas: Map<string, Perso
     if (e.parentId) continue;
     const item = porId.get(e.mondayItemId ?? e.id);
     const ini = item ? iniProcess([item])[0] : undefined;
-    const v = ini ? valoresIniciativa(ini, { calMap, atrasos, reprocesos }) : {};
+    const v = ini ? valoresIniciativa(ini, { calMap, atrasos, reprocesos, recordatorios, cierreManual: cierres?.get(e.id) ?? null }) : {};
     out[e.id] = Object.fromEntries(usadas.map((u) => [u.id, v[u.campo] ?? null]));
   }
   return out;
