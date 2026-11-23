@@ -5,8 +5,10 @@
 import { getSupabaseAdmin, selectAll, unwrap } from "@/lib/supabase-admin";
 import { leerBoardsEspejo } from "@/lib/mondayMirrorRead";
 import { sincronizarBoard } from "@/lib/mondayMirrorSync";
-import type { Json, Tables, TablesInsert } from "@/types/supabase";
-import { ligarPorEmail, normalizarEmail, personaDesdeRh, type Persona } from "../dominio/personas";
+import type { Json, Tables, TablesInsert, TablesUpdate } from "@/types/supabase";
+import {
+  ligarPorEmail, normalizarEmail, personaDesdeRh, validarCampoPersona, validarPersonaNueva, CAMPOS_PERSONA, type CampoPersona, type Persona,
+} from "../dominio/personas";
 import { validarDefinicionCampo, validarValorCampo, type CampoDirectorio, type TipoCampoDirectorio } from "../dominio/directorio-campos";
 import { ErrorTablero } from "./errores";
 
@@ -62,10 +64,25 @@ export interface ResultadoImportacion {
   aviso: string | null;
 }
 
-/** Importa (o vuelve a importar) el Directorio RH. Idempotente: casa por monday_item_id. */
+// ── Corte del Directorio RH ─────────────────────────────────────────────────
+// Mientras no se corta, Monday manda: los campos fijos (nombre, correo, grupo, rol, TLD, horas, activo) llegan con la
+// sincronización. Cortado (monday_boards.cortado_at del board RH), manda la app: ya no se importa y se editan aquí.
+
+export const MENSAJE_DIRECTORIO_DE_MONDAY = "Mientras el Directorio RH se sincroniza con Monday, estos datos se cambian en Monday.";
+
+/** ¿El Directorio RH ya se cortó de Monday? */
+export async function directorioCortado(): Promise<boolean> {
+  const rhId = process.env.MONDAY_RH_BOARD_ID;
+  if (!rhId) return false;
+  const r = unwrap(await getSupabaseAdmin().from("monday_boards").select("cortado_at").eq("id", rhId).maybeSingle());
+  return !!r?.cortado_at;
+}
+
+/** Importa (o vuelve a importar) el Directorio RH. Idempotente: casa por monday_item_id. Después del corte ya no se importa. */
 export async function importarPersonasDesdeMonday(refrescar: boolean): Promise<ResultadoImportacion> {
   const rhId = process.env.MONDAY_RH_BOARD_ID;
   if (!rhId) throw new Error("Falta la variable de entorno MONDAY_RH_BOARD_ID");
+  if (await directorioCortado()) throw new ErrorTablero(409, "El Directorio ya se cortó de Monday: las personas se editan en la app.");
 
   let aviso: string | null = null;
   if (refrescar) {
@@ -197,5 +214,65 @@ export async function guardarValorCampo(personaId: string, campoId: string, valo
   if (limpio === null) delete extra[campoId];
   else extra[campoId] = limpio;
   unwrap(await db.from("personas").update({ extra: extra as Json, actualizado_at: new Date().toISOString() }).eq("id", personaId));
+  return limpio;
+}
+
+// ── Personas editadas en la app (después del corte) ─────────────────────────
+
+/** Si hay un usuario de la app con ese correo y no está ligado a otra persona, su id (para ligarlo solo). */
+async function usuarioLibrePorCorreo(email: string | null, personaId: string | null): Promise<string | null> {
+  if (!email) return null;
+  const db = getSupabaseAdmin();
+  const u = unwrap(await db.from("app_users").select("id").ilike("email", email).maybeSingle());
+  if (!u) return null;
+  const otra = unwrap(await db.from("personas").select("id").eq("app_user_id", u.id).maybeSingle());
+  return otra && otra.id !== personaId ? null : u.id;
+}
+
+async function exigirCorte(): Promise<void> {
+  if (!(await directorioCortado())) throw new ErrorTablero(409, MENSAJE_DIRECTORIO_DE_MONDAY);
+}
+
+async function correos(excepto: string | null): Promise<(string | null)[]> {
+  const filas = await selectAll<{ id: string; email: string | null }>((d, h) => getSupabaseAdmin().from("personas").select("id, email").order("id").range(d, h));
+  return filas.filter((f) => f.id !== excepto).map((f) => f.email);
+}
+
+/** Da de alta a una persona (nace en la app, sin item de Monday). Si su correo es el de un usuario de la app, se liga sola. */
+export async function crearPersona(d: Record<string, unknown>): Promise<string> {
+  await exigirCorte();
+  let p;
+  try { p = validarPersonaNueva(d, await correos(null)); }
+  catch (e) { throw new ErrorTablero(400, e instanceof Error ? e.message : "Datos no válidos"); }
+  const appUserId = await usuarioLibrePorCorreo(p.email, null);
+  const fila = unwrap(await getSupabaseAdmin().from("personas").insert({
+    nombre: p.nombre, email: p.email, grupo: p.grupo, rol: p.rol, tld: p.tld, hrs_mes: p.hrsMes, activo: p.activo,
+    app_user_id: appUserId, actualizado_at: new Date().toISOString(),
+  }).select("id").single());
+  return fila!.id;
+}
+
+const COLUMNA: Record<CampoPersona, "nombre" | "email" | "grupo" | "rol" | "tld" | "hrs_mes" | "activo"> = {
+  nombre: "nombre", email: "email", grupo: "grupo", rol: "rol", tld: "tld", hrsMes: "hrs_mes", activo: "activo",
+};
+
+/** Cambia UN campo fijo de una persona. Las personas no se borran: se dejan inactivas (pueden estar en tableros). */
+export async function editarCampoPersona(personaId: string, campo: unknown, valor: unknown): Promise<unknown> {
+  await exigirCorte();
+  if (!(CAMPOS_PERSONA as readonly unknown[]).includes(campo)) throw new ErrorTablero(400, "Campo no válido");
+  const c = campo as CampoPersona;
+  let limpio;
+  try { limpio = validarCampoPersona(c, valor); }
+  catch (e) { throw new ErrorTablero(400, e instanceof Error ? e.message : "Valor no válido"); }
+  const db = getSupabaseAdmin();
+  const previa = unwrap(await db.from("personas").select("id, app_user_id").eq("id", personaId).maybeSingle());
+  if (!previa) throw new ErrorTablero(404, "La persona ya no existe");
+  const cambios = { [COLUMNA[c]]: limpio, actualizado_at: new Date().toISOString() } as TablesUpdate<"personas">;
+  if (c === "email") {
+    if (limpio && (await correos(personaId)).some((e) => normalizarEmail(e) === limpio)) throw new ErrorTablero(400, "Ya hay una persona con ese correo");
+    // Sin usuario ligado todavía: si el correo nuevo es el de un usuario de la app, se liga solo.
+    if (!previa.app_user_id) cambios.app_user_id = await usuarioLibrePorCorreo(limpio as string | null, personaId);
+  }
+  unwrap(await db.from("personas").update(cambios).eq("id", personaId));
   return limpio;
 }

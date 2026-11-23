@@ -18,7 +18,7 @@ import { mismoValor, planSincronizacion, planVacio, type ColumnaActual, type Ele
 import { aColumna, leerTablero, type Acceso } from "./tableros";
 import { compararConMonday, definicionDesdeLaCopia, importarBoard, listarBoardsImportables, nombreYCodigo } from "./importar";
 import { traerBitacoraYArchivos } from "./importar-extras";
-import { importarPersonasDesdeMonday } from "./personas";
+import { directorioCortado, importarPersonasDesdeMonday } from "./personas";
 import { ErrorTablero } from "./errores";
 
 /** Quién firma lo que entra de Monday (historial) y lo que la sincronización crea. */
@@ -282,6 +282,8 @@ async function ejecutarPaso(paso: Paso, resumen: ResumenCorrida): Promise<Paso[]
       return pasosDeTableros(await listarBoardsImportables());
     }
     case "directorio": {
+      // Después del corte del Directorio RH manda la app: ya no se trae de Monday.
+      if (await directorioCortado()) return [];
       const dir = await importarPersonasDesdeMonday(false);
       resumen.directorio = { nuevas: dir.nuevas, actualizadas: dir.actualizadas, desactivadas: dir.desactivadas };
       return [];

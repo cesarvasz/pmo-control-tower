@@ -182,15 +182,15 @@ export async function fetchIniAndHrRaw(): Promise<{ iniItems: MondayItem[]; hrIt
   ]);
   return {
     iniItems: cortes.iniItems ?? iniData.boards[0]?.items_page.items ?? [],
-    hrItems: hrData.boards[0]?.items_page.items ?? [],
+    hrItems: cortes.hrItems ?? hrData.boards[0]?.items_page.items ?? [],
   };
 }
 
 /**
- * Iniciativas y Estrategia que ya se cortaron de Monday (su tablero en la app dejó de sincronizarse): salen de la app aunque
+ * Iniciativas, Estrategia (su tablero dejó de sincronizarse) y el Directorio RH ya cortados de Monday: salen de la app aunque
  * lo demás se lea de Monday, porque su board de Monday quedó congelado. Nunca lanza: si falla, se avisa y se usa Monday.
  */
-async function cortesDeTableros(): Promise<{ iniItems?: MondayItem[]; estrategiaItems?: MondayItem[] }> {
+async function cortesDeTableros(): Promise<{ iniItems?: MondayItem[]; estrategiaItems?: MondayItem[]; hrItems?: MondayItem[] }> {
   try {
     const { cortadosDesdeTableros } = await import("@/features/tableros/datos/fuente-dashboard");
     return await cortadosDesdeTableros();
@@ -212,6 +212,16 @@ export async function fetchHrItems(): Promise<MondayItem[]> {
   if ((await fuenteEfectiva()).fuente === "tableros") {
     const { hrItemsDesdeTableros } = await import("@/features/tableros/datos/fuente-dashboard");
     return hrItemsDesdeTableros();
+  }
+  // Directorio RH cortado de Monday: manda la app, también cuando lo demás se lee de Monday.
+  try {
+    const { directorioCortado } = await import("@/features/tableros/datos/personas");
+    if (await directorioCortado()) {
+      const { hrItemsDesdeTableros } = await import("@/features/tableros/datos/fuente-dashboard");
+      return hrItemsDesdeTableros();
+    }
+  } catch (e) {
+    console.error("No se pudo revisar el corte del Directorio RH; se lee de Monday.", e);
   }
   if (hrCache && Date.now() - hrCache.at < HR_TTL_MS) return hrCache.items;
   if (hrInflight) return hrInflight;
@@ -360,7 +370,7 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
   return {
     iniItems: cortes.iniItems ?? iniData.boards[0]?.items_page.items ?? [],
     reqItems: reqData.boards[0]?.items_page.items ?? [],
-    hrItems: rhData.boards[0]?.items_page.items ?? [],
+    hrItems: cortes.hrItems ?? rhData.boards[0]?.items_page.items ?? [],
     estrategiaItems: cortes.estrategiaItems ?? estData.boards[0]?.items_page.items ?? [],
     projBoards,
     projRaw,

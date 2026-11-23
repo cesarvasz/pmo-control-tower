@@ -1,9 +1,9 @@
 "use client";
 
-// Pestaña Directorio: las personas que se pueden poner en una columna Persona. Hoy se importan
-// del Directorio RH de Monday; cada una se liga a su usuario de la app por correo (eso es lo que
-// hace funcionar "solo lo mío"). Además de los campos del Directorio RH, tiene campos PROPIOS que se
-// agregan y llenan aquí (DirectorioCampos.tsx).
+// Directorio: las personas que se pueden poner en una columna Persona. Antes del corte se importan del Directorio RH de
+// Monday; después del corte (cortado) se dan de alta y se editan aquí. Cada una se liga a su usuario de la app por correo
+// (eso es lo que hace funcionar "solo lo mío"). Además tiene campos PROPIOS que se agregan y llenan aquí (DirectorioCampos.tsx).
+// Se ve en la página «Directorio» del menú y en la pestaña de /tableros.
 
 import { useMemo, useState } from "react";
 import { useMe } from "@/context/PermissionsContext";
@@ -13,11 +13,14 @@ import type { PersonaConUsuario, ResultadoImportacion } from "../datos/personas"
 import { Boton, enviar, estiloControl, Nota, useCarga } from "./comun";
 import type { CampoDirectorio } from "../dominio/directorio-campos";
 import { CamposPanel, CeldaCampo } from "./DirectorioCampos";
+import { ActivoPersona, CeldaPersona, NuevaPersona } from "./DirectorioPersona";
 
 interface Respuesta {
   personas: PersonaConUsuario[];
   usuarios: { id: string; email: string; nombre: string }[];
   campos: CampoDirectorio[];
+  /** El Directorio RH ya se cortó de Monday: las personas se editan aquí. */
+  cortado: boolean;
 }
 
 const URL_API = "/api/tableros/personas";
@@ -32,6 +35,7 @@ export default function DirectorioTab() {
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoImportacion | null>(null);
   const [fallo, setFallo] = useState<string | null>(null);
+  const [nueva, setNueva] = useState(false);
 
   const personas = useMemo(() => data?.personas ?? [], [data]);
   const campos = data?.campos ?? [];
@@ -44,6 +48,10 @@ export default function DirectorioTab() {
       (!q || p.nombre.toLowerCase().includes(q) || (p.email ?? "").includes(q) || (p.rol ?? "").toLowerCase().includes(q)));
   }, [personas, busca, grupo, soloSinUsuario]);
 
+  const cortado = !!data?.cortado;
+  /** Después del corte, el Admin edita aquí los campos fijos. */
+  const editaFijos = cortado && puedeAdministrar;
+  const roles = useMemo(() => [...new Set(personas.map((p) => p.rol).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, "es")), [personas]);
   const ligadas = personas.filter((p) => p.appUserId).length;
   const usuariosSinPersona = (data?.usuarios ?? []).filter((u) => !personas.some((p) => p.appUserId === u.id));
 
@@ -76,10 +84,14 @@ export default function DirectorioTab() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-2xl text-[0.82rem] text-[var(--text-muted)]">
-          Las personas que se asignan en las columnas <strong>Persona</strong> de los tableros. Se importan del Directorio RH
-          de Monday y se ligan a su usuario de la app por correo; así cada quien puede ver «solo lo mío».
+          Las personas que se asignan en las columnas <strong>Persona</strong> de los tableros y que usan las métricas (rol, grupo, horas).{" "}
+          {cortado
+            ? <>Ya no dependen de Monday: se dan de alta y se editan aquí.</>
+            : <>Se importan del Directorio RH de Monday.</>}{" "}
+          Se ligan a su usuario de la app por correo; así cada quien puede ver «solo lo mío».
         </p>
-        {puedeAdministrar && (
+        {editaFijos && !nueva && <Boton primario onClick={() => setNueva(true)}>+ Nueva persona</Boton>}
+        {puedeAdministrar && !cortado && (
           <Boton primario onClick={importar} disabled={importando}>
             {importando ? "Importando…" : personas.length ? "↻ Volver a importar del Directorio RH" : "Importar del Directorio RH"}
           </Boton>
@@ -94,11 +106,16 @@ export default function DirectorioTab() {
         </Nota>
       )}
       {fallo && <Nota tono="mal">{fallo}</Nota>}
+      {nueva && (
+        <NuevaPersona listaGrupos="dir-grupos" listaRoles="dir-roles" onCancelar={() => setNueva(false)} onCreada={() => { setNueva(false); void recargar(); }} />
+      )}
+      <datalist id="dir-grupos">{grupos.filter((g) => g !== "Sin grupo").map((g) => <option key={g} value={g} />)}</datalist>
+      <datalist id="dir-roles">{roles.map((r) => <option key={r} value={r} />)}</datalist>
 
       <CamposPanel campos={campos} puedeAdministrar={puedeAdministrar} onCambio={recargar} />
 
       {personas.length === 0 ? (
-        <EmptyRow msg="Todavía no hay personas. Importa el Directorio RH para empezar." />
+        <EmptyRow msg={cortado ? "Todavía no hay personas. Agrega la primera con «+ Nueva persona»." : "Todavía no hay personas. Importa el Directorio RH para empezar."} />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -140,12 +157,27 @@ export default function DirectorioTab() {
                 <tbody>
                   {visibles.map((p) => (
                     <tr key={p.id} style={p.activo ? undefined : { opacity: 0.6 }}>
-                      <td className="pm-name">{p.nombre}</td>
-                      <td style={{ color: "var(--text-secondary)" }}>{p.grupo ?? "—"}</td>
-                      <td>{p.rol ?? "—"}</td>
-                      <td style={{ color: "var(--text-secondary)" }}>{p.tld ?? "—"}</td>
-                      <td style={{ textAlign: "right" }}>{p.hrsMes ?? "—"}</td>
-                      <td style={{ color: "var(--text-secondary)", fontSize: ".8rem" }}>{p.email ?? "—"}</td>
+                      {editaFijos ? (
+                        <>
+                          {([["nombre", p.nombre], ["grupo", p.grupo, "dir-grupos"], ["rol", p.rol, "dir-roles"], ["tld", p.tld], ["hrsMes", p.hrsMes], ["email", p.email]] as const).map(([campo, valor, lista]) => (
+                            <td key={campo} className={campo === "nombre" ? "pm-name" : undefined}>
+                              <CeldaPersona
+                                key={`${p.id}-${campo}-${valor ?? ""}`} personaId={p.id} campo={campo} valor={valor} lista={lista} numero={campo === "hrsMes"}
+                                onError={setFallo} onGuardado={() => void recargar()}
+                              />
+                            </td>
+                          ))}
+                        </>
+                      ) : (
+                        <>
+                          <td className="pm-name">{p.nombre}</td>
+                          <td style={{ color: "var(--text-secondary)" }}>{p.grupo ?? "—"}</td>
+                          <td>{p.rol ?? "—"}</td>
+                          <td style={{ color: "var(--text-secondary)" }}>{p.tld ?? "—"}</td>
+                          <td style={{ textAlign: "right" }}>{p.hrsMes ?? "—"}</td>
+                          <td style={{ color: "var(--text-secondary)", fontSize: ".8rem" }}>{p.email ?? "—"}</td>
+                        </>
+                      )}
                       {campos.map((c) => (
                         <td key={c.id}>
                           <CeldaCampo
@@ -166,7 +198,11 @@ export default function DirectorioTab() {
                           </select>
                         ) : (p.usuarioEmail ?? "—")}
                       </td>
-                      <td>{p.activo ? <Pill tone="ok" small>Activa</Pill> : <Pill tone="neutral" small>Inactiva</Pill>}</td>
+                      <td>
+                        {editaFijos
+                          ? <ActivoPersona personaId={p.id} activo={p.activo} onError={setFallo} onGuardado={() => void recargar()} />
+                          : p.activo ? <Pill tone="ok" small>Activa</Pill> : <Pill tone="neutral" small>Inactiva</Pill>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

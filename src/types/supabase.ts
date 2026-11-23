@@ -609,6 +609,7 @@ export type Database = {
         Row: {
           activo: boolean
           columnas: Json
+          cortado_at: string | null
           id: string
           nombre: string
           orden: number | null
@@ -621,6 +622,7 @@ export type Database = {
         Insert: {
           activo?: boolean
           columnas?: Json
+          cortado_at?: string | null
           id: string
           nombre: string
           orden?: number | null
@@ -633,6 +635,7 @@ export type Database = {
         Update: {
           activo?: boolean
           columnas?: Json
+          cortado_at?: string | null
           id?: string
           nombre?: string
           orden?: number | null

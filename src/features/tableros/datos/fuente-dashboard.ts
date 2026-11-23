@@ -28,6 +28,7 @@ import {
 import type { TableroCompleto } from "../dominio/tablero";
 import { claveNombre } from "../dominio/personas";
 import { leerExtras, leerTablero, listarPersonasCorto, type Acceso } from "./tableros";
+import { directorioCortado } from "./personas";
 
 const ACCESO_SISTEMA: Acceso = { usuario: { rolId: "admin", esAdmin: true, personaId: null }, reglas: [] };
 
@@ -103,20 +104,25 @@ async function itemsDeTablero(
 }
 
 /**
- * Después del CORTE: Iniciativas y Estrategia cuyos tableros (traídos de Monday) ya NO se sincronizan. Ahí manda la app, y su
+ * Después del CORTE: el Directorio RH (si se cortó) y las Iniciativas y Estrategia cuyos tableros (traídos de Monday) ya NO se sincronizan. Ahí manda la app, y su
  * board de Monday quedó congelado: aunque el resto del dashboard se lea de Monday (FUENTE_DATOS=monday, o el respaldo cuando
  * la sincronización se atrasa), estas dos deben salir de aquí. Devuelve solo las categorías ya cortadas ({} si ninguna).
  */
-export async function cortadosDesdeTableros(): Promise<Partial<Pick<FuenteMonday, "iniItems" | "estrategiaItems">>> {
+export async function cortadosDesdeTableros(): Promise<Partial<Pick<FuenteMonday, "iniItems" | "estrategiaItems" | "hrItems">>> {
   const db = getSupabaseAdmin();
-  const filas = unwrap(await db.from("tableros").select("id, categoria").is("archivado_at", null)
-    .not("monday_board_id", "is", null).eq("sincroniza_monday", false).in("categoria", ["iniciativas", "estrategia"])) ?? [];
-  if (!filas.length) return {};
+  const [filas, dirCortado] = await Promise.all([
+    unwrap(await db.from("tableros").select("id, categoria").is("archivado_at", null)
+      .not("monday_board_id", "is", null).eq("sincroniza_monday", false).in("categoria", ["iniciativas", "estrategia"])) ?? [],
+    directorioCortado(),
+  ]);
+  // El Directorio RH cortado: las personas salen de la app (tabla personas, con la forma del board de Monday).
+  const hr: Partial<Pick<FuenteMonday, "hrItems">> = dirCortado ? { hrItems: await leerHrItems() } : {};
+  if (!filas.length) return hr;
   const mapaPersonas = new Map<string, PersonaMetricas>((await listarPersonasCorto()).map((p) => [p.id, p]));
   const items = async (categoria: string) =>
     (await Promise.all(filas.filter((f) => f.categoria === categoria).map((f) => itemsDeTablero(f.id, mapaPersonas, true))))
       .flatMap((x) => x?.items ?? []);
-  const out: Partial<Pick<FuenteMonday, "iniItems" | "estrategiaItems">> = {};
+  const out: Partial<Pick<FuenteMonday, "iniItems" | "estrategiaItems" | "hrItems">> = { ...hr };
   if (filas.some((f) => f.categoria === "iniciativas")) out.iniItems = await items("iniciativas");
   if (filas.some((f) => f.categoria === "estrategia")) out.estrategiaItems = await items("estrategia");
   return out;

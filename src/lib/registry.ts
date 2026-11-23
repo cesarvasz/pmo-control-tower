@@ -47,6 +47,8 @@ export const PAGES: PageDef[] = [
   // Crear y dar seguimiento a las Iniciativas (lista, alta en pop-up, timeline, agendar). Qué ve y edita cada rol adentro lo
   // deciden las reglas del tablero «Iniciativas» (p. ej. PM: editar, solo las suyas). Ver features/tableros/datos/puerta.ts.
   { key: "gestion-iniciativas", label: "Gestión de Iniciativas", href: "/gestion-iniciativas", icon: "💡" },
+  // Las personas (ex Directorio RH de Monday): rol, grupo, horas y su liga con el usuario. Verla: esta página; cambiarla: Admin.
+  { key: "directorio", label: "Directorio", href: "/directorio", icon: "👥" },
   { key: "req",         label: "PML",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
   { key: "resumen-ejecutivo", label: "Resumen Ejecutivo", href: "/resumen-ejecutivo", icon: "🧭" },

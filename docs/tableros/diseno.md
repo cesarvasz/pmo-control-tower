@@ -607,3 +607,20 @@ la app después del corte), borrar `APP_URL` del Apps Script y quitar la página
 (el PM elige la siguiente acción; se conserva su fecha Meet 2 — `ETAPA_MEETING2_HECHA`, `estaPendiente`). Datos obligatorios (PM, CKU,
 Estrategia, Proceso) que falten: aviso «⚠ Faltan datos» en la lista y en el pop-up, solo para el embudo y Plan Futuro
 (`pideDatosCompletos`); los llena cada PM. Proceso es columna propia de la app (se puede llenar ya); CKU y Estrategia de IN-157, tras el corte.
+
+**CORTE HECHO el 2026-11-23 (~17:17 UTC):** tras la corrida #280 (ok), comparación con 0 diferencias en Iniciativas (112) y Estrategia (23);
+`sincroniza_monday = false` en los dos tableros. Después del corte, la lectura normal y el respaldo dan lo mismo (113 iniciativas, 23 de
+Estrategia). IN-161 «Test»: reunión cancelada y archivada. Rol PM con la página Gestión de Iniciativas. Pendiente: Monday en solo lectura y
+el Apps Script de recordatorios (`.gs` nuevo + `APP_URL` / `APP_SECRET`).
+
+## 15. Directorio como parte de la app y corte del Directorio RH de Monday (2026-11-23)
+
+- **Página «Directorio»** (`/directorio`, `registry.ts`): la pestaña Directorio fuera de `/tableros`. Verla: la página (o Tableros);
+  cambiarla: `directorio_administrar` (Admin). Puerta `exigirVerDirectorio`.
+- **Corte** = `monday_boards.cortado_at` del board RH (migración `20261123170000_monday_boards_corte`). Cortado: la sincronización se salta
+  el paso «directorio», «Importar del Directorio RH» responde 409, y el Admin edita en la app nombre, correo, grupo, rol, TLD, horas al mes
+  y activo (`editarCampoPersona`) y da de alta personas (`crearPersona`; si el correo es de un usuario de la app, se liga sola). Las
+  personas no se borran: se dejan inactivas.
+- **Lecturas**: con el corte, `hrItems` sale de `personas` también cuando el dashboard va por Monday (`cortadosDesdeTableros`,
+  `fetchIniAndHrRaw`) y en `fetchHrItems` (encuestas). La forma (columnas Role, Email, TLD, Hrs Mes, Status) la da `monday_boards.columnas` del RH.
+- **Volver atrás**: `update monday_boards set cortado_at = null where tipo = 'rh'` (Monday vuelve a mandar y pisa lo editado en la app).

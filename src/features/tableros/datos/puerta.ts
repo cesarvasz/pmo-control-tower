@@ -33,6 +33,16 @@ export async function exigirAccesoTablero(request: Request, tableroId: string): 
   throw new Error("forbidden");
 }
 
+/** Página del menú del Directorio de personas (registry.ts). */
+export const PAGINA_DIRECTORIO = "directorio";
+
+/** Ver el directorio: Tableros completo o la página «Directorio». (Cambiarlo sigue pidiendo directorio_administrar.) */
+export async function exigirVerDirectorio(request: Request): Promise<AppUser> {
+  const me = await requireSession(request.headers.get("authorization"));
+  if (tieneAccionTableros(me.permissions, "tableros_ver") || me.permissions.pages?.[PAGINA_DIRECTORIO]) return me;
+  throw new Error("forbidden");
+}
+
 /** El usuario como lo ve el motor de permisos: su rol, si es Admin y su persona del directorio. */
 export async function usuarioTableros(me: AppUser): Promise<UsuarioTableros> {
   const persona = unwrap(await getSupabaseAdmin().from("personas").select("id").eq("app_user_id", me.uid).maybeSingle());

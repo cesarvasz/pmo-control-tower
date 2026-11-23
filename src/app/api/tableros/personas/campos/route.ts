@@ -7,7 +7,7 @@
 //  DELETE ?id=<campoId>                      → lo quita (se archiva; los valores se quedan guardados)
 
 import { NextResponse } from "next/server";
-import { exigirAccion } from "@/features/tableros/datos/puerta";
+import { exigirAccion, exigirVerDirectorio } from "@/features/tableros/datos/puerta";
 import { respuestaDeError } from "@/features/tableros/datos/errores";
 import {
   archivarCampoDirectorio, crearCampoDirectorio, editarCampoDirectorio, listarCamposDirectorio,
@@ -20,7 +20,7 @@ const leer = async (request: Request) => ((await request.json().catch(() => null
 
 export async function GET(request: Request) {
   try {
-    await exigirAccion(request, "tableros_ver");
+    await exigirVerDirectorio(request);
     return NextResponse.json({ campos: await listarCamposDirectorio() });
   } catch (err) {
     return respuestaDeError(err);
