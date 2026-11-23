@@ -83,6 +83,12 @@ function IndicadorCard({ label, sub, valor, dias, variacion, cobertura, n }: {
   );
 }
 
+type PersonaRoi = "victoria" | "javier";
+const PERSONAS_ROI: Record<PersonaRoi, { tiempo: [EtapaKey, EtapaKey]; descripcion: string }> = {
+  victoria: { tiempo: ["t1", "t3"], descripcion: "Solo T1 → T3" },
+  javier: { tiempo: ["t4", "t5"], descripcion: "Solo T0 (Clonación) y T4 → T5" },
+};
+
 export default function ReporteTramites({ rows, clonacion }: {
   rows: RoiRow[];
   /** Hoja de Clonación de Files (carga aparte en la página ROI) — de ahí sale el Beneficio T0. */
@@ -110,10 +116,15 @@ export default function ReporteTramites({ rows, clonacion }: {
   const [etapaActiva, setEtapaActiva] = useState<EtapaKey | null>(null);
   const [tarifaUsuario, setTarifa] = useState(TARIFA_HORA_DEFECTO);
   const [informe, setInforme] = useState(false);
-  const f = useMemo<Filtros>(
-    () => (esCku ? { ...FILTROS_CKU, meses: fUsuario.meses, mesas: fUsuario.mesas } : fUsuario),
-    [esCku, fUsuario],
-  );
+  // Vista por persona (solo la pestaña completa): Victoria Escobar = T1→T3; Javier Juarez = T0 + T4→T5.
+  // Elegir una fija el tramo de «Tiempo» (T1→T3 / T4→T5) y recorta el beneficio a sus tramos.
+  const [persona, setPersona] = useState<PersonaRoi | null>(null);
+  const f = useMemo<Filtros>(() => {
+    if (esCku) return { ...FILTROS_CKU, meses: fUsuario.meses, mesas: fUsuario.mesas };
+    if (!persona) return fUsuario;
+    const t = PERSONAS_ROI[persona].tiempo;
+    return { ...fUsuario, etapaDesde: t[0], etapaHasta: t[1] };
+  }, [esCku, fUsuario, persona]);
   const tarifa = esCku ? TARIFA_HORA_DEFECTO : tarifaUsuario;
 
   // Recorte filtrado — de aquí cuelgan TODAS las secciones, para que cuadren.
@@ -265,7 +276,22 @@ export default function ReporteTramites({ rows, clonacion }: {
             style={{ borderColor: nFiltrosOcultos ? "var(--accent)" : "var(--border)", color: nFiltrosOcultos ? "var(--accent-light)" : "var(--text-secondary)" }}>
             {filtrosAbiertos ? "▴ Ocultar filtros" : "▾ Filtros"}{nFiltrosOcultos > 0 && ` (${nFiltrosOcultos} activos)`}
           </button>
-          {conFiltros && <FilterReset onClick={() => setF({ ...FILTROS_VACIOS, metrica: f.metrica })} />}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[0.7rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">Vista</span>
+            <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: "var(--border)" }}>
+              {([[null, "Todos"], ["victoria", "Victoria Escobar"], ["javier", "Javier Juarez"]] as const).map(([v, l]) => (
+                <button key={l} onClick={() => setPersona(v)}
+                  title={v ? PERSONAS_ROI[v].descripcion : "Todos los tramos"}
+                  className="px-3 py-1.5 text-[0.78rem] font-semibold transition-colors"
+                  style={{
+                    background: persona === v ? "var(--bg-accent-soft)" : "var(--bg-surface)",
+                    color: persona === v ? "var(--accent-light)" : "var(--text-secondary)",
+                  }}>{l}</button>
+              ))}
+            </div>
+            {persona && <span className="text-[0.72rem] text-[var(--text-muted)]">{PERSONAS_ROI[persona].descripcion}</span>}
+          </div>
+          {(conFiltros || persona) && <FilterReset onClick={() => { setPersona(null); setF({ ...FILTROS_VACIOS, metrica: f.metrica }); }} />}
         </div>
       )}
       {!esCku && filtrosAbiertos && <div className="mb-6">
@@ -332,13 +358,13 @@ export default function ReporteTramites({ rows, clonacion }: {
               Tiempo
             </label>
             <div className="flex items-center gap-1.5">
-              <select value={f.etapaDesde} onChange={(e) => set({ etapaDesde: e.target.value as EtapaKey })}
+              <select value={f.etapaDesde} disabled={!!persona} onChange={(e) => set({ etapaDesde: e.target.value as EtapaKey })}
                 className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
                 style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
                 {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
               </select>
               <span className="text-[0.72rem] text-[var(--text-muted)]">→</span>
-              <select value={f.etapaHasta} onChange={(e) => set({ etapaHasta: e.target.value as EtapaKey })}
+              <select value={f.etapaHasta} disabled={!!persona} onChange={(e) => set({ etapaHasta: e.target.value as EtapaKey })}
                 className="rounded-lg border px-2.5 py-2 text-[0.78rem] font-semibold outline-none"
                 style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
                 {ETAPAS.map((e) => <option key={e.key} value={e.key}>{e.corto}</option>)}
@@ -397,7 +423,7 @@ export default function ReporteTramites({ rows, clonacion }: {
         <CostoUnitario
           costo={costoUnit} unitario={unitario} ahorro={ahorro} ahorroTiempos={ahorroTiempos} beneficioT0={beneficioT0} serieAhorro={serieAhorro} proyeccion={proyeccion}
           onSeleccionarPeriodo={(clave) => { if (!porDia) alternar("meses", clave); }}
-          abiertoInicial={esCku} soloCostoBeneficio={esCku}
+          abiertoInicial={esCku || !!persona} soloCostoBeneficio={esCku} persona={esCku ? null : persona}
         />
       </div>
 

@@ -32,7 +32,7 @@ const num = (n: number) => Math.round(n).toLocaleString("es-GT");
 
 export default function CostoUnitario({
   costo, unitario, ahorro, ahorroTiempos, beneficioT0, serieAhorro, proyeccion, onSeleccionarPeriodo,
-  abiertoInicial = false, soloCostoBeneficio = false,
+  abiertoInicial = false, soloCostoBeneficio = false, persona = null,
 }: {
   costo: Costo;
   unitario: Unitario;
@@ -45,6 +45,8 @@ export default function CostoUnitario({
   abiertoInicial?: boolean;
   /** Oculta la plantilla necesaria (personas), que es capacidad, no costo/beneficio. */
   soloCostoBeneficio?: boolean;
+  /** Vista por persona: Victoria = T1→T3; Javier = T0 + T4→T5. null = todos los tramos. */
+  persona?: "victoria" | "javier" | null;
 }) {
   const [abierto, setAbierto] = useState(abiertoInicial);
 
@@ -177,10 +179,13 @@ export default function CostoUnitario({
               const t0 = beneficioT0.estado === "ok" ? beneficioT0.contrafactual : null;
               const t13 = tramoDuca("Beneficio T1 → T3", ahorroTiempos.t13, "Ducafast: horas de T1–T3 + todas las licencias.");
               const t45 = tramoDuca("Beneficio T4 → T5", ahorroTiempos.t45, "Ducafast: horas de T4–T5, sin licencias (ya van en T1 → T3).");
-              const partes = [t0?.ahorro ?? null, t13.valor, t45.valor].filter((v): v is number => v != null);
+              const cuenta = { t0: persona !== "victoria", t13: persona !== "javier", t45: persona !== "victoria" };
+              const partes = [cuenta.t0 ? t0?.ahorro ?? null : null, cuenta.t13 ? t13.valor : null, cuenta.t45 ? t45.valor : null]
+                .filter((v): v is number => v != null);
               const total = partes.length ? partes.reduce((s, v) => s + v, 0) : null;
-              const tarjetas = [
+              const tarjetasTodas = [
                 {
+                  k: "t0",
                   l: "Beneficio T0 · Clonación",
                   valor: t0?.ahorro ?? null,
                   tip: t0
@@ -188,14 +193,25 @@ export default function CostoUnitario({
                     : beneficioT0.estado === "cargando" ? "Cargando la hoja de Clonación de Files…" : "No se pudo cargar la hoja de Clonación de Files",
                   sub: t0 ? `${num(t0.nFilesV)} clonaciones` : beneficioT0.estado === "cargando" ? "Cargando…" : "No disponible",
                 },
-                t13,
-                t45,
-                {
-                  l: "Beneficio total T0 → T5",
-                  valor: total,
-                  tip: `= T0 (${t0 ? usdExacto(t0.ahorro) : "sin dato"}) + T1 → T3 (${t13.valor != null ? usdExacto(t13.valor) : "—"}) + T4 → T5 (${t45.valor != null ? usdExacto(t45.valor) : "—"})${total != null ? ` = ${usdExacto(total)}` : ""}`,
-                  sub: t0 ? "T0 + T1 → T3 + T4 → T5" : "Sin T0 todavía",
-                },
+                { k: "t13", ...t13 },
+                { k: "t45", ...t45 },
+              ];
+              const tarjetas = [
+                ...tarjetasTodas.filter((t) => cuenta[t.k as "t0" | "t13" | "t45"]),
+                persona === "victoria"
+                  ? { l: "Beneficio Victoria Escobar", valor: total, tip: "= T1 → T3", sub: "T1 → T3" }
+                  : persona === "javier"
+                    ? {
+                      l: "Beneficio Javier Juarez", valor: total,
+                      tip: `= T0 (${t0 ? usdExacto(t0.ahorro) : "sin dato"}) + T4 → T5 (${t45.valor != null ? usdExacto(t45.valor) : "—"})${total != null ? ` = ${usdExacto(total)}` : ""}`,
+                      sub: "T0 + T4 → T5",
+                    }
+                    : {
+                      l: "Beneficio total T0 → T5",
+                      valor: total,
+                      tip: `= T0 (${t0 ? usdExacto(t0.ahorro) : "sin dato"}) + T1 → T3 (${t13.valor != null ? usdExacto(t13.valor) : "—"}) + T4 → T5 (${t45.valor != null ? usdExacto(t45.valor) : "—"})${total != null ? ` = ${usdExacto(total)}` : ""}`,
+                      sub: t0 ? "T0 + T1 → T3 + T4 → T5" : "Sin T0 todavía",
+                    },
               ];
               return (
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
