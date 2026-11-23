@@ -2,9 +2,8 @@
 
 // Auditoría cruzada de las dos métricas de "entregas" del KPI:
 //   · Cumplimiento de Entrega (peso 10 PM): REQ + items/subitems de Proyecto con
-//     veredicto on-time/late + Iniciativas APROBADAS (retrospectivo vía Meeting 1/
-//     Meeting 2, ver iniEntregaVerdict en lib/dashboard.ts).
-//   · Calidad de Entregas (peso 10 PM, "reproceso"): Iniciativas APROBADAS + REQ CERRADOS + steps de
+//     veredicto on-time/late. Las Iniciativas APROBADAS desde el 1-nov se listan como informativas (no califican, ver iniInformativa).
+//   · Calidad de Entregas (peso 10 PM, "reproceso"): REQ CERRADOS + steps de
 //     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
 //   · Metodología (peso 15): nota 0-100 por persona y mes, ver MetodologiaTab.
 //   · VPA: los indicadores de «Objetivos de Calidad» del VPA, calificados por un Admin cada mes, ver VpaTab.
@@ -296,9 +295,11 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
     return n;
   });
 
-  const late = byPm.filter((r) => r.verdict === "late");
-  const onTimeCount = byPm.length - late.length;
-  const pct = byPm.length ? Math.round((onTimeCount / byPm.length) * 100) : null;
+  // Las Iniciativas aprobadas desde el 1-nov son informativas: se listan pero no cuentan en estos números.
+  const puntuables = byPm.filter((r) => !r.informativa);
+  const late = puntuables.filter((r) => r.verdict === "late");
+  const onTimeCount = puntuables.length - late.length;
+  const pct = puntuables.length ? Math.round((onTimeCount / puntuables.length) * 100) : null;
   const pctColor = pct === null ? "#6b7280" : pct >= 90 ? "var(--ok)" : pct >= 75 ? "var(--warn)" : "var(--bad)";
 
   const respCounts = countByResponsible(late.map((r) => r.atribId), delays);
@@ -322,7 +323,7 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
         : (r.projCode ? `${r.projCode}|${r.projName}` : r.projName || "Sin proyecto");
       let g = map.get(key);
       if (!g) {
-        const label = r.source === "REQ" ? "PML" : r.source === "Iniciativa" ? "Iniciativas" : (r.projName || "Sin proyecto");
+        const label = r.source === "REQ" ? "PML" : r.source === "Iniciativa" ? "Iniciativas (informativas)" : (r.projName || "Sin proyecto");
         g = { key, label, code: r.source === "Proyecto" ? r.projCode : "", rows: [] };
         map.set(key, g);
       }
@@ -345,7 +346,7 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
     <div>
       {/* Stats */}
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard value={byPm.length} label="Total entregas" />
+        <StatCard value={puntuables.length} label="Total entregas" />
         <StatCard value={onTimeCount} label="A tiempo" color="var(--ok)" borderColor="var(--ok)" />
         <StatCard value={late.length} label="Con atraso" color="var(--bad)" borderColor="var(--bad)" />
         <StatCard value={pct !== null ? `${pct}%` : "—"} label="% a tiempo" color={pctColor} borderColor={pctColor} />
@@ -455,11 +456,13 @@ function EntregaTab({ req, proj, projBoards, delays, canEditFilters, ini }: {
                             </td>
                             <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
                             <td>
-                              {r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill>
+                              {r.informativa ? <Pill tone="neutral" title="Iniciativa aprobada: solo informativa, no cuenta en la calificación">{r.verdict === "late" ? "Atrasada" : "A tiempo"} · informativa</Pill>
+                                : r.verdict === "late" ? <Pill tone="bad">✕ Atrasado</Pill>
                                 : <Pill tone="ok" title={r.porNuevaFecha ? "Cerró después del Limit Date, pero dentro de su New Limit Date" : undefined}>✓ A tiempo</Pill>}
                             </td>
                             <td onClick={(e) => e.stopPropagation()}>
-                              <ResponsableCell id={r.id} atribId={r.atribId} kind="delay" penaliza={r.verdict === "late"} map={delays} de="su fase" />
+                              {r.informativa ? <span className="text-[var(--text-disabled)]" title="No califica">—</span>
+                                : <ResponsableCell id={r.id} atribId={r.atribId} kind="delay" penaliza={r.verdict === "late"} map={delays} de="su fase" />}
                             </td>
                           </tr>
                           {abierta && (
@@ -515,9 +518,11 @@ function ReprocesoTab({ ini, req, proj, projBoards, reproceso, canEditFilters }:
     return n;
   });
 
-  const conReproceso = byPm.filter((r) => r.verdict === "reproceso");
-  const limpias = byPm.length - conReproceso.length;
-  const pct = byPm.length ? Math.round((limpias / byPm.length) * 100) : null;
+  // Las Iniciativas aprobadas desde el 1-nov son informativas: se listan pero no cuentan en estos números.
+  const puntuables = byPm.filter((r) => !r.informativa);
+  const conReproceso = puntuables.filter((r) => r.verdict === "reproceso");
+  const limpias = puntuables.length - conReproceso.length;
+  const pct = puntuables.length ? Math.round((limpias / puntuables.length) * 100) : null;
   const pctColor = pct === null ? "#6b7280" : pct >= 90 ? "var(--ok)" : pct >= 75 ? "var(--warn)" : "var(--bad)";
 
   const respCounts = countByResponsible(conReproceso.map((r) => r.id), reproceso);
@@ -540,7 +545,7 @@ function ReprocesoTab({ ini, req, proj, projBoards, reproceso, canEditFilters }:
         : (r.projCode ? `${r.projCode}|${r.projName}` : r.projName || "Sin proyecto");
       let g = map.get(key);
       if (!g) {
-        const label = r.source === "REQ" ? "PML" : r.source === "Iniciativa" ? "Iniciativas" : (r.projName || "Sin proyecto");
+        const label = r.source === "REQ" ? "PML" : r.source === "Iniciativa" ? "Iniciativas (informativas)" : (r.projName || "Sin proyecto");
         g = { key, label, code: r.source === "Proyecto" ? r.projCode : "", rows: [] };
         map.set(key, g);
       }
@@ -563,7 +568,7 @@ function ReprocesoTab({ ini, req, proj, projBoards, reproceso, canEditFilters }:
     <div>
       {/* Stats */}
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard value={byPm.length} label="Total unidades" />
+        <StatCard value={puntuables.length} label="Total unidades" />
         <StatCard value={limpias} label="Limpias" color="var(--ok)" borderColor="var(--ok)" />
         <StatCard value={conReproceso.length} label="Con reproceso" color="var(--bad)" borderColor="var(--bad)" />
         <StatCard value={pct !== null ? `${pct}%` : "—"} label="% limpias" color={pctColor} borderColor={pctColor} />
@@ -685,11 +690,12 @@ function ReprocesoTab({ ini, req, proj, projBoards, reproceso, canEditFilters }:
                             </td>
                             <td className="pm-name">{r.pm || <span className="text-[var(--text-disabled)]">—</span>}</td>
                             <td>
-                              {r.nota === 100 ? <Pill tone="ok">✓ {r.nota}%</Pill>
+                              {r.informativa ? <Pill tone="neutral" title="Iniciativa aprobada: solo informativa, no cuenta en la calificación">{r.nota === 100 ? "Limpia" : "Con reproceso"} · informativa</Pill>
+                                : r.nota === 100 ? <Pill tone="ok">✓ {r.nota}%</Pill>
                                 : r.nota === 0 ? <Pill tone="bad">✕ {r.nota}%</Pill>
                                 : <Pill tone="warn">⚠ {r.nota}%</Pill>}
                             </td>
-                            <td onClick={(e) => e.stopPropagation()}>{reprocesoResponsibleCell(r, reproceso)}</td>
+                            <td onClick={(e) => e.stopPropagation()}>{r.informativa ? <span className="text-[var(--text-disabled)]" title="No califica">—</span> : reprocesoResponsibleCell(r, reproceso)}</td>
                           </tr>
                           {abierta && (
                             <tr>

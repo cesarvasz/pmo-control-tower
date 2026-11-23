@@ -30,6 +30,7 @@ import {
   entregablesPm,
   projPhaseKey,
   iniUnidadesCalidad,
+  iniInformativa,
   calcReprocesoCascade,
   calidadUnits,
   calcItemCalidad,
@@ -588,11 +589,11 @@ describe("calcEntregaStats / calcEntregaStatsRaw con Iniciativas APROBADAS", () 
   const iniLate = (o: Partial<IniItem>): IniItem =>
     ({ estado: "APROBADA", creacion, meet1: "2026-01-13", meet2: "2026-01-26", pm: "Luis", ...o }) as IniItem;
 
-  it("calcEntregaStats: suma las Iniciativas APROBADAS evaluables a REQ/Proyecto, y excusa igual que un REQ", () => {
+  it("calcEntregaStats: las Iniciativas APROBADAS ya NO califican — ni suman ni restan a REQ/Proyecto", () => {
     const inis = [iniOnTime({ id: "i1" }), iniLate({ id: "i2" })];
-    expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
-    const delays: DelayMap = { i2: { responsible: "VPA" } }; // excusa i2
-    expect(calcEntregaStats([], [], delays, inis)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+    expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
+    const reqs = [req({ id: "r1", onTime: onTime("on-time") })];
+    expect(calcEntregaStats(reqs, [], {}, inis)).toEqual(calcEntregaStats(reqs, [], {}));
   });
 
   it("una Iniciativa activa (no APROBADA) o sin ningún dato de reunión no cuenta (n/a)", () => {
@@ -600,14 +601,18 @@ describe("calcEntregaStats / calcEntregaStatsRaw con Iniciativas APROBADAS", () 
     expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
   });
 
-  it("sin Meeting 2 (caso real frecuente): evalúa con lo que hay (etapa 1) en vez de excluirla", () => {
-    const inis = [iniOnTime({ id: "i1", meet2: undefined })]; // meet1 a tiempo → on-time
-    expect(calcEntregaStats([], [], {}, inis)).toEqual({ total: 1, onTime: 1, late: 0, pct: 100 });
+  it("iniInformativa: solo las APROBADAS con fecha de aprobación (Meeting 2, o Meeting 1 si falta) desde el 1-nov-2026", () => {
+    expect(iniInformativa(iniOnTime({ id: "i1", meet2: "2026-11-01" }))).toBe(true);
+    expect(iniInformativa(iniOnTime({ id: "i2", meet2: "2026-10-31" }))).toBe(false);
+    expect(iniInformativa(iniOnTime({ id: "i3", meet1: "2026-11-05", meet2: undefined }))).toBe(true);   // sin Meeting 2 → la de Meeting 1
+    expect(iniInformativa(iniOnTime({ id: "i4", meet1: undefined, meet2: undefined }))).toBe(false);     // sin fechas
+    expect(iniInformativa(iniOnTime({ id: "i5", meet2: "2026-11-05", estado: "EN TIEMPO" }))).toBe(false); // no aprobada
+    expect(iniInformativa(iniOnTime({ id: "", meet2: "2026-11-05" }))).toBe(false);                       // sin id
   });
 
-  it("calcEntregaStatsRaw: cuenta la Iniciativa atrasada sin excusar (no recibe delays)", () => {
+  it("calcEntregaStatsRaw: tampoco cuenta Iniciativas", () => {
     const inis = [iniOnTime({ id: "i1" }), iniLate({ id: "i2" })];
-    expect(calcEntregaStatsRaw([], [], inis)).toEqual({ total: 2, onTime: 1, late: 1, pct: 50 });
+    expect(calcEntregaStatsRaw([], [], inis)).toEqual({ total: 0, onTime: 0, late: 0, pct: null });
   });
 });
 
@@ -628,12 +633,13 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(42);
   });
 
-  it("Cumplimiento: con Iniciativas y las clases aplica los pesos exactos", () => {
+  it("Cumplimiento: las Iniciativas no pesan; solo las clases (PML C 50% · Proyecto A 0% → 12.5 / 0.60 = 21)", () => {
     const inis = [iniOnTime("i1")];                                                    // 100%
     const reqs = [req({ id: "r1", onTime: onTime("on-time") }), req({ id: "r2", onTime: onTime("late") })]; // 50% (Clase C)
     const projs = [projA({ id: "p1", boardId: "b1", grupo: "Launch | Lanzamiento", entrega: "late" })];                    // 0% (Clase A)
-    // (100·0.10 + 50·0.25 + 0·0.35) / (0.10 + 0.25 + 0.35) = 22.5 / 0.70 = 32
-    expect(calcEntregaStatsPonderado(reqs, projs, {}, inis).pct).toBe(32);
+    // (50·0.25 + 0·0.35) / (0.25 + 0.35) = 12.5 / 0.60 = 21 — la Iniciativa (100%) no entra
+    expect(calcEntregaStatsPonderado(reqs, projs, {}, inis).pct).toBe(21);
+    expect(calcEntregaStatsPonderado(reqs, projs, {}).pct).toBe(21);
   });
 
   it("Cumplimiento: la clase asignada manda — un PML en Clase A pesa 35, uno en Clase C pesa 25", () => {
@@ -854,12 +860,12 @@ describe("Cumplimiento y Calidad medidos como el EVM (nota por fuente, ponderada
     expect(notaCalidadCku("y", {})).toBe(0);
   });
 
-  it("Calidad: con Iniciativas y las clases aplica los pesos exactos y una fuente vacía no cuenta", () => {
+  it("Calidad: las Iniciativas no pesan; solo las clases, y una fuente vacía no cuenta", () => {
     const ini = { id: "INI-1", estado: "APROBADA", pm: "Luis" } as IniItem;
     const reqs = [req({ id: "r1", estado: "CERRADO" })];
     const m: DelayMap = { "INI-1": { responsible: "VPA" } };
-    // Iniciativa 100·0.10 + PML sin asignar (Clase C) 0·0.25 + Proyecto (Clase A, 1 actividad a tiempo) 100·0.35 = 45 / 0.70 = 64
-    expect(calcReprocesoStatsPonderado(CKU, reqs, [itemC("p1", [actC("a")])], m, [ini]).pct).toBe(64);
+    // PML sin asignar (Clase C) 0·0.25 + Proyecto (Clase A, 1 actividad a tiempo) 100·0.35 = 35 / 0.60 = 58 — la Iniciativa excusada no entra
+    expect(calcReprocesoStatsPonderado(CKU, reqs, [itemC("p1", [actC("a")])], m, [ini]).pct).toBe(58);
     expect(calcReprocesoStatsPonderado(CKU, [], [], {}).pct).toBeNull();
   });
 
@@ -1173,16 +1179,17 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
     expect(rows[0]).toMatchObject({ tipo: "PML", projCode: "", projName: "" });
   });
 
-  it("incluye una fila por Iniciativa APROBADA evaluable (tipo INI, sin proyecto); las n/a no aparecen", () => {
-    const creacion = new Date(2026, 0, 5);
+  it("lista como INFORMATIVA (no califica) cada Iniciativa aprobada desde el 1-nov evaluable; las anteriores y las n/a no aparecen", () => {
+    const creacion = new Date(2026, 9, 26);
     const i = (o: Partial<IniItem>): IniItem => ({ estado: "APROBADA", creacion, pm: "Luis", grupo: "G", name: "Ini 1", ...o }) as IniItem;
     const inis = [
-      i({ id: "i1", meet1: "2026-01-12", meet2: "2026-01-26" }), // on-time
-      i({ id: "i2", estado: "EN TIEMPO" }),                      // n/a (no aprobada)
+      i({ id: "i1", meet1: "2026-11-02", meet2: "2026-11-16" }),                       // aprobada en noviembre, on-time
+      i({ id: "i2", estado: "EN TIEMPO", meet2: "2026-11-16" }),                        // n/a (no aprobada)
+      i({ id: "i3", creacion: new Date(2026, 0, 5), meet1: "2026-01-12", meet2: "2026-01-26" }), // aprobada antes del 1-nov: no se muestra
     ];
     const rows = buildEntregaRows([], [], [], inis);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: "i1", source: "Iniciativa", tipo: "INI", verdict: "on-time", pm: "Luis", projCode: "", projName: "" });
+    expect(rows[0]).toMatchObject({ id: "i1", source: "Iniciativa", tipo: "INI", verdict: "on-time", pm: "Luis", projCode: "", projName: "", informativa: true });
   });
 });
 
@@ -1202,15 +1209,11 @@ describe("buildLateResponsibleRows / buildLateResponsibleRowsRaw (detalle de la 
       .toEqual([{ id: "e1", source: "Proyecto", name: "AIR · Entregable 1", pm: "BoardPm", responsible: "Sponsor" }]);
   });
 
-  it("una Iniciativa APROBADA atrasada aparece; se excusa igual que un REQ (Raw la muestra siempre)", () => {
+  it("una Iniciativa APROBADA atrasada ya no aparece (no califica), ni en Raw", () => {
     const creacion = new Date(2026, 0, 5);
     const i = (o: Partial<IniItem>): IniItem => ({ estado: "APROBADA", creacion, pm: "Luis", name: "Ini 1", meet1: "2026-01-13", meet2: "2026-01-26", ...o }) as IniItem; // meet1 atrasado
-    expect(buildLateResponsibleRows([], [], [], {}, [i({ id: "i1" })]))
-      .toEqual([{ id: "i1", source: "Iniciativa", name: "Ini 1", pm: "Luis", responsible: null }]);
-    const delays: DelayMap = { i1: { responsible: "VPA" } };
-    expect(buildLateResponsibleRows([], [], [], delays, [i({ id: "i1" })])).toEqual([]); // excusada → no aparece
-    expect(buildLateResponsibleRowsRaw([], [], [], delays, [i({ id: "i1" })]))
-      .toEqual([{ id: "i1", source: "Iniciativa", name: "Ini 1", pm: "Luis", responsible: "VPA" }]);
+    expect(buildLateResponsibleRows([], [], [], {}, [i({ id: "i1" })])).toEqual([]);
+    expect(buildLateResponsibleRowsRaw([], [], [], {}, [i({ id: "i1" })])).toEqual([]);
   });
 });
 
@@ -1601,63 +1604,44 @@ describe("calidadProjectStatus (trayectoria de Calidad por proyecto: Done + pend
   });
 });
 
-describe("Calidad de Entregas con Iniciativas (aprobadas, nota binaria como un PML cerrado)", () => {
-  const ini = (o: Partial<IniItem>): IniItem => ({ grupo: "G", status: 'PM "A"', estado: "APROBADA", pm: "Luis", ...o }) as IniItem;
+describe("Calidad de Entregas con Iniciativas (solo informativas desde el 1-nov; ya no califican)", () => {
+  const ini = (o: Partial<IniItem>): IniItem => ({ grupo: "G", status: 'PM "A"', estado: "APROBADA", pm: "Luis", meet2: "2026-11-10", ...o }) as IniItem;
   const aprobadas = [ini({ id: "INI-1", name: "Uno" }), ini({ id: "INI-2", name: "Dos" })];
 
-  it("solo cuentan las APROBADAS (PM A / B / C) y con id; el resto del embudo no mide Calidad", () => {
+  it("solo se listan las APROBADAS (PM A / B / C) con id y aprobadas desde el 1-nov; el resto no", () => {
     const resto = [
       ini({ id: "INI-3", estado: "EN TIEMPO", status: "New" }), ini({ id: "INI-4", estado: "POR_DEFINIR", status: "Meeting 2" }),
       ini({ id: "INI-5", estado: "EN_ESPERA", status: "Sin Valor Def" }), ini({ id: "", name: "sin id" }),
+      ini({ id: "INI-6", meet2: "2026-10-20" }),   // aprobada antes del 1-nov
     ];
     expect(iniUnidadesCalidad([...aprobadas, ...resto]).map((i) => i.id)).toEqual(["INI-1", "INI-2"]);
-    expect(calcReprocesoStats([], [], {}, resto).total).toBe(0);
-    expect(calcReprocesoPct([], [], {}, resto)).toBeNull();
   });
 
-  it("sin asignar y PM penalizan; un responsable ≠ PM o \"Sin reproceso\" excusa (como un PML cerrado)", () => {
-    expect(calcReprocesoPct([], [], {}, aprobadas)).toBe(0);
-    expect(calcReprocesoPct([], [], { "INI-1": { responsible: "PM" }, "INI-2": { responsible: "PM" } }, aprobadas)).toBe(0);
-    expect(calcReprocesoPct([], [], { "INI-1": { responsible: "Sin reproceso" } }, aprobadas)).toBe(50);
-    expect(calcReprocesoPct([], [], { "INI-1": { responsible: "Sponsor" }, "INI-2": { responsible: "VPA" } }, aprobadas)).toBe(100);
-  });
-
-  it("se promedian junto con los PML cerrados", () => {
+  it("no entran en ninguna nota: ni en calcReprocesoStats, ni en el %, ni en Raw", () => {
+    expect(calcReprocesoStats([], [], {}, aprobadas).total).toBe(0);
+    expect(calcReprocesoPct([], [], {}, aprobadas)).toBeNull();
+    expect(calcReprocesoStatsRaw([], [], { "INI-1": { responsible: "Sin reproceso" } }, aprobadas).total).toBe(0);
     const reqs = [req({ id: "R1", pm: "Luis", estado: "CERRADO" })];
-    // 1 PML excusado (100) + 2 iniciativas: una excusada (100) y una sin asignar (0) → 200/3
-    const m = { R1: { responsible: "VPA" as const }, "INI-1": { responsible: "Sin reproceso" as const } };
-    expect(calcReprocesoStats(reqs, [], m, aprobadas)).toMatchObject({ total: 3, limpias: 2, conReproceso: 1, pct: 67 });
+    expect(calcReprocesoStats(reqs, [], { R1: { responsible: "VPA" } }, aprobadas)).toMatchObject({ total: 1, limpias: 1, conReproceso: 0, pct: 100 });
   });
 
-  it("calcReprocesoStatsRaw solo cuenta las iniciativas con selección hecha", () => {
-    const raw = calcReprocesoStatsRaw([], [], { "INI-1": { responsible: "Sin reproceso" } }, aprobadas);
-    expect(raw).toMatchObject({ total: 1, limpias: 1, conReproceso: 0, pct: 100 });
-  });
-
-  it("buildReprocesoRows lista la iniciativa como unidad INI, siempre calificable", () => {
+  it("buildReprocesoRows las lista marcadas como informativas", () => {
     const rows = buildReprocesoRows([], [], [], { "INI-1": { responsible: "PM" } }, aprobadas);
-    expect(rows.map((r) => [r.id, r.source, r.tipo, r.unitKind, r.verdict, r.allDone])).toEqual([
-      ["INI-1", "Iniciativa", "INI", "ini", "reproceso", true],
-      ["INI-2", "Iniciativa", "INI", "ini", "reproceso", true],
+    expect(rows.map((r) => [r.id, r.source, r.tipo, r.unitKind, r.informativa])).toEqual([
+      ["INI-1", "Iniciativa", "INI", "ini", true],
+      ["INI-2", "Iniciativa", "INI", "ini", true],
     ]);
-    const limpia = buildReprocesoRows([], [], [], { "INI-1": { responsible: "VPA" } }, aprobadas)[0];
-    expect(limpia).toMatchObject({ verdict: "clean", nota: 100, pm: "Luis" });
   });
 
-  it("buildReprocesoRowsRaw lista solo las iniciativas con responsable elegido", () => {
-    const rows = buildReprocesoRowsRaw([], [], [], { "INI-2": { responsible: "PM" } }, aprobadas);
-    expect(rows).toEqual([{ id: "INI-2", source: "Iniciativa", name: "Dos", pm: "Luis", responsible: "PM", projCode: "" }]);
+  it("buildReprocesoRowsRaw ya no las incluye", () => {
+    expect(buildReprocesoRowsRaw([], [], [], { "INI-2": { responsible: "PM" } }, aprobadas)).toEqual([]);
   });
 
-  it("calcPmMetrics suma solo las iniciativas de ESE PM al % de Calidad de su KPI", () => {
+  it("calcPmMetrics: las iniciativas no mueven el % de Calidad del KPI", () => {
     const todas = [...aprobadas, ini({ id: "INI-9", pm: "Otro" })];
-    const sinNada = calcPmMetrics("Luis", todas, [], [], [], new Map(), new Map(), []);
-    expect(sinNada.reprocesoPct).toBe(0); // 2 iniciativas de Luis sin asignar
+    expect(calcPmMetrics("Luis", todas, [], [], [], new Map(), new Map(), []).reprocesoPct).toBeNull();
     const m = { "INI-1": { responsible: "VPA" as const }, "INI-2": { responsible: "VPA" as const } };
-    const conTodo = calcPmMetrics("Luis", todas, [], [], [], new Map(), new Map(), [], {}, m);
-    expect(conTodo.reprocesoPct).toBe(100);
-    const otro = calcPmMetrics("Otro", todas, [], [], [], new Map(), new Map(), []);
-    expect(otro.reprocesoPct).toBe(0); // INI-9 de "Otro" sin asignar
+    expect(calcPmMetrics("Luis", todas, [], [], [], new Map(), new Map(), [], {}, m).reprocesoPct).toBeNull();
   });
 });
 describe("calcPmMetrics", () => {

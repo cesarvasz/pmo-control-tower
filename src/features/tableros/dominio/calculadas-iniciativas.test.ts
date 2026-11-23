@@ -87,10 +87,8 @@ describe("Tableros · columnas «Calculada por la app» de Iniciativas", () => {
     expect(calidadIniciativa(aTiempo, { OK: { responsible: "Sin reproceso" as never } })).toBe(100);
     expect(calidadIniciativa(aTiempo, { OK: { responsible: "PM" } })).toBe(0);
     expect(calidadIniciativa(ini({}), {})).toBeNull();
-    // Y coincide con lo que cuenta Cumplimiento de Entrega
-    const s = calcEntregaStats([], [], {}, [aTiempo, tarde, sinDatos]);
-    expect(s.total).toBe(2);
-    expect(s.onTime).toBe(1);
+    // Informativo: Cumplimiento de Entrega ya no cuenta Iniciativas
+    expect(calcEntregaStats([], [], {}, [aTiempo, tarde, sinDatos]).total).toBe(0);
   });
 
   it("todos los campos juntos, y las etapas sin dato dan null", () => {

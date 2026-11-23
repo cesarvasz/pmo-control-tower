@@ -76,7 +76,7 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     // Proyectos (Clase A): c1, c2, a1, b1 a tiempo · b2 atraso · a2 excusada y b3 pendiente no cuentan → 4 de 5.
     expect(f("A")).toMatchObject({ total: 5, buenas: 4, pct: 80 });
     expect(f("B")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
-    expect(f("ini")).toMatchObject({ total: 2, buenas: 1, pct: 50 });
+    expect(f("ini")).toMatchObject({ total: 0, pct: null });                         // las Iniciativas ya no califican
     expect(d.sinClase).toBe(0);
     // Cada unidad sabe de qué fuente cuenta: sus actividades, de la Clase A; sus PML, de la C.
     expect(por("a1").fuenteEvm).toBe("A");
@@ -102,10 +102,10 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     const sinClase = { req: [], proj: [{ ...item3("p3", "b9", [act("z1", "late")]), boardName: "Sin ID" } as ProjItem], projBoards: [], ini: [iniE("i1", true)] };
     const dn = cumpl(sinClase, {});
     expect(dn.sinClase).toBe(1);
-    expect(dn.pct).toBe(100);                                                   // solo pesa la Iniciativa
+    expect(dn.pct).toBeNull();                                                  // sin clase no pesa, y las Iniciativas ya no califican
     expect(dn.unidades.find((u) => u.id === "z1")).toMatchObject({ fuenteEvm: null });
     // Asignándole una clase, el atraso empieza a pesar.
-    expect(cumpl(sinClase, {}, undefined, cl({ b9: "A" })).pct).toBe(Math.round((1 * 0.1 + 0 * 0.35) / 0.45 * 100));
+    expect(cumpl(sinClase, {}, undefined, cl({ b9: "A" })).pct).toBe(0);
   });
 
   it("las demás fases del proyecto (Valuación, Operación…) no entran en la medición del CKU", () => {
@@ -156,14 +156,14 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     expect(d.proyectos![0].items[0].actividades[0]).toMatchObject({ estado: "pendiente", ajustada: false });
   });
 
-  it("los pesos efectivos reparten el de las fuentes sin unidades (solo Iniciativas y Clase A: 10/45 y 35/45)", () => {
+  it("los pesos efectivos reparten el de las fuentes sin unidades (solo Clase A: pesa todo; las Iniciativas ya no califican)", () => {
     const d = cumpl(
       { req: [], proj: [item3("p1", "b1", [act("a1", "on-time")])], projBoards: [board], ini: [iniE("i1", true)] }, {});
     const f = (k: string) => d.fuentes.find((x) => x.fuente === k)!;
     expect(f("C")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
     expect(f("B")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
-    expect(f("ini").pesoEfectivo).toBeCloseTo(0.10 / 0.45, 5);
-    expect(f("A").pesoEfectivo).toBeCloseTo(0.35 / 0.45, 5);
+    expect(f("ini")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
+    expect(f("A").pesoEfectivo).toBeCloseTo(1, 5);
     expect(d.fuentes.reduce((s, x) => s + (x.pesoEfectivo ?? 0), 0)).toBeCloseTo(1, 5);
   });
 
@@ -327,7 +327,7 @@ describe("detalleCumplimiento — qué se mide y cómo pesa cada fuente (Proyect
     const d = cumpl(
       { req: [], proj: [item3("p1", "b1", [act("a1", "late")], {}, "Valuación | Formulación del proyecto")], projBoards: [board], ini: [iniE("i1", true)] }, {});
     expect(d.fuentes.find((x) => x.fuente === "A")).toMatchObject({ total: 0, pct: null, pesoEfectivo: null });
-    expect(d.pct).toBe(100); // solo cuenta la Iniciativa
+    expect(d.pct).toBeNull(); // sin unidades en ninguna fuente (las Iniciativas ya no califican)
   });
 
   it("para un CKU penaliza 'CKU' (no 'PM'): el mapa intercambiado decide, la etiqueta es la original", () => {
@@ -354,14 +354,14 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
   const actK = (id: string, extra: Record<string, unknown> = {}) =>
     act(id, null, { status: "Done", deadline: f("2026-06-10"), actualEnd: f("2026-06-10"), newLimitDate: null, ...extra });
 
-  it("PML e Iniciativas son binarios: 100 con un responsable ≠ CKU, 0 sin asignar", () => {
+  it("PML son binarios: 100 con un responsable ≠ CKU, 0 sin asignar; las Iniciativas ya no califican", () => {
     const rep: DelayMap = { r1: { responsible: "Sponsor" } };
     const s = { req: [reqE("r1", "on-time"), reqE("r2", "on-time")], proj: [], projBoards: [board], ini: [iniE("i1", true)] };
     const d = cal(s, rep);
     const por = (id: string) => d.unidades.find((u) => u.id === id)!;
     expect(por("r1")).toMatchObject({ nota: 100, estado: "ok", responsable: "Sponsor" });
     expect(por("r2")).toMatchObject({ nota: 0, estado: "atraso", responsable: null });
-    expect(por("i1")).toMatchObject({ nota: 0, estado: "atraso", fuente: "ini" });
+    expect(d.unidades.some((u) => u.fuente === "ini")).toBe(false);
   });
 
   it("cada actividad a cargo del CKU es una unidad con su nota por fechas: 1 / 0, y las que aún no se miden no cuentan", () => {
@@ -497,15 +497,15 @@ describe("detalleCalidad — PML e Iniciativas por su responsable; actividades d
     });
   });
 
-  it("un empate exacto en .5 (52.5) redondea igual hacia arriba en el detalle y en el scoreboard", () => {
-    // Iniciativas 100 (peso 10) · PML 100 (Clase C, peso 25) · Proyectos 1 de 20 = 5 (Clase A, peso 35) → 52.5 exacto.
+  it("el detalle y el scoreboard redondean igual", () => {
+    // PML 100 (Clase C, peso 25) · Proyectos 1 de 20 = 5 (Clase A, peso 35) → 44.58 → 45.
     const rep: DelayMap = { i1: { responsible: "Sponsor" }, r1: { responsible: "Sponsor" } };
     const buenas = [actK("ok0")];
     const malas = Array.from({ length: 19 }, (_, i) => actK(`mal${i}`, { actualEnd: f("2026-06-20") }));
     const s = { req: [reqE("r1", "on-time")], proj: [item3("i1", "b1", [...buenas, ...malas])], projBoards: [board], ini: [iniE("i1", true)] };
     const stats = calcReprocesoStatsPonderado(CKU, s.req, s.proj, rep, s.ini);
-    expect(stats.pct).toBe(53);
-    expect(cal(s, rep).pct).toBe(53);
+    expect(stats.pct).toBe(45);
+    expect(cal(s, rep).pct).toBe(45);
   });
 
   it("sin unidades: pct null", () => {

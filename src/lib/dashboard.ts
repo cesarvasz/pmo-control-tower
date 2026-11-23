@@ -412,9 +412,21 @@ export function iniEntregaVerdict(i: IniItem): "on-time" | "late" | "n/a" {
   return etapa1OK && etapa2OK ? "on-time" : "late";
 }
 
+/** Desde cuándo se MUESTRAN las Iniciativas aprobadas en Cumplimiento y Calidad de Entregas (1-nov-2026).
+ *  Las Iniciativas ya NO califican en esas dos notas (ni PM ni CKU): solo se listan como informativas. */
+export const INI_INFORMATIVAS_DESDE = new Date(2026, 10, 1);
+
+/** ¿Se muestra esta Iniciativa como informativa? Aprobada y con fecha de aprobación ≥ INI_INFORMATIVAS_DESDE.
+ *  No se guarda la fecha de aprobación: se toma la de Meeting 2 (donde se decide) o, sin ella, la de Meeting 1. */
+export function iniInformativa(i: IniItem): boolean {
+  if (i.estado !== "APROBADA" || !i.id) return false;
+  const f = parseYMD(i.meet2) ?? parseYMD(i.meet1);
+  return !!f && f.getTime() >= INI_INFORMATIVAS_DESDE.getTime();
+}
+
 /** Cumplimiento de Entrega: REQ cerrados (1 unidad c/u) + ENTREGABLES de la Fase 3 de Proyecto (1 unidad c/u, ver
  *  entregablesPm y entregaEntregablePm: cumplido si cerró en o antes de su Limit Date o de su New Limit Date) +
- *  Iniciativas APROBADAS (1 unidad c/u, ver iniEntregaVerdict). Un incumplido con responsable ≠ PM (en un entregable,
+ *  (Las Iniciativas aprobadas YA NO califican desde 2026-11-17: solo se listan como informativas, ver iniInformativa.) Un incumplido con responsable ≠ PM (en un entregable,
  *  el suyo o el de su fase) sale de la cuenta. Lo que aún no tiene veredicto (pendiente) no entra. */
 export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[] = []): EntregaStats {
   const f = entregaPorFuente(reqs, projs, delays, ini);
@@ -428,7 +440,7 @@ export function calcEntregaStats(reqs: ReqItem[], projs: ProjItem[], delays: Del
 export interface FuenteEntrega { total: number; onTime: number }
 
 /** Conteo de Cumplimiento de Entrega (con excusa por responsable) POR FUENTE:
- *  PML (REQ cerrados), Proyectos (fases) e Iniciativas aprobadas. Base común de
+ *  PML (REQ cerrados) y Proyectos (la fuente `ini` queda siempre en 0: las Iniciativas ya no califican). Base común de
  *  calcEntregaStats (todo junto) y calcEntregaStatsPonderado (una nota por fuente). */
 function entregaPorFuente(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, ini: IniItem[]): { req: FuenteEntrega; proj: FuenteEntrega; ini: FuenteEntrega } {
   const out = { req: { total: 0, onTime: 0 }, proj: { total: 0, onTime: 0 }, ini: { total: 0, onTime: 0 } };
@@ -442,11 +454,9 @@ function entregaPorFuente(reqs: ReqItem[], projs: ProjItem[], delays: DelayMap, 
   // Proyectos: cada ENTREGABLE de la Fase 3 ya evaluado (ver entregablesPm / entregaEntregablesPm).
   out.proj = entregaEntregablesPm(projs, delays);
 
-  for (const i of ini) {
-    const v = iniEntregaVerdict(i);
-    if (v === "on-time") { out.ini.total++; out.ini.onTime++; }
-    else if (v === "late" && !lateExcused(i.id, delays)) { out.ini.total++; }
-  }
+  // Iniciativas: YA NO califican (desde 2026-11-17); `out.ini` queda en 0 y su peso se reparte entre las demás
+  // fuentes. Solo se listan como informativas (ver iniInformativa). `ini` se conserva en la firma por los llamadores.
+  void ini;
 
   return out;
 }
@@ -719,11 +729,8 @@ export function calcEntregaStatsRaw(reqs: ReqItem[], projs: ProjItem[], ini: Ini
     if (x.veredicto === "on-time") onTime++;
   }
 
-  for (const i of ini) {
-    const v = iniEntregaVerdict(i);
-    if (v === "on-time") { total++; onTime++; }
-    else if (v === "late") { total++; }
-  }
+  // Iniciativas: ya no califican (ver entregaPorFuente).
+  void ini;
 
   const late = total - onTime;
   const pct = total ? Math.round((onTime / total) * 100) : null;
@@ -1074,13 +1081,9 @@ export function calidadActividadCkuResp(s: ProjSubitem, reproceso: DelayMap): { 
 
 export interface ReprocesoStats { total: number; limpias: number; conReproceso: number; pct: number | null; }
 
-/** Unidades de Calidad de INICIATIVAS: las ya aprobadas (PM "A" / "B" / "C",
- *  estado "APROBADA"). Como un REQ cerrado, su nota es binaria: 100 si el Admin la
- *  excusa con un responsable ≠ "PM" (o "Sin reproceso"), 0 si no (sin asignar
- *  penaliza). Se atribuyen por el id de la iniciativa (ini.id). Las demás etapas del
- *  embudo (New, Meeting 1/2, En Espera, Plan Futuro…) todavía no miden Calidad. */
-export const iniUnidadesCalidad = (ini: IniItem[]): IniItem[] =>
-  ini.filter((i) => i.estado === "APROBADA" && i.id);
+/** Iniciativas que se LISTAN en Calidad de Entregas: las aprobadas (PM "A" / "B" / "C") desde el 1-nov-2026
+ *  (ver iniInformativa). Son solo informativas: YA NO entran en la nota de nadie. */
+export const iniUnidadesCalidad = (ini: IniItem[]): IniItem[] => ini.filter(iniInformativa);
 
 /** Desglose de "Calidad de Entregas" (nota promedio de las unidades en scope). Las
  *  unidades en scope son los REQ CERRADOS + las unidades de Calidad de la FASE 3 de
@@ -1103,7 +1106,7 @@ export function calcReprocesoStats(reqs: ReqItem[], projs: ProjItem[], reproceso
 }
 
 /** Notas (0/50/100) de Calidad de cada unidad en scope, separadas por fuente:
- *  PML cerrados, Fase 3 de Proyectos e Iniciativas aprobadas. Base común de
+ *  PML cerrados y Fase 3 de Proyectos (la fuente `ini` queda siempre vacía: las Iniciativas ya no califican). Base común de
  *  calcReprocesoStats (todo junto) y calcReprocesoStatsPonderado (una nota por fuente). */
 function notasReprocesoPorFuente(
   reqs: ReqItem[], projs: ProjItem[], reproceso: DelayMap, ini: IniItem[], cku?: string,
@@ -1119,7 +1122,8 @@ function notasReprocesoPorFuente(
           return c && !c.excusada ? c.nota : [];
         }))
       : calidadUnits(projs).map((u) => calcItemNota(u.id, u.recuperado, reproceso)),
-    ini: iniUnidadesCalidad(ini).map((i) => (lateExcused(i.id, reproceso) ? 100 : 0)),
+    // Iniciativas: ya no califican en Calidad (desde 2026-11-17); solo se listan como informativas.
+    ini: (void ini, [] as number[]),
   };
 }
 
@@ -1167,8 +1171,8 @@ export function calcReprocesoStatsRaw(reqs: ReqItem[], projs: ProjItem[], reproc
   const units = [
     ...reqs.filter((r) => r.estado === "CERRADO").map((r) => r.id),
     ...calidadUnits(projs).map((u) => u.id),
-    ...iniUnidadesCalidad(ini).map((i) => i.id),
   ];
+  void ini; // Iniciativas: ya no califican en Calidad.
   const assigned = units.filter((id) => reproceso[id]?.responsible != null);
   const total = assigned.length;
   const limpias = assigned.filter((id) => reproceso[id]?.responsible === "Sin reproceso").length;
@@ -1206,6 +1210,8 @@ export interface EntregaRow {
   pm: string;
   deadline: Date | null;             // REQ: su deadline. Proyecto: Limit Date del entregable. Iniciativa: null.
   verdict: "on-time" | "late";       // Proyecto: ver entregaEntregablePm (New Limit Date incluida).
+  /** Iniciativa aprobada desde el 1-nov: se lista pero NO califica (no cuenta en el % ni en el KPI). */
+  informativa?: boolean;
   /** Solo REQ: desglose de deadlines por fase (para acordeón). */
   phaseDetails?: ReqPhaseDetail[];
   /** Solo Proyecto: fechas del entregable. */
@@ -1244,12 +1250,15 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
       atribId: x.llave,
     });
   }
+  // Iniciativas aprobadas desde el 1-nov: solo informativas, no califican (ver iniInformativa).
   for (const i of ini) {
+    if (!iniInformativa(i)) continue;
     const v = iniEntregaVerdict(i);
     if (v === "n/a") continue;
     rows.push({
       id: i.id, source: "Iniciativa", tipo: "INI", name: i.name, context: i.grupo,
       projCode: "", projName: "", fase: i.grupo, pm: i.pm, deadline: null, verdict: v, atribId: i.id,
+      informativa: true,
     });
   }
   return rows;
@@ -1294,11 +1303,7 @@ export function buildLateResponsibleRows(reqs: ReqItem[], projs: ProjItem[], pro
   }
 
   rows.push(...filasEntregablesAtrasados(projs, bpm, delays, true));
-
-  for (const i of ini) {
-    if (iniEntregaVerdict(i) !== "late" || lateExcused(i.id, delays)) continue;
-    rows.push({ id: i.id, source: "Iniciativa", name: i.name, pm: i.pm, responsible: delays[i.id]?.responsible ?? null });
-  }
+  void ini; // Iniciativas: ya no califican en Cumplimiento.
   return rows;
 }
 
@@ -1316,11 +1321,7 @@ export function buildLateResponsibleRowsRaw(reqs: ReqItem[], projs: ProjItem[], 
   }
 
   rows.push(...filasEntregablesAtrasados(projs, bpm, delays, false));
-
-  for (const i of ini) {
-    if (iniEntregaVerdict(i) !== "late") continue;
-    rows.push({ id: i.id, source: "Iniciativa", name: i.name, pm: i.pm, responsible: delays[i.id]?.responsible ?? null });
-  }
+  void ini; // Iniciativas: ya no califican en Cumplimiento.
   return rows;
 }
 
@@ -1345,6 +1346,8 @@ export interface ReprocesoRow {
    *  item. null si aún no cerró. */
   actualEnd: Date | null;
   verdict: "clean" | "reproceso";
+  /** Iniciativa aprobada desde el 1-nov: se lista pero NO califica (no cuenta en el % ni en el KPI). */
+  informativa?: boolean;
   /** Nota de Calidad (0/50/100). REQ: binaria (100/0). Proyecto: ver calcItemNota. */
   nota: number;
   /** Solo REQ: desglose de deadlines por fase (para acordeón). */
@@ -1440,8 +1443,8 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
       allDone: u.allDone,
     });
   }
-  // Iniciativas aprobadas: nota binaria como un REQ cerrado. No tienen CPM ni fecha de
-  // aprobación, así que fechas y detalle quedan vacíos; ya están aprobadas (allDone).
+  // Iniciativas aprobadas desde el 1-nov: SOLO informativas (`informativa`), no cuentan en la nota. Sin CPM ni
+  // fecha de aprobación, así que fechas y detalle quedan vacíos; ya están aprobadas (allDone).
   for (const i of iniUnidadesCalidad(ini)) {
     const nota = lateExcused(i.id, reproceso) ? 100 : 0;
     rows.push({
@@ -1450,6 +1453,7 @@ export function buildReprocesoRows(reqs: ReqItem[], projs: ProjItem[], projBoard
       startDate: null, actualEnd: null,
       verdict: nota === 100 ? "clean" : "reproceso", nota,
       itemsDone: [], totalDone: 0, recuperado: null, cascade: null, pendingAtrasados: [], fueraDeCpm: [], allDone: true,
+      informativa: true,
     });
   }
   return rows;
@@ -1484,11 +1488,7 @@ export function buildReprocesoRowsRaw(reqs: ReqItem[], projs: ProjItem[], projBo
     const { code: projCode } = splitBoardName(u.boardName);
     rows.push({ id: u.id, source: "Proyecto", name: u.name, pm, responsible, projCode });
   }
-  for (const i of iniUnidadesCalidad(ini)) {
-    const responsible = reproceso[i.id]?.responsible;
-    if (responsible == null) continue;
-    rows.push({ id: i.id, source: "Iniciativa", name: i.name, pm: i.pm, responsible, projCode: "" });
-  }
+  void ini; // Iniciativas: ya no califican en Calidad.
   return rows;
 }
 

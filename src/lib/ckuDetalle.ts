@@ -310,9 +310,9 @@ function resumir(unidades: UnidadMedida[], buena: (u: UnidadMedida) => boolean):
  *  mapa con PM ↔ CKU ya intercambiado (el que decide qué penaliza, igual que el scoreboard);
  *  `delaysOriginal`, el guardado tal cual, solo para mostrar el responsable con su etiqueta real. */
 export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap, delaysOriginal: DelayMap = delays, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
-  // PML e Iniciativas: una unidad cada uno. Un atraso excusado sale de la cuenta (ver calcEntregaStats).
+  // PML: una unidad cada uno (las Iniciativas ya no califican). Un atraso excusado sale de la cuenta (ver calcEntregaStats).
   const cerrados = pmlCerrados(s.req);
-  const unidades = buildEntregaRows(s.req, [], s.projBoards, s.ini).map((r): UnidadMedida => {
+  const unidades = buildEntregaRows(s.req, [], s.projBoards, s.ini).filter((r) => !r.informativa).map((r): UnidadMedida => {
     const tarde = r.verdict === "late";
     const base = {
       id: r.id, fuente: fuenteDe(r.source), fuenteEvm: fuenteEvmDe(r.source, r.id, clases),
@@ -349,7 +349,7 @@ export function detalleCumplimiento(s: Scope & { cku: string }, delays: DelayMap
  *  Admin les eligió un responsable ≠ CKU (clave: su id en `reproceso`) quedan excusadas: no cuentan. */
 export function detalleCalidad(s: Scope & { cku: string }, reproceso: DelayMap, reprocesoOriginal: DelayMap = reproceso, clases: Record<string, ClaseEntry> = {}): DetalleMedicion {
   const cerrados = pmlCerrados(s.req);
-  const unidades = buildReprocesoRows(s.req, [], s.projBoards, reproceso, s.ini).map((r): UnidadMedida => {
+  const unidades = buildReprocesoRows(s.req, [], s.projBoards, reproceso, s.ini).filter((r) => !r.informativa).map((r): UnidadMedida => {
     const nota = notaCalidadCku(r.id, reproceso);
     return {
       id: r.id, fuente: fuenteDe(r.source), fuenteEvm: fuenteEvmDe(r.source, r.id, clases), nombre: r.name, fase: r.fase,
