@@ -15,6 +15,24 @@ export async function exigirAccion(request: Request, accion: string): Promise<Ap
   return me;
 }
 
+/** Página del menú desde la que se gestionan las Iniciativas (registry.ts). Abre SOLO los tableros de categoría Iniciativas. */
+export const PAGINA_GESTION_INICIATIVAS = "gestion-iniciativas";
+
+/**
+ * Puerta de UN tablero: quien tiene Tableros completo (tableros_ver) entra a cualquiera; quien tiene la página «Gestión de
+ * Iniciativas» entra solo a los de categoría Iniciativas. Qué ve y qué edita adentro lo sigue decidiendo el motor de permisos
+ * (reglas por rol del tablero, «solo lo mío»). Lanza "forbidden" si no.
+ */
+export async function exigirAccesoTablero(request: Request, tableroId: string): Promise<AppUser> {
+  const me = await requireSession(request.headers.get("authorization"));
+  if (tieneAccionTableros(me.permissions, "tableros_ver")) return me;
+  if (me.permissions.pages?.[PAGINA_GESTION_INICIATIVAS]) {
+    const t = unwrap(await getSupabaseAdmin().from("tableros").select("categoria").eq("id", tableroId).is("archivado_at", null).maybeSingle());
+    if (t?.categoria === "iniciativas") return me;
+  }
+  throw new Error("forbidden");
+}
+
 /** El usuario como lo ve el motor de permisos: su rol, si es Admin y su persona del directorio. */
 export async function usuarioTableros(me: AppUser): Promise<UsuarioTableros> {
   const persona = unwrap(await getSupabaseAdmin().from("personas").select("id").eq("app_user_id", me.uid).maybeSingle());

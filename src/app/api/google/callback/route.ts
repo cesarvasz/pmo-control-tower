@@ -1,6 +1,6 @@
 // src/app/api/google/callback/route.ts
 // A donde Google devuelve al usuario. No trae el token de la app: la identidad sale del state firmado (atado a la cookie).
-// Guarda el refresh token en el Vault y redirige a /tableros con ?google=ok o ?google=<motivo>.
+// Guarda el refresh token en el Vault y redirige a /gestion-iniciativas (donde está «Agendar») con ?google=ok o ?google=<motivo>.
 
 import { NextResponse } from "next/server";
 import { COOKIE_STATE, configGoogle, intercambiarCodigo, SCOPES_OBLIGATORIOS, verificarState } from "@/lib/googleOauth";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const volver = (motivo: string) => {
-    const res = NextResponse.redirect(new URL(`/tableros?google=${motivo}`, url.origin));
+    const res = NextResponse.redirect(new URL(`/gestion-iniciativas?google=${motivo}`, url.origin));
     res.cookies.set(COOKIE_STATE, "", { path: "/api/google", maxAge: 0 });
     return res;
   };

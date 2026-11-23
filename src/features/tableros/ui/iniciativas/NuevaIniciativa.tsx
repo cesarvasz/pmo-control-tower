@@ -20,6 +20,8 @@ import TimelineIniciativa from "./TimelineIniciativa";
 import StatusIniciativa from "./StatusIniciativa";
 import CompletarAccion, { fmtMomento } from "./CompletarAccion";
 import AgendarReunion, { type ReunionAgendada } from "./AgendarReunion";
+import RespuestasReunion, { type RespuestasDeReunion } from "./RespuestasReunion";
+import { foco } from "./estilo";
 import { authedFetch } from "@/lib/api";
 import { DIAS_CIERRE_ESPERA, esAccionCompletable, momentoDeAccion, type AccionCompletable, type CambioHistorial, type ClaseAprobada, type OpcionCompletar } from "../../dominio/acciones-iniciativa";
 import { Campo } from "../tablero/FormularioAlta";
@@ -27,10 +29,20 @@ import Bitacora, { CajaComentario, publicarComentario } from "../tablero/Bitacor
 import { textoCelda, type Columna } from "../../dominio/tablero";
 import { TextoEditable } from "../tablero/piezas";
 import { Historial } from "../tablero/ElementoPanel";
-import { camposDespues, camposQueLlena, columnasNuevaIni, estaAgendada, faltantes, pasosIniciativa, sinOpciones, tituloCampo } from "../../dominio/nueva-iniciativa";
+import { camposDespues, camposQueLlena, columnasNuevaIni, estaAgendada, faltantes, pasosIniciativa, pideDatosCompletos, sinOpciones, tituloCampo } from "../../dominio/nueva-iniciativa";
 
-// Tipografía: etiqueta chica en mayúsculas y ligera; valor debajo, más grande y en medium.
-const etiqueta = "text-[0.72rem] font-normal uppercase leading-4 tracking-wide text-[var(--text-secondary)]";
+// Tipografía: etiqueta chica y discreta; valor debajo, más grande y en medium.
+const etiqueta = "text-[0.74rem] font-medium leading-4 text-[var(--text-muted)]";
+
+/** Texto de ayuda bajo el timeline: discreto, con un ícono de información. */
+function NotaSuave({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex gap-1.5 text-[0.75rem] leading-snug text-[var(--text-muted)]">
+      <span aria-hidden className="mt-px shrink-0">ⓘ</span>
+      <span>{children}</span>
+    </p>
+  );
+}
 /** Las celdas traen 0.82rem fijo y cortan el texto con «…»: aquí el valor va más grande y se parte en líneas. */
 const celdaTexto = "[&_button]:text-[0.9rem] [&_button]:font-medium [&_button]:whitespace-normal [&_span]:text-[0.9rem] [&_span]:font-medium [&_span]:whitespace-normal [&_span]:text-left";
 /** En la rejilla de arriba el valor va alineado con su etiqueta (sin el relleno de la celda). */
@@ -166,13 +178,14 @@ export default function NuevaIniciativa({
     const puedeEditar = !!hecha?.editable(c);
     const deMonday = !!hecha?.deMonday && !puedeEditar && editable(c);
     return (
-      <div key={c.id} className="flex min-w-0 flex-col gap-0.5">
+      <div
+        key={c.id} className={caja ? "flex min-w-0 flex-col gap-1 rounded-lg border px-3 py-2.5 transition-colors hover:border-[var(--text-muted)]" : "flex min-w-0 flex-col gap-0.5"}
+        style={caja ? { borderColor: "var(--border-subtle)", background: "var(--bg-base)" } : undefined}
+      >
         <span className={etiqueta}>{campo}{deMonday && <span title="Viene de Monday: se cambia en Monday" className="ml-1 normal-case">🔒</span>}</span>
         <div
-          className={caja ? `${celdaTexto} rounded-md` : `${celdaTexto} ${celdaRejilla}`}
-          style={caja
-            ? (puedeEditar ? { border: "1px solid var(--border-subtle)", background: "var(--bg-base)" } : undefined)
-            : (puedeEditar ? { borderBottom: "1px dashed var(--border)" } : undefined)}
+          className={caja ? `${celdaTexto} ${celdaRejilla} rounded-md` : `${celdaTexto} ${celdaRejilla} rounded-sm transition-colors ${puedeEditar ? "hover:bg-[var(--bg-hover)]" : ""}`}
+          style={!caja && puedeEditar ? { borderBottom: "1px dashed var(--border)" } : undefined}
         >
           <Celda
             columna={c} valor={hecha?.valorDe(c) ?? null} editable={puedeEditar} personas={personas} elementoId={id ?? undefined} entorno={entorno}
@@ -218,14 +231,21 @@ export default function NuevaIniciativa({
     hoy: new Date().toLocaleDateString("en-CA", { timeZone: "America/Guatemala" }), fechaLimite: limite, reunion, fmt: fmtCorta,
   });
   const siguiente = pasos.find((p) => p.estado === "siguiente");
+  // Ya creada: los datos obligatorios que le faltan (las que vienen de Monday no tenían Proceso). Solo se piden en el embudo o en Plan Futuro.
+  const obligatorios = camposQueLlena(k);
+  const faltanDatos = id && hecha && pideDatosCompletos(status?.texto)
+    ? faltantes(hecha.nombre, obligatorios, Object.fromEntries(obligatorios.map((c) => [c.id, hecha.valorDe(c)])))
+    : [];
   const esReunion = siguiente?.clave === "meeting1" || siguiente?.clave === "meeting2";
 
   // La reunión que agendó la app para esta etapa: de ahí salen «Reprogramar» y «Cancelar reunión» (solo si está en MI calendario)
   const tipoReunion = siguiente?.clave === "meeting1" ? "M1" : "M2";
-  const reunionesApp = useCarga<{ reuniones: (ReunionAgendada & { tipo: string; esMia: boolean })[] }>(
+  const reunionesApp = useCarga<{ reuniones: (ReunionAgendada & { tipo: string; esMia: boolean; respuestas: RespuestasDeReunion | null })[] }>(
     id && esReunion && agendada === true && hecha?.puedeAgendar ? `/api/reuniones?elementoId=${id}&v=${versionReunion}` : "",
   );
   const reunionMia = reunionesApp.data?.reuniones.find((r) => r.tipo === tipoReunion && r.esMia) ?? null;
+  // La de esta etapa, la haya agendado quien sea: de ahí salen las respuestas de los invitados
+  const reunionEtapa = reunionesApp.data?.reuniones.find((r) => r.tipo === tipoReunion) ?? null;
   async function cancelarReunion() {
     if (!reunionMia || !confirm(`¿Cancelar la ${siguiente?.accion}? Se borra el evento de tu Google Calendar y se avisa a los invitados.`)) return;
     setError(null);
@@ -238,6 +258,10 @@ export default function NuevaIniciativa({
     setVersionReunion((n) => n + 1);
     onCambio(); // la iniciativa vuelve a «Sin agendar» (o se pone al día si algo cambió en Google)
   }
+
+  // Agendar / Reprogramar abren su propia pantalla en el pop-up (mismos estados agendando / reprogramando de siempre)
+  const pantallaAgendar = !!id && ((reprogramando && !!reunionMia) || (agendando && esReunion));
+  const salirDeAgendar = () => { setAgendando(false); setReprogramando(false); };
 
   /** La acción amarilla, si se completa con el botón (Meeting 1 o Meeting 2). */
   const porCompletar = siguiente?.completable && esAccionCompletable(siguiente.accion) ? siguiente.accion : null;
@@ -265,73 +289,127 @@ export default function NuevaIniciativa({
 
   return (
     <Modal open onClose={id ? onCerrar : cerrar} width={1040} label={id ? `Iniciativa ${iniId}` : "Nueva iniciativa"}>
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* Arriba (fijo): título, avisos, timeline y pestañas */}
-        <div className="flex shrink-0 flex-col gap-3 px-5 pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {id && iniId && (
-              <span className="rounded px-1.5 py-0.5 text-[0.78rem] font-bold tabular-nums text-[var(--text-secondary)]" style={{ background: "var(--code-bg)" }}>{iniId}</span>
-            )}
-            <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-[var(--text-primary)]">{id ? hecha?.nombre ?? nombre : "Nueva iniciativa"}</h2>
-            {id && <StatusIniciativa salud={leer(k.salud)} etapa={status} />}
+      {pantallaAgendar && id ? (
+        // Agendar / Reprogramar en su propia pantalla del pop-up: sin timeline ni pestañas detrás, solo lo necesario para agendar.
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center gap-2 border-b px-5 py-2.5" style={{ borderColor: "var(--border-subtle)" }}>
+            <button
+              type="button" onClick={salirDeAgendar}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8rem] font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${foco}`}
+            >
+              <span aria-hidden>←</span> Volver a la iniciativa
+            </button>
+            <span className="min-w-0 truncate text-[0.78rem] text-[var(--text-muted)]">
+              {iniId && <span className="font-mono font-semibold text-[var(--text-secondary)]">{iniId}</span>}{iniId ? " · " : ""}{hecha?.nombre ?? nombre}
+            </span>
+            <button
+              type="button" onClick={onCerrar} aria-label="Cerrar" title="Cerrar"
+              className={`ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-md text-[1.15rem] leading-none text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${foco}`}
+            >
+              ×
+            </button>
           </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {reprogramando && reunionMia ? (
+              <AgendarReunion
+                plano key={reunionMia.id} elementoId={id} accion={siguiente?.accion ?? ""} personas={personas} reunion={reunionMia}
+                onAgendada={() => { setVersionReunion((n) => n + 1); onCambio(); }} onCancelar={() => setReprogramando(false)}
+              />
+            ) : siguiente && (
+              <AgendarReunion
+                plano key={siguiente.clave} elementoId={id} accion={siguiente.accion} personas={personas}
+                onAgendada={onCambio} onCancelar={() => setAgendando(false)}
+              />
+            )}
+          </div>
+        </div>
+      ) : (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Arriba: título, avisos, timeline y pestañas. Si un panel (Agendar, Reprogramar, Completar) lo hace más alto que la
+            ventana, se encoge y hace scroll propio: así sus botones nunca quedan escondidos. */}
+        <div className="flex min-h-0 shrink flex-col gap-3 overflow-y-auto px-5 pt-4 pb-1">
+          <header className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[0.72rem] text-[var(--text-muted)]">
+                <span>Iniciativa</span>
+                {id && iniId && (
+                  <span className="rounded px-1.5 py-px font-mono text-[0.7rem] font-semibold tabular-nums text-[var(--text-secondary)]" style={{ background: "var(--code-bg)" }}>{iniId}</span>
+                )}
+              </div>
+              <h2 className="mt-0.5 truncate text-[1.05rem] font-semibold leading-snug text-[var(--text-primary)]" title={id ? hecha?.nombre ?? nombre : undefined}>
+                {id ? hecha?.nombre ?? nombre : "Nueva iniciativa"}
+              </h2>
+            </div>
+            {id && <div className="pt-4"><StatusIniciativa salud={leer(k.salud)} etapa={status} /></div>}
+            <button
+              type="button" onClick={id ? onCerrar : cerrar} aria-label="Cerrar" title="Cerrar"
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-md text-[1.15rem] leading-none text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${foco}`}
+            >
+              ×
+            </button>
+          </header>
 
           {error && <Nota tono="mal">{error}</Nota>}
           {recienCreada && <Nota tono="ok">Iniciativa creada en «Nuevas Iniciativas» con status New.</Nota>}
           {aviso && <Nota tono="mal">{aviso}</Nota>}
+          {faltanDatos.length > 0 && (
+            <div
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-[0.8rem]"
+              style={{ borderColor: "color-mix(in srgb, var(--warn) 40%, var(--border))", background: "color-mix(in srgb, var(--warn) 8%, var(--bg-surface))" }}
+              role="note"
+            >
+              <span className="text-[var(--text-primary)]"><span aria-hidden>⚠ </span>Faltan datos obligatorios: <strong>{faltanDatos.join(", ")}</strong>.</span>
+              {pestana !== "datos" && (
+                <button type="button" onClick={() => setPestana("datos")} className={`text-[0.78rem] font-semibold text-[var(--accent)] hover:underline ${foco}`}>Llenarlos en Datos</button>
+              )}
+            </div>
+          )}
 
           {/* Timeline: lo hecho en verde, la siguiente acción en amarillo (con su fecha debajo) */}
           {id && (hecha ? (
-            <section className="flex flex-col gap-1.5" aria-label="Timeline">
+            <section className="flex flex-col gap-2.5" aria-label="Timeline">
               <TimelineIniciativa
                 pasos={pasos} onCompletar={porCompletar && hecha.puedeCompletar(porCompletar) && !completando ? () => setCompletando(true) : undefined}
                 onAgendar={esReunion && hecha.puedeAgendar && agendada !== true && !agendando && !completando ? () => setAgendando(true) : undefined}
                 onReprogramar={reunionMia && !reprogramando && !completando ? () => setReprogramando(true) : undefined}
                 onCancelarReunion={reunionMia && !reprogramando && !completando ? () => void cancelarReunion() : undefined}
               />
-              {reprogramando && reunionMia && id && (
-                <AgendarReunion
-                  key={reunionMia.id} elementoId={id} accion={siguiente?.accion ?? ""} personas={personas} reunion={reunionMia}
-                  onAgendada={() => { setVersionReunion((n) => n + 1); onCambio(); }} onCancelar={() => setReprogramando(false)}
-                />
-              )}
-              {agendando && esReunion && id && (
-                <AgendarReunion
-                  key={siguiente.clave} elementoId={id} accion={siguiente.accion} personas={personas}
-                  onAgendada={onCambio} onCancelar={() => setAgendando(false)}
+              {reunionEtapa && !reprogramando && (
+                <RespuestasReunion
+                  accion={siguiente?.accion ?? ""} respuestas={reunionEtapa.respuestas} onActualizar={reunionesApp.recargar}
                 />
               )}
               {completando && porCompletar && (
                 <CompletarAccion key={porCompletar} accion={porCompletar} onConfirmar={(d) => completar(porCompletar, d)} onCancelar={() => setCompletando(false)} />
               )}
               {porCompletar && !hecha.puedeCompletar(porCompletar) && (
-                <p className="text-[0.75rem] text-[var(--text-muted)]">
+                <NotaSuave>
                   {hecha.deMonday ? `Viene de Monday: «${porCompletar}» se completa en Monday hasta el corte.` : "No tienes permiso para completar esta acción."}
-                </p>
+                </NotaSuave>
               )}
               {siguiente?.clave === "sin-beneficio" && (
-                <p className="text-[0.75rem] text-[var(--text-muted)]">
+                <NotaSuave>
                   Usa los recordatorios de «Sin Valor Def»: un correo al CKU cada {ESPERA_INTERVALO_DIAS} días hábiles, máximo {ESPERA_MAX_CORREOS}, desde «En Espera». Marcar PKU los pausa.
                   Si pasan {DIAS_CIERRE_ESPERA} días hábiles después del último y no se aprueba, se cierra sola: queda en verde con el mismo status.
-                </p>
+                </NotaSuave>
               )}
               {esReunion && agendada === false && (
-                <p className="text-[0.75rem] text-[var(--text-muted)]">
+                <NotaSuave>
                   La {siguiente.accion} cuenta como agendada cuando el evento del calendario lleva el Ini ID{iniId ? ` (${iniId})` : ""}.
-                </p>
+                </NotaSuave>
               )}
               {esReunion && agendada === null && (
-                <p className="text-[0.75rem] text-[var(--text-muted)]">No se pudo leer el calendario: se muestra la fecha límite.</p>
+                <NotaSuave>No se pudo leer el calendario: se muestra la fecha límite.</NotaSuave>
               )}
             </section>
           ) : <p className="text-[0.8rem] text-[var(--text-muted)]">Calculando…</p>)}
 
           {/* Pestañas */}
-          <div className="flex gap-1 border-b" style={{ borderColor: "var(--border)" }} role="tablist" aria-label="Secciones de la iniciativa">
+          <div className="flex gap-4 border-b" style={{ borderColor: "var(--border-subtle)" }} role="tablist" aria-label="Secciones de la iniciativa">
             {([["datos", "Datos"], ["bitacora", !id && borrador ? "Bitácora •" : "Bitácora"], ...(id ? [["historial", "Historial"] as const] : [])] as const).map(([clave, texto]) => (
               <button
                 key={clave} type="button" role="tab" aria-selected={pestana === clave} onClick={() => setPestana(clave)}
-                className="-mb-px border-b-2 px-3 py-1.5 text-[0.82rem] font-bold"
+                className={`-mb-px border-b-2 pb-2 pt-1 text-[0.82rem] transition-colors hover:text-[var(--text-primary)] ${pestana === clave ? "font-semibold" : "font-medium"} ${foco}`}
                 style={pestana === clave ? { borderColor: "var(--accent)", color: "var(--text-primary)" } : { borderColor: "transparent", color: "var(--text-muted)" }}
               >
                 {texto}
@@ -382,10 +460,12 @@ export default function NuevaIniciativa({
 
               {/* Ya creada: lo que se llena después (opcional), en una tarjeta aparte de ancho completo */}
               {id && despues.length > 0 && (
-                <section className="w-full rounded-xl border p-3.5" style={{ borderColor: "var(--border)" }} aria-label="Beneficio, presupuesto y KPI">
-                  <h3 className="text-base font-bold leading-tight text-[var(--text-primary)]">Beneficio, presupuesto y KPI</h3>
-                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">Se llena ya creada la iniciativa; se guarda al salir de cada campo.</p>
-                  <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
+                <section className="w-full border-t pt-3.5" style={{ borderColor: "var(--border-subtle)" }} aria-label="Beneficio, presupuesto y KPI">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <h3 className="text-[0.88rem] font-semibold leading-tight text-[var(--text-primary)]">Beneficio, presupuesto y KPI</h3>
+                    <p className="text-[0.74rem] text-[var(--text-muted)]">Se guarda al salir de cada campo.</p>
+                  </div>
+                  <div className="mt-2.5 grid grid-cols-2 gap-2.5 md:grid-cols-4">
                     {despues.map(({ columna: c, etiqueta: et }) => campoCreada(c, et, true))}
                   </div>
                 </section>
@@ -419,16 +499,18 @@ export default function NuevaIniciativa({
         </div>
 
         {/* Abajo (fijo): acciones */}
-        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t px-5 py-3" style={{ borderColor: "var(--border-subtle)" }}>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-5 py-3" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface)" }}>
           {id ? (
             <>
               {esAdmin && (
-                <Boton
-                  type="button" onClick={() => void eliminar()} disabled={eliminando || !hecha || hecha.deMonday} className="mr-auto"
+                <button
+                  type="button" onClick={() => void eliminar()} disabled={eliminando || !hecha || hecha.deMonday}
                   title={hecha?.deMonday ? "Viene de Monday: se elimina en Monday hasta el corte" : "Eliminar la iniciativa (solo Admin)"}
+                  className={`mr-auto rounded-md px-2.5 py-1.5 text-[0.8rem] font-semibold transition-colors enabled:hover:bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 ${foco}`}
+                  style={{ color: "var(--bad)" }}
                 >
                   {eliminando ? "Eliminando…" : "🗑 Eliminar iniciativa"}
-                </Boton>
+                </button>
               )}
               <Boton primario onClick={onCerrar} disabled={eliminando}>Cerrar</Boton>
             </>
@@ -441,6 +523,7 @@ export default function NuevaIniciativa({
           )}
         </div>
       </div>
+      )}
     </Modal>
   );
 }

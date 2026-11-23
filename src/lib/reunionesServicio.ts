@@ -5,7 +5,7 @@
 // es siempre el usuario autenticado que se pasa, nunca un valor del cliente.
 
 import { randomUUID } from "node:crypto";
-import { accessTokenDe, actualizarEvento, borrarEvento, crearEvento, leerEventoActual, type DatosEvento } from "@/lib/googleCalendar";
+import { accessTokenDe, actualizarEvento, borrarEvento, crearEvento, leerEventoActual, type DatosEvento, type RespuestaInvitado } from "@/lib/googleCalendar";
 import { actualizarReunion, cancelarReunion, crearReunion, getConexion, getReunion, reunionesVigentesDe } from "@/lib/reuniones";
 import type { Invitado, Reunion, TipoReunion } from "@/lib/reunionesRows";
 
@@ -144,4 +144,25 @@ export async function cancelarReunionAgendada(id: string, org: Organizador): Pro
   const token = await accessTokenDe(org.uid);
   await borrarEvento(token, r.googleEventId!); // si ya no existía en Google, igual se cancela aquí
   return cancelarReunion(id);
+}
+
+/** Respuestas de los invitados, como las ve el organizador en Google. null = no se pudieron leer (sin conexión, evento borrado…). */
+export interface RespuestasReunion { leidasAt: string; porInvitado: { email: string; nombre: string; respuesta: RespuestaInvitado }[] }
+
+/**
+ * Quién aceptó, rechazó o no ha respondido. Se lee del evento en el calendario del ORGANIZADOR (con su conexión guardada), así lo ve
+ * cualquiera que pueda agendar, no solo quien la creó. Solo devuelve la respuesta de cada invitado, nada más del evento.
+ */
+export async function respuestasDeReunion(r: Reunion): Promise<RespuestasReunion | null> {
+  if (r.estado !== "agendada" || !r.organizadorId || !r.googleEventId) return null;
+  try {
+    const hoy = await leerEventoActual(await accessTokenDe(r.organizadorId), r.googleEventId);
+    if (!hoy || hoy.cancelado) return null;
+    return {
+      leidasAt: new Date().toISOString(),
+      porInvitado: r.invitados.map((i) => ({ email: i.email, nombre: i.nombre, respuesta: hoy.respuestas[i.email.trim().toLowerCase()] ?? "sin-responder" })),
+    };
+  } catch {
+    return null;
+  }
 }

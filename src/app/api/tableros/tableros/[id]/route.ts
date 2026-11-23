@@ -1,11 +1,11 @@
 // src/app/api/tableros/tableros/[id]/route.ts
-// Un tablero. Pasa por la puerta de Tableros; cada operación revisa además su permiso con el
-// motor (por tablero, columna y elemento).
+// Un tablero. Pasa por la puerta de Tableros (o, si es de Iniciativas, la de la página «Gestión de Iniciativas»); cada
+// operación revisa además su permiso con el motor (por tablero, columna y elemento).
 //  GET                  → { tablero, grupos, columnas, elementos, personas, camposDirectorio, valoresApp, acceso }
 //  POST { op, ...datos } → ejecuta una operación del registro (features/tableros/datos/operaciones.ts)
 
 import { NextResponse } from "next/server";
-import { exigirAccion } from "@/features/tableros/datos/puerta";
+import { exigirAccesoTablero } from "@/features/tableros/datos/puerta";
 import { accesoDe, leerExtras, leerTablero, leerTableroFila, listarPersonasCorto } from "@/features/tableros/datos/tableros";
 import { ejecutarOperacion } from "@/features/tableros/datos/operaciones";
 import { listarCamposDirectorio } from "@/features/tableros/datos/personas";
@@ -25,9 +25,10 @@ async function idDe(params: Promise<{ id: string }>): Promise<string> {
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const me = await exigirAccion(request, "tableros_ver");
+    const id = await idDe(params);
+    const me = await exigirAccesoTablero(request, id);
     const acceso = await accesoDe(me);
-    const [completo, personas, camposDirectorio] = await Promise.all([leerTablero(await idDe(params), acceso), listarPersonasCorto(), listarCamposDirectorio()]);
+    const [completo, personas, camposDirectorio] = await Promise.all([leerTablero(id, acceso), listarPersonasCorto(), listarCamposDirectorio()]);
     if (!completo) throw new ErrorTablero(404, "Tablero no encontrado");
     // Las columnas «Calculada por la app» las arma el servidor con las reglas de las métricas.
     const calculadas = await valoresApp(completo, new Map(personas.map((p) => [p.id, p])));
@@ -39,9 +40,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const me = await exigirAccion(request, "tableros_ver");
+    const id = await idDe(params);
+    const me = await exigirAccesoTablero(request, id);
     const acceso = await accesoDe(me);
-    const tablero = await leerTableroFila(await idDe(params));
+    const tablero = await leerTableroFila(id);
     if (!tablero || !puede(acceso.usuario, "ver", tablero, acceso.reglas)) throw new ErrorTablero(404, "Tablero no encontrado");
     const datos = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!datos || typeof datos !== "object") throw new ErrorTablero(400, "Datos inválidos");

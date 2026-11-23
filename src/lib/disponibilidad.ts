@@ -85,3 +85,26 @@ export function añosSinAsuetos(desde: string, hasta: string, asuetos: ReadonlyS
   for (let a = Number(desde.slice(0, 4)); a <= Number(hasta.slice(0, 4)); a++) if (!conocidos.has(a)) años.push(a);
   return años;
 }
+
+// ── Agenda de un día por persona (para pintarla en el panel de Agendar) ──────
+
+/** Ventana que se dibuja: un poco más amplia que la de sugerencias, para ver lo que queda justo antes o después. */
+export const VENTANA_DIA = { desde: 7, hasta: 19 } as const;
+
+/** Minutos desde la medianoche de Guatemala del día `dia` (yyyy-mm-dd) hasta el instante ISO. */
+export function minutosDelDia(dia: string, iso: string): number {
+  return (Date.parse(iso) - Date.parse(`${dia}T00:00:00${OFFSET}`)) / MIN;
+}
+
+/** Lo ocupado de UNA persona dentro de la ventana del día, en minutos [inicio, fin), unido y recortado. */
+export function bloquesDelDia(dia: string, ocupados: Intervalo[], ventana: { desde: number; hasta: number } = VENTANA_DIA): [number, number][] {
+  const a = ventana.desde * 60, b = ventana.hasta * 60, base = Date.parse(`${dia}T00:00:00${OFFSET}`);
+  return unirOcupados(ocupados)
+    .map(([i, f]): [number, number] => [Math.max(a, (i - base) / MIN), Math.min(b, (f - base) / MIN)])
+    .filter(([i, f]) => f > i);
+}
+
+/** ¿El horario elegido [desde, hasta) en minutos choca con algún bloque ocupado? */
+export function chocaCon(bloques: [number, number][], desde: number, hasta: number): boolean {
+  return bloques.some(([i, f]) => i < hasta && f > desde);
+}

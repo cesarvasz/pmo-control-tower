@@ -126,19 +126,23 @@ export interface Ocupacion {
   ocupados: { inicio: string; fin: string }[];
   /** Correos de los que no hay datos (otro dominio, sin permiso para ver su libre/ocupado, no existe…): se agenda igual, sin saber. */
   sinDatos: string[];
+  /** Lo ocupado de CADA calendario con datos (llave = correo; el del organizador es «primary»): para mostrarlo por persona. */
+  porCalendario: Record<string, { inicio: string; fin: string }[]>;
 }
 
 interface RespuestaFreeBusy { calendars?: Record<string, { busy?: { start?: string; end?: string }[]; errors?: unknown[] }> }
 
 /** Interpreta la respuesta de freeBusy. Un calendario con `errors` cuenta como «sin datos», no como libre. */
 export function leerFreeBusy(r: RespuestaFreeBusy | null, correos: string[]): Ocupacion {
-  const ocupados: Ocupacion["ocupados"] = [], sinDatos: string[] = [];
+  const ocupados: Ocupacion["ocupados"] = [], sinDatos: string[] = [], porCalendario: Ocupacion["porCalendario"] = {};
   for (const correo of correos) {
     const c = r?.calendars?.[correo];
     if (!c || c.errors?.length) { sinDatos.push(correo); continue; }
-    for (const b of c.busy ?? []) if (b.start && b.end) ocupados.push({ inicio: b.start, fin: b.end });
+    const suyos = (c.busy ?? []).filter((b) => b.start && b.end).map((b) => ({ inicio: b.start!, fin: b.end! }));
+    porCalendario[correo] = suyos;
+    ocupados.push(...suyos);
   }
-  return { ocupados, sinDatos };
+  return { ocupados, sinDatos, porCalendario };
 }
 
 /** Máximo que aceptamos por consulta (Google admite más; esto evita pedidos desmedidos). */
@@ -157,7 +161,7 @@ export async function consultarOcupacion(accessToken: string, desde: string, has
   const otros = leerFreeBusy(j, lista);
   // Si ni el propio calendario responde, la consulta no sirve: mejor error que «todo libre».
   if (propio.sinDatos.length) throw new Error("google-calendar-error");
-  return { ocupados: [...propio.ocupados, ...otros.ocupados], sinDatos: otros.sinDatos };
+  return { ocupados: [...propio.ocupados, ...otros.ocupados], sinDatos: otros.sinDatos, porCalendario: { ...otros.porCalendario, ...propio.porCalendario } };
 }
 
 // ── Editar un evento con control de versión ─────────────────────────────────
@@ -199,15 +203,31 @@ export async function actualizarEvento(accessToken: string, eventId: string, eta
   return e;
 }
 
-export interface EventoActual extends EventoCreado { inicio: string | null; fin: string | null; cancelado: boolean }
+/** Lo que respondió cada invitado a la invitación (responseStatus de Google). */
+export type RespuestaInvitado = "aceptada" | "rechazada" | "tal-vez" | "sin-responder";
 
-/** El evento tal como está hoy en Google (para ponerse al día cuando alguien lo cambió allá). null = ya no existe. */
+/** Correo (minúsculas) → respuesta. El organizador no se cuenta (Google lo pone como invitado «aceptado» de su propio evento). */
+export function leerRespuestas(attendees: { email?: string; responseStatus?: string; organizer?: boolean; self?: boolean }[] | undefined): Record<string, RespuestaInvitado> {
+  const out: Record<string, RespuestaInvitado> = {};
+  for (const a of attendees ?? []) {
+    if (!a.email || a.organizer) continue;
+    out[a.email.trim().toLowerCase()] = a.responseStatus === "accepted" ? "aceptada"
+      : a.responseStatus === "declined" ? "rechazada"
+      : a.responseStatus === "tentative" ? "tal-vez" : "sin-responder";
+  }
+  return out;
+}
+
+export interface EventoActual extends EventoCreado { inicio: string | null; fin: string | null; cancelado: boolean; respuestas: Record<string, RespuestaInvitado> }
+
+/** El evento tal como está hoy en Google (para ponerse al día cuando alguien lo cambió allá, y ver quién aceptó). null = ya no existe. */
 export async function leerEventoActual(accessToken: string, eventId: string, fetchFn: FetchFn = fetch): Promise<EventoActual | null> {
   const r = await fetchFn(`${API}/calendars/primary/events/${encodeURIComponent(eventId)}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (r.status === 404 || r.status === 410) return null;
   if (!r.ok) throw fallo(r.status);
-  const j = (await r.json().catch(() => null)) as (EventoGoogle & { start?: { dateTime?: string }; end?: { dateTime?: string }; status?: string }) | null;
+  type Crudo = EventoGoogle & { start?: { dateTime?: string }; end?: { dateTime?: string }; status?: string; attendees?: Parameters<typeof leerRespuestas>[0] };
+  const j = (await r.json().catch(() => null)) as Crudo | null;
   const e = leerEvento(j);
   if (!e || !j) throw new Error("google-calendar-error");
-  return { ...e, inicio: j.start?.dateTime ?? null, fin: j.end?.dateTime ?? null, cancelado: j.status === "cancelled" };
+  return { ...e, inicio: j.start?.dateTime ?? null, fin: j.end?.dateTime ?? null, cancelado: j.status === "cancelled", respuestas: leerRespuestas(j.attendees) };
 }

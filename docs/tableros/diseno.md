@@ -560,3 +560,50 @@ tiene el botón «+ Nueva iniciativa») y **Tabla** (la de modelado). El Gantt n
   Meeting 1 y 2: la reunión agendada o, si no hay, la fecha límite · Plan Futuro: cuándo se retoma · Sin Valor Def: el próximo recordatorio (`esperaReminderInfo`, con el
   registro de envíos del Apps Script si `REMINDERS_WEBAPP_URL` está configurada; sin ella, el 1.º a 10 días hábiles de «En Espera») · Aprobadas y demás: vacío por ahora.
   En la lista sale en rojo si ya pasó y «hoy» si es hoy.
+
+## 14. Iniciativas como parte de la app y corte de Monday (preparado el 2026-11-23, solo local)
+
+**Qué quedó listo (antes del corte):**
+
+- **Página «Gestión de Iniciativas»** (`/gestion-iniciativas`, entrada `gestion-iniciativas` en `registry.ts`): el tablero oficial de
+  Iniciativas en modo página (`TableroVista pagina`): lista agrupada, «+ Nueva iniciativa» y el pop-up. Las métricas siguen en `/iniciativas`.
+  El callback de Google vuelve a esta página.
+- **Puerta** (`datos/puerta.ts::exigirAccesoTablero`): las rutas de un tablero (`/api/tableros/tableros/[id]`, `historial`, `bitacora`)
+  dejan entrar a quien tiene Tableros completo **o** la página Gestión de Iniciativas, pero esta última solo a tableros de categoría
+  Iniciativas. Adentro manda el motor de permisos de siempre. `GET /api/iniciativas/tablero` da el id del tablero oficial.
+- **Permisos del PM** (datos, tabla `tablero_permisos`): rol PM → «Iniciativas 💡» `editar_valores` + **solo lo mío**; «Estrategia 🔝» `ver`
+  (para ver Estrategia y Sponsor). La columna **PM** quedó con rol `responsable` (antes sin rol: `responsables` vacío en las 112) y se
+  recalculó: Luis 54, Daniela 44, David 13. El dashboard no cambia (Iniciativas lee el PM por id de columna; comparación: 0 diferencias).
+  Eliminar sigue siendo solo de Admin. Otros roles: sin regla = no ven el tablero aunque tengan la página.
+- **Respaldo sin regresar a Monday** (`fuente-dashboard.ts::cortadosDesdeTableros` + `monday.ts::cortesDeTableros`): un tablero de
+  Iniciativas o Estrategia traído de Monday con `sincroniza_monday = false` (= cortado) se lee SIEMPRE de la app, también cuando el
+  dashboard va por Monday (FUENTE_DATOS=monday o el respaldo de las 2 h). Antes del corte no cambia nada (no hay cortados).
+- **Recordatorios «Sin Valor Def»**: `GET /api/iniciativas/recordatorios` (Bearer `RECORDATORIOS_SECRET`; sin la variable, 503) da lo que
+  el Apps Script necesita, del tablero. El `.gs` lee de la app si tiene `APP_URL` + `APP_SECRET`; sin `APP_URL`, de Monday como antes.
+  Verificado contra la copia de Monday: 36 en Sin Valor Def, 35 con En Espera, 12 con PKU, 28 con correo de CKU (iguales). El id de cada
+  iniciativa traída de Monday es el mismo → el registro de envíos (hoja Envios) sigue contando.
+- **Estrategia** se queda en `/tableros` (solo Admin) para editarla.
+
+**Pendiente antes del corte:** la iniciativa de prueba «Test» (IN-161) tiene una reunión M1 vigente en Google (25-nov): cancelarla desde
+el pop-up y luego «🗑 Eliminar iniciativa». Las diferencias de solo ORDEN en PML (30) de la comparación del dashboard no son de esto.
+
+**El día del corte (en orden):**
+
+1. Avisar al equipo: desde la hora X no se toca Iniciativas ni Estrategia en Monday.
+2. Correr una sincronización y la comparación del dashboard (Migración → «Comparar dashboard»): Iniciativas y Estrategia con 0 diferencias.
+3. Cortar: `update tableros set sincroniza_monday = false where id in ('57734daa-e622-4134-99b2-705588bc2086', 'c8af54ca-818a-4cc7-abf2-86e1615e4d5f');`
+   (todos los campos quedan editables y lo creado en la app empieza a contar en las métricas).
+4. Vercel: `RECORDATORIOS_SECRET` (y las 4 de Google si se enciende Agendar). Push a `main`.
+5. Apps Script de recordatorios: Script Properties `APP_URL` y `APP_SECRET`; correr `revisarYEnviarRecordatorios` con `DRY_RUN = true`.
+6. `/roles`: dar la página «Gestión de Iniciativas» al rol PM (y `schedule_meetings` si se agenda con Google).
+7. Monday: los boards de Iniciativas y Estrategia en **solo lectura** (o archivados; no borrarlos).
+8. Revisar producción: mismos números en Control Tower; crear una iniciativa real y completar una acción.
+
+**Volver atrás:** `sincroniza_monday = true` en los dos tableros (Monday vuelve a mandar y la sincronización sobrescribe lo editado en
+la app después del corte), borrar `APP_URL` del Apps Script y quitar la página al rol PM.
+
+**Iniciativas de Monday al formato de la app (decidido el 2026-11-23):** aprobadas (PM "X"), en espera (Sin Valor Def) y las 3 de
+«Cambio estrategia» se quedan como vinieron. Etapa heredada «Meeting 2» (IN-146): la Meeting 2 queda amarilla y se completa con el botón
+(el PM elige la siguiente acción; se conserva su fecha Meet 2 — `ETAPA_MEETING2_HECHA`, `estaPendiente`). Datos obligatorios (PM, CKU,
+Estrategia, Proceso) que falten: aviso «⚠ Faltan datos» en la lista y en el pop-up, solo para el embudo y Plan Futuro
+(`pideDatosCompletos`); los llena cada PM. Proceso es columna propia de la app (se puede llenar ya); CKU y Estrategia de IN-157, tras el corte.

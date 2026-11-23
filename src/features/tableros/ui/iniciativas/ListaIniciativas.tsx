@@ -8,7 +8,7 @@ import { textoCelda, type Columna, type Elemento } from "../../dominio/tablero";
 import StatusIniciativa from "./StatusIniciativa";
 import { tipoColumna } from "../../dominio/tipos-columna";
 import { etiquetaStatus, type ConfigStatus } from "../../dominio/tipos-columna/status";
-import { columnasNuevaIni, porIniIdDesc } from "../../dominio/nueva-iniciativa";
+import { camposQueLlena, columnasNuevaIni, faltantes, pideDatosCompletos, porIniIdDesc } from "../../dominio/nueva-iniciativa";
 import { claseDeAprobacion } from "@/lib/ini";
 import { Fragment, useState } from "react";
 
@@ -38,6 +38,11 @@ export default function ListaIniciativas({ columnas, elementos, personas, valorD
     return configStatus && typeof v === "string" ? etiquetaStatus(configStatus, v) ?? null : null;
   };
   const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
+  // Datos obligatorios que le faltan (solo a las del embudo o en Plan Futuro: las aprobadas, en espera y Cambio estrategia se dejan como están)
+  const obligatorios = camposQueLlena(k);
+  const faltan = (e: Elemento) => (pideDatosCompletos(etapa(e)?.texto)
+    ? faltantes(e.nombre, obligatorios, Object.fromEntries(obligatorios.map((c) => [c.id, valorDe(e, c)])))
+    : []);
 
   // Grupos: «Nueva Iniciativa» (New, Meeting 1 y Meeting 2) primero; luego las demás etapas en el orden del Status; todas las aprobadas
   // (PM "A", "B", "C") juntas en «Aprobadas»; sin status al final.
@@ -138,7 +143,16 @@ export default function ListaIniciativas({ columnas, elementos, personas, valorD
                 style={{ borderColor: "var(--border-subtle)" }} title="Ver la iniciativa (timeline, datos y bitácora)"
               >
                 <td className={`${td} whitespace-nowrap font-semibold tabular-nums text-[var(--text-secondary)]`}>{celda(texto(e, k.iniId))}</td>
-                <td className={`${td} min-w-[220px]`}>{e.nombre || vacio}</td>
+                <td className={`${td} min-w-[220px]`}>
+                  {e.nombre || vacio}
+                  {faltan(e).length > 0 && (
+                    <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-px text-[0.66rem] font-semibold align-middle"
+                      style={{ background: "color-mix(in srgb, var(--warn) 16%, transparent)", color: "color-mix(in srgb, var(--warn) 55%, var(--text-primary))" }}
+                      title={`Faltan: ${faltan(e).join(", ")}`}>
+                      ⚠ Faltan datos
+                    </span>
+                  )}
+                </td>
                 <td className={td}>{celda(texto(e, k.pm))}</td>
                 <td className={td}>{celda(texto(e, k.sponsor))}</td>
                 <td className={td}>{celda(texto(e, k.cku))}</td>

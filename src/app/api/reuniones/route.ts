@@ -1,6 +1,6 @@
 // src/app/api/reuniones/route.ts
 // GET ?elementoId=…  → las reuniones vigentes de esa iniciativa creadas desde la app, con «esMia» (¿están en MI calendario? solo entonces se
-// pueden reprogramar o cancelar).
+// pueden reprogramar o cancelar) y «respuestas» (quién aceptó / rechazó, leído de Google; null si no se pudo).
 // POST: agenda la Meeting 1 / Meeting 2 de una iniciativa en el Google Calendar del usuario que la pide.
 // Body: { elementoId, inicio, fin (ISO), descripcion?, invitados: [personaId, …] }. Requiere «schedule_meetings»; además un PM solo
 // puede agendar las iniciativas donde él es el PM (un Admin, cualquiera). El código, el tipo (M1/M2) y el título los decide el
@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { requireAction } from "@/lib/users";
 import { apiError } from "@/lib/api-errors";
-import { agendarReunion } from "@/lib/reunionesServicio";
+import { agendarReunion, respuestasDeReunion } from "@/lib/reunionesServicio";
 import { reunionesVigentesDeElemento } from "@/lib/reuniones";
 import type { Invitado } from "@/lib/reunionesRows";
 import { iniciativaAgendable } from "@/features/tableros/datos/reunion-iniciativa";
@@ -22,7 +22,9 @@ export async function GET(request: Request) {
     const me = await requireAction(request.headers.get("authorization"), "schedule_meetings");
     const elementoId = new URL(request.url).searchParams.get("elementoId") ?? "";
     const reuniones = await reunionesVigentesDeElemento(elementoId);
-    return NextResponse.json({ reuniones: reuniones.map((r) => ({ ...r, esMia: r.organizadorId === me.uid })) });
+    // Las respuestas de los invitados se leen de Google al momento (no se guardan): pocas reuniones vigentes por iniciativa
+    const respuestas = await Promise.all(reuniones.map((r) => respuestasDeReunion(r)));
+    return NextResponse.json({ reuniones: reuniones.map((r, i) => ({ ...r, esMia: r.organizadorId === me.uid, respuestas: respuestas[i] })) });
   } catch (err) {
     return apiError(err);
   }

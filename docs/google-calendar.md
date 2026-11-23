@@ -48,18 +48,19 @@ Desconectar conserva las reuniones ya agendadas (`organizador_email` queda como 
 - `src/lib/reuniones.integration.test.ts`: de punta a punta contra la base real (Vault, restricciones, trigger, y que la llave pública no abre nada).
   No corre en `npm test`: `REUNIONES_IT=1 npx vitest run src/lib/reuniones.integration.test.ts`. Crea usuarios de prueba y los borra.
 - Acción `schedule_meetings` en `src/lib/registry.ts`: Admin la tiene siempre; al rol PM se le otorga desde `/roles`.
+- Interruptor del botón: `NEXT_PUBLIC_AGENDAR_REUNIONES=1` (en `.env.local` para probar; en Vercel no existe → apagado en producción).
 
 ## Fases
 
 | # | Fase | Estado |
 |---|---|---|
-| 0 | Google Cloud (proyecto en c807.com, API de Calendar, consentimiento «Interna», clientes OAuth localhost y producción) y consola de Admin (uso compartido de «libre/ocupado») | pendiente (lo hace el usuario) |
+| 0 | Google Cloud (proyecto en c807.com, API de Calendar, consentimiento «Interna», cliente OAuth localhost y producción) y consola de Admin (uso compartido de «libre/ocupado») | **hecha** la parte de Cloud (2026-11-19); consola de Admin sin revisar (el usuario no tiene permiso; no hizo falta) |
 | 1 | Migración, Vault, tipos, capa de datos y acción `schedule_meetings` | **hecha** |
-| 2 | Conectar, callback, estado y desconectar (OAuth) | código listo (falta probar con las credenciales de la fase 0) |
-| 3 | Cliente de Calendar y crear evento con Meet y correos | código listo y probado con Google simulado (falta probar con credenciales reales) |
-| 4 | Disponibilidad y sugerencia de huecos | código listo y probado con Google simulado |
-| 5 | Botón «Agendar» en las flechas de M1 y M2 | código listo; falta probar con Google real |
-| 6 | Editar y cancelar con control de versión del evento | código listo y probado con Google simulado |
+| 2 | Conectar, callback, estado y desconectar (OAuth) | **probada con Google real** (2026-11-19, local) |
+| 3 | Cliente de Calendar y crear evento con Meet y correos | **probada con Google real** |
+| 4 | Disponibilidad y sugerencia de huecos | **probada con Google real** |
+| 5 | Botón «Agendar» en las flechas de M1 y M2 | **probada con Google real** (encendido solo en local) |
+| 6 | Editar y cancelar con control de versión del evento | **probada con Google real** |
 | 7 | Lectura desde la base en todo el sistema + importación del histórico del Apps Script | código listo; ensayo hecho (109 reuniones por importar), sin aplicar |
 | 8 | Sincronización desde Google (cambios hechos directo en el calendario) y reintentos | pendiente |
 | 9 | Paridad con el Apps Script, apagado y retiro de `calendar-webapp.gs` y `CALENDAR_WEBAPP_URL` | pendiente |

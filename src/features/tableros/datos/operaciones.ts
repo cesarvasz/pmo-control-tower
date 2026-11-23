@@ -18,7 +18,8 @@ import {
   validarValor, valoresIniciales, vecino, categoriaValida, esDatoDeMonday, MENSAJE_DATO_DE_MONDAY, type Columna, type Elemento, type Tablero,
 } from "../dominio/tablero";
 import { tieneAccionTableros } from "../dominio/acciones";
-import { buscarEtiqueta, esAccionCompletable, planCompletar } from "../dominio/acciones-iniciativa";
+import { buscarEtiqueta, esAccionCompletable, ETAPA_MEETING2_HECHA, planCompletar } from "../dominio/acciones-iniciativa";
+import { claveNombre } from "../dominio/personas";
 import { columnasNuevaIni } from "../dominio/nueva-iniciativa";
 import { etiquetaStatus, type ConfigStatus } from "../dominio/tipos-columna/status";
 import { aColumna, aElemento, aGrupo, leerTablero, type Acceso } from "./tableros";
@@ -506,8 +507,9 @@ const OPERACIONES: OperacionDef[] = [
       const actual = e.valores[k.status.id];
       const ahoraIso = ahora();
       const hoyGT = new Date(Date.parse(ahoraIso) - 6 * 3600_000).toISOString().slice(0, 10); // el día en Guatemala (UTC-6)
+      const statusActual = typeof actual === "string" ? etiquetaStatus(config, actual)?.texto ?? null : null;
       const plan = planCompletar({
-        accion, statusActual: typeof actual === "string" ? etiquetaStatus(config, actual)?.texto ?? null : null, siguiente: d.siguiente, clase: d.clase,
+        accion, statusActual, siguiente: d.siguiente, clase: d.clase,
         fecha: d.fecha, hoy: hoyGT,
       });
       if (!plan.ok) throw new ErrorTablero(409, plan.error);
@@ -537,7 +539,10 @@ const OPERACIONES: OperacionDef[] = [
         exigir(ctx, "editar_valor", { elemento: e, columna: c });
         noDeMonday(ctx, e, c);
       }
-      if (colFecha) await escribirValor(ctx, e, colFecha, hoyGT);
+      // En la etapa heredada «Meeting 2» la reunión ya se hizo: se conserva su fecha Meet 2 (solo se anota si no tenía).
+      const yaTeniaFecha = !!colFecha && accion === "Meeting 2" && claveNombre(statusActual ?? "") === claveNombre(ETAPA_MEETING2_HECHA)
+        && typeof e.valores[colFecha.id] === "string" && !!e.valores[colFecha.id];
+      if (colFecha && !yaTeniaFecha) await escribirValor(ctx, e, colFecha, hoyGT);
       if (etiqueta) await escribirValor(ctx, e, k.status, etiqueta.id);
       if (extra?.col) await escribirValor(ctx, e, extra.col, extra.valor);
       await historial(ctx, e.id, "accion", null, plan.siguiente === null

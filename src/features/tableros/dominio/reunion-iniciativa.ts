@@ -20,8 +20,8 @@ export function puedeAgendarIniciativa(u: { esAdmin: boolean; personaId: string 
 }
 
 /**
- * Interruptor del botón «📅 Agendar» (y de Reprogramar / Cancelar) en las iniciativas. APAGADO mientras la integración con Google
- * Calendar no esté probada con credenciales reales y configurada en Vercel (docs/google-calendar.md). El código y las rutas ya están;
- * para encenderlo: poner `true` y verificar GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_STATE_SECRET.
+ * Interruptor del botón «📅 Agendar» (y de Reprogramar / Cancelar) en las iniciativas. Se enciende con NEXT_PUBLIC_AGENDAR_REUNIONES=1
+ * (se lee al arrancar / al compilar). Sin la variable queda APAGADO: así se prueba en local con credenciales reales sin que aparezca en
+ * producción hasta ponerla también en Vercel junto con GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_STATE_SECRET (docs/google-calendar.md).
  */
-export const AGENDAR_REUNIONES_ACTIVO = false;
+export const AGENDAR_REUNIONES_ACTIVO = process.env.NEXT_PUBLIC_AGENDAR_REUNIONES === "1";

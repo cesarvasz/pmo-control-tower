@@ -85,6 +85,13 @@ describe("planCompletar · Meeting 2", () => {
     expect(planCompletar({ ...m2, siguiente: "Aprobada" })).toMatchObject({ ok: false, error: expect.stringMatching(/Clase/) });
   });
 
+  it("también desde la etapa heredada «Meeting 2» (se hizo en Monday, falta elegir la siguiente acción)", () => {
+    expect(planCompletar({ ...m2, statusActual: "Meeting 2", siguiente: "Aprobada", clase: "B" })).toMatchObject({ ok: true, statusTexto: 'PM "B"' });
+    expect(planCompletar({ ...m2, statusActual: "meeting 2", siguiente: "Sin Beneficio Definido" })).toMatchObject({ ok: true, statusTexto: "Sin Valor Def" });
+    // La Meeting 1 no se completa desde «Meeting 2»
+    expect(planCompletar({ accion: "Meeting 1", statusActual: "Meeting 2", siguiente: "Plan Futuro", fecha: "2027-01-15" })).toMatchObject({ ok: false });
+  });
+
   it("solo si la Meeting 2 está pendiente: en New todavía falta la Meeting 1; ya aprobada, no", () => {
     expect(planCompletar({ ...m2, statusActual: "New", siguiente: "Sin Beneficio Definido" })).toMatchObject({ ok: false, error: expect.stringMatching(/Meeting 2 ya no está pendiente/) });
     expect(planCompletar({ ...m2, statusActual: 'PM "A"', siguiente: "Sin Beneficio Definido" })).toMatchObject({ ok: false });

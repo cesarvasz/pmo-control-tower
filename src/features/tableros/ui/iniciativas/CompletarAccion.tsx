@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { Boton, Nota } from "../comun";
+import { controlPanel, estiloControlPanel, etiquetaPanel, foco, PanelAccion } from "./estilo";
 import {
   CLASES_APROBADA, fechaValida, recordatorioPlanFuturo, siguientesDe,
   OPCION_COMPLETAR, type AccionCompletable, type ClaseAprobada, type OpcionCompletar,
@@ -17,9 +18,8 @@ export const fmtMomento = (d: Date) =>
 
 const fmtDia = (ymd: string) => new Date(`${ymd}T12:00:00`).toLocaleDateString("es-GT", { day: "numeric", month: "short", year: "numeric" });
 const diaGT = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "America/Guatemala" });
-const etiquetaCampo = "text-[0.72rem] font-normal uppercase tracking-wide text-[var(--text-secondary)]";
 
-const chip = "cursor-pointer rounded-full border px-3 py-1 text-[0.82rem] font-semibold transition-colors";
+const chip = `cursor-pointer rounded-md border px-3 py-1.5 text-[0.8rem] font-semibold transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-60 ${foco}`;
 
 export default function CompletarAccion({ accion, onConfirmar, onCancelar }: {
   /** La acción que se completa: de ella depende qué siguientes acciones se ofrecen (tras la Meeting 2 ya no está la Meeting 2). */
@@ -53,20 +53,17 @@ export default function CompletarAccion({ accion, onConfirmar, onCancelar }: {
   }
 
   const opcion = (activa: boolean) => (activa
-    ? { borderColor: "var(--accent)", background: "var(--accent)", color: "#fff" }
-    : { borderColor: "var(--border)", background: "var(--bg-base)", color: "var(--text-primary)" });
+    ? { borderColor: "var(--accent)", background: "color-mix(in srgb, var(--accent) 14%, var(--bg-surface))", color: "var(--text-primary)", boxShadow: "inset 0 0 0 1px var(--accent)" }
+    : { borderColor: "var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)" });
 
   return (
-    <section className="flex flex-col gap-3 rounded-xl border p-3.5" style={{ borderColor: "var(--warn)", background: "var(--bg-base)" }} aria-label={`Completar ${accion}`}>
-      <div className="flex flex-col">
-        <h3 className="text-[0.95rem] font-bold text-[var(--text-primary)]">Completar «{accion}»</h3>
-        <p className="text-[0.78rem] text-[var(--text-muted)]">
-          Se anota al confirmar: <strong className="text-[var(--text-secondary)]">{fmtMomento(ahora)}</strong> (hora de Guatemala)
-        </p>
-      </div>
+    <PanelAccion
+      titulo={<>Completar «{accion}»</>} etiqueta={`Completar ${accion}`} onCerrar={onCancelar}
+      subtitulo={<>Se anota al confirmar: <strong className="font-semibold text-[var(--text-secondary)]">{fmtMomento(ahora)}</strong> (hora de Guatemala)</>}
+    >
 
       <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Siguiente acción">
-        <span className="text-[0.72rem] font-normal uppercase tracking-wide text-[var(--text-secondary)]">{accion === "Sin Beneficio Definido" ? "¿Cómo se completa?" : "¿Cuál es la siguiente acción?"} <span className="text-[var(--bad)]">*</span></span>
+        <span className={etiquetaPanel}>{accion === "Sin Beneficio Definido" ? "¿Cómo se completa?" : "¿Cuál es la siguiente acción?"} <span className="text-[var(--bad)]">*</span></span>
         <div className="flex flex-wrap gap-2">
           {siguientesDe(accion).map((a) => (
             <button
@@ -81,7 +78,7 @@ export default function CompletarAccion({ accion, onConfirmar, onCancelar }: {
 
       {siguiente === "Aprobada" && (
         <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Clase con la que se aprueba">
-          <span className="text-[0.72rem] font-normal uppercase tracking-wide text-[var(--text-secondary)]">¿Con qué Clase se aprueba? <span className="text-[var(--bad)]">*</span></span>
+          <span className={etiquetaPanel}>¿Con qué Clase se aprueba? <span className="text-[var(--bad)]">*</span></span>
           <div className="flex flex-wrap gap-2">
             {CLASES_APROBADA.map((c) => (
               <button key={c} type="button" role="radio" aria-checked={clase === c} disabled={enviando} onClick={() => setClase(c)} className={chip} style={opcion(clase === c)}>
@@ -95,11 +92,10 @@ export default function CompletarAccion({ accion, onConfirmar, onCancelar }: {
       {siguiente === "Plan Futuro" && (
         <div className="flex flex-col gap-1.5">
           <label className="flex flex-col gap-1">
-            <span className={etiquetaCampo}>¿Cuándo se va a retomar? <span className="text-[var(--bad)]">*</span></span>
+            <span className={etiquetaPanel}>¿Cuándo se va a retomar? <span className="text-[var(--bad)]">*</span></span>
             <input
               type="date" value={fecha} min={manana} disabled={enviando} onChange={(e) => setFecha(e.target.value)} aria-label="Fecha en que se retoma"
-              className="w-fit rounded-md border px-2 py-1 text-[0.9rem] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-              style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface)" }}
+              className={`${controlPanel} w-fit`} style={estiloControlPanel}
             />
           </label>
           <p className="text-[0.78rem] text-[var(--text-muted)]">
@@ -125,7 +121,7 @@ export default function CompletarAccion({ accion, onConfirmar, onCancelar }: {
 
       {error && <Nota tono="mal">{error}</Nota>}
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
         {!listo && (
           <span className="mr-auto text-[0.75rem] text-[var(--text-muted)]">
             {!siguiente ? "Elige la siguiente acción para poder completarla." : siguiente === "Plan Futuro" ? "Elige la fecha en que se retoma (posterior a hoy)." : "Elige la Clase para poder completarla."}
@@ -134,6 +130,6 @@ export default function CompletarAccion({ accion, onConfirmar, onCancelar }: {
         <Boton type="button" onClick={onCancelar} disabled={enviando}>Cancelar</Boton>
         <Boton primario onClick={() => void confirmar()} disabled={!listo || enviando}>{enviando ? "Completando…" : "✓ Completar"}</Boton>
       </div>
-    </section>
+    </PanelAccion>
   );
 }

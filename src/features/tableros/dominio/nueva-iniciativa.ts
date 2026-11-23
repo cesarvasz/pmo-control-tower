@@ -108,7 +108,17 @@ export function faltantes(nombre: string, campos: Columna[], valores: Record<str
   ];
 }
 
-export type StatusIni = "On Track" | "Off Track" | "Plan Futuro" | "Sin Beneficio Definido" | `Aprobada · Clase ${"A" | "B" | "C"}`;
+/**
+ * ¿A esta iniciativa se le piden completos los datos obligatorios (PM, CKU, Estrategia, Proceso)? Solo a las que siguen en el embudo
+ * o en Plan Futuro. Las aprobadas (PM "X"), las que están en espera (Sin Valor Def) y las de Cambio estrategia se dejan como vinieron
+ * de Monday: no se les pide nada.
+ */
+export function pideDatosCompletos(statusTexto: string | null | undefined): boolean {
+  const st = claveNombre(statusTexto ?? "");
+  return !claseDeAprobacion(statusTexto ?? "") && st !== "sin valor def" && st !== "cambio estrategia";
+}
+
+export type StatusIni ="On Track" | "Off Track" | "Plan Futuro" | "Sin Beneficio Definido" | `Aprobada · Clase ${"A" | "B" | "C"}`;
 
 /** Los status que son de etapa (se ven con el color de su etapa) y no de salud. */
 export const esStatusDeEtapa = (s: StatusIni) => s !== "On Track" && s !== "Off Track";
@@ -228,10 +238,15 @@ export function pasosIniciativa(d: {
   // La acción en la que va, según la etapa. Etapas sin acción (p. ej. «Cambio estrategia»): el timeline termina en la Meeting 1.
   const clase = claseDeAprobacion(status);
   if (st === "meeting 1") return [...pasos, reunionPendiente("meeting2", "Meeting 2", true)];
-  // Meeting 2 hecha: en la etapa «Meeting 2» (la de antes del botón) o si hay registro de que se completó (hora o fecha Meet 2).
   const m2 = ymd(d.meet2);
   const m2Fecha = d.meet2Momento ?? (m2 ? d.fmt(m2) : null);
-  if (st === "meeting 2" || m2Fecha) pasos.push({ clave: "meeting2", accion: "Meeting 2", estado: "hecho", fecha: m2Fecha, detalle: m2Fecha ? "completada" : null });
+  // Etapa heredada de Monday «Meeting 2»: la reunión se hizo, pero falta elegir la siguiente acción («Por definir»). Queda amarilla y
+  // se completa con el botón (el PM elige Plan Futuro, Sin Beneficio Definido o Aprobada; la fecha Meet 2 se conserva).
+  if (st === "meeting 2") {
+    return [...pasos, { clave: "meeting2", accion: "Meeting 2", estado: "siguiente", fecha: m2Fecha, detalle: m2Fecha ? "hecha · falta la siguiente acción" : "falta la siguiente acción", completable: true }];
+  }
+  // Meeting 2 hecha: si hay registro de que se completó (hora o fecha Meet 2).
+  if (m2Fecha) pasos.push({ clave: "meeting2", accion: "Meeting 2", estado: "hecho", fecha: m2Fecha, detalle: "completada" });
   // Plan Futuro completada con el botón (la iniciativa siguió a Sin Beneficio Definido o a Aprobada): en verde, con su hora
   if (st !== "plan futuro" && d.planFuturoMomento) {
     pasos.push({ clave: "plan-futuro", accion: "Plan Futuro", estado: "hecho", fecha: d.planFuturoMomento, detalle: "completada" });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Columna } from "./tablero";
-import { camposDespues, camposQueLlena, columnasNuevaIni, diaDeCreacion, estaAgendada, faltantes, numeroIniId, pasosIniciativa, porIniIdDesc, statusIni } from "./nueva-iniciativa";
+import { camposDespues, camposQueLlena, columnasNuevaIni, diaDeCreacion, estaAgendada, faltantes, numeroIniId, pasosIniciativa, pideDatosCompletos, porIniIdDesc, statusIni } from "./nueva-iniciativa";
 
 let n = 0;
 const col = (titulo: string, tipo: string, extra: Partial<Columna> = {}): Columna =>
@@ -216,8 +216,11 @@ describe("timeline (pasosIniciativa)", () => {
     expect(pasosIniciativa({ ...base, reunion: null })[1]).toMatchObject({ fecha: "F(2026-11-23)", detalle: "fecha límite" });
   });
 
-  it("Status Meeting 2: la Meeting 2 ya se hizo (con la fecha Meet 2)", () => {
-    expect(pasosIniciativa({ ...base, status: "Meeting 2", meet2: "2026-11-25" })[2]).toMatchObject({ clave: "meeting2", estado: "hecho", fecha: "F(2026-11-25)" });
+  it("Status Meeting 2 (heredado de Monday): la Meeting 2 se hizo pero falta la siguiente acción → amarilla y se completa", () => {
+    const p = pasosIniciativa({ ...base, status: "Meeting 2", meet2: "2026-11-25" });
+    expect(p.map((x) => `${x.accion}:${x.estado}`)).toEqual(["Creado:hecho", "Meeting 1:hecho", "Meeting 2:siguiente"]);
+    expect(p[2]).toMatchObject({ clave: "meeting2", fecha: "F(2026-11-25)", detalle: "hecha · falta la siguiente acción", completable: true });
+    expect(pasosIniciativa({ ...base, status: "Meeting 2" })[2]).toMatchObject({ fecha: null, detalle: "falta la siguiente acción", completable: true });
   });
 
   it("Meeting 2 completada con el botón: se ve en verde con su hora, y la acción elegida queda en amarillo", () => {
@@ -268,5 +271,12 @@ describe("estaAgendada", () => {
     expect(estaAgendada("10 nov 2026 · 11:00")).toBe(true);
     expect(estaAgendada(null)).toBeNull();
     expect(estaAgendada("")).toBeNull();
+  });
+});
+
+describe("pideDatosCompletos", () => {
+  it("se piden en el embudo y en Plan Futuro; no a las aprobadas, en espera ni en Cambio estrategia", () => {
+    for (const s of ["New", "Meeting 1", "Meeting 2", "Plan Futuro", null, ""]) expect(pideDatosCompletos(s)).toBe(true);
+    for (const s of ['PM "A"', "PM “B”", 'PM "C"', "Sin Valor Def", "Cambio estrategia", "cambio Estrategia"]) expect(pideDatosCompletos(s)).toBe(false);
   });
 });

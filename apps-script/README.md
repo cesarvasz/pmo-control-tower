@@ -27,6 +27,11 @@ Envía hasta **4 correos** (uno cada **10 días hábiles**) a las iniciativas en
    - `MONDAY_API_KEY`
    - `MONDAY_INI_BOARD_ID`
    - `MONDAY_RH_BOARD_ID` (Directorio RH — necesario para el CC al PM)
+   > **Desde el corte de Iniciativas** (el board de Monday queda congelado) agrega además **`APP_URL`**
+   > (`https://pmo-control-tower.vercel.app`) y **`APP_SECRET`** (el mismo valor que `RECORDATORIOS_SECRET` en Vercel).
+   > Con `APP_URL` el script lee las iniciativas de la app (`/api/iniciativas/recordatorios`), con los correos del CKU y del
+   > PM ya resueltos del directorio, y ya no usa las propiedades de Monday. Para volver a Monday basta con borrar `APP_URL`.
+   > El registro de envíos (hoja `Envios`) se conserva: las iniciativas traídas de Monday mantienen su mismo id.
 5. **Firma automática de Gmail:** en el editor, **Servicios (＋) → Gmail API → Agregar**.
    Así el script toma la firma que ya tienes configurada en Gmail (la que aparece al redactar
    un correo nuevo) y la agrega al final. Si no lo activas, usa el respaldo de la variable `FIRMA`.

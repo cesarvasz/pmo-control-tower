@@ -38,6 +38,16 @@ export function siguientesDe(accion: AccionCompletable): OpcionCompletar[] {
  *  Sin Beneficio Definido, en «Sin Valor Def». */
 export const ETAPA_PENDIENTE: Record<AccionCompletable, string> = { "Meeting 1": "New", "Meeting 2": "Meeting 1", "Plan Futuro": "Plan Futuro", "Sin Beneficio Definido": "Sin Valor Def" };
 
+/** Etapa de Monday «Meeting 2»: la Meeting 2 ya se hizo pero nadie eligió la siguiente acción («Por definir»). En la app también se
+ *  completa la Meeting 2 desde ahí: el PM elige la siguiente acción y se conserva la fecha Meet 2 que ya tenía. */
+export const ETAPA_MEETING2_HECHA = "Meeting 2";
+
+/** ¿La acción está pendiente en esta etapa? (la Meeting 2 también en la etapa heredada «Meeting 2»). */
+export function estaPendiente(accion: AccionCompletable, statusActual: string | null): boolean {
+  const st = claveNombre(statusActual ?? "");
+  return st === claveNombre(ETAPA_PENDIENTE[accion]) || (accion === "Meeting 2" && st === claveNombre(ETAPA_MEETING2_HECHA));
+}
+
 /** El texto de la etiqueta de Status a la que pasa la iniciativa. «Aprobada» necesita la Clase (el Status real es PM "A"/"B"/"C").
  *  «Meeting 2» → «Meeting 1»: el status lleva el nombre de la última reunión hecha (ya hubo M1, falta M2). */
 export function statusDeSiguiente(siguiente: SiguienteAccion, clase?: ClaseAprobada | null): string | null {
@@ -70,7 +80,7 @@ export function planCompletar(d: {
   hoy?: string;
 }): PlanCompletar {
   if (!esAccionCompletable(d.accion)) return { ok: false, error: "Esa acción no se completa con el botón" };
-  if (claveNombre(d.statusActual ?? "") !== claveNombre(ETAPA_PENDIENTE[d.accion])) return { ok: false, error: `${d.accion} ya no está pendiente en esta iniciativa` };
+  if (!estaPendiente(d.accion, d.statusActual)) return { ok: false, error: `${d.accion} ya no está pendiente en esta iniciativa` };
   if (!(siguientesDe(d.accion) as readonly unknown[]).includes(d.siguiente)) return { ok: false, error: "Elige la siguiente acción" };
   // Sin Beneficio Definido + «Completar»: se cierra sin aprobar; el Status se queda como está y no hay más acciones
   if (d.siguiente === OPCION_COMPLETAR) return { ok: true, accion: d.accion, statusTexto: null, siguiente: null, clase: null, fecha: null };

@@ -44,6 +44,9 @@ export const PAGES: PageDef[] = [
   { key: "valor",       label: "VALOR",         href: "/valor",    icon: "💰", public: true },
   { key: "players",     label: "Players",       href: "/players",  icon: "🏆" },
   { key: "iniciativas", label: "Iniciativas",   href: "/iniciativas", icon: "◐" },
+  // Crear y dar seguimiento a las Iniciativas (lista, alta en pop-up, timeline, agendar). Qué ve y edita cada rol adentro lo
+  // deciden las reglas del tablero «Iniciativas» (p. ej. PM: editar, solo las suyas). Ver features/tableros/datos/puerta.ts.
+  { key: "gestion-iniciativas", label: "Gestión de Iniciativas", href: "/gestion-iniciativas", icon: "💡" },
   { key: "req",         label: "PML",           href: "/req",      icon: "◇" },
   { key: "proyectos",   label: "Proyectos",     href: "/proyectos", icon: "▤" },
   { key: "resumen-ejecutivo", label: "Resumen Ejecutivo", href: "/resumen-ejecutivo", icon: "🧭" },

@@ -14,8 +14,12 @@
  * Disparo: trigger diario ~7:30am (ver crearTriggerDiario).
  * Registro: hoja de cálculo "Envios" (se crea sola la primera vez).
  *
- * Requiere Script Properties: MONDAY_API_KEY, MONDAY_INI_BOARD_ID
- * (Proyecto → Configuración → Propiedades del script).
+ * Fuente de las iniciativas (Proyecto → Configuración → Propiedades del script):
+ *   - DESDE EL CORTE: APP_URL (p. ej. https://pmo-control-tower.vercel.app) y APP_SECRET (el mismo valor que
+ *     RECORDATORIOS_SECRET en Vercel). Lee GET {APP_URL}/api/iniciativas/recordatorios: el tablero de Iniciativas de la app,
+ *     con los correos del CKU y del PM ya resueltos del directorio.
+ *   - Sin APP_URL (como antes del corte, o para volver atrás): lee Monday con MONDAY_API_KEY, MONDAY_INI_BOARD_ID y
+ *     MONDAY_RH_BOARD_ID.
  * ---------------------------------------------------------------------------
  */
 
@@ -99,22 +103,21 @@ function doGet() {
 
 // ── Función principal (la ejecuta el trigger diario) ────────────────────────
 function revisarYEnviarRecordatorios() {
-  var items = fetchIniItems_();
-  var rhMap = fetchDirectorioRH_();     // nombre-normalizado del recurso -> email
+  var items = fetchIniciativas_();      // [{ id, iniId, nombre, status, espera, pku, ckuEmail, ckuNombre, pmNombre, pmEmails }]
   var hoja  = getHojaEnvios_();
   var registros = leerRegistros_(hoja); // itemId -> { count, lastSent: Date }
   var hoy = hoyMedianoche_();
   var candidatos = 0, enviados = 0;
 
   items.forEach(function (it) {
-    if (valorCol_(it, COL.status) !== STATUS_OBJETIVO) return;   // debe estar en Sin Valor Def
-    if (valorCol_(it, COL.pku) === "v") return;                 // PKU marcado → no enviar
+    if (it.status !== STATUS_OBJETIVO) return;                  // debe estar en Sin Valor Def
+    if (it.pku) return;                                         // PKU marcado → no enviar
 
-    var esperaTxt = valorCol_(it, COL.espera);
+    var esperaTxt = it.espera;
     var espera = parseFecha_(esperaTxt);
     if (!espera) return;                                        // sin fecha En Espera → no se programa
 
-    var email = valorMirror_(it, COL.ckuMail);
+    var email = it.ckuEmail;
     if (!email) return;                                         // sin correo destino → se omite
 
     candidatos++;
@@ -128,26 +131,60 @@ function revisarYEnviarRecordatorios() {
     var numero = reg.count + 1;
     var datos = {
       to:        email,
-      ckuNombre: valorMirror_(it, COL.ckuNom),          // nombre del CKU (saludo)
-      iniId:     valorCol_(it, COL.iniId),
-      nombre:    it.name,                               // nombre de la iniciativa
-      pmNombre:  valorCol_(it, COL.pm),                 // nombre del PM
-      cc:        emailsPorNombres_(valorCol_(it, COL.pm), rhMap), // email(s) del PM (CC)
+      ckuNombre: it.ckuNombre,                          // nombre del CKU (saludo)
+      iniId:     it.iniId,
+      nombre:    it.nombre,                             // nombre de la iniciativa
+      pmNombre:  it.pmNombre,                           // nombre del PM
+      cc:        it.pmEmails,                           // email(s) del PM (CC)
       numero:    numero,
     };
 
     if (DRY_RUN) {
       Logger.log("[DRY_RUN] Correo " + numero + "/" + MAX_CORREOS + " → " + datos.to +
-                 " (CC: " + (datos.cc || "—") + ") — " + it.name + " (vencía " + fmt_(vence) + ")");
+                 " (CC: " + (datos.cc || "—") + ") — " + it.nombre + " (vencía " + fmt_(vence) + ")");
     } else {
       enviarCorreo_(datos);
-      hoja.appendRow([new Date(), it.id, datos.iniId, it.name, datos.to, datos.cc || "", numero, esperaTxt]);
+      hoja.appendRow([new Date(), it.id, datos.iniId, it.nombre, datos.to, datos.cc || "", numero, esperaTxt]);
     }
     enviados++;
   });
 
   Logger.log("Candidatos: " + candidatos + " · Correos " +
              (DRY_RUN ? "(simulados)" : "enviados") + ": " + enviados);
+}
+
+// ── Fuente de las iniciativas ───────────────────────────────────────────────
+// Con APP_URL: la app (desde el corte). Sin ella: Monday (como antes). Las dos devuelven la misma forma.
+function fetchIniciativas_() {
+  var url = PropertiesService.getScriptProperties().getProperty("APP_URL");
+  return url ? fetchIniciativasApp_(url) : fetchIniciativasMonday_();
+}
+
+function fetchIniciativasApp_(url) {
+  var res = UrlFetchApp.fetch(url.replace(/\/+$/, "") + "/api/iniciativas/recordatorios", {
+    headers: { Authorization: "Bearer " + prop_("APP_SECRET") },
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) throw new Error("App " + res.getResponseCode() + ": " + res.getContentText().slice(0, 300));
+  return JSON.parse(res.getContentText()).iniciativas || [];
+}
+
+function fetchIniciativasMonday_() {
+  var rhMap = fetchDirectorioRH_();     // nombre-normalizado del recurso -> email
+  return fetchIniItems_().map(function (it) {
+    return {
+      id:        it.id,
+      iniId:     valorCol_(it, COL.iniId),
+      nombre:    it.name,
+      status:    valorCol_(it, COL.status),
+      espera:    valorCol_(it, COL.espera),
+      pku:       valorCol_(it, COL.pku) === "v",
+      ckuEmail:  valorMirror_(it, COL.ckuMail),
+      ckuNombre: valorMirror_(it, COL.ckuNom),
+      pmNombre:  valorCol_(it, COL.pm),
+      pmEmails:  emailsPorNombres_(valorCol_(it, COL.pm), rhMap),
+    };
+  });
 }
 
 // ── Monday ──────────────────────────────────────────────────────────────────

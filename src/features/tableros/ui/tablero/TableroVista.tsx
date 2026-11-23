@@ -51,7 +51,9 @@ interface Datos extends TableroCompleto {
 const tdCelda = { padding: 0, borderLeft: "1px solid var(--border-subtle)" } as const;
 const NOMBRE = { id: "nombre", rol: "nombre" };
 
-export default function TableroVista({ id, onVolver }: { id: string; onVolver(): void }) {
+/** `pagina`: el tablero de Iniciativas como página propia del menú (Gestión de Iniciativas): solo la lista y el pop-up,
+ *  sin la barra de Tableros (volver, nombre, vistas, comparar con Monday…). */
+export default function TableroVista({ id, onVolver = () => {}, pagina = false }: { id: string; onVolver?(): void; pagina?: boolean }) {
   const url = `/api/tableros/tableros/${id}`;
   const { data, error, recargar, setData } = useCarga<Datos>(url);
   const [fallo, setFallo] = useState<string | null>(null);
@@ -126,7 +128,9 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
 
   // Iniciativas: su propia pestaña (en rediseño: por ahora solo «Nueva iniciativa») y la Tabla; sin Gantt.
   const esIni = data.tablero.categoria === "iniciativas";
-  const vistasTablero = esIni ? [{ clave: "iniciativas", etiqueta: "Iniciativas" }, ...VISTAS.filter((v) => v.clave !== "gantt")] : VISTAS;
+  const vistasTablero = esIni
+    ? [{ clave: "iniciativas", etiqueta: "Iniciativas" }, ...(pagina ? [] : VISTAS.filter((v) => v.clave !== "gantt"))]
+    : VISTAS;
   const vistaActual = vistaClave ?? (esIni ? "iniciativas" : VISTAS[0].clave);
   const enIni = vistaActual === "iniciativas";
   const VistaElegida = VISTAS.find((v) => v.clave === vistaActual)?.Componente;
@@ -287,8 +291,8 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Encabezado */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Encabezado (en la página propia de Iniciativas lo pone la página) */}
+      {!pagina && <div className="flex flex-wrap items-center gap-3">
         <Boton onClick={onVolver}>← Tableros</Boton>
         <TextoEditable
           valor={tablero.nombre} editable={puedeEstructura && !tablero.sincronizaMonday} className="text-lg font-bold text-[var(--text-primary)]"
@@ -320,7 +324,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
           </Boton>
         )}
         </>)}
-      </div>
+      </div>}
 
       {!enIni && faltan.length > 0 && (
         <Nota>
@@ -340,7 +344,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
 
       {/* Barra */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }} role="tablist" aria-label="Vista">
+        {vistasTablero.length > 1 && <div className="flex rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }} role="tablist" aria-label="Vista">
           {vistasTablero.map((v) => (
             <button key={v.clave} type="button" role="tab" aria-selected={vistaActual === v.clave} onClick={() => setVistaClave(v.clave)}
               className="rounded-md px-3 py-1 text-[0.8rem] font-bold"
@@ -348,7 +352,7 @@ export default function TableroVista({ id, onVolver }: { id: string; onVolver():
               {v.etiqueta}
             </button>
           ))}
-        </div>
+        </div>}
         {formulario && puedeCrear && <Boton primario onClick={() => setAlta({ grupoId: null })}>+ Nueva {formulario.sustantivo}</Boton>}
         {!enIni && (<>
         {puedeEstructura && <Boton onClick={() => hacer({ op: "grupo.crear" })}>+ Grupo</Boton>}

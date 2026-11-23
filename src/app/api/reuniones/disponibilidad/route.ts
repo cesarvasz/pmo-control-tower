@@ -1,6 +1,7 @@
 // src/app/api/reuniones/disponibilidad/route.ts
 // Sugiere huecos para una reunión: cruza el libre/ocupado del propio usuario y de las personas invitadas (solo las del Directorio RH,
 // activas y con correo; las de otro dominio salen como «sin datos»). Lunes a viernes, sin asuetos, de 8:00 a 18:00 (Guatemala).
+// También devuelve lo ocupado de cada persona por separado (solo bloques ocupados, sin títulos ni detalles de los eventos).
 // Body: { desde: "yyyy-mm-dd", hasta: "yyyy-mm-dd", duracionMin, invitados: ["correo", …] }. Requiere «schedule_meetings».
 
 import { NextResponse } from "next/server";
@@ -38,7 +39,8 @@ export async function POST(request: Request) {
     const huecos = huecosLibres({ desde, hasta, duracionMin: duracionMin!, ocupados: ocupacion.ocupados, asuetos: HOLIDAY_SET });
     const sinAsuetos = añosSinAsuetos(desde, hasta, HOLIDAY_SET);
     return NextResponse.json({
-      huecos, sinDatos: ocupacion.sinDatos,
+      // porCalendario: lo ocupado de cada quien (el organizador = «primary»), para pintarlo por persona en el panel
+      huecos, sinDatos: ocupacion.sinDatos, porCalendario: ocupacion.porCalendario,
       ...(sinAsuetos.length ? { aviso: `No hay asuetos cargados para ${sinAsuetos.join(", ")}: puede sugerir un día feriado` } : {}),
     });
   } catch (err) {

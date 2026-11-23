@@ -90,6 +90,38 @@ async function datosDeEscritura(mondayBoardIds: string[]): Promise<Map<string, D
   return new Map(filas.map((f) => [f.id, { email: f.email, subBoard: f.sub_board_id }]));
 }
 
+/** Un tablero completo con la forma de Monday (MondayItem[]), con sus ligados y archivos para fórmulas y espejos. */
+async function itemsDeTablero(
+  id: string, mapaPersonas: Map<string, PersonaMetricas>, paraLaApp: boolean,
+): Promise<{ t: TableroCompleto; items: MondayItem[] } | null> {
+  const completo = await leerTablero(id, ACCESO_SISTEMA);
+  if (!completo) return null;
+  // Durante la convivencia solo cuenta lo que viene de Monday (ver soloLoDeMonday); tras el corte, todo.
+  const t = paraLaApp ? soloLoDeMonday(completo) : completo;
+  const extras = await leerExtras(t, ACCESO_SISTEMA);
+  return { t, items: tableroAMondayItems(t, mapaPersonas, { ligados: extras.ligados, archivos: extras.archivos.map((a) => ({ ...a })) }) };
+}
+
+/**
+ * Después del CORTE: Iniciativas y Estrategia cuyos tableros (traídos de Monday) ya NO se sincronizan. Ahí manda la app, y su
+ * board de Monday quedó congelado: aunque el resto del dashboard se lea de Monday (FUENTE_DATOS=monday, o el respaldo cuando
+ * la sincronización se atrasa), estas dos deben salir de aquí. Devuelve solo las categorías ya cortadas ({} si ninguna).
+ */
+export async function cortadosDesdeTableros(): Promise<Partial<Pick<FuenteMonday, "iniItems" | "estrategiaItems">>> {
+  const db = getSupabaseAdmin();
+  const filas = unwrap(await db.from("tableros").select("id, categoria").is("archivado_at", null)
+    .not("monday_board_id", "is", null).eq("sincroniza_monday", false).in("categoria", ["iniciativas", "estrategia"])) ?? [];
+  if (!filas.length) return {};
+  const mapaPersonas = new Map<string, PersonaMetricas>((await listarPersonasCorto()).map((p) => [p.id, p]));
+  const items = async (categoria: string) =>
+    (await Promise.all(filas.filter((f) => f.categoria === categoria).map((f) => itemsDeTablero(f.id, mapaPersonas, true))))
+      .flatMap((x) => x?.items ?? []);
+  const out: Partial<Pick<FuenteMonday, "iniItems" | "estrategiaItems">> = {};
+  if (filas.some((f) => f.categoria === "iniciativas")) out.iniItems = await items("iniciativas");
+  if (filas.some((f) => f.categoria === "estrategia")) out.estrategiaItems = await items("estrategia");
+  return out;
+}
+
 export async function leerFuenteTableros(opciones: OpcionesFuente = {}): Promise<FuenteTableros> {
   const { soloProyecto, paraLaApp = false } = opciones;
   const db = getSupabaseAdmin();
@@ -118,14 +150,8 @@ export async function leerFuenteTableros(opciones: OpcionesFuente = {}): Promise
     : filas;
 
   // Cada tablero completo, con lo que necesitan sus fórmulas y espejos (tableros ligados y archivos).
-  const completos = (await Promise.all(aLeer.map(async (f) => {
-    const completo = await leerTablero(f.id, ACCESO_SISTEMA);
-    if (!completo) return null;
-    // Durante la convivencia solo cuenta lo que viene de Monday (ver soloLoDeMonday).
-    const t = paraLaApp ? soloLoDeMonday(completo) : completo;
-    const extras = await leerExtras(t, ACCESO_SISTEMA);
-    return { t, items: tableroAMondayItems(t, mapaPersonas, { ligados: extras.ligados, archivos: extras.archivos.map((a) => ({ ...a })) }) };
-  }))).filter((x): x is { t: TableroCompleto; items: MondayItem[] } => !!x);
+  const completos = (await Promise.all(aLeer.map((f) => itemsDeTablero(f.id, mapaPersonas, paraLaApp))))
+    .filter((x): x is { t: TableroCompleto; items: MondayItem[] } => !!x);
 
   const de = (categoria: string) => completos.filter((c) => c.t.tablero.categoria === categoria);
   const proyectos = de("proyecto");

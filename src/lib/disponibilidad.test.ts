@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { añosSinAsuetos, diasLaborales, huecosLibres, unirOcupados } from "@/lib/disponibilidad";
+import { añosSinAsuetos, bloquesDelDia, chocaCon, diasLaborales, huecosLibres, minutosDelDia, unirOcupados } from "@/lib/disponibilidad";
 
 const sinAsuetos = new Set<string>();
 // 2026-11-16 es lunes. Guatemala = UTC-6: 8:00 local = 14:00Z.
@@ -64,5 +64,28 @@ describe("añosSinAsuetos", () => {
     const a = new Set(["2026-01-01"]);
     expect(añosSinAsuetos("2026-12-20", "2027-01-05", a)).toEqual([2027]);
     expect(añosSinAsuetos("2026-02-01", "2026-03-01", a)).toEqual([]);
+  });
+});
+
+describe("agenda de un día por persona", () => {
+  // 2026-11-16 (lunes). 9:00 GT = 15:00Z
+  const dia = "2026-11-16";
+  it("minutosDelDia cuenta desde la medianoche de Guatemala", () => {
+    expect(minutosDelDia(dia, "2026-11-16T15:00:00Z")).toBe(9 * 60);
+  });
+  it("une, recorta a la ventana y descarta lo de otros días", () => {
+    const b = bloquesDelDia(dia, [
+      { inicio: "2026-11-16T15:00:00Z", fin: "2026-11-16T16:00:00Z" }, // 9–10
+      { inicio: "2026-11-16T15:30:00Z", fin: "2026-11-16T16:30:00Z" }, // 9:30–10:30 (se une)
+      { inicio: "2026-11-16T12:00:00Z", fin: "2026-11-16T14:00:00Z" }, // 6–8 → 7–8
+      { inicio: "2026-11-17T15:00:00Z", fin: "2026-11-17T16:00:00Z" }, // otro día
+    ]);
+    expect(b).toEqual([[7 * 60, 8 * 60], [9 * 60, 10.5 * 60]]);
+  });
+  it("chocaCon: toca solo si se traslapan (bordes no cuentan)", () => {
+    const b: [number, number][] = [[540, 600]];
+    expect(chocaCon(b, 600, 660)).toBe(false);
+    expect(chocaCon(b, 480, 540)).toBe(false);
+    expect(chocaCon(b, 570, 630)).toBe(true);
   });
 });

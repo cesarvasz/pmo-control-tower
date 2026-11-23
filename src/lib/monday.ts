@@ -175,14 +175,29 @@ export async function fetchProjBoardConContexto(boardId: string): Promise<{
  *  hace el dashboard completo, aislado para el refresh de un solo board. */
 export async function fetchIniAndHrRaw(): Promise<{ iniItems: MondayItem[]; hrItems: MondayItem[] }> {
   type BoardsResp = { boards: { items_page: { items: MondayItem[] } }[] };
-  const [iniData, hrData] = await Promise.all([
+  const [iniData, hrData, cortes] = await Promise.all([
     mondayFetch<BoardsResp>(richBoardQuery(env("MONDAY_INI_BOARD_ID"))),
     mondayFetch<BoardsResp>(boardItemsQuery(env("MONDAY_RH_BOARD_ID"))),
+    cortesDeTableros(),
   ]);
   return {
-    iniItems: iniData.boards[0]?.items_page.items ?? [],
+    iniItems: cortes.iniItems ?? iniData.boards[0]?.items_page.items ?? [],
     hrItems: hrData.boards[0]?.items_page.items ?? [],
   };
+}
+
+/**
+ * Iniciativas y Estrategia que ya se cortaron de Monday (su tablero en la app dejó de sincronizarse): salen de la app aunque
+ * lo demás se lea de Monday, porque su board de Monday quedó congelado. Nunca lanza: si falla, se avisa y se usa Monday.
+ */
+async function cortesDeTableros(): Promise<{ iniItems?: MondayItem[]; estrategiaItems?: MondayItem[] }> {
+  try {
+    const { cortadosDesdeTableros } = await import("@/features/tableros/datos/fuente-dashboard");
+    return await cortadosDesdeTableros();
+  } catch (e) {
+    console.error("No se pudieron leer Iniciativas/Estrategia de la app (corte); se usan los de Monday, que pueden estar congelados.", e);
+    return {};
+  }
 }
 
 // El Directorio RH cambia poco y se consulta en cada acción de encuestas (¿quién es CKU?, su correo): se guarda unos
@@ -295,6 +310,8 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
   const rhId  = env("MONDAY_RH_BOARD_ID");
   // Board "Estrategia 🔝": fuente de U Neg/País. Configurable; default al id descubierto.
   const estId = process.env.MONDAY_EST_BOARD_ID || "18291587533";
+  // Lo ya cortado de Monday (Iniciativas / Estrategia) sale de la app: se pide en paralelo con lo demás.
+  const cortesP = cortesDeTableros();
 
   // 1ª tanda en paralelo: ini, req, RH, Estrategia, web app (calendario + hoja) y descubrir boards.
   // allSettled → una fuente que falle no tumba todo el dashboard.
@@ -313,9 +330,10 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
   // Iniciativas y REQ son obligatorias: si fallan, se propaga el error
   // (el wrapper con caché servirá la última copia buena si existe).
   const reason = (r: PromiseRejectedResult) => (r.reason instanceof Error ? r.reason.message : String(r.reason));
-  if (iniR.status === "rejected") throw new Error(`Iniciativas: ${reason(iniR)}`);
+  // (Tras el corte, Iniciativas sale de la app: que el board congelado de Monday falle ya no importa.)
+  if (iniR.status === "rejected" && !(await cortesP).iniItems) throw new Error(`Iniciativas: ${reason(iniR)}`);
   if (reqR.status === "rejected") throw new Error(`REQ: ${reason(reqR)}`);
-  const iniData = iniR.value;
+  const iniData = iniR.status === "fulfilled" ? iniR.value : emptyBoards;
   const reqData = reqR.value;
 
   // Enriquecimiento opcional: si falla, se degrada a vacío (con aviso).
@@ -338,11 +356,12 @@ async function fetchDashboardRawUncached(): Promise<DashboardRaw> {
     projRaw = data.boards ?? [];
   }
 
+  const cortes = await cortesP;
   return {
-    iniItems: iniData.boards[0]?.items_page.items ?? [],
+    iniItems: cortes.iniItems ?? iniData.boards[0]?.items_page.items ?? [],
     reqItems: reqData.boards[0]?.items_page.items ?? [],
     hrItems: rhData.boards[0]?.items_page.items ?? [],
-    estrategiaItems: estData.boards[0]?.items_page.items ?? [],
+    estrategiaItems: cortes.estrategiaItems ?? estData.boards[0]?.items_page.items ?? [],
     projBoards,
     projRaw,
     calData: webApp.calData,

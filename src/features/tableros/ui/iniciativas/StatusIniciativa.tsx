@@ -2,17 +2,15 @@
 
 // El Status de una iniciativa, a la vista: On Track (verde) u Off Track (rojo) mientras corre el embudo; ya fuera de él, lo que es:
 // «Plan Futuro», «Sin Beneficio Definido» o «Aprobada · Clase X», con el color de su etapa. Sale de statusIni (la salud que calcula la app
-// y la etapa); sin ninguno de los dos no hay status y se ve «—». Los colores salen del tema o de la etapa, oscurecidos para que el texto blanco se lea.
+// y la etapa); sin ninguno de los dos no hay status y se ve «—». Los colores salen del tema o de la etapa, en versión suave (fondo tenue y punto).
 
 import { esStatusDeEtapa, statusIni, type StatusIni } from "../../dominio/nueva-iniciativa";
 
-const oscuro = (color: string) => `color-mix(in srgb, ${color} 82%, black)`;
-
-function fondo(s: StatusIni, colorEtapa?: string): string {
-  if (s === "On Track") return oscuro("var(--ok)");
-  if (s === "Off Track") return oscuro("var(--bad)");
-  // De etapa: el color de su etiqueta del Status (los verdes claros de «PM C» se oscurecen para que se lea el texto blanco)
-  if (colorEtapa) return oscuro(colorEtapa);
+/** El color propio de cada status (el de la etapa, si lo trae). La píldora lo usa suave: fondo tenue, punto y texto de ese color. */
+function colorDe(s: StatusIni, colorEtapa?: string): string {
+  if (s === "On Track") return "var(--ok)";
+  if (s === "Off Track") return "var(--bad)";
+  if (colorEtapa) return colorEtapa;
   return s === "Plan Futuro" ? "#5559df" : s === "Sin Beneficio Definido" ? "#c42a41" : "#037f4c";
 }
 
@@ -30,11 +28,17 @@ export default function StatusIniciativa({ salud, etapa }: {
 }) {
   const s = statusIni(salud, etapa?.texto);
   if (!s) return <span className="text-[var(--text-muted)]" title="Sin status: no aplica a esta etapa o falta el calendario">—</span>;
+  const c = colorDe(s, esStatusDeEtapa(s) ? etapa?.color : undefined);
   return (
     <span
-      className="inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-[0.75rem] font-bold text-white"
-      style={{ background: fondo(s, esStatusDeEtapa(s) ? etapa?.color : undefined) }} title={titulo(s)}
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[0.75rem] font-semibold"
+      style={{
+        background: `color-mix(in srgb, ${c} 13%, transparent)`, borderColor: `color-mix(in srgb, ${c} 35%, transparent)`,
+        color: `color-mix(in srgb, ${c} 70%, var(--text-primary))`,
+      }}
+      title={titulo(s)}
     >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />
       {s}
     </span>
   );

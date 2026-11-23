@@ -10,25 +10,12 @@ import { useMe } from "@/context/PermissionsContext";
 import { Loader } from "@/components/ui";
 import { tieneAccionTableros } from "@/features/tableros/dominio/acciones";
 import { PESTANAS } from "@/features/tableros/ui/pestanas";
-import { Nota } from "@/features/tableros/ui/comun";
-
-const MOTIVOS_GOOGLE: Record<string, [tono: "ok" | "mal", texto: string]> = {
-  ok: ["ok", "Tu cuenta de Google quedó conectada. Ya puedes agendar reuniones desde una iniciativa."],
-  cancelado: ["mal", "No se conectó tu Google: cancelaste el permiso."],
-  "permisos-incompletos": ["mal", "No se conectó tu Google: faltó aceptar el permiso de Calendar. Vuelve a intentarlo y deja marcadas todas las casillas."],
-  "sin-refresh-token": ["mal", "Google no entregó un permiso duradero. Quita el acceso de esta app en tu cuenta de Google (myaccount.google.com/permissions) y conéctala de nuevo."],
-  "estado-invalido": ["mal", "La conexión con Google expiró o no es válida. Vuelve a intentarlo desde «Agendar»."],
-  "sin-configurar": ["mal", "La conexión con Google no está configurada en el servidor."],
-  error: ["mal", "No se pudo conectar tu Google. Intenta de nuevo."],
-};
+import AvisoGoogle from "@/features/tableros/ui/iniciativas/AvisoGoogle";
 
 export default function TablerosPage() {
   const { me } = useMe();
   const visibles = PESTANAS.filter((p) => tieneAccionTableros(me?.permissions, p.accion));
   const [tab, setTab] = useState(visibles[0]?.clave ?? "");
-  // Resultado de conectar Google (viene en la URL al volver del permiso); se muestra una vez y se limpia de la barra
-  const [google, setGoogle] = useState<string | null>(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("google")));
-  const cerrarGoogle = () => { setGoogle(null); window.history.replaceState(null, "", window.location.pathname); };
 
   if (!me) return <Loader />;
   if (!tieneAccionTableros(me.permissions, "tableros_ver") || !visibles.length) {
@@ -51,12 +38,7 @@ export default function TablerosPage() {
           En prueba
         </span>
       </div>
-      {google && MOTIVOS_GOOGLE[google] && (
-        <div className="mb-3 flex items-start gap-2">
-          <div className="flex-1"><Nota tono={MOTIVOS_GOOGLE[google][0]}>{MOTIVOS_GOOGLE[google][1]}</Nota></div>
-          <button type="button" onClick={cerrarGoogle} aria-label="Cerrar aviso" className="px-2 text-[var(--text-muted)]">×</button>
-        </div>
-      )}
+      <AvisoGoogle />
       <p className="mb-5 text-[0.82rem] text-[var(--text-muted)]">
         Los tableros propios de la app, para dejar de depender de Monday. Cada pestaña es una pieza que se va construyendo.
       </p>
