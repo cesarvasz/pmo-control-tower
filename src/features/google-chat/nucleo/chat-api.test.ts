@@ -1,6 +1,6 @@
 import { generateKeyPairSync, createVerify } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { espacioDe, jwtDeCuentaDeServicio, leerLlave } from "./chat-api";
+import { espacioDe, estadoLlave, jwtDeCuentaDeServicio, leerLlave } from "./chat-api";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
@@ -14,6 +14,16 @@ describe("Chat API como la app", () => {
     expect(leerLlave("")).toBeNull();
     expect(leerLlave("{}")).toBeNull();
     expect(leerLlave("no es json")).toBeNull();
+  });
+  it("tolera errores comunes al pegarla en Vercel: comillas, string JSON, «\\n» literal", () => {
+    const json = JSON.stringify({ ...llave, type: "service_account" });
+    expect(leerLlave(`'${json}'`)).toEqual(llave);
+    expect(leerLlave(JSON.stringify(json))).toEqual(llave);
+    const escapado = JSON.stringify({ ...llave, private_key: pem.replace(/\n/g, "\\n") });
+    expect(leerLlave(escapado)).toEqual(llave);
+    expect(estadoLlave("")).toBe("falta");
+    expect(estadoLlave("{roto")).toBe("invalida");
+    expect(estadoLlave(json)).toBe("ok");
   });
   it("el JWT va firmado con la llave, con el scope chat.bot y para el endpoint de tokens", () => {
     const [c, cuerpo, firma] = jwtDeCuentaDeServicio(llave, 1000).split(".");

@@ -8,7 +8,7 @@ import { AvisoChat } from "../../nucleo/flujo";
 import { erroresDe, leerFormulario, tarjetaFormulario, type Leidos } from "../../nucleo/formulario";
 import { actualizarDialogo, actualizarMensaje, botonBot, botonEnlace, mensaje } from "../../nucleo/respuestas";
 import { adjuntosDe } from "../../nucleo/eventos";
-import { chatApiDisponible, enviarMensaje, espacioDe, leerMensaje } from "../../nucleo/chat-api";
+import { chatApiDisponible, enviarMensaje, espacioDe, estadoLlave, leerMensaje } from "../../nucleo/chat-api";
 import { driveConectado, driveDisponible, enlaceConectarDrive } from "../../nucleo/drive";
 import {
   adjuntarArchivos, contextoIniciativa, crearIniciativa, iniciativasParaAdjuntar, puedeCrearIniciativas, type ContextoIniciativa,
@@ -19,12 +19,22 @@ const CLAVE = "iniciativa";
 const ACCION_CREAR = "crear";
 const ACCION_ADJUNTAR = "adjuntar";
 
+/** La nota de archivos del formulario. Si los archivos están apagados, solo un Admin ve por qué (para arreglarlo). */
+function notaArchivos(esAdmin: boolean): string | undefined {
+  const estado = estadoLlave();
+  if (estado === "ok") return "📎 ¿Archivos? Después de crear la iniciativa, mándamelos aquí en el chat y los pego a su bitácora.";
+  if (!esAdmin) return undefined;
+  return estado === "falta"
+    ? "⚠️ (Solo Admin) Recibir archivos está apagado: falta GOOGLE_CHAT_LLAVE en Vercel (o falta un Redeploy)."
+    : "⚠️ (Solo Admin) Recibir archivos está apagado: GOOGLE_CHAT_LLAVE está en Vercel pero no se entiende. Pega el JSON completo de la llave, tal cual.";
+}
+
 function tarjeta(ctx: ContextoIniciativa, url: string, extra: { leidos?: Leidos; errores?: string[] } = {}) {
   return tarjetaFormulario({
     titulo: "Nueva iniciativa", campos: ctx.campos, url, flujo: CLAVE,
     enviar: { texto: "Crear iniciativa", accion: ACCION_CREAR },
     // Google Chat no tiene un control para subir archivos en un formulario: se mandan al chat después de crearla.
-    nota: chatApiDisponible() ? "📎 ¿Archivos? Después de crear la iniciativa, mándamelos aquí en el chat y los pego a su bitácora." : undefined,
+    nota: notaArchivos(ctx.usuario.esAdmin),
     aviso: { etiqueta: "Se crea a tu nombre", texto: ctx.cku ? `CKU: ${ctx.cku.nombre}` : "CKU: sin asignar (no estás en el Directorio RH)" },
     ...extra,
   });

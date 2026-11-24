@@ -12,17 +12,33 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 interface Llave { client_email: string; private_key: string }
 
-/** La llave de GOOGLE_CHAT_LLAVE, o null si falta o no se entiende. */
-export function leerLlave(texto = process.env.GOOGLE_CHAT_LLAVE): Llave | null {
-  const crudo = texto?.trim();
-  if (!crudo) return null;
-  for (const intento of [crudo, () => Buffer.from(crudo, "base64").toString("utf8")]) {
-    try {
-      const j = JSON.parse(typeof intento === "string" ? intento : intento()) as Partial<Llave>;
-      if (j.client_email && j.private_key) return { client_email: j.client_email, private_key: j.private_key };
-    } catch { /* siguiente formato */ }
+/** Un intento de leer la llave de un texto: JSON (aunque venga como string JSON dentro de otro) con client_email y private_key. */
+function llaveDeJson(texto: string): Llave | null {
+  try {
+    let j: unknown = JSON.parse(texto);
+    if (typeof j === "string") j = JSON.parse(j); // pegada como string JSON ("{\"type\":…}")
+    const l = j as Partial<Llave> | null;
+    if (!l?.client_email || !l.private_key) return null;
+    // Si los saltos de línea de la llave quedaron como «\n» literal, se arreglan.
+    return { client_email: l.client_email, private_key: l.private_key.replace(/\\n/g, "\n") };
+  } catch {
+    return null;
   }
-  return null;
+}
+
+/** La llave de GOOGLE_CHAT_LLAVE, o null si falta o no se entiende. Acepta el JSON tal cual, en base64, o envuelto en
+ *  comillas (errores comunes al pegarla en Vercel). */
+export function leerLlave(texto = process.env.GOOGLE_CHAT_LLAVE): Llave | null {
+  let crudo = texto?.trim() ?? "";
+  if (crudo.length > 1 && (crudo[0] === "'" || crudo[0] === "`") && crudo.at(-1) === crudo[0]) crudo = crudo.slice(1, -1).trim();
+  if (!crudo) return null;
+  return llaveDeJson(crudo) ?? llaveDeJson(Buffer.from(crudo, "base64").toString("utf8"));
+}
+
+/** Cómo está la cuenta de servicio: ok, falta la variable, o está pero no se entiende. */
+export function estadoLlave(texto = process.env.GOOGLE_CHAT_LLAVE): "ok" | "falta" | "invalida" {
+  if (!texto?.trim()) return "falta";
+  return leerLlave(texto) ? "ok" : "invalida";
 }
 
 /** ¿Está configurada la cuenta de servicio? */
