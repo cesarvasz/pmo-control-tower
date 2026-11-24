@@ -89,7 +89,7 @@ arranque en frío de Chrome).
 |---|---|---|
 | Datos (obligatorios) | Nombre de la iniciativa | |
 | | Descripción | Texto de varias líneas. Queda como **primera entrada de la bitácora** de la iniciativa, a nombre de quien escribe. |
-| Opcional (plegable) | Proceso, Beneficio $ | Los números aceptan `15000`, `15,000.50`, `$ 15,000`. |
+| Opcional (plegable) | Beneficio $ | Acepta `15000`, `15,000.50`, `$ 15,000`. Proceso no se pide. |
 
 Automático: **CKU = quien escribe** (su persona del Directorio; un Admin que no está en el Directorio la deja sin CKU),
 status New, grupo Nuevas Iniciativas, Ini ID y fecha de creación. **PM y Estrategia quedan vacíos**: los asigna el PMO
@@ -179,7 +179,7 @@ npx cloudflared tunnel --url http://localhost:3000   # da una URL https://xxxx.t
   crea en la app no va a Monday y no cuenta en las métricas hasta el corte (guardia `soloLoDeMonday`). El bot debería
   abrirse a los PM **con el corte**, no antes.
 - Producción: variables en Vercel + push (cuando se autorice) + cambiar la URL del extremo a la de Vercel.
-- Listas largas: Google Chat admite hasta 100 opciones por lista (hoy Proceso tiene 20). Si se pasa, el bot avisa y hay
+- Listas largas: Google Chat admite hasta 100 opciones por lista. Si un formulario llega a pasarse, el bot avisa y hay
   que cambiarla a una lista con búsqueda (`externalDataSource`, autocompletar).
 
 ## Por confirmar con la primera prueba real

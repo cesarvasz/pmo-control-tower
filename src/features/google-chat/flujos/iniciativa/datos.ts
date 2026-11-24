@@ -2,7 +2,7 @@
 // «Nueva iniciativa» de la app (elemento.crear), pero con las reglas del bot (decididas por el PMO, 2026-11-24):
 //  · La crean los CKU del Directorio RH y los Admin (no hace falta cuenta en la app: casi ningún CKU la tiene). El bot
 //    actúa por ellos con acceso de sistema; el historial y la bitácora quedan con su correo y su nombre.
-//  · Se pide: Nombre y Descripción (obligatorios); Proceso y Beneficio $ (opcionales).
+//  · Se pide: Nombre y Descripción (obligatorios) y Beneficio $ (opcional). Proceso no se pide.
 //  · CKU = quien escribe. PM y Estrategia quedan vacíos: los asigna el PMO después.
 //  · La Descripción es la primera entrada de la bitácora de la iniciativa.
 //  · Los archivos que le mandan al bot en el chat se pegan a la bitácora de la iniciativa que elijan (adjuntarArchivos).
@@ -14,7 +14,7 @@ import { tableroDeIniciativas } from "@/features/tableros/datos/iniciativas-app"
 import { ErrorTablero } from "@/features/tableros/datos/errores";
 import { textoCelda, type Columna, type Tablero } from "@/features/tableros/dominio/tablero";
 import { grupoInicialId, valoresDeAlta } from "@/features/tableros/dominio/formulario-alta";
-import { columnasNuevaIni, tituloCampo } from "@/features/tableros/dominio/nueva-iniciativa";
+import { columnasNuevaIni } from "@/features/tableros/dominio/nueva-iniciativa";
 import { MAX_ADJUNTOS_COMENTARIO, MAX_COMENTARIO } from "@/features/tableros/dominio/bitacora";
 import { AvisoChat, type AdjuntoChat, type UsuarioChat } from "../../nucleo/flujo";
 import { rolDeSaludo } from "../../nucleo/menu";
@@ -56,7 +56,7 @@ export function actorDe(u: UsuarioChat): Actor {
 const opcionesDeDropdown = (c: Columna): Opcion[] =>
   ((c.config as { opciones?: { id: string; texto: string }[] } | null)?.opciones ?? []).map((o) => ({ valor: o.id, texto: o.texto }));
 
-/** Un campo opcional que es columna del tablero (Proceso, Beneficio $). */
+/** Un campo opcional que es columna del tablero (Beneficio $). */
 function campoOpcional(c: Columna, etiqueta: string): CampoChat | null {
   const base = { nombre: c.id, etiqueta, seccion: "despues" as const, obligatorio: false };
   if (c.tipo === "numero") return { ...base, tipo: "numero" };
@@ -94,10 +94,8 @@ export async function contextoIniciativa(u: UsuarioChat): Promise<ContextoInicia
     { nombre: CAMPO_NOMBRE, etiqueta: "Nombre de la iniciativa", tipo: "texto", obligatorio: true, seccion: "datos" },
     { nombre: CAMPO_DESCRIPCION, etiqueta: "Descripción", tipo: "parrafo", obligatorio: true, seccion: "datos", ayuda: "Qué se quiere lograr, para quién y por qué. Queda en la bitácora de la iniciativa." },
   ];
-  for (const [c, etiqueta] of [[k.proceso, k.proceso ? tituloCampo(k.proceso) : ""], [k.beneficio, "Beneficio $"]] as const) {
-    const campo = c ? campoOpcional(c, etiqueta) : null;
-    if (campo) campos.push(campo);
-  }
+  const beneficio = k.beneficio ? campoOpcional(k.beneficio, "Beneficio $") : null;
+  if (beneficio) campos.push(beneficio);
   const cku = u.persona ? { id: u.persona.id, nombre: u.persona.nombre } : null;
   return { usuario: u, tablero, grupoId, columnas, campos, cku };
 }
