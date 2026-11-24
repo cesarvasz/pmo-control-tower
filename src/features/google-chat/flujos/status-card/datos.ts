@@ -12,7 +12,7 @@ import { esRolCku, type AppUser } from "@/lib/permissions";
 import { ckuDeEmail, sameCku } from "@/lib/players";
 import { splitBoardName } from "@/lib/proj";
 import type { DashboardData, ProjBoard } from "@/types";
-import { AvisoChat, type UsuarioChat } from "../../nucleo/flujo";
+import { AvisoChat, cuentaDe, type UsuarioChat } from "../../nucleo/flujo";
 
 /** Páginas de la app que muestran la Status Card: quien tiene alguna, puede pedirla al bot. */
 const PAGINAS = ["resumen-ejecutivo", "proyectos"] as const;
@@ -76,7 +76,7 @@ export const ESPERA_DATOS_MS = 4_000;
  *  /resumen-ejecutivo. Los que están en On Hold no salen. */
 export function proyectosVisibles(data: DashboardData, u: UsuarioChat): ProjBoard[] {
   let boards = data.projBoards;
-  if (esRolCku(u.me.roleName)) {
+  if (esRolCku(cuentaDe(u).roleName)) {
     const miCku = ckuDeEmail(data.directorio, u.email);
     boards = miCku ? boards.filter((b) => sameCku(b.cku, miCku)) : [];
   }

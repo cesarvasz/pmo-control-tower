@@ -3,36 +3,58 @@
 // load dialog»). Lo lento va antes (precalentar) o después de responder (after), nunca dentro.
 //  · saludo (le escriben o lo agregan) → «¡Hola (nombre)! Rol (rol)» + menú con lo que ESE usuario puede usar;
 //    sin rol CKU / Sponsor / PM / Admin, el mensaje de apoyo
+//  · archivos en un mensaje → el primer flujo que sabe recibirlos (recibirArchivos) y que el usuario puede usar
 //  · comando → el flujo con ese comandoId abre su diálogo
 //  · botón «abrir» → abre el diálogo del flujo; «cancelar» → cierra; otro → flujo.enviar
 
 import { ACCION_ABRIR, ACCION_CANCELAR, esDeDialogo, intencionDe, type EventoChat } from "./eventos";
-import { AvisoChat, type ContextoFlujo, type FlujoChat } from "./flujo";
-import { flujoDeBoton, saludoDe } from "./menu";
+import { AvisoChat, type ContextoFlujo, type FlujoChat, type UsuarioChat } from "./flujo";
+import { flujoDeBoton, MENSAJE_APOYO, rolDeSaludo, saludoDe } from "./menu";
 import { abrirDialogo, botonBot, cerrarDialogo, mensaje, respuestaDeAviso, type RespuestaChat } from "./respuestas";
-import { quienSaluda, usuarioDeEvento } from "./usuario";
+import { usuarioDeEvento } from "./usuario";
+
+async function disponiblesPara(usuario: UsuarioChat, flujos: FlujoChat[]): Promise<FlujoChat[]> {
+  const out: FlujoChat[] = [];
+  for (const f of flujos) if (await f.puedeUsar(usuario)) out.push(f);
+  return out;
+}
 
 export async function despachar(e: EventoChat, url: string, flujos: FlujoChat[]): Promise<RespuestaChat> {
   const intencion = intencionDe(e);
   if (intencion.tipo === "ignorar") return {};
   if (intencion.tipo === "boton" && intencion.accion === ACCION_CANCELAR) return cerrarDialogo();
   try {
-    if (intencion.tipo === "saludo") {
-      // Contesta a cualquiera del dominio: nombre y rol del Directorio RH; el menú, solo con rol y cuenta que sirva.
-      const s = await quienSaluda(e);
-      const disponibles: FlujoChat[] = [];
-      if (s.rol && s.usuario) for (const f of flujos) if (await f.puedeUsar(s.usuario)) disponibles.push(f);
-      for (const f of disponibles) f.precalentar?.();
-      return saludoDe({ nombre: s.nombre, rol: s.rol, flujos: disponibles, aviso: s.aviso }, url);
-    }
     const usuario = await usuarioDeEvento(e);
+    const ctx: ContextoFlujo = { usuario, evento: e, url, origen: new URL(url).origin };
+
+    if (intencion.tipo === "saludo") {
+      // Nombre y rol del Directorio RH (Admin de la app gana); el menú, solo a quien tiene uno de esos roles.
+      const rol = rolDeSaludo(usuario.esAdmin, usuario.persona?.rol);
+      const disponibles = rol ? await disponiblesPara(usuario, flujos) : [];
+      for (const f of disponibles) f.precalentar?.();
+      return saludoDe({ nombre: usuario.nombre, rol, flujos: disponibles, aviso: disponibles.length ? null : usuario.avisoCuenta }, url);
+    }
+
+    if (intencion.tipo === "archivos") {
+      const receptor = (await disponiblesPara(usuario, flujos.filter((f) => f.recibirArchivos)))[0];
+      if (!receptor?.recibirArchivos) return mensaje(`No tengo dónde guardar archivos para ti. ${MENSAJE_APOYO}`);
+      return await receptor.recibirArchivos(ctx, intencion.adjuntos, intencion.mensaje);
+    }
+
     const flujo = intencion.tipo === "comando"
       ? flujos.find((f) => f.comandoId === intencion.comandoId)
       : flujoDeBoton(flujos, intencion.flujo);
     if (!flujo) throw new AvisoChat("No conozco ese comando. Escríbeme «hola» para ver lo que puedo hacer.");
-    if (!(await flujo.puedeUsar(usuario))) throw new AvisoChat(`Tu rol no tiene acceso a «${flujo.titulo}». Pide acceso al PMO.`);
+    if (!(await flujo.puedeUsar(usuario))) {
+      // Sin rol reconocido → con su CKU; con rol pero sin cuenta que sirva → eso es lo que tiene que resolver; si no, es su rol.
+      const sinAcceso = `Tu rol no tiene acceso a «${flujo.titulo}».`;
+      throw new AvisoChat(
+        !rolDeSaludo(usuario.esAdmin, usuario.persona?.rol) ? `${sinAcceso} ${MENSAJE_APOYO}`
+          : !usuario.me && usuario.avisoCuenta ? usuario.avisoCuenta
+            : `${sinAcceso} Pide acceso al PMO.`,
+      );
+    }
 
-    const ctx: ContextoFlujo = { usuario, evento: e, url, origen: new URL(url).origin };
     if (intencion.tipo === "comando" || intencion.accion === ACCION_ABRIR) {
       // Un comando sin «Abre un diálogo» en Google Cloud no puede abrir una tarjeta: se manda el botón que sí la abre.
       if (!esDeDialogo(e)) return mensaje("Toca el botón para continuar.", [botonBot({ url, flujo: flujo.clave, accion: ACCION_ABRIR, texto: flujo.titulo, dialogo: true })]);

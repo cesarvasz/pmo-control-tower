@@ -11,7 +11,8 @@ export interface Opcion { valor: string; texto: string }
 export interface CampoChat {
   nombre: string;
   etiqueta: string;
-  tipo: "texto" | "numero" | "lista";
+  /** «parrafo» = texto de varias líneas. */
+  tipo: "texto" | "parrafo" | "numero" | "lista";
   obligatorio: boolean;
   /** «datos» = sección principal; «despues» = sección plegable de lo opcional. */
   seccion: "datos" | "despues";
@@ -74,7 +75,7 @@ function widgetDe(c: CampoChat, valor: string): Widget {
   }
   return {
     textInput: {
-      name: c.nombre, label: etiqueta, type: "SINGLE_LINE", value: valor,
+      name: c.nombre, label: etiqueta, type: c.tipo === "parrafo" ? "MULTIPLE_LINE" : "SINGLE_LINE", value: valor,
       ...(c.ayuda ? { hintText: c.ayuda } : c.tipo === "numero" ? { hintText: "Solo el número, p. ej. 15000" } : {}),
     },
   };

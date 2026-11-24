@@ -151,3 +151,28 @@ describe("saludo", () => {
     expect(flujoDeBoton(flujos, "otro")).toBeUndefined();
   });
 });
+
+describe("archivos y párrafos", () => {
+  it("un mensaje con archivos es «archivos» (subidos y de Drive); sin cómo bajarlos, es saludo", () => {
+    const e: EventoChat = { chat: { messagePayload: { message: { name: "spaces/A/messages/B", text: "hola", attachment: [
+      { name: "spaces/A/messages/B/attachments/1", contentName: "plan.pdf", contentType: "application/pdf", source: "UPLOADED_CONTENT", attachmentDataRef: { resourceName: "r1" } },
+      { contentName: "Doc", source: "DRIVE_FILE", driveDataRef: { driveFileId: "d1" } },
+      { contentName: "raro" },
+    ] } } } };
+    expect(intencionDe(e)).toEqual({ tipo: "archivos", mensaje: "spaces/A/messages/B", adjuntos: [
+      { nombreRecurso: "spaces/A/messages/B/attachments/1", nombre: "plan.pdf", tipoMime: "application/pdf", origen: "subido", recursoDatos: "r1", driveId: null },
+      { nombreRecurso: "", nombre: "Doc", tipoMime: null, origen: "drive", recursoDatos: null, driveId: "d1" },
+    ] });
+    expect(intencionDe({ chat: { messagePayload: { message: { name: "m", attachment: [{ contentName: "raro" }] } } } })).toEqual({ tipo: "saludo" });
+  });
+  it("un campo «parrafo» es un texto de varias líneas", () => {
+    const t = JSON.stringify(tarjetaFormulario({ titulo: "T", url: "u", flujo: "f", enviar: { texto: "Ok", accion: "ok" },
+      campos: [{ nombre: "descripcion", etiqueta: "Descripción", tipo: "parrafo", obligatorio: true, seccion: "datos" }] }));
+    expect(t).toContain('"type":"MULTIPLE_LINE"');
+    expect(t).toContain('"label":"Descripción *"');
+  });
+  it("los botones llevan los parámetros extra", () => {
+    expect(JSON.stringify(botonBot({ url: "u", flujo: "iniciativa", accion: "adjuntar", texto: "IN-1", parametros: { elemento: "e1" } })))
+      .toContain('{"key":"elemento","value":"e1"}');
+  });
+});

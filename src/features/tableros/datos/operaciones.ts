@@ -26,11 +26,18 @@ import { aColumna, aElemento, aGrupo, leerTablero, type Acceso } from "./tablero
 import { ErrorTablero } from "./errores";
 import { guardarComoPlantilla } from "./plantillas";
 
+/** Quién hace el cambio: un usuario de la app, o alguien sin cuenta (uid null) por quien actúa el sistema — p. ej. un CKU que
+ *  da de alta una iniciativa desde el bot de Google Chat. Lo que queda a su nombre (historial, bitácora) lleva su correo. */
+export type Actor = Pick<AppUser, "email" | "displayName" | "permissions"> & { uid: string | null };
+
 interface Ctx {
-  me: AppUser;
+  me: Actor;
   acceso: Acceso;
   tablero: Tablero;
 }
+
+/** ¿Lo hizo quien está actuando? Alguien sin cuenta (uid null) no es autor de nada. */
+const esMio = (ctx: Ctx, autorId: string | null) => !!ctx.me.uid && autorId === ctx.me.uid;
 
 type Datos = Record<string, unknown>;
 
@@ -102,7 +109,7 @@ async function escribirValor(ctx: Ctx, e: Elemento, c: Columna, crudo: unknown):
   const valor = validarValor(c, crudo);
   if (valor === undefined) throw new ErrorTablero(400, "Tipo de columna desconocido");
   unwrap(await db().rpc("tablero_cambiar_valor", {
-    p_elemento: e.id, p_columna: c.id, p_valor: valor as Json, p_usuario: ctx.me.uid, p_email: ctx.me.email,
+    p_elemento: e.id, p_columna: c.id, p_valor: valor as Json, p_usuario: ctx.me.uid as string, p_email: ctx.me.email, // null = alguien sin cuenta (la función lo acepta)
   }));
   return valor;
 }
@@ -219,10 +226,10 @@ const OPERACIONES: OperacionDef[] = [
     clave: "tablero.guardar_plantilla",
     async ejecutar(ctx, d) {
       exigir(ctx, "administrar");
-      if (!tieneAccionTableros(ctx.me.permissions, "plantillas_administrar")) throw new ErrorTablero(403, "No puedes administrar plantillas");
+      if (!ctx.me.uid || !tieneAccionTableros(ctx.me.permissions, "plantillas_administrar")) throw new ErrorTablero(403, "No puedes administrar plantillas");
       const completo = await leerTablero(ctx.tablero.id, ctx.acceso);
       if (!completo) throw new ErrorTablero(404, "Tablero no encontrado");
-      return { id: await guardarComoPlantilla(completo, d, ctx.me) };
+      return { id: await guardarComoPlantilla(completo, d, { uid: ctx.me.uid }) };
     },
   },
 
@@ -579,7 +586,7 @@ const OPERACIONES: OperacionDef[] = [
     clave: "comentario.editar",
     async ejecutar(ctx, d) {
       const c = await comentario(ctx, id(d, "comentarioId"));
-      if (c.autor_id !== ctx.me.uid) throw new ErrorTablero(403, "Solo quien lo escribió puede editarlo");
+      if (!esMio(ctx, c.autor_id)) throw new ErrorTablero(403, "Solo quien lo escribió puede editarlo");
       const texto = normalizarTextoComentario(d.texto);
       if (!texto) throw new ErrorTablero(400, "Escribe el comentario");
       unwrap(await db().from("elemento_comentarios").update({ texto, editado_at: ahora() }).eq("id", c.id));
@@ -590,7 +597,7 @@ const OPERACIONES: OperacionDef[] = [
     async ejecutar(ctx, d) {
       const c = await comentario(ctx, id(d, "comentarioId"));
       if (ctx.tablero.sincronizaMonday && c.monday_update_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
-      if (c.autor_id !== ctx.me.uid && !ctx.acceso.usuario.esAdmin) throw new ErrorTablero(403, "Solo quien lo escribió (o un Admin) puede borrarlo");
+      if (!esMio(ctx, c.autor_id) && !ctx.acceso.usuario.esAdmin) throw new ErrorTablero(403, "Solo quien lo escribió (o un Admin) puede borrarlo");
       // Sus respuestas y los archivos de todos se van con él.
       const respuestas = (unwrap(await db().from("elemento_comentarios").select("id").eq("respuesta_a", c.id).is("borrado_at", null)) ?? []).map((x) => x.id);
       const ids = [c.id, ...respuestas];
@@ -613,7 +620,7 @@ const OPERACIONES: OperacionDef[] = [
         if (cm.elemento_id !== e.id) throw new ErrorTablero(400, "Ese comentario es de otro elemento");
         exigir(ctx, "editar_valor", { elemento: e });
         if (ctx.tablero.sincronizaMonday && cm.monday_update_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
-        if (cm.autor_id !== ctx.me.uid) throw new ErrorTablero(403, "Solo quien escribió el comentario puede adjuntarle archivos");
+        if (!esMio(ctx, cm.autor_id)) throw new ErrorTablero(403, "Solo quien escribió el comentario puede adjuntarle archivos");
         const ya = unwrap(await db().from("elemento_archivos").select("id").eq("comentario_id", cm.id).is("borrado_at", null)) ?? [];
         if (ya.length >= MAX_ADJUNTOS_COMENTARIO) throw new ErrorTablero(400, `Máximo ${MAX_ADJUNTOS_COMENTARIO} archivos por comentario`);
         comentarioId = cm.id;
@@ -642,7 +649,7 @@ const OPERACIONES: OperacionDef[] = [
     clave: "archivo.confirmar",
     async ejecutar(ctx, d) {
       const a = await archivoFila(ctx, id(d, "archivoId"));
-      if (a.subido_por !== ctx.me.uid) throw new ErrorTablero(403, "Ese archivo lo está subiendo otra persona");
+      if (!esMio(ctx, a.subido_por)) throw new ErrorTablero(403, "Ese archivo lo está subiendo otra persona");
       const carpeta = a.ruta.slice(0, a.ruta.lastIndexOf("/"));
       const lista = await db().storage.from("tableros").list(carpeta);
       if (lista.error || !lista.data?.length) throw new ErrorTablero(400, "El archivo no llegó a guardarse; vuelve a intentarlo");
@@ -657,7 +664,7 @@ const OPERACIONES: OperacionDef[] = [
       if (ctx.tablero.sincronizaMonday && a.monday_asset_id) throw new ErrorTablero(409, MENSAJE_DATO_DE_MONDAY);
       const e = await elemento(ctx, a.elemento_id);
       exigir(ctx, "editar_valor", { elemento: e, columna: a.columna_id ? await columna(ctx, a.columna_id) : undefined });
-      if (a.comentario_id && a.subido_por !== ctx.me.uid && !ctx.acceso.usuario.esAdmin) {
+      if (a.comentario_id && !esMio(ctx, a.subido_por) && !ctx.acceso.usuario.esAdmin) {
         throw new ErrorTablero(403, "Solo quien lo subió (o un Admin) puede borrarlo");
       }
       unwrap(await db().from("elemento_archivos").update({ borrado_at: ahora() }).eq("id", a.id));
@@ -681,10 +688,40 @@ export function operacion(clave: unknown): OperacionDef | undefined {
   return OPERACIONES.find((o) => o.clave === clave);
 }
 
-export async function ejecutarOperacion(me: AppUser, acceso: Acceso, tablero: Tablero, datos: Datos): Promise<unknown> {
+export async function ejecutarOperacion(me: Actor, acceso: Acceso, tablero: Tablero, datos: Datos): Promise<unknown> {
   const op = operacion(datos.op);
   if (!op) throw new ErrorTablero(400, "Operación desconocida");
   return op.ejecutar({ me, acceso, tablero }, datos);
 }
 
 export const CLAVES_OPERACIONES = OPERACIONES.map((o) => o.clave);
+
+/**
+ * SOLO para el servidor (no es una operación del registro: esas las puede pedir el navegador). Guarda un archivo que ya tiene
+ * el servidor (p. ej. uno que mandaron al bot de Google Chat) como adjunto de un comentario de la bitácora, con las mismas
+ * reglas que la subida desde el navegador: quien escribió el comentario, hasta MAX_ADJUNTOS_COMENTARIO por comentario y 50 MB.
+ */
+export async function adjuntarAComentario(
+  me: Actor, acceso: Acceso, tablero: Tablero,
+  a: { comentarioId: string; nombre: string; tipoMime: string | null; datos: Uint8Array },
+): Promise<{ archivoId: string }> {
+  const ctx: Ctx = { me, acceso, tablero };
+  const cm = await comentario(ctx, a.comentarioId);
+  const e = await elemento(ctx, cm.elemento_id);
+  exigir(ctx, "editar_valor", { elemento: e });
+  if (cm.autor_email !== me.email) throw new ErrorTablero(403, "Solo quien escribió el comentario puede adjuntarle archivos");
+  const ya = unwrap(await db().from("elemento_archivos").select("id").eq("comentario_id", cm.id).is("borrado_at", null)) ?? [];
+  if (ya.length >= MAX_ADJUNTOS_COMENTARIO) throw new ErrorTablero(400, `Máximo ${MAX_ADJUNTOS_COMENTARIO} archivos por comentario`);
+  const nombre = limpiarTexto(a.nombre, 255) || "archivo";
+  if (a.datos.byteLength > MAX_ARCHIVO) throw new ErrorTablero(400, `«${nombre}» pasa de 50 MB`);
+  const ruta = `${tablero.id}/${e.id}/${randomUUID()}/${nombreSeguro(nombre)}`;
+  const tipoMime = a.tipoMime?.slice(0, 120) || null;
+  const subida = await db().storage.from("tableros").upload(ruta, a.datos, { contentType: tipoMime ?? "application/octet-stream", upsert: false });
+  if (subida.error) throw new Error(subida.error.message);
+  const r = unwrap(await db().from("elemento_archivos").insert({
+    tablero_id: tablero.id, elemento_id: e.id, columna_id: null, comentario_id: cm.id, ruta, nombre, tamano: a.datos.byteLength,
+    tipo_mime: tipoMime, subido_por: me.uid, subido_email: me.email, estado: "listo",
+  }).select("id").single())!;
+  await historial(ctx, e.id, "archivo", null, { nombre });
+  return { archivoId: r.id };
+}

@@ -24,7 +24,12 @@ export const cerrarDialogo = (aviso?: string): RespuestaChat => ({
 });
 
 /** Un botón que vuelve al bot: a `flujo`, con `accion`. `dialogo` = abre un diálogo (botones de mensajes). */
-export function botonBot(o: { url: string; flujo: string; accion: string; texto: string; dialogo?: boolean; secundario?: boolean }): Widget {
+export function botonBot(o: {
+  url: string; flujo: string; accion: string; texto: string; dialogo?: boolean; secundario?: boolean;
+  /** Datos extra que vuelven con el clic (p. ej. qué iniciativa eligió). */
+  parametros?: Record<string, string>;
+}): Widget {
+  const extra = Object.entries(o.parametros ?? {}).map(([key, value]) => ({ key, value }));
   return {
     text: o.texto,
     ...(o.secundario ? { type: "OUTLINED" } : {}),
@@ -32,10 +37,15 @@ export function botonBot(o: { url: string; flujo: string; accion: string; texto:
       action: {
         function: o.url,
         ...(o.dialogo ? { interaction: "OPEN_DIALOG" } : {}),
-        parameters: [{ key: PARAM_FLUJO, value: o.flujo }, { key: PARAM_ACCION, value: o.accion }],
+        parameters: [{ key: PARAM_FLUJO, value: o.flujo }, { key: PARAM_ACCION, value: o.accion }, ...extra],
       },
     },
   };
+}
+
+/** Cambia el mensaje donde estaba el botón que se tocó (p. ej. para quitarle los botones y decir qué se está haciendo). */
+export function actualizarMensaje(texto: string): RespuestaChat {
+  return { hostAppDataAction: { chatDataAction: { updateMessageAction: { message: { text: texto } } } } };
 }
 
 /** Un botón que abre una página (p. ej. la app). */

@@ -35,7 +35,7 @@ export async function listarPlantillas(): Promise<PlantillaResumen[]> {
 
 /** Guarda el tablero como plantilla nueva. Si ya hay una plantilla con ese nombre, la actualiza (versión +1). */
 export async function guardarComoPlantilla(
-  t: TableroCompleto, datos: { nombre?: unknown; descripcion?: unknown; conElementos?: unknown }, me: AppUser,
+  t: TableroCompleto, datos: { nombre?: unknown; descripcion?: unknown; conElementos?: unknown }, me: Pick<AppUser, "uid">,
 ): Promise<string> {
   const nombre = limpiarTexto(datos.nombre, MAX_NOMBRE);
   if (!nombre) throw new ErrorTablero(400, "La plantilla necesita un nombre");

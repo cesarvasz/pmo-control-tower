@@ -26,7 +26,7 @@ export const flujoStatusCard: FlujoChat = {
   comando: "/status-card",
   titulo: "Status Card",
   descripcion: "ver la Status Card de un proyecto",
-  puedeUsar: (u) => puedeVerStatusCard(u.me),
+  puedeUsar: (u) => !!u.me && puedeVerStatusCard(u.me),
   precalentar,
 
   async abrir({ usuario, url }) {

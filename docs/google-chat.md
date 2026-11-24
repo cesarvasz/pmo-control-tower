@@ -1,12 +1,13 @@
 # Bot de Google Chat «PMO Iniciativas»
 
-Un bot de Google Chat con varios **flujos** (uno por comando). Al escribirle cualquier cosa muestra un menú con los
-flujos que ESE usuario puede usar.
+Un bot de Google Chat con varios **flujos** (uno por comando). Al escribirle cualquier cosa saluda con el nombre y el
+rol del Directorio RH («¡Hola Ana! Rol CKU»; Admin de la app gana) y muestra los flujos que ESE usuario puede usar. A
+quien no es CKU, Sponsor, PM ni Admin solo le dice «Si necesitas apoyo con el equipo de PMO contacta a tu CKU asignado».
 
 | Comando | ID | Flujo | Quién lo ve |
 |---|---|---|---|
-| `/iniciativa` | 1 | Nueva iniciativa (formulario → tablero de Iniciativas) | Página Gestión de Iniciativas o Tableros completo |
-| `/status-card` | 2 | Status Card de un proyecto (elegir de la lista → tarjeta en el chat) | Página Resumen Ejecutivo o Proyectos |
+| `/iniciativa` | 1 | Nueva iniciativa (nombre + descripción → tablero de Iniciativas); recibe archivos en el chat | CKU del Directorio RH o Admin (no pide cuenta en la app) |
+| `/status-card` | 2 | Status Card de un proyecto (elegir de la lista → tarjeta en el chat) | Cuenta en la app con la página Resumen Ejecutivo o Proyectos |
 
 ## Estructura (para agregar flujos)
 
@@ -16,14 +17,15 @@ src/features/google-chat/
 ├─ nucleo/                           no se toca al agregar flujos
 │  ├─ flujo.ts                       EL CONTRATO de un flujo (FlujoChat) y AvisoChat
 │  ├─ registro.ts                    la lista de flujos (orden del menú)
-│  ├─ despachar.ts                   saludo → menú · comando/botón → flujo · cancelar
-│  ├─ usuario.ts                     correo de Google → cuenta de la app → rol
+│  ├─ despachar.ts                   saludo → menú · archivos → recibirArchivos · comando/botón → flujo · cancelar
+│  ├─ usuario.ts                     correo de Google → persona del Directorio RH + cuenta de la app (si tiene)
 │  ├─ token.ts                       verificación del ID token de Google
+│  ├─ chat-api.ts                    Chat API como la app (cuenta de servicio): bajar archivos, escribir después
 │  ├─ eventos.ts · respuestas.ts     leer eventos / respuestas que entiende Chat (puros)
 │  ├─ formulario.ts                  campos texto/número/lista, validar, tarjeta de formulario (puro)
 │  └─ menu.ts                        el menú del saludo (puro)
 └─ flujos/
-   ├─ iniciativa/   flujo.ts · datos.ts
+   ├─ iniciativa/   flujo.ts · datos.ts · textos.ts
    └─ status-card/  flujo.ts · datos.ts · tarjeta.ts
 ```
 
@@ -81,27 +83,39 @@ de la app (`outputFileTracingIncludes` en next.config.ts lleva su binario a las 
 respuesta al chat ~1 s con la caché lista; foto 3–5 s; entregar una foto ya guardada < 1 s. **Antes de producción:** `npm run build` y probar en Vercel (tamaño de la función,
 arranque en frío de Chrome).
 
-## /iniciativa: qué pide
+## /iniciativa: qué pide (reglas del PMO, 2026-11-24)
 
 | Sección | Campo | Notas |
 |---|---|---|
-| Datos (obligatorios) | Nombre | |
-| | PM | **Solo lo ve un Admin.** Para un PM, el PM es quien escribe (se muestra arriba «PM: …»). |
-| | CKU | Personas activas del Directorio. |
-| | Estrategia | Elementos del tablero de Estrategia. |
-| | Proceso | Opciones de la columna Proceso. |
-| Opcional (plegable) | Beneficio $, Presupuesto $, KPI, Tipo de iniciativa | Los números aceptan `15000`, `15,000.50`, `$ 15,000`. |
+| Datos (obligatorios) | Nombre de la iniciativa | |
+| | Descripción | Texto de varias líneas. Queda como **primera entrada de la bitácora** de la iniciativa, a nombre de quien escribe. |
+| Opcional (plegable) | Proceso, Beneficio $ | Los números aceptan `15000`, `15,000.50`, `$ 15,000`. |
 
-Solo aparecen las columnas que el rol puede editar (reglas del tablero). Si falta algo, el formulario vuelve a salir con
-lo ya llenado y la lista de lo que falta.
+Automático: **CKU = quien escribe** (su persona del Directorio; un Admin que no está en el Directorio la deja sin CKU),
+status New, grupo Nuevas Iniciativas, Ini ID y fecha de creación. **PM y Estrategia quedan vacíos**: los asigna el PMO
+después en Gestión de Iniciativas.
+
+La pueden crear los **CKU del Directorio RH y los Admin**, aunque no tengan cuenta en la app (casi ningún CKU la tiene). El
+bot crea con acceso de sistema (`ACCESO_BOT`); el historial y la bitácora quedan con el correo y el nombre de quien
+escribe (`Actor` con `uid` null si no tiene cuenta, en `tableros/datos/operaciones.ts`).
+
+### Archivos (se mandan en el chat)
+
+Google Chat no permite subir archivos dentro de un diálogo. Se mandan como **mensaje normal al bot**: el bot pregunta
+«¿A qué iniciativa lo adjunto?» con botones (las 5 más recientes que la persona creó o en cuya bitácora escribió). Al
+elegir, responde «⏳ Adjuntando…» y, después de responder (`after`), lee el mensaje con la Chat API (solo si lo mandó quien
+tocó el botón), descarga cada archivo y lo pega a una entrada nueva de la bitácora «📎 Archivos enviados desde Google
+Chat» (`adjuntarAComentario`); al terminar escribe el resultado en el mismo chat. Límites: 10 archivos por mensaje,
+50 MB cada uno. Los archivos de **Google Drive no se copian**: queda su enlace en la bitácora.
+
+Requiere la **cuenta de servicio** del bot (`GOOGLE_CHAT_LLAVE`, ver abajo). Sin ella el bot contesta que todavía no
+puede recibir archivos.
 
 ## Quién puede usarlo
 
-Se identifica al usuario por su correo de Google (`@c807.com`) → su cuenta en `app_users` → su rol:
-
-- Sin cuenta en la app, cuenta en espera o correo de otro dominio → aviso, no crea nada.
-- Necesita la página **Gestión de Iniciativas** o Tableros completo (igual que `exigirAccesoTablero`).
-- Un PM necesita su cuenta **ligada a una persona del Directorio** (`personas.app_user_id`), si no, no se le puede poner de PM.
+Se identifica al usuario por su correo de Google (`@c807.com`) → su persona **activa** del Directorio RH (nombre y rol) y
+su cuenta en `app_users` si tiene una con rol. Solo se rechaza a quien no es de la empresa; cada flujo decide en
+`puedeUsar` si le basta el Directorio (`/iniciativa`) o necesita la cuenta (`/status-card`, con `cuentaDe`).
 
 Formato: **Google Workspace add-on** (el predeterminado para apps de Chat nuevas desde julio de 2025; el clásico ya es
 el «anterior»). Respuestas: `action.navigations[pushCard | updateCard | endNavigation]` y
@@ -131,8 +145,17 @@ Se usa el **mismo proyecto de Google Cloud** que Google Calendar (docs/google-ca
    GOOGLE_CHAT_DIAGNOSTICO=1   # solo en la primera prueba
    ```
    Sin las dos primeras el bot está **apagado** (503).
+4. **Cuenta de servicio (para recibir archivos):** IAM y administración → Cuentas de servicio → **Crear cuenta de
+   servicio** (p. ej. `pmo-chat-bot`, sin roles) → en ella, **Claves → Agregar clave → Crear clave nueva → JSON**. El JSON
+   descargado va completo en `GOOGLE_CHAT_LLAVE` (en Vercel, como variable *Sensitive*; también se acepta en base64). Es
+   la única copia: guardarla en un lugar seguro y no subirla al repo. Usa el scope `chat.bot` (no pide aprobación del
+   administrador). Si la organización bloquea crear claves (`iam.disableServiceAccountKeyCreation`), lo tiene que
+   permitir un administrador de Google Cloud.
 
-Si el administrador de Workspace restringe las apps de Chat, puede hacer falta que permita esta app para el dominio.
+Visibilidad: el administrador de Workspace de C807 exige **allowlisting del Marketplace**. Sin eso, solo funcionan hasta
+5 correos individuales en *Visibility* (grupos y dominio no surten efecto). Para todo el dominio: publicar la app como
+**privada** en el Google Workspace Marketplace (Marketplace SDK en el mismo proyecto) y que el administrador la apruebe o
+la instale para el dominio.
 
 ## Probar en local
 
@@ -156,8 +179,8 @@ npx cloudflared tunnel --url http://localhost:3000   # da una URL https://xxxx.t
   crea en la app no va a Monday y no cuenta en las métricas hasta el corte (guardia `soloLoDeMonday`). El bot debería
   abrirse a los PM **con el corte**, no antes.
 - Producción: variables en Vercel + push (cuando se autorice) + cambiar la URL del extremo a la de Vercel.
-- Listas largas: Google Chat admite hasta 100 opciones por lista; hoy hay 84 personas activas. Si se pasa, el bot avisa
-  y hay que cambiar CKU/PM a una lista con búsqueda (`externalDataSource`, autocompletar).
+- Listas largas: Google Chat admite hasta 100 opciones por lista (hoy Proceso tiene 20). Si se pasa, el bot avisa y hay
+  que cambiarla a una lista con búsqueda (`externalDataSource`, autocompletar).
 
 ## Por confirmar con la primera prueba real
 
