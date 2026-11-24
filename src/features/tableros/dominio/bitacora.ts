@@ -63,3 +63,29 @@ export function tamanoLegible(bytes: number | null): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/** Un pedazo del texto de un comentario: texto normal o un enlace (para mostrarlo clicable). */
+export type TrozoTexto = { tipo: "texto"; valor: string } | { tipo: "enlace"; valor: string };
+
+/** Parte el texto de un comentario en texto y enlaces http(s). La puntuación pegada al final («…/archivo.» o «(…)»)
+ *  no se toma como parte del enlace. */
+export function trozosConEnlaces(texto: string): TrozoTexto[] {
+  const trozos: TrozoTexto[] = [];
+  const agregarTexto = (v: string) => {
+    if (!v) return;
+    const ultimo = trozos.at(-1);
+    if (ultimo?.tipo === "texto") ultimo.valor += v;
+    else trozos.push({ tipo: "texto", valor: v });
+  };
+  let desde = 0;
+  for (const m of texto.matchAll(/https?:\/\/[^\s<>"]+/g)) {
+    let url = m[0];
+    // Quita la puntuación final; un «)» solo si no abre uno dentro del enlace.
+    while (/[.,;:!?'»”\]]$/.test(url) || (url.endsWith(")") && (url.match(/\(/g)?.length ?? 0) < (url.match(/\)/g)?.length ?? 0))) url = url.slice(0, -1);
+    agregarTexto(texto.slice(desde, m.index));
+    trozos.push({ tipo: "enlace", valor: url });
+    desde = m.index + url.length;
+  }
+  agregarTexto(texto.slice(desde));
+  return trozos;
+}

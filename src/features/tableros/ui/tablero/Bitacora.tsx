@@ -3,10 +3,17 @@
 // Bitácora de un elemento (los "Updates" de Monday): leer, comentar, responder, adjuntar archivos,
 // editar y borrar lo propio.
 
-import { useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { ErrorBox } from "@/components/ui";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
-import { armarHilos, MAX_ADJUNTOS_COMENTARIO, tamanoLegible, type AdjuntoComentario, type Comentario } from "../../dominio/bitacora";
+import { armarHilos, MAX_ADJUNTOS_COMENTARIO, tamanoLegible, trozosConEnlaces, type AdjuntoComentario, type Comentario } from "../../dominio/bitacora";
+
+/** El texto de un comentario con sus enlaces clicables (se abren en otra pestaña). */
+function TextoConEnlaces({ texto }: { texto: string }) {
+  return trozosConEnlaces(texto).map((t, i) => t.tipo === "texto" ? <Fragment key={i}>{t.valor}</Fragment> : (
+    <a key={i} href={t.valor} target="_blank" rel="noopener noreferrer" className="break-all text-[var(--accent)] hover:underline">{t.valor}</a>
+  ));
+}
 import { Boton, enviar, estiloControl, Nota, useCarga } from "../comun";
 
 const fmtFecha = (iso: string) => new Date(iso).toLocaleString("es-GT", { dateStyle: "medium", timeStyle: "short" });
@@ -250,7 +257,7 @@ export default function Bitacora({ tableroId, elementoId, puedeComentar, esAdmin
             </div>
           </div>
         ) : c.texto
-          ? <div className="whitespace-pre-wrap text-[0.84rem] text-[var(--text-primary)]">{c.texto}</div>
+          ? <div className="whitespace-pre-wrap text-[0.84rem] text-[var(--text-primary)]"><TextoConEnlaces texto={c.texto} /></div>
           : c.archivos.length > 0 ? null : <div className="text-[0.8rem] text-[var(--text-muted)]">(sin texto)</div>}
         {adjuntos(c, yo)}
       </div>
