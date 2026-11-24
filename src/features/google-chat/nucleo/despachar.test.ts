@@ -5,7 +5,11 @@ import type { EventoChat } from "./eventos";
 
 // Quién escribe: sin base de datos (el usuario lo resuelve nucleo/usuario.ts).
 const usuarioDeEvento = vi.fn();
-vi.mock("./usuario", () => ({ usuarioDeEvento: (e: EventoChat) => usuarioDeEvento(e) }));
+const quienSaluda = vi.fn();
+vi.mock("./usuario", () => ({
+  usuarioDeEvento: (e: EventoChat) => usuarioDeEvento(e),
+  quienSaluda: (e: EventoChat) => quienSaluda(e),
+}));
 const { despachar } = await import("./despachar");
 
 const URL_BOT = "https://ejemplo.com/api/google-chat";
@@ -26,11 +30,13 @@ const boton = (flujoClave: string | null, accion: string): EventoChat => ({
   chat: { buttonClickedPayload: { isDialogEvent: true } },
 });
 const texto = (r: unknown) => JSON.stringify(r);
+const hola: EventoChat = { chat: { messagePayload: { message: { text: "hola" } } } };
 
 describe("despachar", () => {
   let a: FlujoChat, b: FlujoChat, c: FlujoChat;
   beforeEach(() => {
     usuarioDeEvento.mockReset().mockResolvedValue(usuario);
+    quienSaluda.mockReset().mockResolvedValue({ nombre: "Ana López", rol: "PM", usuario, aviso: null });
     a = flujo("iniciativa", 1); b = flujo("status-card", 2); c = flujo("secreto", 3, false);
   });
 
@@ -52,16 +58,34 @@ describe("despachar", () => {
     expect(b.enviar).toHaveBeenCalledTimes(1);
   });
 
-  it("el saludo muestra solo los flujos que el usuario puede usar", async () => {
-    const r = texto(await despachar({ chat: { messagePayload: { message: { text: "hola" } } } }, URL_BOT, [a, b, c]));
+  it("el saludo dice nombre y rol, y muestra solo los flujos que el usuario puede usar", async () => {
+    const r = texto(await despachar(hola, URL_BOT, [a, b, c]));
+    expect(r).toContain("¡Hola Ana López! Rol PM");
     expect(r).toContain("/iniciativa");
     expect(r).toContain("/status-card");
     expect(r).not.toContain("/secreto");
+    expect(usuarioDeEvento).not.toHaveBeenCalled();
+  });
+
+  it("saludo sin rol CKU/Sponsor/PM/Admin: solo el mensaje de apoyo, sin preguntar a los flujos", async () => {
+    quienSaluda.mockResolvedValue({ nombre: "Ana López", rol: null, usuario, aviso: null });
+    const r = texto(await despachar(hola, URL_BOT, [a, b]));
+    expect(r).toContain("contacta a tu CKU asignado");
+    expect(r).not.toContain("/iniciativa");
+    expect(a.puedeUsar).not.toHaveBeenCalled();
+  });
+
+  it("saludo con rol pero sin cuenta en la app: nombre, rol y el aviso", async () => {
+    quienSaluda.mockResolvedValue({ nombre: "Ana López", rol: "CKU", usuario: null, aviso: "Todavía no tienes cuenta en PMO Control Tower." });
+    const r = texto(await despachar(hola, URL_BOT, [a, b]));
+    expect(r).toContain("¡Hola Ana López! Rol CKU");
+    expect(r).toContain("Todavía no tienes cuenta");
+    expect(r).not.toContain("OPEN_DIALOG");
   });
 
   it("al mostrar el menú precalienta los flujos disponibles (y solo esos)", async () => {
     a.precalentar = vi.fn(); c.precalentar = vi.fn();
-    await despachar({ chat: { messagePayload: { message: { text: "hola" } } } }, URL_BOT, [a, b, c]);
+    await despachar(hola, URL_BOT, [a, b, c]);
     expect(a.precalentar).toHaveBeenCalledTimes(1);
     expect(c.precalentar).not.toHaveBeenCalled();
   });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { esDeDialogo, intencionDe, leerInputs, type EventoChat } from "./eventos";
 import { erroresDe, leerFormulario, leerNumero, tarjetaFormulario, valoresDeTablero, type CampoChat } from "./formulario";
 import { abrirDialogo, actualizarDialogo, botonBot, cerrarDialogo, mensaje, mensajeConTarjeta, respuestaDeAviso } from "./respuestas";
-import { flujoDeBoton, menuDe } from "./menu";
+import { flujoDeBoton, MENSAJE_APOYO, rolDeSaludo, saludoDe } from "./menu";
 
 const URL_BOT = "https://ejemplo.com/api/google-chat";
 
@@ -110,20 +110,40 @@ describe("respuestas", () => {
   });
 });
 
-describe("menú", () => {
+describe("saludo", () => {
   const flujos = [
     { clave: "iniciativa", comando: "/iniciativa", titulo: "Nueva iniciativa", descripcion: "alta" },
     { clave: "status-card", comando: "/status-card", titulo: "Status Card", descripcion: "ver" },
   ];
-  it("un botón por flujo disponible, con su comando en el texto", () => {
-    const m = menuDe(flujos, URL_BOT) as { hostAppDataAction: { chatDataAction: { createMessageAction: { message: { text: string; accessoryWidgets: { buttonList: { buttons: { text: string }[] } }[] } } } } };
-    const msg = m.hostAppDataAction.chatDataAction.createMessageAction.message;
-    expect(msg.text).toContain("/status-card");
-    expect(msg.accessoryWidgets[0].buttonList.buttons.map((b) => b.text)).toEqual(["Nueva iniciativa", "Status Card"]);
+  type Msg = { text: string; accessoryWidgets?: { buttonList: { buttons: { text: string }[] } }[] };
+  const msg = (r: unknown) => (r as { hostAppDataAction: { chatDataAction: { createMessageAction: { message: Msg } } } }).hostAppDataAction.chatDataAction.createMessageAction.message;
+
+  it("rol: Admin de la app gana; si no, CKU / Sponsor / PM del Directorio; lo demás no cuenta", () => {
+    expect(rolDeSaludo(true, "PM")).toBe("Admin");
+    expect(rolDeSaludo(true, null)).toBe("Admin");
+    expect(rolDeSaludo(false, "PM")).toBe("PM");
+    expect(rolDeSaludo(false, "SPONSOR")).toBe("Sponsor");
+    expect(rolDeSaludo(false, " cku ")).toBe("CKU");
+    for (const r of ["DEV", "BI", "PKU", "S/Dev", "", null, undefined]) expect(rolDeSaludo(false, r)).toBeNull();
   });
-  it("sin flujos disponibles: lo dice, sin botones", () => {
-    const m = menuDe([], URL_BOT) as { hostAppDataAction: { chatDataAction: { createMessageAction: { message: Record<string, unknown> } } } };
-    expect(m.hostAppDataAction.chatDataAction.createMessageAction.message.accessoryWidgets).toBeUndefined();
+  it("con rol: «¡Hola (nombre)! Rol (rol)» y un botón por flujo disponible", () => {
+    const m = msg(saludoDe({ nombre: "Ana López", rol: "PM", flujos }, URL_BOT));
+    expect(m.text.startsWith("¡Hola Ana López! Rol PM\n")).toBe(true);
+    expect(m.text).toContain("/status-card");
+    expect(m.accessoryWidgets?.[0].buttonList.buttons.map((b) => b.text)).toEqual(["Nueva iniciativa", "Status Card"]);
+  });
+  it("sin rol reconocido: solo el mensaje de apoyo, sin botones", () => {
+    const m = msg(saludoDe({ nombre: "Ana López", rol: null, flujos }, URL_BOT));
+    expect(m.text).toBe(`¡Hola Ana López! ${MENSAJE_APOYO}`);
+    expect(m.accessoryWidgets).toBeUndefined();
+    expect(msg(saludoDe({ nombre: null, rol: null, flujos: [] }, URL_BOT)).text).toBe(`¡Hola! ${MENSAJE_APOYO}`);
+  });
+  it("con rol pero sin cuenta que sirva, o sin flujos: lo dice, sin botones", () => {
+    const sinCuenta = msg(saludoDe({ nombre: "Ana", rol: "CKU", flujos: [], aviso: "Todavía no tienes cuenta" }, URL_BOT));
+    expect(sinCuenta.text).toBe("¡Hola Ana! Rol CKU\n\nTodavía no tienes cuenta");
+    const sinFlujos = msg(saludoDe({ nombre: "Ana", rol: "Sponsor", flujos: [] }, URL_BOT));
+    expect(sinFlujos.text).toContain("no tiene nada disponible");
+    expect(sinFlujos.accessoryWidgets).toBeUndefined();
   });
   it("botones de antes (sin «flujo») van a Iniciativas", () => {
     expect(flujoDeBoton(flujos, null)?.clave).toBe("iniciativa");
