@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
   // Empaqueta en .next/standalone solo los archivos que el servidor necesita,
   // incluido un subconjunto de node_modules. Requerido por el Dockerfile.
   output: "standalone",
+  // Bot de Google Chat: la foto de la Status Card usa Chrome de @sparticuz/chromium en Vercel. Su binario (bin/*.br) se
+  // carga por ruta en tiempo de ejecución y el tracing no lo ve solo: se incluye a mano en la función del bot.
+  outputFileTracingIncludes: {
+    "/api/google-chat": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/google-chat/foto/*": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+  },
 };
 
 export default nextConfig;

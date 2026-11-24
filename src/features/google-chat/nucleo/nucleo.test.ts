@@ -1,0 +1,133 @@
+import { describe, expect, it } from "vitest";
+import { esDeDialogo, intencionDe, leerInputs, type EventoChat } from "./eventos";
+import { erroresDe, leerFormulario, leerNumero, tarjetaFormulario, valoresDeTablero, type CampoChat } from "./formulario";
+import { abrirDialogo, actualizarDialogo, botonBot, cerrarDialogo, mensaje, mensajeConTarjeta, respuestaDeAviso } from "./respuestas";
+import { flujoDeBoton, menuDe } from "./menu";
+
+const URL_BOT = "https://ejemplo.com/api/google-chat";
+
+const campos: CampoChat[] = [
+  { nombre: "nombre", etiqueta: "Nombre", tipo: "texto", obligatorio: true, seccion: "datos" },
+  { nombre: "col-cku", etiqueta: "CKU", tipo: "lista", obligatorio: true, seccion: "datos", opciones: [{ valor: "p1", texto: "Ana" }, { valor: "p2", texto: "Luis" }] },
+  { nombre: "col-benefit", etiqueta: "Beneficio $", tipo: "numero", obligatorio: false, seccion: "despues" },
+  { nombre: "col-kpi", etiqueta: "KPI", tipo: "texto", obligatorio: false, seccion: "despues" },
+];
+
+const envio = (inputs: Record<string, string>, parametros: Record<string, string> = { flujo: "x", accion: "crear" }): EventoChat => ({
+  commonEventObject: {
+    parameters: parametros,
+    formInputs: Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, { stringInputs: { value: [v] } }])),
+  },
+  chat: { user: { email: "pm@c807.com" }, buttonClickedPayload: { isDialogEvent: true, dialogEventType: "SUBMIT_DIALOG" } },
+});
+
+describe("eventos", () => {
+  it("comando → su ID (número o texto; también desde message.slashCommand)", () => {
+    expect(intencionDe({ chat: { appCommandPayload: { appCommandMetadata: { appCommandId: 2 } } } })).toEqual({ tipo: "comando", comandoId: 2 });
+    expect(intencionDe({ chat: { appCommandPayload: { appCommandMetadata: { appCommandId: "1" } } } })).toEqual({ tipo: "comando", comandoId: 1 });
+    expect(intencionDe({ chat: { appCommandPayload: { message: { slashCommand: { commandId: 3 } } } } })).toEqual({ tipo: "comando", comandoId: 3 });
+  });
+  it("botón → flujo y acción (sin acción = abrir; sin flujo = null)", () => {
+    expect(intencionDe(envio({}, { flujo: "status-card", accion: "ver" }))).toEqual({ tipo: "boton", flujo: "status-card", accion: "ver" });
+    expect(intencionDe(envio({}, {}))).toEqual({ tipo: "boton", flujo: null, accion: "abrir" });
+  });
+  it("mensaje o agregado = saludo; quitado = ignorar", () => {
+    expect(intencionDe({ chat: { messagePayload: { message: { text: "hola" } } } }).tipo).toBe("saludo");
+    expect(intencionDe({ chat: { addedToSpacePayload: {} } }).tipo).toBe("saludo");
+    expect(intencionDe({ chat: { removedFromSpacePayload: {} } }).tipo).toBe("ignorar");
+  });
+  it("esDeDialogo y leerInputs", () => {
+    expect(esDeDialogo(envio({}))).toBe(true);
+    expect(esDeDialogo({ chat: { messagePayload: {} } })).toBe(false);
+    expect(leerInputs(envio({ a: "  hola " }), ["a", "b"])).toEqual({ a: "hola", b: "" });
+  });
+});
+
+describe("formulario", () => {
+  it("leerNumero", () => {
+    expect(leerNumero("15000")).toBe(15000);
+    expect(leerNumero("15,000.50")).toBe(15000.5);
+    expect(leerNumero("$ 15,000")).toBe(15000);
+    expect(leerNumero("Q15000")).toBe(15000);
+    expect(leerNumero("quince mil")).toBeNull();
+    expect(leerNumero("-5")).toBeNull();
+  });
+  it("errores: obligatorios, números y opciones que no existen", () => {
+    expect(erroresDe(campos, leerFormulario(envio({}), campos))).toEqual(["Falta Nombre", "Falta CKU"]);
+    expect(erroresDe(campos, { nombre: "X", "col-cku": "zz", "col-benefit": "mucho", "col-kpi": "" }))
+      .toEqual(["CKU: la opción elegida ya no existe", "Beneficio $ tiene que ser un número (p. ej. 15000)"]);
+    expect(erroresDe(campos, { nombre: "X", "col-cku": "p2", "col-benefit": "", "col-kpi": "" })).toEqual([]);
+  });
+  it("valores de tablero: listas → [id], número → number, vacío fuera", () => {
+    expect(valoresDeTablero(campos.slice(1), { "col-cku": "p2", "col-benefit": "$1,500", "col-kpi": "Tiempo" }))
+      .toEqual({ "col-cku": ["p2"], "col-benefit": 1500, "col-kpi": "Tiempo" });
+  });
+  it("tarjeta: datos arriba, opcional plegable, botones al flujo; listas con opción vacía elegida", () => {
+    const t = tarjetaFormulario({ titulo: "Nueva", campos, url: URL_BOT, flujo: "iniciativa", enviar: { texto: "Crear", accion: "crear" } });
+    const s = t.sections as { header?: string; collapsible?: boolean; widgets: Record<string, unknown>[] }[];
+    expect(s.map((x) => x.widgets.length)).toEqual([2, 2, 1]);
+    expect(s[1].collapsible).toBe(true);
+    const botones = (s[2].widgets[0].buttonList as { buttons: { onClick: { action: { function: string; parameters: { key: string; value: string }[] } } }[] }).buttons;
+    expect(botones.map((b) => b.onClick.action.parameters)).toEqual([
+      [{ key: "flujo", value: "iniciativa" }, { key: "accion", value: "crear" }],
+      [{ key: "flujo", value: "iniciativa" }, { key: "accion", value: "cancelar" }],
+    ]);
+    const items = (s[0].widgets[1].selectionInput as { items: { value: string; selected: boolean }[] }).items;
+    expect(items[0]).toMatchObject({ value: "", selected: true });
+    expect(items.filter((i) => i.selected)).toHaveLength(1);
+  });
+  it("tarjeta con errores conserva lo llenado y escapa", () => {
+    const t = tarjetaFormulario({
+      titulo: "Nueva", campos, url: URL_BOT, flujo: "iniciativa", enviar: { texto: "Crear", accion: "crear" },
+      leidos: { nombre: "Ruta <A>", "col-cku": "p2" }, errores: ["Falta <algo>"], aviso: { etiqueta: "PM", texto: "Ana" },
+    });
+    const w = (t.sections as { widgets: Record<string, unknown>[] }[])[0].widgets;
+    expect(JSON.stringify(w[0])).toContain("Falta &lt;algo&gt;");
+    expect(JSON.stringify(w[1])).toContain("Ana");
+    expect((w[2].textInput as { value: string }).value).toBe("Ruta <A>");
+    expect((w[3].selectionInput as { items: { value: string; selected: boolean }[] }).items.find((i) => i.selected)?.value).toBe("p2");
+  });
+});
+
+describe("respuestas", () => {
+  it("formas del add-on", () => {
+    const t = { sections: [] };
+    expect(abrirDialogo(t)).toEqual({ action: { navigations: [{ pushCard: t }] } });
+    expect(actualizarDialogo(t)).toEqual({ action: { navigations: [{ updateCard: t }] } });
+    expect(cerrarDialogo("Listo")).toEqual({ action: { navigations: [{ endNavigation: { action: "CLOSE_DIALOG" } }], notification: { text: "Listo" } } });
+    expect(mensaje("Hola")).toEqual({ hostAppDataAction: { chatDataAction: { createMessageAction: { message: { text: "Hola" } } } } });
+    expect(mensajeConTarjeta("Hola", "c1", t)).toEqual({ hostAppDataAction: { chatDataAction: { createMessageAction: { message: { text: "Hola", cardsV2: [{ cardId: "c1", card: t }] } } } } });
+  });
+  it("botón del bot que abre diálogo", () => {
+    expect(botonBot({ url: URL_BOT, flujo: "f", accion: "abrir", texto: "Abrir", dialogo: true })).toEqual({
+      text: "Abrir",
+      onClick: { action: { function: URL_BOT, interaction: "OPEN_DIALOG", parameters: [{ key: "flujo", value: "f" }, { key: "accion", value: "abrir" }] } },
+    });
+  });
+  it("aviso: cierra el diálogo o manda mensaje según de dónde vino", () => {
+    expect(respuestaDeAviso(envio({}), "No")).toHaveProperty("action");
+    expect(respuestaDeAviso({ chat: { messagePayload: {} } }, "No")).toHaveProperty("hostAppDataAction");
+  });
+});
+
+describe("menú", () => {
+  const flujos = [
+    { clave: "iniciativa", comando: "/iniciativa", titulo: "Nueva iniciativa", descripcion: "alta" },
+    { clave: "status-card", comando: "/status-card", titulo: "Status Card", descripcion: "ver" },
+  ];
+  it("un botón por flujo disponible, con su comando en el texto", () => {
+    const m = menuDe(flujos, URL_BOT) as { hostAppDataAction: { chatDataAction: { createMessageAction: { message: { text: string; accessoryWidgets: { buttonList: { buttons: { text: string }[] } }[] } } } } };
+    const msg = m.hostAppDataAction.chatDataAction.createMessageAction.message;
+    expect(msg.text).toContain("/status-card");
+    expect(msg.accessoryWidgets[0].buttonList.buttons.map((b) => b.text)).toEqual(["Nueva iniciativa", "Status Card"]);
+  });
+  it("sin flujos disponibles: lo dice, sin botones", () => {
+    const m = menuDe([], URL_BOT) as { hostAppDataAction: { chatDataAction: { createMessageAction: { message: Record<string, unknown> } } } };
+    expect(m.hostAppDataAction.chatDataAction.createMessageAction.message.accessoryWidgets).toBeUndefined();
+  });
+  it("botones de antes (sin «flujo») van a Iniciativas", () => {
+    expect(flujoDeBoton(flujos, null)?.clave).toBe("iniciativa");
+    expect(flujoDeBoton(flujos, "status-card")?.clave).toBe("status-card");
+    expect(flujoDeBoton(flujos, "otro")).toBeUndefined();
+  });
+});

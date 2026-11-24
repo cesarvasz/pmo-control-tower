@@ -78,6 +78,15 @@ export async function getMe(v: VerifiedUser): Promise<AppUser> {
   return toAppUser(await ensureUser(v), groups);
 }
 
+/** El usuario de la app con ese correo, SIN crearlo (para llamadas que no traen sesión de Supabase, como el bot de
+ *  Google Chat). null = no tiene cuenta. Una cuenta en espera vuelve con roleId null: quien llama la rechaza. */
+export async function appUserPorEmail(email: string): Promise<AppUser | null> {
+  const correo = email.trim().toLowerCase();
+  if (!correo) return null;
+  const r = unwrap(await getSupabaseAdmin().from("app_users").select("*").eq("email", correo).maybeSingle()); // verifyRequest los guarda en minúsculas
+  return r ? toAppUser(r, await listGroups()) : null;
+}
+
 export async function listUsers(): Promise<AppUser[]> {
   const [roles, groups] = await Promise.all([listRoles(), listGroups()]);
   const map = new Map(roles.map((r) => [r.id, r]));

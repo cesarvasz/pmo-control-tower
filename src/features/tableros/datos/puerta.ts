@@ -25,12 +25,19 @@ export const PAGINA_GESTION_INICIATIVAS = "gestion-iniciativas";
  */
 export async function exigirAccesoTablero(request: Request, tableroId: string): Promise<AppUser> {
   const me = await requireSession(request.headers.get("authorization"));
-  if (tieneAccionTableros(me.permissions, "tableros_ver")) return me;
+  if (await puedeEntrarATablero(me, tableroId)) return me;
+  throw new Error("forbidden");
+}
+
+/** La misma regla de `exigirAccesoTablero`, para un usuario ya identificado (p. ej. por el bot de Google Chat). */
+export async function puedeEntrarATablero(me: AppUser, tableroId: string): Promise<boolean> {
+  if (!me.roleId) return false;
+  if (tieneAccionTableros(me.permissions, "tableros_ver")) return true;
   if (me.permissions.pages?.[PAGINA_GESTION_INICIATIVAS]) {
     const t = unwrap(await getSupabaseAdmin().from("tableros").select("categoria").eq("id", tableroId).is("archivado_at", null).maybeSingle());
-    if (t?.categoria === "iniciativas") return me;
+    return t?.categoria === "iniciativas";
   }
-  throw new Error("forbidden");
+  return false;
 }
 
 /** Página del menú del Directorio de personas (registry.ts). */
