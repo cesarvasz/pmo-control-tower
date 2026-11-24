@@ -106,10 +106,31 @@ Google Chat no permite subir archivos dentro de un diálogo. Se mandan como **me
 elegir, responde «⏳ Adjuntando…» y, después de responder (`after`), lee el mensaje con la Chat API (solo si lo mandó quien
 tocó el botón), descarga cada archivo y lo pega a una entrada nueva de la bitácora «📎 Archivos enviados desde Google
 Chat» (`adjuntarAComentario`); al terminar escribe el resultado en el mismo chat. Límites: 10 archivos por mensaje,
-50 MB cada uno. Los archivos de **Google Drive no se copian**: queda su enlace en la bitácora.
+50 MB cada uno, 100 MB en total.
 
 Requiere la **cuenta de servicio** del bot (`GOOGLE_CHAT_LLAVE`, ver abajo). Sin ella el bot contesta que todavía no
 puede recibir archivos.
+
+### Archivos de Google Drive (cada persona conecta su Drive una vez)
+
+Chat solo deja bajar lo que se **sube** al chat; un archivo de Drive sigue siendo de la persona. Por eso cada persona
+autoriza **una vez** que el bot lea su Drive (decisión del PMO, 2026-11-24, «opción 1»):
+
+1. Si manda un archivo de Drive y aún no conectó su Drive, junto a la pregunta sale el botón **«🔗 Conectar mi Drive»**:
+   enlace firmado con su correo (1 día) → [`/api/google-chat/drive/conectar`](../src/app/api/google-chat/drive/conectar/route.ts)
+   → Google pide permiso (`drive.readonly`, con su correo sugerido) →
+   [`/api/google-chat/drive/callback`](../src/app/api/google-chat/drive/callback/route.ts). Solo se guarda si entró a
+   Google con la **misma** cuenta del enlace. El refresh token va cifrado en el Vault (tabla `google_drive_conexiones`,
+   por correo, migración `20261124150000_google_chat_drive`).
+2. Conectado, los archivos de Drive se **copian** a la bitácora con su permiso (`nucleo/drive.ts`). Los de Google se
+   exportan: Docs → PDF, Sheets → Excel, Slides → PowerPoint, Dibujos → PDF (Google exporta hasta 10 MB). Forms, Sites y
+   lo que no tenga acceso quedan como **enlace**, y el resultado dice por qué.
+3. Si la persona quita el permiso en su cuenta de Google, el bot lo marca `reconectar` y vuelve a ofrecer el botón.
+
+Usa el **mismo cliente OAuth** que Calendar (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_STATE_SECRET`). En
+Google Cloud: habilitar **Google Drive API**; en la pantalla de consentimiento (tipo **Interno**) agregar el scope
+`.../auth/drive.readonly`; y en el cliente OAuth agregar la URI de redirección
+`https://pmo-control-tower.vercel.app/api/google-chat/drive/callback`.
 
 ## Quién puede usarlo
 

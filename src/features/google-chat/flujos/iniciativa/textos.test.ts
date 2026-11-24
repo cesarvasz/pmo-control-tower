@@ -14,15 +14,25 @@ describe("textos de Nueva iniciativa", () => {
     expect(sinNada).toContain("No pude guardar la descripción");
     expect(sinNada).not.toContain("mándamelos");
   });
-  it("la pregunta al recibir archivos", () => {
+  it("la pregunta al recibir archivos (y si hay que conectar Drive)", () => {
     expect(textoElegirIniciativa([{ nombre: "plan.pdf" }])).toContain("el archivo «plan.pdf»");
     expect(textoElegirIniciativa([{ nombre: "a.pdf" }, { nombre: "b.xlsx" }])).toContain("2 archivos («a.pdf», «b.xlsx»)");
+    expect(textoElegirIniciativa([{ nombre: "a" }])).not.toContain("Conectar mi Drive");
+    expect(textoElegirIniciativa([{ nombre: "a" }], { conectarDrive: true })).toContain("«🔗 Conectar mi Drive»");
   });
-  it("el resultado: guardados, enlaces de Drive y fallidos", () => {
-    const t = textoResultadoAdjuntos("IN-120 · Ahorro", { guardados: ["a.pdf"], enlazados: ["Doc"], fallidos: [{ nombre: "c.zip", motivo: "pasa de 50 MB" }] });
+  it("el resultado: guardados, enlaces de Drive con su motivo, fallidos y cómo conectar Drive", () => {
+    const t = textoResultadoAdjuntos("IN-120 · Ahorro", {
+      guardados: ["a.pdf"], enlazados: [{ nombre: "Doc", motivo: null }, { nombre: "Form", motivo: "ese tipo de archivo de Google no se puede copiar" }],
+      fallidos: [{ nombre: "c.zip", motivo: "pasa de 50 MB" }], driveSinConectar: true,
+    }, "https://app/api/google-chat/drive/conectar?c=x");
     expect(t).toContain("✅ Adjunté «a.pdf» a *IN-120 · Ahorro*.");
-    expect(t).toContain("enlace de Drive de «Doc»");
+    expect(t).toContain("enlace de Drive de «Doc», «Form»");
+    expect(t).toContain("«Form» no se copió: ese tipo de archivo de Google no se puede copiar.");
+    expect(t).not.toContain("«Doc» no se copió");
     expect(t).toContain("⚠️ «c.zip»: pasa de 50 MB.");
-    expect(textoResultadoAdjuntos("X", { guardados: [], enlazados: [], fallidos: [{ nombre: "c", motivo: "m" }] })).toMatch(/^No pude adjuntar nada/);
+    expect(t).toContain("<https://app/api/google-chat/drive/conectar?c=x|conecta tu Drive>");
+    const vacio = { guardados: [], enlazados: [], fallidos: [{ nombre: "c", motivo: "m" }], driveSinConectar: false };
+    expect(textoResultadoAdjuntos("X", vacio)).toMatch(/^No pude adjuntar nada/);
+    expect(textoResultadoAdjuntos("X", { ...vacio, driveSinConectar: true })).toContain("no está configurada");
   });
 });

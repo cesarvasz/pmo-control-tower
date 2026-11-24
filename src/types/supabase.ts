@@ -503,6 +503,39 @@ export type Database = {
           },
         ]
       }
+      google_drive_conexiones: {
+        Row: {
+          actualizado_at: string
+          conectado_at: string
+          email: string
+          estado: string
+          google_sub: string
+          scopes: string[]
+          secreto_id: string
+          ultimo_error: string | null
+        }
+        Insert: {
+          actualizado_at?: string
+          conectado_at?: string
+          email: string
+          estado?: string
+          google_sub: string
+          scopes?: string[]
+          secreto_id: string
+          ultimo_error?: string | null
+        }
+        Update: {
+          actualizado_at?: string
+          conectado_at?: string
+          email?: string
+          estado?: string
+          google_sub?: string
+          scopes?: string[]
+          secreto_id?: string
+          ultimo_error?: string | null
+        }
+        Relationships: []
+      }
       implementacion_metas_cliente: {
         Row: {
           cliente: string
@@ -1499,6 +1532,16 @@ export type Database = {
     }
     Functions: {
       borrar_grupo: { Args: { p_id: string }; Returns: undefined }
+      google_drive_guardar: {
+        Args: {
+          p_email: string
+          p_google_sub: string
+          p_refresh_token: string
+          p_scopes: string[]
+        }
+        Returns: undefined
+      }
+      google_drive_leer_token: { Args: { p_email: string }; Returns: string }
       google_guardar_conexion: {
         Args: {
           p_google_email: string

@@ -6,9 +6,10 @@ import { after } from "next/server";
 import type { FlujoChat } from "../../nucleo/flujo";
 import { AvisoChat } from "../../nucleo/flujo";
 import { erroresDe, leerFormulario, tarjetaFormulario, type Leidos } from "../../nucleo/formulario";
-import { actualizarDialogo, actualizarMensaje, botonBot, mensaje } from "../../nucleo/respuestas";
+import { actualizarDialogo, actualizarMensaje, botonBot, botonEnlace, mensaje } from "../../nucleo/respuestas";
 import { adjuntosDe } from "../../nucleo/eventos";
 import { chatApiDisponible, enviarMensaje, espacioDe, leerMensaje } from "../../nucleo/chat-api";
+import { driveConectado, driveDisponible, enlaceConectarDrive } from "../../nucleo/drive";
 import {
   adjuntarArchivos, contextoIniciativa, crearIniciativa, iniciativasParaAdjuntar, puedeCrearIniciativas, type ContextoIniciativa,
 } from "./datos";
@@ -58,20 +59,25 @@ export const flujoIniciativa: FlujoChat = {
     }
   },
 
-  async recibirArchivos({ usuario, url }, adjuntos, mensajeChat) {
+  async recibirArchivos({ usuario, url, origen }, adjuntos, mensajeChat) {
     if (!chatApiDisponible()) return mensaje("Todavía no puedo recibir archivos aquí. Súbelos en la bitácora de la iniciativa en la app o avísale al PMO.");
     const inis = await iniciativasParaAdjuntar(usuario);
     if (!inis.length) return mensaje("📎 No encontré iniciativas tuyas para adjuntar archivos. Crea una con /iniciativa y vuelve a mandármelos.");
-    return mensaje(textoElegirIniciativa(adjuntos), inis.map((i) => botonBot({
-      url, flujo: CLAVE, accion: ACCION_ADJUNTAR, texto: i.titulo.length > 60 ? `${i.titulo.slice(0, 57)}…` : i.titulo,
-      parametros: { [PARAM_ELEMENTO]: i.id, [PARAM_MENSAJE]: mensajeChat },
-    })));
+    // Trae archivos de Drive y todavía no conectó su Drive: se le ofrece conectarlo (si no, quedan como enlace).
+    const conectarDrive = adjuntos.some((a) => a.origen === "drive") && driveDisponible() && !(await driveConectado(usuario.email));
+    return mensaje(textoElegirIniciativa(adjuntos, { conectarDrive }), [
+      ...inis.map((i) => botonBot({
+        url, flujo: CLAVE, accion: ACCION_ADJUNTAR, texto: i.titulo.length > 60 ? `${i.titulo.slice(0, 57)}…` : i.titulo,
+        parametros: { [PARAM_ELEMENTO]: i.id, [PARAM_MENSAJE]: mensajeChat },
+      })),
+      ...(conectarDrive ? [botonEnlace("🔗 Conectar mi Drive", enlaceConectarDrive(origen, usuario.email))] : []),
+    ]);
   },
 };
 
 /** Tocó la iniciativa a la que van los archivos. Se contesta enseguida (Chat no espera más de unos segundos) y la descarga
  *  sigue después; al terminar, el bot escribe el resultado en el mismo chat. */
-async function adjuntar({ usuario, evento }: Parameters<FlujoChat["enviar"]>[0]) {
+async function adjuntar({ usuario, evento, origen }: Parameters<FlujoChat["enviar"]>[0]) {
   const p = evento.commonEventObject?.parameters ?? {};
   const elementoId = p[PARAM_ELEMENTO] ?? "";
   const nombreMensaje = p[PARAM_MENSAJE] ?? "";
@@ -86,7 +92,8 @@ async function adjuntar({ usuario, evento }: Parameters<FlujoChat["enviar"]>[0])
   after(async () => {
     let texto: string;
     try {
-      texto = textoResultadoAdjuntos(iniciativa.titulo, await adjuntarArchivos(usuario, iniciativa, adjuntos));
+      const enlace = driveDisponible() ? enlaceConectarDrive(origen, usuario.email) : null;
+      texto = textoResultadoAdjuntos(iniciativa.titulo, await adjuntarArchivos(usuario, iniciativa, adjuntos), enlace);
     } catch (e) {
       console.error("[google-chat] adjuntar", e);
       texto = `⚠️ No pude adjuntar los archivos a *${iniciativa.titulo}*. Intenta de nuevo o súbelos en la app.`;

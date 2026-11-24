@@ -5,7 +5,8 @@
 //  · Se pide: Nombre y Descripción (obligatorios) y Beneficio $ (opcional). Proceso no se pide.
 //  · CKU = quien escribe. PM y Estrategia quedan vacíos: los asigna el PMO después.
 //  · La Descripción es la primera entrada de la bitácora de la iniciativa.
-//  · Los archivos que le mandan al bot en el chat se pegan a la bitácora de la iniciativa que elijan (adjuntarArchivos).
+//  · Los archivos que le mandan al bot en el chat se pegan a la bitácora de la iniciativa que elijan (adjuntarArchivos);
+//    los de Google Drive se copian si la persona conectó su Drive (nucleo/drive.ts), si no queda el enlace.
 
 import { getSupabaseAdmin, unwrap } from "@/lib/supabase-admin";
 import { aColumna, aElemento, aGrupo, leerTableroFila, type Acceso } from "@/features/tableros/datos/tableros";
@@ -19,6 +20,7 @@ import { MAX_ADJUNTOS_COMENTARIO, MAX_COMENTARIO } from "@/features/tableros/dom
 import { AvisoChat, type AdjuntoChat, type UsuarioChat } from "../../nucleo/flujo";
 import { rolDeSaludo } from "../../nucleo/menu";
 import { ArchivoMuyGrande, descargarAdjunto } from "../../nucleo/chat-api";
+import { descargarDeDrive, DriveNoCopiable, DriveSinConectar } from "../../nucleo/drive";
 import { MAX_OPCIONES, valoresDeTablero, type CampoChat, type Leidos, type Opcion } from "../../nucleo/formulario";
 
 /** Campos del formulario que no son columnas del tablero. */
@@ -157,34 +159,67 @@ export async function iniciativasParaAdjuntar(u: UsuarioChat, max = 5): Promise<
   }).slice(0, max);
 }
 
+
 export interface ResultadoAdjuntos {
   guardados: string[];
-  enlazados: string[];
+  /** De Drive que no se copiaron: queda su enlace (motivo = por qué no se copió, si se sabe). */
+  enlazados: { nombre: string; motivo: string | null }[];
   fallidos: { nombre: string; motivo: string }[];
+  /** Hubo archivos de Drive y la persona no ha conectado su Drive (o Google le quitó el permiso). */
+  driveSinConectar: boolean;
 }
 
-/** Pega los archivos de un mensaje a la bitácora de la iniciativa: una entrada «📎 Archivos enviados desde Google Chat» (con
- *  los enlaces de los que son de Drive) y los subidos descargados de Chat como adjuntos de esa entrada. */
+/** Lo más que se baja de un mensaje en total (se guardan en memoria antes de subirlos). */
+const MAX_TOTAL_MENSAJE = 100 * 1024 * 1024;
+
+/** Pega los archivos de un mensaje a la bitácora de la iniciativa, en una entrada «📎 Archivos enviados desde Google Chat»:
+ *  los subidos a Chat se descargan; los de Drive se copian con el permiso de la persona (si conectó su Drive) y, si no se
+ *  puede, queda su enlace en el texto de la entrada. */
 export async function adjuntarArchivos(u: UsuarioChat, iniciativa: IniciativaCorta, adjuntos: AdjuntoChat[]): Promise<ResultadoAdjuntos> {
   const { tablero } = await tableroYColumnas();
   const actor = actorDe(u);
-  const res: ResultadoAdjuntos = { guardados: [], enlazados: [], fallidos: [] };
+  const res: ResultadoAdjuntos = { guardados: [], enlazados: [], fallidos: [], driveSinConectar: false };
   const lista = adjuntos.slice(0, MAX_ARCHIVOS_MENSAJE);
   for (const a of adjuntos.slice(MAX_ARCHIVOS_MENSAJE)) res.fallidos.push({ nombre: a.nombre, motivo: `solo se guardan ${MAX_ARCHIVOS_MENSAJE} por mensaje` });
 
-  const drive = lista.filter((a) => a.origen === "drive" && a.driveId);
-  const texto = ["📎 Archivos enviados desde Google Chat", ...drive.map((a) => `• ${a.nombre}: https://drive.google.com/open?id=${a.driveId}`)].join("\n");
-  const { id: comentarioId } = (await ejecutarOperacion(actor, ACCESO_BOT, tablero, { op: "comentario.crear", elementoId: iniciativa.id, texto })) as { id: string };
-  res.enlazados = drive.map((a) => a.nombre);
-
-  for (const a of lista.filter((x) => x.origen === "subido" && x.recursoDatos)) {
+  // 1) Bajar todo primero: así se sabe qué queda como enlace antes de escribir la entrada.
+  const listos: { nombre: string; tipoMime: string | null; datos: Uint8Array }[] = [];
+  const enlaces: AdjuntoChat[] = [];
+  let total = 0;
+  for (const a of lista) {
     try {
-      const datos = await descargarAdjunto(a.recursoDatos!, MAX_ARCHIVO);
-      await adjuntarAComentario(actor, ACCESO_BOT, tablero, { comentarioId, nombre: a.nombre, tipoMime: a.tipoMime, datos });
-      res.guardados.push(a.nombre);
+      if (total >= MAX_TOTAL_MENSAJE) throw new ArchivoMuyGrande("total");
+      const bajado = a.origen === "drive"
+        ? await descargarDeDrive(u.email, a.driveId!, MAX_ARCHIVO)
+        : { nombre: a.nombre, tipoMime: a.tipoMime, datos: await descargarAdjunto(a.recursoDatos!, MAX_ARCHIVO) };
+      total += bajado.datos.byteLength;
+      if (total > MAX_TOTAL_MENSAJE) throw new ArchivoMuyGrande("total");
+      listos.push(bajado);
     } catch (e) {
-      if (!(e instanceof ArchivoMuyGrande) && !(e instanceof ErrorTablero)) console.error("[google-chat] adjunto", a.nombre, e);
-      res.fallidos.push({ nombre: a.nombre, motivo: e instanceof ArchivoMuyGrande ? "pasa de 50 MB" : e instanceof ErrorTablero ? e.message : "no se pudo descargar" });
+      const motivo = e instanceof ArchivoMuyGrande ? (e.message === "total" ? "el mensaje pasa de 100 MB en total" : "pasa de 50 MB")
+        : e instanceof DriveNoCopiable ? e.message : e instanceof DriveSinConectar ? null : "no se pudo descargar";
+      if (!(e instanceof ArchivoMuyGrande) && !(e instanceof DriveNoCopiable) && !(e instanceof DriveSinConectar)) console.error("[google-chat] adjunto", a.nombre, e);
+      if (a.origen === "drive") {
+        enlaces.push(a);
+        res.enlazados.push({ nombre: a.nombre, motivo });
+        if (e instanceof DriveSinConectar) res.driveSinConectar = true;
+      } else {
+        res.fallidos.push({ nombre: a.nombre, motivo: motivo ?? "no se pudo descargar" });
+      }
+    }
+  }
+  if (!listos.length && !enlaces.length) return res;
+
+  // 2) La entrada de la bitácora (con los enlaces de Drive que no se copiaron) y 3) sus adjuntos.
+  const texto = ["📎 Archivos enviados desde Google Chat", ...enlaces.map((a) => `• ${a.nombre}: https://drive.google.com/open?id=${a.driveId}`)].join("\n");
+  const { id: comentarioId } = (await ejecutarOperacion(actor, ACCESO_BOT, tablero, { op: "comentario.crear", elementoId: iniciativa.id, texto })) as { id: string };
+  for (const l of listos) {
+    try {
+      await adjuntarAComentario(actor, ACCESO_BOT, tablero, { comentarioId, ...l });
+      res.guardados.push(l.nombre);
+    } catch (e) {
+      if (!(e instanceof ErrorTablero)) console.error("[google-chat] adjunto", l.nombre, e);
+      res.fallidos.push({ nombre: l.nombre, motivo: e instanceof ErrorTablero ? e.message : "no se pudo guardar" });
     }
   }
   // Si no quedó nada, la entrada vacía sobra.
