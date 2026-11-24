@@ -96,6 +96,8 @@ export interface OpcionesFormulario {
   aviso?: { etiqueta: string; texto: string };
   /** Encabezado de la sección plegable de lo opcional. */
   tituloOpcional?: string;
+  /** Una línea de ayuda debajo de los campos (p. ej. cómo adjuntar archivos). */
+  nota?: string;
 }
 
 /** La tarjeta de un diálogo con formulario (sin envoltura cardsV2: así la piden pushCard / updateCard). */
@@ -108,7 +110,7 @@ export function tarjetaFormulario(o: OpcionesFormulario): Tarjeta {
   const despues = de("despues");
   return {
     sections: [
-      { header: o.titulo, widgets: [...cabecera, ...de("datos")] },
+      { header: o.titulo, widgets: [...cabecera, ...de("datos"), ...(o.nota ? [{ textParagraph: { text: escapar(o.nota) } }] : [])] },
       ...(despues.length ? [{ header: o.tituloOpcional ?? "Opcional", collapsible: true, uncollapsibleWidgetsCount: 0, widgets: despues }] : []),
       { widgets: [{ buttonList: { buttons: [
         botonBot({ url: o.url, flujo: o.flujo, accion: o.enviar.accion, texto: o.enviar.texto }),

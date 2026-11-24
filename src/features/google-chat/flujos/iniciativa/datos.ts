@@ -2,7 +2,7 @@
 // «Nueva iniciativa» de la app (elemento.crear), pero con las reglas del bot (decididas por el PMO, 2026-11-24):
 //  · La crean los CKU del Directorio RH y los Admin (no hace falta cuenta en la app: casi ningún CKU la tiene). El bot
 //    actúa por ellos con acceso de sistema; el historial y la bitácora quedan con su correo y su nombre.
-//  · Se pide: Nombre y Descripción (obligatorios) y Beneficio $ (opcional). Proceso no se pide.
+//  · Solo se pide Nombre y Descripción (obligatorios). Beneficio $ y Proceso no se piden (se llenan en la app).
 //  · CKU = quien escribe. PM y Estrategia quedan vacíos: los asigna el PMO después.
 //  · La Descripción es la primera entrada de la bitácora de la iniciativa.
 //  · Los archivos que le mandan al bot en el chat se pegan a la bitácora de la iniciativa que elijan (adjuntarArchivos);
@@ -21,7 +21,7 @@ import { AvisoChat, type AdjuntoChat, type UsuarioChat } from "../../nucleo/fluj
 import { rolDeSaludo } from "../../nucleo/menu";
 import { ArchivoMuyGrande, descargarAdjunto } from "../../nucleo/chat-api";
 import { descargarDeDrive, DriveNoCopiable, DriveSinConectar } from "../../nucleo/drive";
-import { MAX_OPCIONES, valoresDeTablero, type CampoChat, type Leidos, type Opcion } from "../../nucleo/formulario";
+import { valoresDeTablero, type CampoChat, type Leidos } from "../../nucleo/formulario";
 
 /** Campos del formulario que no son columnas del tablero. */
 export const CAMPO_NOMBRE = "nombre";
@@ -55,23 +55,6 @@ export function actorDe(u: UsuarioChat): Actor {
   return { uid: u.me?.uid ?? null, email: u.email, displayName: u.nombre, permissions: u.me?.permissions ?? { pages: {}, actions: {}, groups: {} } };
 }
 
-const opcionesDeDropdown = (c: Columna): Opcion[] =>
-  ((c.config as { opciones?: { id: string; texto: string }[] } | null)?.opciones ?? []).map((o) => ({ valor: o.id, texto: o.texto }));
-
-/** Un campo opcional que es columna del tablero (Beneficio $). */
-function campoOpcional(c: Columna, etiqueta: string): CampoChat | null {
-  const base = { nombre: c.id, etiqueta, seccion: "despues" as const, obligatorio: false };
-  if (c.tipo === "numero") return { ...base, tipo: "numero" };
-  if (c.tipo === "dropdown") {
-    const opciones = opcionesDeDropdown(c);
-    if (!opciones.length) return null;
-    // Google Chat no muestra más de 100 opciones; si se llega ahí hace falta una lista con búsqueda.
-    if (opciones.length > MAX_OPCIONES) throw new AvisoChat(`${etiqueta} tiene más de ${MAX_OPCIONES} opciones y Google Chat no las puede mostrar. Avísale al PMO.`);
-    return { ...base, tipo: "lista", opciones };
-  }
-  return { ...base, tipo: "texto" };
-}
-
 async function tableroYColumnas(): Promise<{ tablero: Tablero; columnas: Columna[]; grupoId: string }> {
   const tableroId = await tableroDeIniciativas();
   const tablero = tableroId ? await leerTableroFila(tableroId) : null;
@@ -91,13 +74,10 @@ async function tableroYColumnas(): Promise<{ tablero: Tablero; columnas: Columna
 export async function contextoIniciativa(u: UsuarioChat): Promise<ContextoIniciativa> {
   if (!puedeCrearIniciativas(u)) throw new AvisoChat("Solo los CKU y los Admin pueden crear iniciativas desde aquí.");
   const { tablero, columnas, grupoId } = await tableroYColumnas();
-  const k = columnasNuevaIni(columnas);
   const campos: CampoChat[] = [
     { nombre: CAMPO_NOMBRE, etiqueta: "Nombre de la iniciativa", tipo: "texto", obligatorio: true, seccion: "datos" },
     { nombre: CAMPO_DESCRIPCION, etiqueta: "Descripción", tipo: "parrafo", obligatorio: true, seccion: "datos", ayuda: "Qué se quiere lograr, para quién y por qué. Queda en la bitácora de la iniciativa." },
   ];
-  const beneficio = k.beneficio ? campoOpcional(k.beneficio, "Beneficio $") : null;
-  if (beneficio) campos.push(beneficio);
   const cku = u.persona ? { id: u.persona.id, nombre: u.persona.nombre } : null;
   return { usuario: u, tablero, grupoId, columnas, campos, cku };
 }

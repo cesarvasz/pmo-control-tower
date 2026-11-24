@@ -87,6 +87,14 @@ describe("formulario", () => {
     expect((w[2].textInput as { value: string }).value).toBe("Ruta <A>");
     expect((w[3].selectionInput as { items: { value: string; selected: boolean }[] }).items.find((i) => i.selected)?.value).toBe("p2");
   });
+  it("nota: va al final de los datos, escapada; sin nota no hay párrafo", () => {
+    const solo = campos.filter((c) => c.seccion === "datos");
+    const base = { titulo: "Nueva", campos: solo, url: URL_BOT, flujo: "iniciativa", enviar: { texto: "Crear", accion: "crear" } };
+    const w = (tarjetaFormulario({ ...base, nota: "📎 Archivos <aquí>" }).sections as { widgets: Record<string, unknown>[] }[])[0].widgets;
+    expect(w.at(-1)).toEqual({ textParagraph: { text: "📎 Archivos &lt;aquí&gt;" } });
+    const sin = (tarjetaFormulario(base).sections as { widgets: Record<string, unknown>[] }[])[0].widgets;
+    expect(sin.some((x) => "textParagraph" in x)).toBe(false);
+  });
 });
 
 describe("respuestas", () => {

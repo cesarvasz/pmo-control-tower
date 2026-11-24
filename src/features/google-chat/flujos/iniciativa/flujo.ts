@@ -23,7 +23,8 @@ function tarjeta(ctx: ContextoIniciativa, url: string, extra: { leidos?: Leidos;
   return tarjetaFormulario({
     titulo: "Nueva iniciativa", campos: ctx.campos, url, flujo: CLAVE,
     enviar: { texto: "Crear iniciativa", accion: ACCION_CREAR },
-    tituloOpcional: "Opcional (se puede llenar después)",
+    // Google Chat no tiene un control para subir archivos en un formulario: se mandan al chat después de crearla.
+    nota: chatApiDisponible() ? "📎 ¿Archivos? Después de crear la iniciativa, mándamelos aquí en el chat y los pego a su bitácora." : undefined,
     aviso: { etiqueta: "Se crea a tu nombre", texto: ctx.cku ? `CKU: ${ctx.cku.nombre}` : "CKU: sin asignar (no estás en el Directorio RH)" },
     ...extra,
   });

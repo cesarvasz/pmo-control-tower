@@ -89,7 +89,10 @@ arranque en frío de Chrome).
 |---|---|---|
 | Datos (obligatorios) | Nombre de la iniciativa | |
 | | Descripción | Texto de varias líneas. Queda como **primera entrada de la bitácora** de la iniciativa, a nombre de quien escribe. |
-| Opcional (plegable) | Beneficio $ | Acepta `15000`, `15,000.50`, `$ 15,000`. Proceso no se pide. |
+
+Beneficio $ y Proceso **no se piden** (se llenan después en la app). Google Chat no tiene un control para subir archivos en
+un formulario: el diálogo muestra una nota de que los archivos se mandan al chat después de crear la iniciativa (ver
+«Archivos» abajo).
 
 Automático: **CKU = quien escribe** (su persona del Directorio; un Admin que no está en el Directorio la deja sin CKU),
 status New, grupo Nuevas Iniciativas, Ini ID y fecha de creación. **PM y Estrategia quedan vacíos**: los asigna el PMO
