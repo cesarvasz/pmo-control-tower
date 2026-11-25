@@ -14,6 +14,18 @@ describe("textos de Nueva iniciativa", () => {
     expect(sinNada).toContain("No pude guardar la descripción");
     expect(sinNada).not.toContain("mándamelos");
   });
+  it("al crearla con archivos del formulario: los adjuntos y los que fallaron", () => {
+    const t = textoCreada({
+      ini, cku: "Ana López", enlace: "x", adjuntos: true,
+      archivos: { guardados: ["plan.pdf", "costos.xlsx"], fallidos: [{ nombre: "c.zip", motivo: "pasa de 50 MB" }] },
+    });
+    expect(t).toContain("📎 Adjunté «plan.pdf», «costos.xlsx» a la descripción.");
+    expect(t).toContain("⚠️ «c.zip» no se adjuntó: pasa de 50 MB. Mándamelo aquí en el chat o súbelo en la app.");
+    expect(t).toContain("Si te faltó algún archivo");
+    const sinChat = textoCreada({ ini, cku: null, enlace: "x", adjuntos: false, archivos: { guardados: [], fallidos: [{ nombre: "a", motivo: "m" }] } });
+    expect(sinChat).toContain("⚠️ «a» no se adjuntó: m. Súbelo en la app.");
+    expect(sinChat).not.toContain("Adjunté");
+  });
   it("la pregunta al recibir archivos (y si hay que conectar Drive)", () => {
     expect(textoElegirIniciativa([{ nombre: "plan.pdf" }])).toContain("el archivo «plan.pdf»");
     expect(textoElegirIniciativa([{ nombre: "a.pdf" }, { nombre: "b.xlsx" }])).toContain("2 archivos («a.pdf», «b.xlsx»)");

@@ -70,8 +70,10 @@ export type Intencion =
 
 export function intencionDe(e: EventoChat): Intencion {
   const chat = e.chat ?? {};
-  if (chat.buttonClickedPayload) {
-    const p = e.commonEventObject?.parameters ?? {};
+  const p = e.commonEventObject?.parameters ?? {};
+  // Un botón, o un control que manda el formulario al cambiar (casilla con onChangeAction): ambos traen la acción del bot en
+  // sus parámetros (si Chat no los marca como clic de botón, los parámetros bastan).
+  if (chat.buttonClickedPayload || (p[PARAM_ACCION] && !chat.appCommandPayload && !chat.messagePayload)) {
     return { tipo: "boton", flujo: p[PARAM_FLUJO] || null, accion: p[PARAM_ACCION] || ACCION_ABRIR };
   }
   if (chat.appCommandPayload) {
@@ -89,7 +91,8 @@ export function intencionDe(e: EventoChat): Intencion {
 /** ¿Este evento sale de un diálogo (o pide abrir uno)? Si no, la respuesta tiene que ser un mensaje, no una tarjeta. */
 export function esDeDialogo(e: EventoChat): boolean {
   const p = e.chat?.appCommandPayload ?? e.chat?.buttonClickedPayload;
-  return !!p?.isDialogEvent;
+  // Sin payload de comando ni de botón (p. ej. una casilla que mandó el formulario), lo delata el formulario que trae.
+  return p ? !!p.isDialogEvent : !e.chat?.messagePayload && !!e.commonEventObject?.formInputs;
 }
 
 /** Lo que el usuario llenó en el diálogo, como texto por nombre de widget ("" = vacío). */

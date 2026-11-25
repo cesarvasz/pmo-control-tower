@@ -459,6 +459,42 @@ export type Database = {
           },
         ]
       }
+      google_chat_borrador_archivos: {
+        Row: {
+          borrador: string
+          creado_at: string
+          email: string
+          estado: string
+          id: string
+          nombre: string
+          ruta: string
+          tamano: number | null
+          tipo_mime: string | null
+        }
+        Insert: {
+          borrador: string
+          creado_at?: string
+          email: string
+          estado?: string
+          id?: string
+          nombre: string
+          ruta: string
+          tamano?: number | null
+          tipo_mime?: string | null
+        }
+        Update: {
+          borrador?: string
+          creado_at?: string
+          email?: string
+          estado?: string
+          id?: string
+          nombre?: string
+          ruta?: string
+          tamano?: number | null
+          tipo_mime?: string | null
+        }
+        Relationships: []
+      }
       google_conexiones: {
         Row: {
           actualizado_at: string

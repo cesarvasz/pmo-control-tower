@@ -41,6 +41,19 @@ describe("eventos", () => {
     expect(esDeDialogo({ chat: { messagePayload: {} } })).toBe(false);
     expect(leerInputs(envio({ a: "  hola " }), ["a", "b"])).toEqual({ a: "hola", b: "" });
   });
+  it("un control que manda el formulario sin payload de botón (casilla): basta la acción en los parámetros", () => {
+    const e: EventoChat = { commonEventObject: { parameters: { flujo: "iniciativa", accion: "casilla" }, formInputs: {} }, chat: { user: { email: "a@c807.com" } } };
+    expect(intencionDe(e)).toEqual({ tipo: "boton", flujo: "iniciativa", accion: "casilla" });
+    expect(esDeDialogo(e)).toBe(true);
+    // Un mensaje normal o un comando no se confunden con un botón aunque trajeran parámetros.
+    expect(intencionDe({ commonEventObject: { parameters: { accion: "x" } }, chat: { messagePayload: { message: { text: "hola" } } } }).tipo).toBe("saludo");
+    expect(intencionDe({ commonEventObject: { parameters: { accion: "x" } }, chat: { appCommandPayload: { appCommandMetadata: { appCommandId: 1 } } } }).tipo).toBe("comando");
+  });
+  it("casilla: marcada llega como ['si'], desmarcada no llega", () => {
+    const marcada: EventoChat = { commonEventObject: { formInputs: { adjuntare: { stringInputs: { value: ["si"] } } } } };
+    expect(leerInputs(marcada, ["adjuntare"])).toEqual({ adjuntare: "si" });
+    expect(leerInputs({ commonEventObject: { formInputs: {} } }, ["adjuntare"])).toEqual({ adjuntare: "" });
+  });
 });
 
 describe("formulario", () => {
@@ -94,6 +107,25 @@ describe("formulario", () => {
     expect(w.at(-1)).toEqual({ textParagraph: { text: "📎 Archivos &lt;aquí&gt;" } });
     const sin = (tarjetaFormulario(base).sections as { widgets: Record<string, unknown>[] }[])[0].widgets;
     expect(sin.some((x) => "textParagraph" in x)).toBe(false);
+  });
+  it("casilla y extra: la casilla con su acción al cambiar; lo extra va después de los campos y antes de la nota", () => {
+    const conCasilla: CampoChat[] = [
+      { nombre: "nombre", etiqueta: "Nombre", tipo: "texto", obligatorio: true, seccion: "datos" },
+      { nombre: "ok", etiqueta: "Acepto", tipo: "casilla", obligatorio: false, seccion: "datos", alCambiar: "repintar" },
+      { nombre: "otra", etiqueta: "Sin acción", tipo: "casilla", obligatorio: false, seccion: "datos" },
+    ];
+    const t = tarjetaFormulario({
+      titulo: "Nueva", campos: conCasilla, url: URL_BOT, flujo: "f", enviar: { texto: "Crear", accion: "crear" },
+      leidos: { ok: "si" }, extra: [{ divider: {} }], nota: "fin", parametros: { borrador: "b1" },
+    });
+    const w = (t.sections as { widgets: Record<string, unknown>[] }[])[0].widgets;
+    expect(w.map((x) => Object.keys(x)[0])).toEqual(["textInput", "selectionInput", "selectionInput", "divider", "textParagraph"]);
+    expect(w[1].selectionInput).toEqual({
+      name: "ok", type: "CHECK_BOX", items: [{ text: "Acepto", value: "si", selected: true }],
+      onChangeAction: { function: URL_BOT, parameters: [{ key: "flujo", value: "f" }, { key: "accion", value: "repintar" }, { key: "borrador", value: "b1" }] },
+    });
+    expect(w[2].selectionInput).not.toHaveProperty("onChangeAction");
+    expect(erroresDe(conCasilla, { nombre: "X", ok: "", otra: "" })).toEqual([]);
   });
 });
 

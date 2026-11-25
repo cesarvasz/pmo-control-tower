@@ -3,14 +3,16 @@
 //  · La crean los CKU del Directorio RH y los Admin (no hace falta cuenta en la app: casi ningún CKU la tiene). El bot
 //    actúa por ellos con acceso de sistema; el historial y la bitácora quedan con su correo y su nombre.
 //  · Solo se pide Nombre y Descripción (obligatorios). Beneficio $ y Proceso no se piden (se llenan en la app).
+//  · La Descripción pide al menos 200 caracteres, salvo que marque «Adjuntaré un archivo»: entonces el archivo es
+//    obligatorio y se sube desde el mismo formulario (página de subida + borrador; ver subida.ts y borrador.ts).
 //  · CKU = quien escribe. PM y Estrategia quedan vacíos: los asigna el PMO después.
-//  · La Descripción es la primera entrada de la bitácora de la iniciativa.
+//  · La Descripción es la primera entrada de la bitácora de la iniciativa; los archivos del formulario van pegados a ella.
 //  · Los archivos que le mandan al bot en el chat se pegan a la bitácora de la iniciativa que elijan (adjuntarArchivos);
 //    los de Google Drive se copian si la persona conectó su Drive (nucleo/drive.ts), si no queda el enlace.
 
 import { getSupabaseAdmin, unwrap } from "@/lib/supabase-admin";
 import { aColumna, aElemento, aGrupo, leerTableroFila, type Acceso } from "@/features/tableros/datos/tableros";
-import { adjuntarAComentario, ejecutarOperacion, type Actor } from "@/features/tableros/datos/operaciones";
+import { adjuntarAComentario, ejecutarOperacion, moverAComentario, type Actor } from "@/features/tableros/datos/operaciones";
 import { tableroDeIniciativas } from "@/features/tableros/datos/iniciativas-app";
 import { ErrorTablero } from "@/features/tableros/datos/errores";
 import { textoCelda, type Columna, type Tablero } from "@/features/tableros/dominio/tablero";
@@ -22,10 +24,13 @@ import { rolDeSaludo } from "../../nucleo/menu";
 import { ArchivoMuyGrande, descargarAdjunto } from "../../nucleo/chat-api";
 import { descargarDeDrive, DriveNoCopiable, DriveSinConectar } from "../../nucleo/drive";
 import { valoresDeTablero, type CampoChat, type Leidos } from "../../nucleo/formulario";
+import { olvidarArchivos, type ArchivoBorrador } from "./borrador";
+import { CAMPO_ADJUNTARE, MIN_DESCRIPCION } from "./subida";
 
 /** Campos del formulario que no son columnas del tablero. */
 export const CAMPO_NOMBRE = "nombre";
 export const CAMPO_DESCRIPCION = "descripcion";
+const SOLO_DEL_FORMULARIO = new Set([CAMPO_NOMBRE, CAMPO_DESCRIPCION, CAMPO_ADJUNTARE]);
 
 /** El bot crea por el CKU aunque su rol de la app no tenga Gestión de Iniciativas: la puerta es la del bot (puedeCrearIniciativas). */
 const ACCESO_BOT: Acceso = { usuario: { rolId: "admin", esAdmin: true, personaId: null }, reglas: [] };
@@ -70,23 +75,31 @@ async function tableroYColumnas(): Promise<{ tablero: Tablero; columnas: Columna
   return { tablero, columnas, grupoId };
 }
 
-/** El tablero y los campos del formulario. Lanza AvisoChat si no puede crear iniciativas. */
-export async function contextoIniciativa(u: UsuarioChat): Promise<ContextoIniciativa> {
+/** El tablero y los campos del formulario. Lanza AvisoChat si no puede crear iniciativas. `alCambiarCasilla` = la acción del
+ *  flujo que manda la casilla al marcarla o desmarcarla (para mostrar u ocultar «📎 Subir archivo»). */
+export async function contextoIniciativa(u: UsuarioChat, alCambiarCasilla?: string): Promise<ContextoIniciativa> {
   if (!puedeCrearIniciativas(u)) throw new AvisoChat("Solo los CKU y los Admin pueden crear iniciativas desde aquí.");
   const { tablero, columnas, grupoId } = await tableroYColumnas();
   const campos: CampoChat[] = [
     { nombre: CAMPO_NOMBRE, etiqueta: "Nombre de la iniciativa", tipo: "texto", obligatorio: true, seccion: "datos" },
-    { nombre: CAMPO_DESCRIPCION, etiqueta: "Descripción", tipo: "parrafo", obligatorio: true, seccion: "datos", ayuda: "Qué se quiere lograr, para quién y por qué. Queda en la bitácora de la iniciativa." },
+    {
+      nombre: CAMPO_DESCRIPCION, etiqueta: "Descripción", tipo: "parrafo", obligatorio: true, seccion: "datos",
+      ayuda: `Mínimo ${MIN_DESCRIPCION} caracteres: qué se quiere lograr, para quién y por qué. Si el detalle va en un archivo, marca «Adjuntaré un archivo». Queda en la bitácora de la iniciativa.`,
+    },
+    { nombre: CAMPO_ADJUNTARE, etiqueta: "Adjuntaré un archivo", tipo: "casilla", obligatorio: false, seccion: "datos", alCambiar: alCambiarCasilla },
   ];
   const cku = u.persona ? { id: u.persona.id, nombre: u.persona.nombre } : null;
   return { usuario: u, tablero, grupoId, columnas, campos, cku };
 }
 
 /** Crea la iniciativa (status New, grupo Nuevas Iniciativas, CKU = quien escribe) y su primera entrada de bitácora con la
- *  Descripción. Devuelve su Ini ID y nombre; `sinDescripcion` = se creó pero la bitácora falló. */
-export async function crearIniciativa(ctx: ContextoIniciativa, leidos: Leidos): Promise<{ id: string; iniId: string; nombre: string; sinDescripcion: boolean }> {
+ *  Descripción. Devuelve su Ini ID y nombre; `comentarioId` = la entrada de la descripción (null = se creó pero la bitácora
+ *  falló: `sinDescripcion`). */
+export async function crearIniciativa(ctx: ContextoIniciativa, leidos: Leidos): Promise<{
+  id: string; iniId: string; nombre: string; sinDescripcion: boolean; comentarioId: string | null;
+}> {
   const k = columnasNuevaIni(ctx.columnas);
-  const deTablero = ctx.campos.filter((c) => c.nombre !== CAMPO_NOMBRE && c.nombre !== CAMPO_DESCRIPCION);
+  const deTablero = ctx.campos.filter((c) => !SOLO_DEL_FORMULARIO.has(c.nombre));
   const valores: Record<string, unknown> = { ...valoresDeAlta(ctx.tablero.categoria, ctx.columnas), ...valoresDeTablero(deTablero, leidos) };
   if (k.cku && ctx.cku) valores[k.cku.id] = [ctx.cku.id];
   const actor = actorDe(ctx.usuario);
@@ -98,16 +111,42 @@ export async function crearIniciativa(ctx: ContextoIniciativa, leidos: Leidos): 
     if (e instanceof ErrorTablero) throw new AvisoChat(e.message);
     throw e;
   }
-  let sinDescripcion = false;
+  let comentarioId: string | null = null;
   try {
-    await ejecutarOperacion(actor, ACCESO_BOT, ctx.tablero, { op: "comentario.crear", elementoId: id, texto: leidos[CAMPO_DESCRIPCION].slice(0, MAX_COMENTARIO) });
+    comentarioId = ((await ejecutarOperacion(actor, ACCESO_BOT, ctx.tablero, {
+      op: "comentario.crear", elementoId: id, texto: leidos[CAMPO_DESCRIPCION].slice(0, MAX_COMENTARIO),
+    })) as { id: string }).id;
   } catch (e) {
     console.error("[google-chat] la iniciativa se creó pero no su descripción", e);
-    sinDescripcion = true;
   }
   const fila = unwrap(await getSupabaseAdmin().from("elementos").select("*").eq("id", id).maybeSingle());
   const iniId = fila && k.iniId ? textoCelda(k.iniId, aElemento(fila).valores[k.iniId.id]) : "";
-  return { id, iniId, nombre, sinDescripcion };
+  return { id, iniId, nombre, sinDescripcion: !comentarioId, comentarioId };
+}
+
+/** Lo que pasó con los archivos del formulario al crear la iniciativa. */
+export interface ResultadoFormulario { guardados: string[]; fallidos: { nombre: string; motivo: string }[] }
+
+/** Pega a la entrada de la descripción los archivos que se subieron desde el formulario (se mueven; las filas del borrador
+ *  de los que quedaron se borran). Sin entrada (la bitácora falló), no hay dónde: quedan en el borrador. */
+export async function pasarABitacora(ctx: ContextoIniciativa, comentarioId: string | null, archivos: ArchivoBorrador[]): Promise<ResultadoFormulario> {
+  if (!archivos.length) return { guardados: [], fallidos: [] };
+  if (!comentarioId) return { guardados: [], fallidos: archivos.map((a) => ({ nombre: a.nombre, motivo: "no se pudo guardar la descripción, así que no había dónde pegarlo" })) };
+  let r: Awaited<ReturnType<typeof moverAComentario>>;
+  try {
+    r = await moverAComentario(actorDe(ctx.usuario), ACCESO_BOT, ctx.tablero, comentarioId,
+      archivos.map((a) => ({ rutaOrigen: a.ruta, nombre: a.nombre, tipoMime: a.tipoMime, tamano: a.tamano })));
+  } catch (e) {
+    console.error("[google-chat] archivos del formulario", e);
+    return { guardados: [], fallidos: archivos.map((a) => ({ nombre: a.nombre, motivo: e instanceof ErrorTablero ? e.message : "no se pudo guardar" })) };
+  }
+  const movidas = new Set(r.filter((x) => !x.error).map((x) => x.rutaOrigen));
+  await olvidarArchivos(archivos.filter((a) => movidas.has(a.ruta)).map((a) => a.id))
+    .catch((e) => console.error("[google-chat] limpiar borrador", e));
+  return {
+    guardados: r.filter((x) => !x.error).map((x) => x.nombre),
+    fallidos: r.flatMap((x) => (x.error ? [{ nombre: x.nombre, motivo: x.error }] : [])),
+  };
 }
 
 export interface IniciativaCorta { id: string; titulo: string }

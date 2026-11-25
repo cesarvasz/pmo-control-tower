@@ -696,6 +696,20 @@ export async function ejecutarOperacion(me: Actor, acceso: Acceso, tablero: Tabl
 
 export const CLAVES_OPERACIONES = OPERACIONES.map((o) => o.clave);
 
+/** Las reglas para adjuntar desde el servidor a un comentario de la bitácora (las mismas que la subida desde el navegador):
+ *  editar_valor sobre el elemento y que sea de quien escribió el comentario. `libres` = cuántos archivos caben todavía. */
+async function comentarioAdjuntable(ctx: Ctx, comentarioId: string) {
+  const cm = await comentario(ctx, comentarioId);
+  const e = await elemento(ctx, cm.elemento_id);
+  exigir(ctx, "editar_valor", { elemento: e });
+  if (cm.autor_email !== ctx.me.email) throw new ErrorTablero(403, "Solo quien escribió el comentario puede adjuntarle archivos");
+  const ya = unwrap(await db().from("elemento_archivos").select("id").eq("comentario_id", cm.id).is("borrado_at", null)) ?? [];
+  return { cm, e, libres: MAX_ADJUNTOS_COMENTARIO - ya.length };
+}
+
+/** La ruta en Storage de un adjunto nuevo del elemento. */
+const rutaAdjunto = (tablero: Tablero, elementoId: string, nombre: string) => `${tablero.id}/${elementoId}/${randomUUID()}/${nombreSeguro(nombre)}`;
+
 /**
  * SOLO para el servidor (no es una operación del registro: esas las puede pedir el navegador). Guarda un archivo que ya tiene
  * el servidor (p. ej. uno que mandaron al bot de Google Chat) como adjunto de un comentario de la bitácora, con las mismas
@@ -706,15 +720,11 @@ export async function adjuntarAComentario(
   a: { comentarioId: string; nombre: string; tipoMime: string | null; datos: Uint8Array },
 ): Promise<{ archivoId: string }> {
   const ctx: Ctx = { me, acceso, tablero };
-  const cm = await comentario(ctx, a.comentarioId);
-  const e = await elemento(ctx, cm.elemento_id);
-  exigir(ctx, "editar_valor", { elemento: e });
-  if (cm.autor_email !== me.email) throw new ErrorTablero(403, "Solo quien escribió el comentario puede adjuntarle archivos");
-  const ya = unwrap(await db().from("elemento_archivos").select("id").eq("comentario_id", cm.id).is("borrado_at", null)) ?? [];
-  if (ya.length >= MAX_ADJUNTOS_COMENTARIO) throw new ErrorTablero(400, `Máximo ${MAX_ADJUNTOS_COMENTARIO} archivos por comentario`);
+  const { cm, e, libres } = await comentarioAdjuntable(ctx, a.comentarioId);
+  if (libres <= 0) throw new ErrorTablero(400, `Máximo ${MAX_ADJUNTOS_COMENTARIO} archivos por comentario`);
   const nombre = limpiarTexto(a.nombre, 255) || "archivo";
   if (a.datos.byteLength > MAX_ARCHIVO) throw new ErrorTablero(400, `«${nombre}» pasa de 50 MB`);
-  const ruta = `${tablero.id}/${e.id}/${randomUUID()}/${nombreSeguro(nombre)}`;
+  const ruta = rutaAdjunto(tablero, e.id, nombre);
   const tipoMime = a.tipoMime?.slice(0, 120) || null;
   const subida = await db().storage.from("tableros").upload(ruta, a.datos, { contentType: tipoMime ?? "application/octet-stream", upsert: false });
   if (subida.error) throw new Error(subida.error.message);
@@ -724,4 +734,44 @@ export async function adjuntarAComentario(
   }).select("id").single())!;
   await historial(ctx, e.id, "archivo", null, { nombre });
   return { archivoId: r.id };
+}
+
+/** Un archivo que ya está en el bucket «tableros» (fuera de la carpeta de un elemento) y se va a pegar a la bitácora. */
+export interface ArchivoEnStorage { rutaOrigen: string; nombre: string; tipoMime: string | null; tamano: number | null }
+
+/**
+ * SOLO para el servidor. Pega a un comentario de la bitácora archivos que YA están en Storage, p. ej. los que se subieron
+ * desde el formulario del bot de Google Chat antes de que existiera la iniciativa: se MUEVEN a la carpeta del elemento (sin
+ * bajarlos, así no importa el tamaño), con las reglas de adjuntarAComentario. Devuelve, por archivo, `error` = null si quedó
+ * o por qué no (el archivo que no se movió se queda donde estaba).
+ */
+export async function moverAComentario(
+  me: Actor, acceso: Acceso, tablero: Tablero, comentarioId: string, archivos: ArchivoEnStorage[],
+): Promise<{ rutaOrigen: string; nombre: string; error: string | null }[]> {
+  const ctx: Ctx = { me, acceso, tablero };
+  const { cm, e, libres } = await comentarioAdjuntable(ctx, comentarioId);
+  return Promise.all(archivos.map(async (a, i) => {
+    const nombre = limpiarTexto(a.nombre, 255) || "archivo";
+    const fallo = (error: string) => ({ rutaOrigen: a.rutaOrigen, nombre, error });
+    if (i >= libres) return fallo(`solo caben ${MAX_ADJUNTOS_COMENTARIO} archivos por entrada de la bitácora`);
+    if ((a.tamano ?? 0) > MAX_ARCHIVO) return fallo("pasa de 50 MB");
+    const ruta = rutaAdjunto(tablero, e.id, nombre);
+    const movido = await db().storage.from("tableros").move(a.rutaOrigen, ruta);
+    if (movido.error) {
+      console.error("[tableros] mover adjunto", a.rutaOrigen, movido.error.message);
+      return fallo("no se pudo mover");
+    }
+    const fila = await db().from("elemento_archivos").insert({
+      tablero_id: tablero.id, elemento_id: e.id, columna_id: null, comentario_id: cm.id, ruta, nombre, tamano: a.tamano,
+      tipo_mime: a.tipoMime?.slice(0, 120) || null, subido_por: me.uid, subido_email: me.email, estado: "listo",
+    });
+    if (fila.error) {
+      // Sin su fila el archivo no se vería: vuelve a donde estaba.
+      console.error("[tableros] fila de adjunto movido", fila.error.message);
+      await db().storage.from("tableros").move(ruta, a.rutaOrigen);
+      return fallo("no se pudo guardar");
+    }
+    await historial(ctx, e.id, "archivo", null, { nombre });
+    return { rutaOrigen: a.rutaOrigen, nombre, error: null };
+  }));
 }

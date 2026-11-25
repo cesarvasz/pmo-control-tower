@@ -23,23 +23,23 @@ export const cerrarDialogo = (aviso?: string): RespuestaChat => ({
   action: { navigations: [{ endNavigation: { action: "CLOSE_DIALOG" } }], ...(aviso ? { notification: { text: aviso } } : {}) },
 });
 
+/** La acción que vuelve al bot: a `flujo`, con `accion` y `parametros` extra (p. ej. qué iniciativa eligió). La usan los
+ *  botones y los controles que mandan el formulario al cambiar (onChangeAction). */
+export function accionBot(o: { url: string; flujo: string; accion: string; parametros?: Record<string, string> }): Widget {
+  const extra = Object.entries(o.parametros ?? {}).map(([key, value]) => ({ key, value }));
+  return { function: o.url, parameters: [{ key: PARAM_FLUJO, value: o.flujo }, { key: PARAM_ACCION, value: o.accion }, ...extra] };
+}
+
 /** Un botón que vuelve al bot: a `flujo`, con `accion`. `dialogo` = abre un diálogo (botones de mensajes). */
 export function botonBot(o: {
   url: string; flujo: string; accion: string; texto: string; dialogo?: boolean; secundario?: boolean;
   /** Datos extra que vuelven con el clic (p. ej. qué iniciativa eligió). */
   parametros?: Record<string, string>;
 }): Widget {
-  const extra = Object.entries(o.parametros ?? {}).map(([key, value]) => ({ key, value }));
   return {
     text: o.texto,
     ...(o.secundario ? { type: "OUTLINED" } : {}),
-    onClick: {
-      action: {
-        function: o.url,
-        ...(o.dialogo ? { interaction: "OPEN_DIALOG" } : {}),
-        parameters: [{ key: PARAM_FLUJO, value: o.flujo }, { key: PARAM_ACCION, value: o.accion }, ...extra],
-      },
-    },
+    onClick: { action: { ...accionBot(o), ...(o.dialogo ? { interaction: "OPEN_DIALOG" } : {}) } },
   };
 }
 

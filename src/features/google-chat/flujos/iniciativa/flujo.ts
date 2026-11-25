@@ -1,42 +1,33 @@
 // SOLO SERVIDOR. Flujo «Nueva iniciativa» (/iniciativa, comando 1): formulario → la iniciativa en el tablero de Iniciativas,
-// con la descripción en su bitácora. Además recibe los archivos que le mandan al bot y los pega a la iniciativa que elijan.
-// Reglas en datos.ts.
+// con la descripción en su bitácora. La descripción pide 200 caracteres salvo que marque «Adjuntaré un archivo»: entonces
+// sube el archivo desde el mismo formulario (página de subida + borrador; reglas en subida.ts) y es obligatorio.
+// Además recibe los archivos que le mandan al bot en el chat y los pega a la iniciativa que elijan. Reglas en datos.ts.
 
 import { after } from "next/server";
-import type { FlujoChat } from "../../nucleo/flujo";
+import type { ContextoFlujo, FlujoChat } from "../../nucleo/flujo";
 import { AvisoChat } from "../../nucleo/flujo";
-import { erroresDe, leerFormulario, tarjetaFormulario, type Leidos } from "../../nucleo/formulario";
+import { erroresDe, leerFormulario, type Leidos } from "../../nucleo/formulario";
 import { actualizarDialogo, actualizarMensaje, botonBot, botonEnlace, mensaje } from "../../nucleo/respuestas";
 import { adjuntosDe } from "../../nucleo/eventos";
-import { chatApiDisponible, enviarMensaje, espacioDe, estadoLlave, leerMensaje } from "../../nucleo/chat-api";
+import { chatApiDisponible, enviarMensaje, espacioDe, leerMensaje } from "../../nucleo/chat-api";
 import { driveConectado, driveDisponible, enlaceConectarDrive } from "../../nucleo/drive";
 import {
-  adjuntarArchivos, contextoIniciativa, crearIniciativa, iniciativasParaAdjuntar, puedeCrearIniciativas, type ContextoIniciativa,
+  adjuntarArchivos, CAMPO_DESCRIPCION, contextoIniciativa, crearIniciativa, iniciativasParaAdjuntar, pasarABitacora,
+  puedeCrearIniciativas, type ContextoIniciativa,
 } from "./datos";
+import { archivosDelBorrador, enlaceSubida, limpiarBorradoresViejos, nuevoBorrador, type ArchivoBorrador } from "./borrador";
+import { erroresDeDescripcion, esBorrador } from "./subida";
+import { ACCION_CASILLA, ACCION_CREAR, ACCION_REFRESCAR, marcoAdjuntare, PARAM_BORRADOR, tarjetaIniciativa } from "./tarjeta";
 import { PARAM_ELEMENTO, PARAM_MENSAJE, textoCreada, textoElegirIniciativa, textoResultadoAdjuntos } from "./textos";
 
 const CLAVE = "iniciativa";
-const ACCION_CREAR = "crear";
 const ACCION_ADJUNTAR = "adjuntar";
 
-/** La nota de archivos del formulario. Si los archivos están apagados, solo un Admin ve por qué (para arreglarlo). */
-function notaArchivos(esAdmin: boolean): string | undefined {
-  const estado = estadoLlave();
-  if (estado === "ok") return "📎 ¿Archivos? Después de crear la iniciativa, mándamelos aquí en el chat y los pego a su bitácora.";
-  if (!esAdmin) return undefined;
-  return estado === "falta"
-    ? "⚠️ (Solo Admin) Recibir archivos está apagado: falta GOOGLE_CHAT_LLAVE en Vercel (o falta un Redeploy)."
-    : "⚠️ (Solo Admin) Recibir archivos está apagado: GOOGLE_CHAT_LLAVE está en Vercel pero no se entiende. Pega el JSON completo de la llave, tal cual.";
-}
-
-function tarjeta(ctx: ContextoIniciativa, url: string, extra: { leidos?: Leidos; errores?: string[] } = {}) {
-  return tarjetaFormulario({
-    titulo: "Nueva iniciativa", campos: ctx.campos, url, flujo: CLAVE,
-    enviar: { texto: "Crear iniciativa", accion: ACCION_CREAR },
-    // Google Chat no tiene un control para subir archivos en un formulario: se mandan al chat después de crearla.
-    nota: notaArchivos(ctx.usuario.esAdmin),
-    aviso: { etiqueta: "Se crea a tu nombre", texto: ctx.cku ? `CKU: ${ctx.cku.nombre}` : "CKU: sin asignar (no estás en el Directorio RH)" },
-    ...extra,
+function tarjeta(c: ContextoIniciativa, { url, origen }: Pick<ContextoFlujo, "url" | "origen">, v: {
+  borrador: string; leidos?: Leidos; errores?: string[]; archivos?: ArchivoBorrador[];
+}) {
+  return tarjetaIniciativa({
+    campos: c.campos, cku: c.cku?.nombre ?? null, url, flujo: CLAVE, ...v, enlaceSubida: enlaceSubida(origen, c.usuario.email, v.borrador),
   });
 }
 
@@ -45,28 +36,44 @@ export const flujoIniciativa: FlujoChat = {
   comandoId: 1,
   comando: "/iniciativa",
   titulo: "Nueva iniciativa",
-  descripcion: "dar de alta una iniciativa (nombre y descripción); si me mandas archivos, los pego a tu iniciativa",
+  descripcion: "dar de alta una iniciativa (nombre, descripción y, si hace falta, un archivo); si me mandas archivos, los pego a tu iniciativa",
   puedeUsar: (u) => puedeCrearIniciativas(u),
 
-  async abrir({ usuario, url }) {
-    return tarjeta(await contextoIniciativa(usuario), url);
+  async abrir(ctx) {
+    // Un formulario nuevo, un borrador nuevo (ahí caen los archivos que suba). Los que nunca se usaron se limpian después.
+    after(() => limpiarBorradoresViejos().catch((e) => console.error("[google-chat] limpiar borradores", e)));
+    return tarjeta(await contextoIniciativa(ctx.usuario, ACCION_CASILLA), ctx, { borrador: nuevoBorrador() });
   },
 
   async enviar(ctx, accion) {
     if (accion === ACCION_ADJUNTAR) return adjuntar(ctx);
-    if (accion !== ACCION_CREAR) throw new AvisoChat("No entendí ese botón. Vuelve a abrir el formulario.");
-    const { usuario, evento, url, origen } = ctx;
-    const c = await contextoIniciativa(usuario);
+    if (accion !== ACCION_CREAR && accion !== ACCION_CASILLA && accion !== ACCION_REFRESCAR) {
+      throw new AvisoChat("No entendí ese botón. Vuelve a abrir el formulario.");
+    }
+    const { usuario, evento, origen } = ctx;
+    const c = await contextoIniciativa(usuario, ACCION_CASILLA);
     const leidos = leerFormulario(evento, c.campos);
-    const errores = erroresDe(c.campos, leidos);
-    if (errores.length) return actualizarDialogo(tarjeta(c, url, { leidos, errores }));
+    // El borrador viaja en los controles del formulario; uno de antes de este cambio no lo trae: se empieza uno.
+    const p = evento.commonEventObject?.parameters ?? {};
+    const borrador = esBorrador(p[PARAM_BORRADOR]) ? p[PARAM_BORRADOR] : nuevoBorrador();
+    const archivos = await archivosDelBorrador(usuario.email, borrador);
+    const vista = { borrador, leidos, archivos };
+    // Marcó/desmarcó la casilla o tocó «🔄 Actualizar»: se vuelve a dibujar con lo que lleva.
+    if (accion !== ACCION_CREAR) return actualizarDialogo(tarjeta(c, ctx, vista));
+
+    const errores = [
+      ...erroresDe(c.campos, leidos),
+      ...erroresDeDescripcion({ descripcion: leidos[CAMPO_DESCRIPCION] ?? "", adjuntare: marcoAdjuntare(leidos), archivos: archivos.length }),
+    ];
+    if (errores.length) return actualizarDialogo(tarjeta(c, ctx, { ...vista, errores }));
     try {
       const ini = await crearIniciativa(c, leidos);
-      return mensaje(textoCreada({ ini, cku: c.cku?.nombre ?? null, enlace: `${origen}/gestion-iniciativas`, adjuntos: chatApiDisponible() }));
+      const r = archivos.length ? await pasarABitacora(c, ini.comentarioId, archivos) : null;
+      return mensaje(textoCreada({ ini, cku: c.cku?.nombre ?? null, enlace: `${origen}/gestion-iniciativas`, adjuntos: chatApiDisponible(), archivos: r }));
     } catch (err) {
       if (!(err instanceof AvisoChat)) throw err;
       // No se pudo crear (dato inválido…): el formulario sigue abierto con lo que llenó.
-      return actualizarDialogo(tarjeta(c, url, { leidos, errores: [err.message] }));
+      return actualizarDialogo(tarjeta(c, ctx, { ...vista, errores: [err.message] }));
     }
   },
 

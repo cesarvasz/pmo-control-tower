@@ -1,23 +1,29 @@
-// Bot de Google Chat · núcleo: formularios genéricos (texto, número, lista) para los diálogos de cualquier flujo: leer lo
-// que se llenó, validarlo y armar la tarjeta. Lógica PURA.
+// Bot de Google Chat · núcleo: formularios genéricos (texto, número, lista, casilla) para los diálogos de cualquier flujo:
+// leer lo que se llenó, validarlo y armar la tarjeta. Lógica PURA.
 
 import { leerInputs, type EventoChat } from "./eventos";
-import { botonBot, escapar, widgetErrores, type Tarjeta, type Widget } from "./respuestas";
+import { accionBot, botonBot, escapar, widgetErrores, type Tarjeta, type Widget } from "./respuestas";
 
 /** Una opción de una lista: `valor` es lo que se guarda (id), `texto` lo que se ve. */
 export interface Opcion { valor: string; texto: string }
+
+/** Lo que vale una casilla marcada (desmarcada = ""). */
+export const VALOR_CASILLA = "si";
 
 /** Un campo del formulario. `nombre` es el nombre del widget en Google Chat (lo elige el flujo: id de columna, «proyecto»…). */
 export interface CampoChat {
   nombre: string;
   etiqueta: string;
-  /** «parrafo» = texto de varias líneas. */
-  tipo: "texto" | "parrafo" | "numero" | "lista";
+  /** «parrafo» = texto de varias líneas; «casilla» = una casilla para marcar (la etiqueta va junto a ella). */
+  tipo: "texto" | "parrafo" | "numero" | "lista" | "casilla";
   obligatorio: boolean;
   /** «datos» = sección principal; «despues» = sección plegable de lo opcional. */
   seccion: "datos" | "despues";
   opciones?: Opcion[];
   ayuda?: string;
+  /** Solo «casilla»: la acción del flujo que se manda al marcarla o desmarcarla (Google Chat envía el formulario), para
+   *  volver a dibujarlo (p. ej. mostrar u ocultar algo). Sin esto, la casilla se lee al enviar. */
+  alCambiar?: string;
 }
 
 /** Lo que el usuario escribió/eligió, por nombre de campo (texto tal cual; "" = vacío). */
@@ -65,8 +71,20 @@ export function valoresDeTablero(campos: CampoChat[], leidos: Leidos): Record<st
   return out;
 }
 
-function widgetDe(c: CampoChat, valor: string): Widget {
+/** A dónde vuelven los controles del formulario (para la casilla con `alCambiar`). */
+interface DestinoFormulario { url: string; flujo: string; parametros?: Record<string, string> }
+
+function widgetDe(c: CampoChat, valor: string, destino: DestinoFormulario): Widget {
   const etiqueta = c.obligatorio ? `${c.etiqueta} *` : c.etiqueta;
+  if (c.tipo === "casilla") {
+    return {
+      selectionInput: {
+        name: c.nombre, type: "CHECK_BOX", items: [{ text: c.etiqueta, value: VALOR_CASILLA, selected: valor === VALOR_CASILLA }],
+        ...(c.ayuda ? { label: c.ayuda } : {}),
+        ...(c.alCambiar ? { onChangeAction: accionBot({ ...destino, accion: c.alCambiar }) } : {}),
+      },
+    };
+  }
   if (c.tipo === "lista") {
     // La primera opción vacía evita que Google Chat deje elegida la primera de la lista sin que el usuario la haya escogido.
     const items = [{ text: "— Elige una opción —", value: "", selected: !valor },
@@ -98,23 +116,28 @@ export interface OpcionesFormulario {
   tituloOpcional?: string;
   /** Una línea de ayuda debajo de los campos (p. ej. cómo adjuntar archivos). */
   nota?: string;
+  /** Widgets del flujo que van debajo de los campos principales (p. ej. los archivos subidos y sus botones). */
+  extra?: Widget[];
+  /** Datos que vuelven con TODOS los controles del formulario (botones y casillas), p. ej. el id del borrador. */
+  parametros?: Record<string, string>;
 }
 
 /** La tarjeta de un diálogo con formulario (sin envoltura cardsV2: así la piden pushCard / updateCard). */
 export function tarjetaFormulario(o: OpcionesFormulario): Tarjeta {
   const leidos = o.leidos ?? {};
+  const destino: DestinoFormulario = { url: o.url, flujo: o.flujo, parametros: o.parametros };
   const cabecera: Widget[] = [];
   if (o.errores?.length) cabecera.push(widgetErrores(o.errores));
   if (o.aviso) cabecera.push({ decoratedText: { topLabel: o.aviso.etiqueta, text: escapar(o.aviso.texto) } });
-  const de = (s: CampoChat["seccion"]) => o.campos.filter((c) => c.seccion === s).map((c) => widgetDe(c, leidos[c.nombre] ?? ""));
+  const de = (s: CampoChat["seccion"]) => o.campos.filter((c) => c.seccion === s).map((c) => widgetDe(c, leidos[c.nombre] ?? "", destino));
   const despues = de("despues");
   return {
     sections: [
-      { header: o.titulo, widgets: [...cabecera, ...de("datos"), ...(o.nota ? [{ textParagraph: { text: escapar(o.nota) } }] : [])] },
+      { header: o.titulo, widgets: [...cabecera, ...de("datos"), ...(o.extra ?? []), ...(o.nota ? [{ textParagraph: { text: escapar(o.nota) } }] : [])] },
       ...(despues.length ? [{ header: o.tituloOpcional ?? "Opcional", collapsible: true, uncollapsibleWidgetsCount: 0, widgets: despues }] : []),
       { widgets: [{ buttonList: { buttons: [
-        botonBot({ url: o.url, flujo: o.flujo, accion: o.enviar.accion, texto: o.enviar.texto }),
-        botonBot({ url: o.url, flujo: o.flujo, accion: "cancelar", texto: "Cancelar", secundario: true }),
+        botonBot({ ...destino, accion: o.enviar.accion, texto: o.enviar.texto }),
+        botonBot({ ...destino, accion: "cancelar", texto: "Cancelar", secundario: true }),
       ] } }] },
     ],
   };

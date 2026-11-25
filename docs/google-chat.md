@@ -88,11 +88,33 @@ arranque en frío de Chrome).
 | Sección | Campo | Notas |
 |---|---|---|
 | Datos (obligatorios) | Nombre de la iniciativa | |
-| | Descripción | Texto de varias líneas. Queda como **primera entrada de la bitácora** de la iniciativa, a nombre de quien escribe. |
+| | Descripción | Texto de varias líneas, **mínimo 200 caracteres** (sin contar espacios repetidos). Queda como **primera entrada de la bitácora** de la iniciativa, a nombre de quien escribe. |
+| | ☐ Adjuntaré un archivo | Casilla. Marcada, la descripción ya no pide los 200 caracteres pero el **archivo es obligatorio** (decisión del PMO, 2026-11-25). |
 
-Beneficio $ y Proceso **no se piden** (se llenan después en la app). Google Chat no tiene un control para subir archivos en
-un formulario: el diálogo muestra una nota de que los archivos se mandan al chat después de crear la iniciativa (ver
-«Archivos» abajo).
+Beneficio $ y Proceso **no se piden** (se llenan después en la app).
+
+### Archivos desde el formulario (casilla «Adjuntaré un archivo»)
+
+Google Chat **no tiene un control para subir archivos dentro de un formulario** (la lista de widgets de las tarjetas no
+trae ninguno: [card.proto](https://github.com/googleapis/googleapis/blob/master/google/apps/card/v1/card.proto)). Lo que sí
+hay: un botón puede abrir un enlace, y una casilla puede mandar el formulario al marcarla (`onChangeAction`). Con eso:
+
+1. Al abrir el formulario, el bot le da un **borrador** (uuid) que viaja en todos sus controles (`PARAM_BORRADOR`).
+2. Al marcar la casilla, el formulario se vuelve a dibujar con «Archivos subidos», **«📎 Subir archivo»** y **«🔄
+   Actualizar»**. «Subir archivo» abre [`/archivos-iniciativa/<código>`](../src/app/archivos-iniciativa/[codigo]/page.tsx):
+   página sin sesión (la protege el código firmado con el correo y el borrador, 12 h) donde se arrastran o eligen los
+   archivos (hasta 10, 50 MB cada uno; también desde el celular). Cada archivo sube **directo a Storage** con URL firmada
+   (bucket `tableros`, carpeta `chat-borradores/<borrador>/`) y queda anotado en `google_chat_borrador_archivos`
+   (migración `20261125120000_google_chat_borradores`). API: [`/api/google-chat/archivos`](../src/app/api/google-chat/archivos/route.ts).
+3. Al volver al chat, «🔄 Actualizar» muestra lo que subió. «Crear iniciativa» revisa la regla (`erroresDeDescripcion` en
+   `flujos/iniciativa/subida.ts`): sin la casilla, 200 caracteres; con la casilla, al menos un archivo. Si no se cumple, el
+   formulario sigue abierto con el error y lo que llenó.
+4. Al crearla, los archivos del borrador se **mueven** (sin bajarlos) a la entrada de la descripción en la bitácora
+   (`moverAComentario` en `tableros/datos/operaciones.ts`) y el mensaje de confirmación dice cuáles quedaron.
+5. Los borradores que nunca se usan se borran solos (archivos y filas) a los 2 días (`limpiarBorradoresViejos`, al abrir
+   el formulario).
+
+No necesita la cuenta de servicio (`GOOGLE_CHAT_LLAVE`): la subida no pasa por Google Chat.
 
 Automático: **CKU = quien escribe** (su persona del Directorio; un Admin que no está en el Directorio la deja sin CKU),
 status New, grupo Nuevas Iniciativas, Ini ID y fecha de creación. **PM y Estrategia quedan vacíos**: los asigna el PMO
@@ -102,9 +124,9 @@ La pueden crear los **CKU del Directorio RH y los Admin**, aunque no tengan cuen
 bot crea con acceso de sistema (`ACCESO_BOT`); el historial y la bitácora quedan con el correo y el nombre de quien
 escribe (`Actor` con `uid` null si no tiene cuenta, en `tableros/datos/operaciones.ts`).
 
-### Archivos (se mandan en el chat)
+### Archivos (se mandan en el chat, para una iniciativa que ya existe)
 
-Google Chat no permite subir archivos dentro de un diálogo. Se mandan como **mensaje normal al bot**: el bot pregunta
+Además del formulario, se pueden mandar como **mensaje normal al bot**: el bot pregunta
 «¿A qué iniciativa lo adjunto?» con botones (las 5 más recientes que la persona creó o en cuya bitácora escribió). Al
 elegir, responde «⏳ Adjuntando…» y, después de responder (`after`), lee el mensaje con la Chat API (solo si lo mandó quien
 tocó el botón), descarga cada archivo y lo pega a una entrada nueva de la bitácora «📎 Archivos enviados desde Google

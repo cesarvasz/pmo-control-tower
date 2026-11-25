@@ -8,6 +8,8 @@ export const PARAM_MENSAJE = "mensaje";
 
 export const nombreConId = (i: { iniId: string; nombre: string }) => (i.iniId ? `${i.iniId} · ${i.nombre}` : i.nombre);
 
+const lista = (nombres: string[]) => nombres.map((n) => `«${n}»`).join(", ");
+
 /** Lo que contesta al crearla. */
 export function textoCreada(o: {
   ini: { iniId: string; nombre: string; sinDescripcion: boolean };
@@ -15,17 +17,20 @@ export function textoCreada(o: {
   enlace: string;
   /** ¿Se pueden mandar archivos en el chat? (cuenta de servicio configurada) */
   adjuntos: boolean;
+  /** Los archivos que se subieron desde el formulario (null = ninguno). */
+  archivos?: { guardados: string[]; fallidos: { nombre: string; motivo: string }[] } | null;
 }): string {
+  const guardados = o.archivos?.guardados ?? [];
   return [
     `✅ Se creó la iniciativa *${nombreConId(o.ini)}* (status New, en Nuevas Iniciativas).`,
     o.cku ? `CKU: ${o.cku}. El PMO le asignará PM y Estrategia.` : "Sin CKU (no estás en el Directorio RH). El PMO le asignará CKU, PM y Estrategia.",
     o.ini.sinDescripcion ? "⚠️ No pude guardar la descripción en la bitácora: agrégala en la app o avísale al PMO." : "La descripción quedó en su bitácora.",
-    o.adjuntos ? "📎 Si quieres adjuntar archivos, mándamelos aquí en el chat." : null,
+    guardados.length ? `📎 Adjunté ${lista(guardados)} a la descripción.` : null,
+    ...(o.archivos?.fallidos ?? []).map((f) => `⚠️ «${f.nombre}» no se adjuntó: ${f.motivo}.${o.adjuntos ? " Mándamelo aquí en el chat o súbelo en la app." : " Súbelo en la app."}`),
+    o.adjuntos ? (guardados.length ? "📎 Si te faltó algún archivo, mándamelo aquí en el chat." : "📎 Si quieres adjuntar archivos, mándamelos aquí en el chat.") : null,
     `Puedes verla en <${o.enlace}|Gestión de Iniciativas>.`,
   ].filter(Boolean).join("\n");
 }
-
-const lista = (nombres: string[]) => nombres.map((n) => `«${n}»`).join(", ");
 
 /** La pregunta al recibir archivos. `conectarDrive` = trae archivos de Drive y la persona aún no conectó su Drive. */
 export function textoElegirIniciativa(adjuntos: Pick<AdjuntoChat, "nombre">[], o: { conectarDrive?: boolean } = {}): string {
