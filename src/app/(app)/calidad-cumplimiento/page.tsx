@@ -2,7 +2,7 @@
 
 // Auditoría cruzada de las dos métricas de "entregas" del KPI:
 //   · Cumplimiento de Entrega (peso 10 PM): REQ + items/subitems de Proyecto con
-//     veredicto on-time/late. Las Iniciativas APROBADAS desde el 1-nov se listan como informativas (no califican, ver iniInformativa).
+//     veredicto on-time/late. Las Iniciativas no califican ni se listan por ahora (interruptor INI_INFORMATIVAS_ACTIVAS en lib/dashboard).
 //   · Calidad de Entregas (peso 10 PM, "reproceso"): REQ CERRADOS + steps de
 //     Proyecto (item padre = entregable) en "Done", limpias vs. con reproceso.
 //   · Metodología (peso 15): nota 0-100 por persona y mes, ver MetodologiaTab.

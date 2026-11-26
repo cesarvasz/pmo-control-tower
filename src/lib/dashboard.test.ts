@@ -31,6 +31,7 @@ import {
   projPhaseKey,
   iniUnidadesCalidad,
   iniInformativa,
+  INI_INFORMATIVAS_ACTIVAS,
   calcReprocesoCascade,
   calidadUnits,
   calcItemCalidad,
@@ -302,9 +303,11 @@ describe("3ª plantilla (VALOR Lite, PM-015/016): fases con letra, Launch, cierr
 
   it("Launch con letra mide Cumplimiento y Calidad como cualquier Fase 3 de plantilla nueva", () => {
     const l = (id: string, o: Partial<ProjItem> = {}) => proj({ id, boardId: "bL", boardName: "PM-016 | CEDIS", grupo: G.l, status: "Done", name: `Tarea ${id}`, startDate: new Date(2026, 0, 1), deadline: new Date(2026, 0, 31), ...o });
-    const items = [l("a"), l("b", { name: "HITO: Go / No-Go P1", entrega: "late" }), l("c", { status: "Future steps" })];
-    expect(proyectosFase3Nueva(items).map((i) => i.id)).toEqual(["a", "b", "c"]);
-    // Calidad: los cerrados miden (el HITO cuenta como un entregable más); el que no ha arrancado, no.
+    const h = (id: string) => [sub({ id: `${id}-h`, name: "h", deadline: null, status: "Done" })];
+    const items = [l("a", { subitems: h("a") }), l("b", { name: "HITO: Go / No-Go P1", entrega: "late", subitems: h("b") }), l("c", { status: "Future steps" }), l("d")];
+    expect(proyectosFase3Nueva(items).map((i) => i.id)).toEqual(["a", "b", "c", "d"]);
+    // Calidad: miden los cerrados CON subitems (el HITO cuenta como un entregable más); el que no ha arrancado
+    // y el que no tiene subitems ("d"), no.
     expect(calidadUnits(items).map((u) => u.id)).toEqual(["a", "b"]);
   });
 });
@@ -1070,9 +1073,10 @@ describe("calcReprocesoPct (5º componente del KPI: nota 0/50/100 por item de Pr
   const cerrado = (id: string) => req({ id, pm: "Luis", estado: "CERRADO" });
   const CPM_INI = new Date(2026, 0, 1), CPM_FIN = new Date(2026, 0, 31);
   // Grupo por defecto "Launch" = Fase 3 (única fase que mide Calidad/Reproceso, ver isFase3).
-  // Done, CON ventana CPM propia y SIN subitems → recuperado: true trivialmente (nada
-  // puede quedar "fuera" sin hitos) — aísla el componente "responsable" en los tests.
-  const step = (id: string, grupo = "Launch") => proj({ id, grupo, status: "Done", startDate: CPM_INI, deadline: CPM_FIN });
+  // Done, CON ventana CPM propia y UN hito Done sin fecha → recuperado: true trivialmente (nada
+  // puede quedar "fuera") — aísla el componente "responsable" en los tests. Debe tener subitems:
+  // un item sin subitems no es un entregable y no mide Calidad.
+  const step = (id: string, grupo = "Launch") => proj({ id, grupo, status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: [sub({ id: `${id}-h`, name: "h", deadline: null, status: "Done" })] });
 
   it("null si no hay unidades en scope (sin REQ cerrados ni items Done/con señal)", () => {
     expect(calcReprocesoPct([req({ id: "1", estado: "EN PROCESO" })], [proj({ id: "p1", status: "Working on it" })], {})).toBeNull();
@@ -1102,7 +1106,7 @@ describe("calcReprocesoPct (5º componente del KPI: nota 0/50/100 por item de Pr
   });
 
   it("sin ventana CPM propia (falta startDate/deadline) no se puede verificar \"recuperado\" → pierde ese 50% aunque el responsable esté excusado", () => {
-    const sinVentana = proj({ id: "p1", grupo: "Launch", status: "Done" });
+    const sinVentana = proj({ id: "p1", grupo: "Launch", status: "Done", subitems: [sub({ id: "p1-h", name: "h", deadline: null, status: "Done" })] });
     expect(calcReprocesoPct([], [sinVentana], { p1: { responsible: "Sin reproceso" } })).toBe(50);
   });
 
@@ -1144,6 +1148,13 @@ describe("calcReprocesoPct (5º componente del KPI: nota 0/50/100 por item de Pr
     const projs = [step("p1", "Launch | Desarrollo")];
     expect(calcReprocesoPct([], projs, { p1: { responsible: "Sin reproceso" } })).toBe(100);
   });
+
+  it("un item SIN subitems no es un entregable: no se mide, ni siquiera estando Done", () => {
+    const sinSubitems = proj({ id: "p1", grupo: "Launch", status: "Done", startDate: CPM_INI, deadline: CPM_FIN });
+    expect(calcReprocesoPct([], [sinSubitems], { p1: { responsible: "Sin reproceso" } })).toBeNull();
+    // mezclado con un entregable real, solo cuenta el que tiene subitems
+    expect(calcReprocesoStats([], [sinSubitems, step("p2")], {})).toMatchObject({ total: 1, pct: 50 });
+  });
 });
 
 describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
@@ -1179,7 +1190,7 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
     expect(rows[0]).toMatchObject({ tipo: "PML", projCode: "", projName: "" });
   });
 
-  it("lista como INFORMATIVA (no califica) cada Iniciativa aprobada desde el 1-nov evaluable; las anteriores y las n/a no aparecen", () => {
+  it("NO lista Iniciativas (ni siquiera como informativas): por ahora no se califican ni se muestran en Cumplimiento", () => {
     const creacion = new Date(2026, 9, 26);
     const i = (o: Partial<IniItem>): IniItem => ({ estado: "APROBADA", creacion, pm: "Luis", grupo: "G", name: "Ini 1", ...o }) as IniItem;
     const inis = [
@@ -1187,9 +1198,7 @@ describe("buildEntregaRows (auditoría Cumplimiento de Entrega)", () => {
       i({ id: "i2", estado: "EN TIEMPO", meet2: "2026-11-16" }),                        // n/a (no aprobada)
       i({ id: "i3", creacion: new Date(2026, 0, 5), meet1: "2026-01-12", meet2: "2026-01-26" }), // aprobada antes del 1-nov: no se muestra
     ];
-    const rows = buildEntregaRows([], [], [], inis);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: "i1", source: "Iniciativa", tipo: "INI", verdict: "on-time", pm: "Luis", projCode: "", projName: "", informativa: true });
+    expect(buildEntregaRows([], [], [], inis)).toEqual([]);
   });
 });
 
@@ -1222,9 +1231,10 @@ describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
 
   it("incluye REQ CERRADOS y items Done (cada uno su propia fila), con nota/verdict según responsable + recuperado", () => {
     const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO", onTime: onTime("on-time") })];
+    const hDone = (id: string) => [sub({ id, name: "h", deadline: null, status: "Done" })];
     const projs = [
-      proj({ id: "p1", name: "Step A", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", startDate: CPM_INI, deadline: CPM_FIN }),
-      proj({ id: "p2", name: "Step B", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done" }), // sin ventana CPM propia
+      proj({ id: "p1", name: "Step A", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", startDate: CPM_INI, deadline: CPM_FIN, subitems: hDone("p1-h") }),
+      proj({ id: "p2", name: "Step B", boardId: "b1", boardName: "P1", grupo: "Launch", pm: "Otro", status: "Done", subitems: hDone("p2-h") }), // sin ventana CPM propia
     ];
     const rows = buildReprocesoRows(reqs, projs, [board({ id: "b1", pm: "Luis" })], { r1: { responsible: "VPA" }, p1: { responsible: "Sin reproceso" } });
     expect(rows).toHaveLength(3);
@@ -1242,7 +1252,8 @@ describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
   });
 
   it("un item recuperado pero sin excusar queda en nota 50 (reproceso); excusando el responsable llega a 100 (clean)", () => {
-    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", startDate: CPM_INI, deadline: CPM_FIN })];
+    const projs = [proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", startDate: CPM_INI, deadline: CPM_FIN,
+      subitems: [sub({ id: "p1-h", name: "h", deadline: null, status: "Done" })] })];
     const sinExcusar = buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], {});
     expect(sinExcusar[0]).toMatchObject({ nota: 50, verdict: "reproceso" });
     const excusado = buildReprocesoRows([], projs, [board({ id: "b1", pm: "Luis" })], { p1: { responsible: "Sin reproceso" } });
@@ -1257,7 +1268,8 @@ describe("buildReprocesoRows (auditoría Calidad de Entregas)", () => {
   it("allDone: REQ siempre true (ya está CERRADO); Proyecto sigue a calcItemCalidad (habilita calificar el responsable)", () => {
     const reqs = [req({ id: "r1", name: "R1", pm: "Luis", estado: "CERRADO", onTime: onTime("on-time") })];
     const projs = [
-      proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", deadline: CPM_FIN }), // sin subitems, Done → allDone true
+      proj({ id: "p1", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Done", deadline: CPM_FIN,
+        subitems: [sub({ id: "h0", name: "h0", deadline: null, status: "Done", entrega: null })] }), // todos sus hitos Done → allDone true
       proj({ id: "p2", boardId: "b1", boardName: "P1", grupo: "Launch", status: "Working on it", deadline: CPM_FIN,
         subitems: [
           sub({ id: "h1", name: "h1", deadline: null, status: "Done", entrega: null }),      // qualifies (al menos un hito Done)
@@ -1448,11 +1460,14 @@ describe("calidadUnits (unidad = ITEM, no hito; ver calcItemCalidad para el vere
     expect(calidadUnits([enCurso])[0]).toMatchObject({ id: "d2", allDone: false });
   });
 
-  it("plantilla nueva, item sin subitems: solo genera unidad si está Done (fallback, caso raro)", () => {
+  it("plantilla nueva, item sin subitems: NO genera unidad (no es un entregable), esté o no Done", () => {
     const abierto = proj({ id: "poc", name: "POC", boardId: "b1", grupo: "Launch | Lanzamiento", status: "Working on it" });
     const cerrado = proj({ id: "xd", name: "xDocking", boardId: "b2", grupo: "Launch | Lanzamiento", status: "Done" });
     expect(calidadUnits([abierto])).toEqual([]);
-    expect(calidadUnits([cerrado])).toEqual([expect.objectContaining({ id: "xd", kind: "step" })]);
+    expect(calidadUnits([cerrado])).toEqual([]);
+    // con subitems sí mide
+    const conHitos = proj({ id: "xd2", name: "xDocking 2", boardId: "b3", grupo: "Launch | Lanzamiento", status: "Done", subitems: [hito("h1")] });
+    expect(calidadUnits([conHitos])).toEqual([expect.objectContaining({ id: "xd2", kind: "step" })]);
   });
 
   it("plantilla nueva: cada step de la fase mide por SUS PROPIOS hitos — progresivo, no espera a que cierre, independiente de los demás steps", () => {
@@ -1470,7 +1485,7 @@ describe("calidadUnits (unidad = ITEM, no hito; ver calcItemCalidad para el vere
     const projs = [
       proj({ id: "d1", name: "Desarrollo por iteraciones (Hitos) / Entrega CKU", boardId: "b1", grupo: "Launch",
         status: "Done", subitems: [hito("h1")] }),
-      proj({ id: "poc2", name: "POC", boardId: "b2", grupo: "Launch", status: "Done" }),
+      proj({ id: "poc2", name: "POC", boardId: "b2", grupo: "Launch", status: "Done", subitems: [hito("h2")] }),
     ];
     const units = calidadUnits(projs);
     expect(units.map((u) => u.id).sort()).toEqual(["d1", "poc2"]);
@@ -1604,17 +1619,13 @@ describe("calidadProjectStatus (trayectoria de Calidad por proyecto: Done + pend
   });
 });
 
-describe("Calidad de Entregas con Iniciativas (solo informativas desde el 1-nov; ya no califican)", () => {
+describe("Calidad de Entregas con Iniciativas (ya no califican ni se listan; interruptor INI_INFORMATIVAS_ACTIVAS apagado)", () => {
   const ini = (o: Partial<IniItem>): IniItem => ({ grupo: "G", status: 'PM "A"', estado: "APROBADA", pm: "Luis", meet2: "2026-11-10", ...o }) as IniItem;
   const aprobadas = [ini({ id: "INI-1", name: "Uno" }), ini({ id: "INI-2", name: "Dos" })];
 
-  it("solo se listan las APROBADAS (PM A / B / C) con id y aprobadas desde el 1-nov; el resto no", () => {
-    const resto = [
-      ini({ id: "INI-3", estado: "EN TIEMPO", status: "New" }), ini({ id: "INI-4", estado: "POR_DEFINIR", status: "Meeting 2" }),
-      ini({ id: "INI-5", estado: "EN_ESPERA", status: "Sin Valor Def" }), ini({ id: "", name: "sin id" }),
-      ini({ id: "INI-6", meet2: "2026-10-20" }),   // aprobada antes del 1-nov
-    ];
-    expect(iniUnidadesCalidad([...aprobadas, ...resto]).map((i) => i.id)).toEqual(["INI-1", "INI-2"]);
+  it("con el interruptor apagado no se lista ninguna Iniciativa", () => {
+    expect(INI_INFORMATIVAS_ACTIVAS).toBe(false);
+    expect(iniUnidadesCalidad(aprobadas)).toEqual([]);
   });
 
   it("no entran en ninguna nota: ni en calcReprocesoStats, ni en el %, ni en Raw", () => {
@@ -1625,12 +1636,8 @@ describe("Calidad de Entregas con Iniciativas (solo informativas desde el 1-nov;
     expect(calcReprocesoStats(reqs, [], { R1: { responsible: "VPA" } }, aprobadas)).toMatchObject({ total: 1, limpias: 1, conReproceso: 0, pct: 100 });
   });
 
-  it("buildReprocesoRows las lista marcadas como informativas", () => {
-    const rows = buildReprocesoRows([], [], [], { "INI-1": { responsible: "PM" } }, aprobadas);
-    expect(rows.map((r) => [r.id, r.source, r.tipo, r.unitKind, r.informativa])).toEqual([
-      ["INI-1", "Iniciativa", "INI", "ini", true],
-      ["INI-2", "Iniciativa", "INI", "ini", true],
-    ]);
+  it("buildReprocesoRows no las lista", () => {
+    expect(buildReprocesoRows([], [], [], { "INI-1": { responsible: "PM" } }, aprobadas)).toEqual([]);
   });
 
   it("buildReprocesoRowsRaw ya no las incluye", () => {

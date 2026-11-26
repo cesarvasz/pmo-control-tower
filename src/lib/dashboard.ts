@@ -416,6 +416,11 @@ export function iniEntregaVerdict(i: IniItem): "on-time" | "late" | "n/a" {
  *  Las Iniciativas ya NO califican en esas dos notas (ni PM ni CKU): solo se listan como informativas. */
 export const INI_INFORMATIVAS_DESDE = new Date(2026, 10, 1);
 
+/** Interruptor: ¿se listan las Iniciativas (informativas) en Cumplimiento y Calidad de Entregas?
+ *  APAGADO por ahora (decisión del PMO, 2026-11-26): no se califican ni se muestran en esas dos pestañas.
+ *  Para volver a listarlas basta encenderlo; `iniInformativa` ya decide cuáles. */
+export const INI_INFORMATIVAS_ACTIVAS = false;
+
 /** ¿Se muestra esta Iniciativa como informativa? Aprobada y con fecha de aprobación ≥ INI_INFORMATIVAS_DESDE.
  *  No se guarda la fecha de aprobación: se toma la de Meeting 2 (donde se decide) o, sin ella, la de Meeting 1. */
 export function iniInformativa(i: IniItem): boolean {
@@ -863,12 +868,14 @@ function groupCalidad(projs: ProjItem[]): Map<string, CalidadGroup> {
   return groups;
 }
 
-/** Steps de la fase cuyos hitos (o ellos mismos, si no tienen subitems) cuentan para
- *  Calidad — ver el comentario de isDesarrolloPorIteracionesStep arriba: plantilla
- *  vieja → solo "Desarrollo por iteraciones..."; plantilla nueva → todos los steps. */
+/** Steps de la fase que cuentan para Calidad — ver el comentario de
+ *  isDesarrolloPorIteracionesStep arriba: plantilla vieja → solo "Desarrollo por
+ *  iteraciones..."; plantilla nueva → todos los steps. Un item SIN subitems no es un
+ *  entregable (los entregables llevan sus actividades como subitems), así que no se
+ *  mide: queda fuera de la nota y de la trayectoria de Calidad. */
 function stepsQueMidenCalidad(g: CalidadGroup): ProjItem[] {
   const desarrolloStep = g.steps.find((p) => isDesarrolloPorIteracionesStep(p.name));
-  return desarrolloStep ? [desarrolloStep] : g.steps;
+  return (desarrolloStep ? [desarrolloStep] : g.steps).filter((p) => p.subitems.length > 0);
 }
 
 /** Un hito o step de Fase 3 que TODAVÍA no está Done — insumo tanto de
@@ -1083,7 +1090,7 @@ export interface ReprocesoStats { total: number; limpias: number; conReproceso: 
 
 /** Iniciativas que se LISTAN en Calidad de Entregas: las aprobadas (PM "A" / "B" / "C") desde el 1-nov-2026
  *  (ver iniInformativa). Son solo informativas: YA NO entran en la nota de nadie. */
-export const iniUnidadesCalidad = (ini: IniItem[]): IniItem[] => ini.filter(iniInformativa);
+export const iniUnidadesCalidad = (ini: IniItem[]): IniItem[] => (INI_INFORMATIVAS_ACTIVAS ? ini.filter(iniInformativa) : []);
 
 /** Desglose de "Calidad de Entregas" (nota promedio de las unidades en scope). Las
  *  unidades en scope son los REQ CERRADOS + las unidades de Calidad de la FASE 3 de
@@ -1252,7 +1259,7 @@ export function buildEntregaRows(reqs: ReqItem[], projs: ProjItem[], projBoards:
   }
   // Iniciativas aprobadas desde el 1-nov: solo informativas, no califican (ver iniInformativa).
   for (const i of ini) {
-    if (!iniInformativa(i)) continue;
+    if (!INI_INFORMATIVAS_ACTIVAS || !iniInformativa(i)) continue;
     const v = iniEntregaVerdict(i);
     if (v === "n/a") continue;
     rows.push({

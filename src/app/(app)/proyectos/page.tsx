@@ -621,7 +621,8 @@ function Row({ r, ecls, elbl, filterNoDl, pm, surveysByReq, onOpenSurvey, desarr
   // Acá es SOLO informativa (ver reprocesoCell/hitoCalidadReadOnly): la calificación
   // se hace únicamente en /calidad-cumplimiento.
   const inFase3 = isFase3(r.grupo);
-  const stepMideCalidad = inFase3 && (desarrolloStepId ? desarrolloStepId === r.id : true);
+  // Un item sin subitems no es un entregable: no se mide (ver stepsQueMidenCalidad).
+  const stepMideCalidad = inFase3 && hasSubitems && (desarrolloStepId ? desarrolloStepId === r.id : true);
   const calc = stepMideCalidad && !itemFuera ? calcItemCalidad(itemsMedibles([r])[0]) : null;
   const nota = calc?.qualifies ? calcItemNota(r.id, calc.recuperado, data?.reprocesoAttributions ?? {}) : null;
   const fueraDeCpmIds = new Set((calc?.fueraDeCpm ?? []).map((x) => x.id));
