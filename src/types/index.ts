@@ -164,6 +164,27 @@ export interface ImplementacionPayload {
   filas: (string | number | null)[][];
 }
 
+/** Fila de la hoja ROI, pestaña "008" (Ducafast SV · análisis de tiempos), tal
+ *  como la entrega /api/roi/008. Fuente independiente de 003 (ver
+ *  apps-script/roi-008.gs). Claves = nombres de columna TAL COMO vienen en la
+ *  hoja — la app las busca por nombre normalizado (lib/tiempos008.ts), así que
+ *  no se tipan columna por columna. Las fechas llegan como "yyyy-MM-ddTHH:mm:ss"
+ *  (hora de pared) o "" si la celda está vacía; el resto, como texto o número. */
+export type Roi008Row = Record<string, string | number | null>;
+
+/** Pestaña "008" tal como la manda el Apps Script: codificada, mismo esquema que RoiPayload. */
+export interface Roi008Payload {
+  epoca: number;
+  generado?: string;
+  libres: string[];
+  textos: string[];
+  fechas: string[];
+  dicc: Record<string, string[]>;
+  filas: (string | number | null)[][];
+  /** Motivo por el que el script no encontró datos (pestaña o ID ausentes). */
+  aviso?: string;
+}
+
 /** Meta de un cliente en Implementación (la captura el usuario a mano). Es la misma
  *  para todos los meses (desde `desde`, si lo tiene). Meta de Profit del mes = vol × cm1. */
 export interface MetaCliente {
